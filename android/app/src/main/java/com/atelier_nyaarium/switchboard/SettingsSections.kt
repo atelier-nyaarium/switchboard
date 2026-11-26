@@ -221,7 +221,7 @@ internal fun DomainDangerSection(repo: ChatRepository) {
 						// Blocks a second tap.
 						forgetting = true
 						scope.launch {
-							if (!requireOwnerPresent(repo.state.value.biometricLock, activity)) {
+							if (!repo.ownerPresent(activity)) {
 								forgetting = false
 								return@launch
 							}
@@ -273,7 +273,7 @@ internal fun DomainDangerSection(repo: ChatRepository) {
 					onClick = hapticClick {
 						deleting = true
 						scope.launch {
-							if (!requireOwnerPresent(repo.state.value.biometricLock, activity)) {
+							if (!repo.ownerPresent(activity)) {
 								deleting = false
 								return@launch
 							}
@@ -411,17 +411,19 @@ internal fun SecuritySettings(state: ChatState, repo: ChatRepository, onToggleBi
 	val activity = hostActivity()
 	Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
 		Text("Biometric lock", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-		// Disabling the lock requires owner presence.
+		// Either way asks the owner.
 		Switch(
 			checked = state.biometricLock,
 			onCheckedChange = { wantOn ->
-				if (wantOn) onToggleBiometric(true)
-				else scope.launch { if (requireOwnerPresent(state.biometricLock, activity)) onToggleBiometric(false) }
+				scope.launch {
+					val present = if (wantOn) repo.lockAsks(activity) else repo.ownerPresent(activity)
+					if (present) onToggleBiometric(wantOn)
+				}
 			},
 		)
 	}
 	Text(
-		"Require fingerprint or device PIN on app open. Falls back to unlocked if nothing is enrolled.",
+		"Require fingerprint or device PIN on app open. Stays open on a phone with no screen lock.",
 		style = MaterialTheme.typography.bodySmall,
 	)
 	// Without the app lock, the vault is already reachable.
@@ -437,7 +439,7 @@ internal fun SecuritySettings(state: ChatState, repo: ChatRepository, onToggleBi
 	for ((value, label) in choices) {
 		Row(
 			Modifier.fillMaxWidth().hapticClickable {
-				scope.launch { if (repo.approvalGate.changePolicy(value, activity)) vaultUnlock = value }
+				scope.launch { if (repo.changeVaultUnlock(value, activity)) vaultUnlock = value }
 			},
 			verticalAlignment = Alignment.CenterVertically,
 		) {

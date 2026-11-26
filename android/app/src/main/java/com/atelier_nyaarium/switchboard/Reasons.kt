@@ -105,6 +105,11 @@ internal enum class Line(val text: String, val situation: String, val replaces: 
 		"Vault: no content key to seal the value",
 	),
 	VAULT_NO_GATEWAY("That vault request names no Gateway.", "You answered a malformed vault request.", "Vault: the request names no gateway"),
+	PRESENCE_FAULT(
+		"Problem reading biometrics.",
+		"The phone could not show its fingerprint or PIN prompt, so the lock held.",
+		"(nothing; it let you through)",
+	),
 	VAULT_UNREACHABLE(
 		"The Gateway could not be reached. Your vault answer was not sent.",
 		"You answered a vault request and its Gateway was down.",

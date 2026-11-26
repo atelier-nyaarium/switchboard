@@ -380,6 +380,17 @@ internal fun matchingSecret(typed: String, candidates: List<Pair<String, String>
 	return found
 }
 
+/** How a plain answer came back. */
+internal sealed interface PlainAnswered {
+	data object Sent : PlainAnswered
+
+	/** Declined, or told as a notice. */
+	data object NotSent : PlainAnswered
+
+	/** The phone could not ask. */
+	data class Fault(val line: String) : PlainAnswered
+}
+
 internal sealed interface TypedSave {
 	/** Presence was not given. */
 	data object Declined : TypedSave

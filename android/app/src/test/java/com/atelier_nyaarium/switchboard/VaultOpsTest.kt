@@ -17,7 +17,11 @@ import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.vault.ApprovalGate
 import com.atelier_nyaarium.switchboard.vault.EntryAnswered
 import com.atelier_nyaarium.switchboard.vault.NewSecretSeed
+import com.atelier_nyaarium.switchboard.vault.CardPresence
 import com.atelier_nyaarium.switchboard.vault.MATCH_PRESENCE_WINDOW_MS
+import com.atelier_nyaarium.switchboard.vault.PlainAnswered
+import com.atelier_nyaarium.switchboard.vault.Presence
+import com.atelier_nyaarium.switchboard.vault.cardPresence
 import com.atelier_nyaarium.switchboard.vault.SavedAnswer
 import com.atelier_nyaarium.switchboard.vault.TypedSave
 import com.atelier_nyaarium.switchboard.vault.VAULT_DECISION_ONCE
@@ -58,9 +62,9 @@ class VaultOpsTest {
 		val ops = world.ops { _, _ -> answers[calls++] }
 		val pending = world.manager.request(request.requestId)!!
 
-		assertFalse(ops.answer(pending, "deny", { true }))
+		assertEquals(PlainAnswered.NotSent, ops.answer(pending, "deny", { Presence.NotOwed }))
 		assertTrue(world.manager.request(request.requestId) != null)
-		assertTrue(ops.answer(pending, "deny", { true }))
+		assertEquals(PlainAnswered.Sent, ops.answer(pending, "deny", { Presence.NotOwed }))
 		assertNull(world.manager.request(request.requestId))
 	}
 
@@ -70,7 +74,7 @@ class VaultOpsTest {
 		assertTrue(world.manager.addRequest(TEAM, typed()))
 		val ops = world.ops { _, _ -> ConsoleClient.ValueAnswer.Refused("policy changed") }
 
-		assertFalse(ops.answer(world.manager.request(typed().requestId)!!, "deny", { true }))
+		assertEquals(PlainAnswered.NotSent, ops.answer(world.manager.request(typed().requestId)!!, "deny", { Presence.NotOwed }))
 		assertNull(world.manager.request(typed().requestId))
 		assertTrue(world.state.value.notices.single().text.contains("policy changed"))
 	}
@@ -90,7 +94,7 @@ class VaultOpsTest {
 		ops.onRequest(TEAM, request)
 		val pending = world.manager.request(request.requestId)!!
 
-		val outcome = ops.answerWithEntry(pending, entryAnswerOp(pending.requestId, "nyaarium", VAULT_DECISION_ONCE, null)!!) { true }
+		val outcome = ops.answerWithEntry(pending, entryAnswerOp(pending.requestId, "nyaarium", VAULT_DECISION_ONCE, null)!!) { Presence.NotOwed }
 
 		assertTrue(outcome is EntryAnswered.Stays)
 		val line = (outcome as EntryAnswered.Stays).line
@@ -119,20 +123,41 @@ class VaultOpsTest {
 		assertTrue(world.manager.addRequest(TEAM, entry))
 		val typedCard = world.manager.request(typed().requestId)!!
 		val entryCard = world.manager.request(entry.requestId)!!
-		val absent: suspend () -> Boolean = { false }
+		val absent: suspend () -> Presence = { Presence.Refused }
+		val unasked: suspend () -> Presence = { Presence.CouldNotAsk }
 		val puts = world.puts
 
-		assertFalse(ops.answer(entryCard, VAULT_DECISION_ONCE, absent))
+		assertEquals(PlainAnswered.NotSent, ops.answer(entryCard, VAULT_DECISION_ONCE, absent))
 		assertEquals(EntryAnswered.Declined, ops.answerWithEntry(typedCard, entryAnswerOp(typedCard.requestId, "nyaarium", VAULT_DECISION_ONCE, null)!!, absent))
 		assertEquals(TypedSave.Declined, ops.saveTyped(typedCard, "hunter3", absent))
 		val draft = VaultDraft(privateTitle = "New", value = "fresh", gateways = listOf(GATEWAY))
 		assertEquals(SavedAnswer.Declined, ops.saveAndAnswer(typedCard, draft, seed("fresh"), absent))
 
+		// Could not ask: card says so, sends nothing.
+		val line = (cardPresence(Presence.CouldNotAsk) as CardPresence.Fault).line
+		assertEquals(PlainAnswered.Fault(line), ops.answer(entryCard, VAULT_DECISION_ONCE, unasked))
+		assertEquals(
+			EntryAnswered.Stays(line),
+			ops.answerWithEntry(typedCard, entryAnswerOp(typedCard.requestId, "nyaarium", VAULT_DECISION_ONCE, null)!!, unasked),
+		)
+		assertEquals(TypedSave.Refused(line), ops.saveTyped(typedCard, "hunter3", unasked))
+		assertEquals(SavedAnswer.NotSaved(line), ops.saveAndAnswer(typedCard, draft, seed("fresh"), unasked))
+		assertTrue(world.state.value.notices.isEmpty())
+
+		// No card: fault told as a notice.
+		assertFalse(ops.present(Presence.CouldNotAsk))
+		assertEquals(listOf(true, false), listOf(ops.present(Presence.NotOwed), ops.present(Presence.Refused)))
+		assertEquals(1, world.state.value.notices.size)
+		world.approvalPolicy = VAULT_UNLOCK_EVERY
+		world.state.value = world.state.value.copy(biometricLock = true)
+		assertTrue(ops.ownerPresent(null))
+		assertTrue(world.state.value.notices.isEmpty())
+
 		assertTrue(sent.isEmpty())
 		assertEquals(puts, world.puts)
 		assertEquals(2, world.manager.pending.value.size)
 		// A deny needs no presence.
-		assertTrue(ops.answer(entryCard, "deny", absent))
+		assertEquals(PlainAnswered.Sent, ops.answer(entryCard, "deny", absent))
 	}
 
 	@Test
@@ -146,15 +171,15 @@ class VaultOpsTest {
 		val card = world.manager.request(answered.requestId)!!
 
 		// Unlisted: no match is trusted.
-		assertTrue(ops.saveTyped(card, "hunter3") { true } is TypedSave.Refused)
+		assertTrue(ops.saveTyped(card, "hunter3") { Presence.NotOwed } is TypedSave.Refused)
 		world.listed()
-		assertEquals(TypedSave.Matched("nyaarium"), ops.saveTyped(card, "hunter3") { true })
+		assertEquals(TypedSave.Matched("nyaarium"), ops.saveTyped(card, "hunter3") { Presence.NotOwed })
 
 		val bare = typed(id = "vault-answer-2")
 		assertTrue(world.manager.addRequest(TEAM, bare))
-		assertEquals(TypedSave.Matched("a-twin"), ops.saveTyped(world.manager.request(bare.requestId)!!, "hunter3") { true })
+		assertEquals(TypedSave.Matched("a-twin"), ops.saveTyped(world.manager.request(bare.requestId)!!, "hunter3") { Presence.NotOwed })
 
-		val form = ops.saveTyped(card, "unheld") { true }
+		val form = ops.saveTyped(card, "unheld") { Presence.NotOwed }
 		assertTrue(form is TypedSave.Form)
 		assertEquals(GATEWAY, (form as TypedSave.Form).seed.gatewayId)
 		assertEquals("unheld", form.seed.value)
@@ -178,38 +203,38 @@ class VaultOpsTest {
 		val request = typed(answering = listOf(VaultAnswering("nyaarium", sudo)))
 		ops.onRequest(TEAM, request)
 		val pending = world.manager.request(request.requestId)!!
-		var prompts = 0
-		val presence: suspend () -> Boolean = { prompts++; true }
+		val presence: suspend () -> Presence = { ops.ownerPresence(null) }
 
 		AppLock.unlock()
 		try {
 			assertEquals(TypedSave.Matched("nyaarium"), ops.saveTyped(pending, "hunter3", presence))
 			val same = entryAnswerOp(pending.requestId, "nyaarium", VAULT_DECISION_ONCE, null)!!
 			assertTrue(ops.answerWithEntry(pending, same, presence) is EntryAnswered.Stays)
-			assertEquals(1, prompts)
+			assertEquals(1, world.prompts)
 			// Spent by its use.
 			assertTrue(ops.answerWithEntry(pending, same, presence) is EntryAnswered.Stays)
-			assertEquals(2, prompts)
+			assertEquals(2, world.prompts)
 
 			assertEquals(TypedSave.Matched("nyaarium"), ops.saveTyped(pending, "hunter3", presence))
 			val other = entryAnswerOp(pending.requestId, "other-secret", VAULT_DECISION_ONCE, null)!!
 			assertTrue(ops.answerWithEntry(pending, other, presence) is EntryAnswered.Stays)
-			assertEquals(4, prompts)
+			assertEquals(4, world.prompts)
 
 			assertEquals(TypedSave.Matched("nyaarium"), ops.saveTyped(pending, "hunter3", presence))
 			ops.onRequest(TEAM, typed(id = "another-request"))
 			assertTrue(ops.answerWithEntry(pending, same, presence) is EntryAnswered.Stays)
-			assertEquals(6, prompts)
+			assertEquals(6, world.prompts)
 
 			assertEquals(TypedSave.Matched("nyaarium"), ops.saveTyped(pending, "hunter3", presence))
 			ops.clearInMemory()
 			assertTrue(ops.answerWithEntry(pending, same, presence) is EntryAnswered.Stays)
-			assertEquals(8, prompts)
+			assertEquals(8, world.prompts)
 
 			assertEquals(TypedSave.Matched("nyaarium"), ops.saveTyped(pending, "hunter3", presence))
 			AppLock.relock()
+			AppLock.unlock()
 			assertTrue(ops.answerWithEntry(pending, same, presence) is EntryAnswered.Stays)
-			assertEquals(10, prompts)
+			assertEquals(10, world.prompts)
 		} finally {
 			AppLock.relock()
 		}
@@ -234,12 +259,11 @@ class VaultOpsTest {
 		ops.onRequest(TEAM, request)
 		val pending = world.manager.request(request.requestId)!!
 		val same = entryAnswerOp(pending.requestId, "nyaarium", VAULT_DECISION_ONCE, null)!!
-		var prompts = 0
-		val presence: suspend () -> Boolean = { prompts++; true }
+		val presence: suspend () -> Presence = { ops.ownerPresence(null) }
 		suspend fun approve(): Int {
-			val before = prompts
+			val before = world.prompts
 			assertTrue(ops.answerWithEntry(pending, same, presence) is EntryAnswered.Stays)
-			return prompts - before
+			return world.prompts - before
 		}
 
 		AppLock.unlock()
@@ -261,10 +285,16 @@ class VaultOpsTest {
 			world.elapsed += MATCH_PRESENCE_WINDOW_MS + 1
 			assertEquals(1, approve())
 
-			// Asked under no policy.
+			// Nothing was owed when asked.
 			world.approvalPolicy = "off"
-			val loosened: suspend () -> Boolean = { world.approvalPolicy = VAULT_UNLOCK_EVERY; true }
+			val loosened: suspend () -> Presence = { ops.ownerPresence(null).also { world.approvalPolicy = VAULT_UNLOCK_EVERY } }
 			assertEquals(TypedSave.Matched("nyaarium"), ops.saveTyped(pending, "hunter4", loosened))
+			assertEquals(1, approve())
+
+			// The phone has no screen lock.
+			world.prompt = OwnerPrompt.NO_SCREEN_LOCK
+			assertEquals(TypedSave.Matched("nyaarium"), ops.saveTyped(pending, "hunter4", presence))
+			world.prompt = OwnerPrompt.PASSED
 			assertEquals(1, approve())
 
 			// The plain case still carries.
@@ -286,14 +316,14 @@ class VaultOpsTest {
 		val seed = seed("hunter3")
 		val draft = VaultDraft(privateTitle = "Sakura Nyaarium", value = "hunter3", gateways = listOf(GATEWAY))
 
-		val first = ops.saveAndAnswer(card, draft, seed) { true }
+		val first = ops.saveAndAnswer(card, draft, seed) { Presence.NotOwed }
 		assertTrue(first is SavedAnswer.Saved && first.answered is EntryAnswered.Stays)
 		assertEquals(seed.entryId, (first as SavedAnswer.Saved).entryId)
 		val op = sent.single() as ConsoleOp.VaultAnswerEntry
 		assertEquals(VaultRemember(seed.policyId, name = "Sakura Nyaarium"), op.remember)
 
 		// Saved and held: the retry lands on it.
-		assertEquals(SavedAnswer.Matched(seed.entryId), ops.saveAndAnswer(card, draft, seed) { true })
+		assertEquals(SavedAnswer.Matched(seed.entryId), ops.saveAndAnswer(card, draft, seed) { Presence.NotOwed })
 		assertEquals(listOf(seed.entryId), world.router.keys.toList())
 
 		// Saved, answer lost: the retry is refused, not doubled.
@@ -302,8 +332,8 @@ class VaultOpsTest {
 		assertTrue(lost.manager.addRequest(TEAM, typed()))
 		val lostCard = lost.manager.request(typed().requestId)!!
 		val lostOps = lost.ops { _, _ -> ConsoleClient.ValueAnswer.Unreachable }
-		assertTrue(lostOps.saveAndAnswer(lostCard, draft, seed) { true } is SavedAnswer.NotSaved)
-		assertTrue(lostOps.saveAndAnswer(lostCard, draft, seed) { true } is SavedAnswer.NotSaved)
+		assertTrue(lostOps.saveAndAnswer(lostCard, draft, seed) { Presence.NotOwed } is SavedAnswer.NotSaved)
+		assertTrue(lostOps.saveAndAnswer(lostCard, draft, seed) { Presence.NotOwed } is SavedAnswer.NotSaved)
 		assertEquals(listOf(seed.entryId), lost.router.keys.toList())
 	}
 
@@ -317,7 +347,7 @@ class VaultOpsTest {
 		val card = world.manager.request(typed().requestId)!!
 		val puts = world.puts
 
-		val saved = ops.saveAndAnswer(card, VaultDraft(privateTitle = "Edited", value = "hunter3", gateways = listOf(GATEWAY)), seed("typo")) { true }
+		val saved = ops.saveAndAnswer(card, VaultDraft(privateTitle = "Edited", value = "hunter3", gateways = listOf(GATEWAY)), seed("typo")) { Presence.NotOwed }
 
 		assertEquals(SavedAnswer.Matched("nyaarium"), saved)
 		assertEquals(puts, world.puts)
@@ -344,9 +374,9 @@ class VaultOpsTest {
 		val pending = world.manager.request(typed().requestId)!!
 		val op = entryAnswerOp(pending.requestId, "nyaarium", VAULT_DECISION_ONCE, null)!!
 
-		assertTrue(ops.answerWithEntry(pending, op) { true } is EntryAnswered.Stays)
+		assertTrue(ops.answerWithEntry(pending, op) { Presence.NotOwed } is EntryAnswered.Stays)
 		assertTrue(world.manager.request(pending.requestId) != null)
-		assertTrue(ops.answerWithEntry(pending, op) { true } is EntryAnswered.Gone)
+		assertTrue(ops.answerWithEntry(pending, op) { Presence.NotOwed } is EntryAnswered.Gone)
 		assertNull(world.manager.request(pending.requestId))
 		assertEquals(listOf<ConsoleOp>(op, op), sent)
 	}
@@ -362,11 +392,11 @@ class VaultOpsTest {
 		val ops = world.ops { _, _ -> ConsoleClient.ValueAnswer.Answered(answered) }
 		assertTrue(world.manager.addRequest(TEAM, typed()))
 		val pending = world.manager.request(typed().requestId)!!
-		ops.answerWithEntry(pending, entryAnswerOp(pending.requestId, "nyaarium", VAULT_DECISION_ONCE, null)!!) { true }
+		ops.answerWithEntry(pending, entryAnswerOp(pending.requestId, "nyaarium", VAULT_DECISION_ONCE, null)!!) { Presence.NotOwed }
 		assertNull(world.manager.request(pending.requestId))
 
 		assertTrue(world.manager.addRequest(TEAM, typed(id = "vault-answer-2")))
-		assertFalse(ops.answer(world.manager.request("vault-answer-2")!!, "deny", { true }))
+		assertEquals(PlainAnswered.NotSent, ops.answer(world.manager.request("vault-answer-2")!!, "deny", { Presence.NotOwed }))
 		assertNull(world.manager.request("vault-answer-2"))
 		assertTrue(world.state.value.notices.isEmpty())
 	}
@@ -415,6 +445,8 @@ class VaultOpsTest {
 		/** Monotonic. */
 		var elapsed = 5_000L
 		var approvalPolicy = "off"
+		var prompts = 0
+		var prompt = OwnerPrompt.PASSED
 		private val owner = Crypto.generateIdentity()
 		private val sealing = VaultSealing(
 			testBootstrap(domainId = "domain", owner = owner, contentKeyring = ContentKeyring().also { it.deriveOwned(owner, "domain", 1) }),
@@ -439,7 +471,15 @@ class VaultOpsTest {
 			override val writer = this@World.writer
 			override fun sealing(): VaultSealing = this@World.sealing
 			override val client: ConsoleClient? = null
-			override val gate = ApprovalGate({ approvalPolicy }, {}, { _, _, _ -> true }, { true }, now = { now })
+			override val gate = ApprovalGate(
+				policy = { approvalPolicy },
+				persist = {},
+				authenticate = { _, _, _ -> prompts++; prompt },
+				lockOn = { state.value.biometricLock },
+				unlocked = { AppLock.unlocked.value },
+				lockEpoch = { AppLock.epoch },
+				elapsed = { elapsed },
+			)
 		}
 
 		fun ops(valueAnswer: suspend (String, ConsoleOp) -> ConsoleClient.ValueAnswer) = VaultOps(
@@ -450,7 +490,6 @@ class VaultOpsTest {
 			valueAnswer = valueAnswer,
 			matching = Dispatchers.Unconfined,
 			now = { now },
-			elapsed = { elapsed },
 		)
 
 		suspend fun hold(id: String, title: String, value: String) {

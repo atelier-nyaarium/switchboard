@@ -79,10 +79,24 @@ class ChatRepository(
 	internal val approvalGate = com.atelier_nyaarium.switchboard.vault.ApprovalGate(
 		policy = { store.vaultUnlock },
 		persist = { store.vaultUnlock = it },
-		authenticate = { activity, title, subtitle -> requireOwnerPresent(true, activity, title, subtitle) },
+		authenticate = { activity, title, subtitle -> requireOwnerPresent(activity, title, subtitle) },
 		lockOn = { store.biometricLock },
-		onPolicyChanged = { vaultOps.clearMatchProof() },
+		unlocked = { AppLock.unlocked.value },
+		lockEpoch = { AppLock.epoch },
+		elapsed = { android.os.SystemClock.elapsedRealtime() },
 	)
+
+	/** Owner-present prompt; no lock asks nothing. */
+	suspend fun ownerPresent(activity: androidx.fragment.app.FragmentActivity?): Boolean =
+		!_state.value.biometricLock || lockAsks(activity)
+
+	/** Also asked before the lock turns on. */
+	suspend fun lockAsks(activity: androidx.fragment.app.FragmentActivity?): Boolean =
+		_state.asked { requireOwnerPresent(activity) }
+
+	/** Loosening asks the owner. */
+	suspend fun changeVaultUnlock(value: String, activity: androidx.fragment.app.FragmentActivity?): Boolean =
+		_state.asked { approvalGate.changePolicy(value, activity) }
 
 	internal val planeFetches = java.util.concurrent.ConcurrentHashMap<String, PlaneFetch>()
 	internal var onScheduledResult: (com.atelier_nyaarium.switchboard.proto.ScheduledResultRow, ReadAnchor) -> Unit = { _, _ -> }
@@ -446,7 +460,6 @@ class ChatRepository(
 		valueAnswer = if (isSandbox) ::sandboxVaultAnswer else null,
 		policyWritten = { gatewayId -> repoScope.launch { policyOps.refresh(gatewayId) } },
 		now = ambient.now,
-		elapsed = { android.os.SystemClock.elapsedRealtime() },
 	)
 	internal val runbookOps = RunbookOps(state = _state, host = ChatRepositoryRunbookHost(this), provision = provision)
 

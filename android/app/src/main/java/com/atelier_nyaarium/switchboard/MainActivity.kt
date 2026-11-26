@@ -458,7 +458,7 @@ fun App(
 	LaunchedEffect(locked, windowFocused, summon) {
 		if (activity == null || !promptsAppLock(locked, windowFocused, lockPrompted, summon)) return@LaunchedEffect
 		lockPrompted = true
-		promptUnlock(activity) { ok -> if (ok) AppLock.unlock() }
+		promptUnlock(activity, onResult = AppLock::answered)
 	}
 
 	val shellFacts = ShellFacts(
@@ -535,7 +535,10 @@ fun App(
 	}
 
 	when (screen) {
-		Drawn.Lock -> LockScreen(onUnlock = { activity?.let { a -> promptUnlock(a) { ok -> if (ok) AppLock.unlock() } } })
+		Drawn.Lock -> LockScreen(
+			fault = AppLock.fault.collectAsState().value,
+			onUnlock = { activity?.let { promptUnlock(it, onResult = AppLock::answered) } },
+		)
 		Drawn.Overlay -> OverlayHost(overlays.last(), repo, state, openOverlay, closeOverlay)
 		// Settings remains reachable before provisioning.
 		is Drawn.Settings ->

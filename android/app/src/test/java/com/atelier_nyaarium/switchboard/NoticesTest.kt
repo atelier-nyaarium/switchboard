@@ -1,5 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -17,6 +19,72 @@ class NoticesTest {
 
 		assertEquals(listOf("Unrelated.", "Waking failed again."), raised.notices.map { it.text })
 		assertEquals(listOf("Unrelated."), raised.withoutNoticeKey("wake:a").notices.map { it.text })
+	}
+
+	@Test
+	fun aPromptThePhoneCouldNotShowIsToldOnceAndOnlyAShownPassClearsIt() = runBlocking {
+		val state = MutableStateFlow(ChatState())
+		val all = listOf(OwnerPrompt.COULD_NOT_ASK, OwnerPrompt.COULD_NOT_ASK, OwnerPrompt.REFUSED, OwnerPrompt.NO_SCREEN_LOCK, OwnerPrompt.PASSED)
+
+		val told = all.map { answer -> state.asked { answer } to state.value.notices.size }
+
+		assertEquals(listOf(false to 1, false to 1, false to 1, true to 1, true to 0), told)
+		assertEquals(OwnerPrompt.COULD_NOT_ASK, requireOwnerPresent(null))
+	}
+
+	@Test
+	fun onlyAPhoneWithNoScreenLockPassesUnaskedAndOnlyBackingOutIsARefusal() {
+		val statuses = listOf(
+			androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS,
+			androidx.biometric.BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED,
+			androidx.biometric.BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE,
+			androidx.biometric.BiometricManager.BIOMETRIC_STATUS_UNKNOWN,
+		)
+		val errors = listOf(
+			androidx.biometric.BiometricPrompt.ERROR_USER_CANCELED,
+			androidx.biometric.BiometricPrompt.ERROR_NEGATIVE_BUTTON,
+			androidx.biometric.BiometricPrompt.ERROR_CANCELED,
+			androidx.biometric.BiometricPrompt.ERROR_TIMEOUT,
+			androidx.biometric.BiometricPrompt.ERROR_HW_UNAVAILABLE,
+			androidx.biometric.BiometricPrompt.ERROR_LOCKOUT,
+		)
+
+		assertEquals(
+			listOf(null, OwnerPrompt.COULD_NOT_ASK, OwnerPrompt.COULD_NOT_ASK, OwnerPrompt.COULD_NOT_ASK),
+			statuses.map { promptWithout(secure = true, it) },
+		)
+		assertEquals(List(4) { OwnerPrompt.NO_SCREEN_LOCK }, statuses.map { promptWithout(secure = false, it) })
+		assertEquals(
+			List(4) { OwnerPrompt.REFUSED } + List(2) { OwnerPrompt.COULD_NOT_ASK },
+			errors.map(::promptError),
+		)
+		assertEquals(
+			listOf(true, false, true, false),
+			listOf(OwnerPrompt.PASSED, OwnerPrompt.REFUSED, OwnerPrompt.NO_SCREEN_LOCK, OwnerPrompt.COULD_NOT_ASK).map(::passes),
+		)
+	}
+
+	@Test
+	fun onlyAPassUnlocksAndAFaultShowsUntilTheLockMoves() {
+		fun stands() = AppLock.unlocked.value to AppLock.fault.value
+		AppLock.relock()
+		try {
+			AppLock.answered(OwnerPrompt.REFUSED)
+			assertEquals(false to false, stands())
+			AppLock.answered(OwnerPrompt.COULD_NOT_ASK)
+			assertEquals(false to true, stands())
+			AppLock.relock()
+			assertEquals(false to false, stands())
+
+			AppLock.answered(OwnerPrompt.COULD_NOT_ASK)
+			AppLock.answered(OwnerPrompt.NO_SCREEN_LOCK)
+			assertEquals(true to false, stands())
+			AppLock.relock()
+			AppLock.answered(OwnerPrompt.PASSED)
+			assertEquals(true to false, stands())
+		} finally {
+			AppLock.relock()
+		}
 	}
 
 	@Test

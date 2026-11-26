@@ -34,8 +34,10 @@ import com.atelier_nyaarium.switchboard.vault.VaultSealing
 import com.atelier_nyaarium.switchboard.vault.answeringOf
 import com.atelier_nyaarium.switchboard.vault.entryAnswerOp
 import com.atelier_nyaarium.switchboard.vault.entryAnswerOutcome
-import com.atelier_nyaarium.switchboard.vault.MatchPresenceProof
-import com.atelier_nyaarium.switchboard.vault.consumeMatchPresenceProof
+import com.atelier_nyaarium.switchboard.vault.CardPresence
+import com.atelier_nyaarium.switchboard.vault.Presence
+import com.atelier_nyaarium.switchboard.vault.PlainAnswered
+import com.atelier_nyaarium.switchboard.vault.cardPresence
 import com.atelier_nyaarium.switchboard.vault.matchingSecret
 import com.atelier_nyaarium.switchboard.vault.refusedAnswerLine
 import com.atelier_nyaarium.switchboard.vault.rememberOf
@@ -77,12 +79,9 @@ internal class VaultOps(
 	/** Off the main thread. */
 	private val matching: CoroutineDispatcher = Dispatchers.Default,
 	private val now: () -> Long,
-	/** Monotonic; ages a presence proof. */
-	private val elapsed: () -> Long,
 ) : ClearsOnReprovision {
 	private val manager get() = collaborators.vault
-	private val proofLock = Any()
-	private var matchProof: MatchPresenceProof? = null
+	private val gate get() = collaborators.gate
 
 	// One list in flight, so answers land in order.
 	private val refreshMutex = Mutex()
@@ -165,34 +164,48 @@ internal class VaultOps(
 
 	/** The plugin's handler; duplicates are dropped by the manager. An unstored one is logged there. */
 	fun onRequest(team: String, request: VaultRequest) {
-		synchronized(proofLock) {
-			matchProof = null
-			manager.addRequest(team, request)
-		}
+		gate.dropMatch()
+		manager.addRequest(team, request)
 	}
 
 	fun onRetract(requestId: String) {
-		synchronized(proofLock) {
-			matchProof = null
-			manager.settleRequest(requestId)
-		}
+		gate.dropMatch()
+		manager.settleRequest(requestId)
 	}
 
-	fun sweepRequests(at: Long = now()): Boolean = synchronized(proofLock) {
+	fun sweepRequests(at: Long = now()): Boolean {
 		val changed = manager.sweepRequests(at)
-		if (changed) matchProof = null
-		changed
+		if (changed) gate.dropMatch()
+		return changed
 	}
 
-	fun clearMatchProof() {
-		synchronized(proofLock) { matchProof = null }
-	}
+	/** Another secret, setting or request drops the carry. */
+	fun clearMatchProof() = gate.dropMatch()
 
-	override suspend fun clearInMemory() = clearMatchProof()
+	override suspend fun clearInMemory() = gate.forget()
 
 	fun pendingRequest(requestId: String): VaultPendingRequest? = manager.request(requestId)
 
-	suspend fun ownerPresent(activity: FragmentActivity?): Boolean = collaborators.gate.require(activity)
+	/** The gate's answer, for a road that may carry it. */
+	suspend fun ownerPresence(activity: FragmentActivity?): Presence = gate.require(activity)
+
+	/** As a card reads it; a passed prompt clears the told fault. */
+	fun onCard(answer: Presence): CardPresence {
+		if (answer is Presence.Asked) state.update { it.presenceFault(false) }
+		return cardPresence(answer)
+	}
+
+	/** Yes or no; a fault is told as a notice. */
+	fun present(answer: Presence): Boolean = when (onCard(answer)) {
+		CardPresence.Passed -> true
+		CardPresence.Declined -> false
+		is CardPresence.Fault -> {
+			state.update { it.presenceFault(true) }
+			false
+		}
+	}
+
+	suspend fun ownerPresent(activity: FragmentActivity?): Boolean = present(ownerPresence(activity))
 
 	/**
 	 * Answers one request; a typed value seals under the request id, and a deny may carry a steering
@@ -202,13 +215,20 @@ internal class VaultOps(
 	suspend fun answer(
 		pending: VaultPendingRequest,
 		decision: String,
-		presence: suspend () -> Boolean,
+		presence: suspend () -> Presence,
 		typedValue: String? = null,
 		note: String? = null,
-	): Boolean {
-		clearMatchProof()
-		if (decision != VAULT_DECISION_DENY && pending.entryId != null && !presence()) return false
-		return repoScope.async { answerNow(pending, decision, typedValue, note) }.await()
+	): PlainAnswered {
+		gate.dropMatch()
+		if (decision != VAULT_DECISION_DENY && pending.entryId != null) {
+			when (val read = onCard(presence())) {
+				CardPresence.Passed -> Unit
+				CardPresence.Declined -> return PlainAnswered.NotSent
+				is CardPresence.Fault -> return PlainAnswered.Fault(read.line)
+			}
+		}
+		val sent = repoScope.async { answerNow(pending, decision, typedValue, note) }.await()
+		return if (sent) PlainAnswered.Sent else PlainAnswered.NotSent
 	}
 
 	/** Answering secrets match first. */
@@ -217,53 +237,44 @@ internal class VaultOps(
 		return matchingSecret(typed, candidates)
 	}
 
-	/** "Every approval", lock on and passed. */
-	private fun presenceCarries(): Boolean =
-		state.value.biometricLock && AppLock.unlocked.value && collaborators.gate.matchPresenceBridgeEnabled()
-
 	/** Presence precedes matching. */
-	suspend fun saveTyped(pending: VaultPendingRequest, typed: String, presence: suspend () -> Boolean): TypedSave {
-		clearMatchProof()
+	suspend fun saveTyped(pending: VaultPendingRequest, typed: String, presence: suspend () -> Presence): TypedSave {
+		gate.dropMatch()
 		val request = pending.request as? VaultRequest.Typed ?: return TypedSave.Declined
-		// Owed before asked.
-		val owed = presenceCarries()
-		val lockEpoch = AppLock.epoch
-		if (!presence()) return TypedSave.Declined
+		val answer = presence()
+		when (val read = onCard(answer)) {
+			CardPresence.Passed -> Unit
+			CardPresence.Declined -> return TypedSave.Declined
+			is CardPresence.Fault -> return TypedSave.Refused(read.line)
+		}
 		if (!manager.listed) return TypedSave.Refused(VAULT_UNLISTED)
 		val gatewayId = runIsolated { gatewayOf(pending.team) }.getOrNull() ?: return TypedSave.Refused(Line.VAULT_NO_GATEWAY.text)
+		// As matched.
 		val revisions = views().associate { it.id to it.revision }
 		val match = withContext(matching) { matchFor(typed, gatewayId, answeringOf(request)) }
 		if (match != null) {
-			synchronized(proofLock) {
-				val revision = revisions[match]
-				if (owed && revision != null && lockEpoch == AppLock.epoch && presenceCarries() && manager.request(pending.requestId) != null) {
-					matchProof = MatchPresenceProof(pending.requestId, match, revision, lockEpoch, elapsed())
-				}
+			val revision = revisions[match]
+			// Only a passed prompt carries.
+			if (answer is Presence.Asked && revision != null && manager.request(pending.requestId) != null) {
+				gate.grantMatch(answer.receipt, pending.requestId, match, revision)
 			}
 			return TypedSave.Matched(match)
 		}
 		return TypedSave.Form(NewSecretSeed(typed, gatewayId, newEntryId(), newPolicyId()))
 	}
 
-	/** Needs presence first. */
-	suspend fun answerWithEntry(pending: VaultPendingRequest, op: ConsoleOp.VaultAnswerEntry, presence: suspend () -> Boolean): EntryAnswered {
-		val reuse = synchronized(proofLock) {
-			val decision = consumeMatchPresenceProof(
-				matchProof,
-				pending.requestId,
-				op.entryId,
-				manager.stored(op.entryId)?.clear?.revision,
-				AppLock.epoch,
-				elapsed(),
-				appLockEngaged = state.value.biometricLock && !AppLock.unlocked.value,
-			)
-			matchProof = decision.remaining
-			decision.reuse &&
-				pending.requestId == op.requestId &&
-				manager.request(pending.requestId) != null &&
-				presenceCarries()
+	/** Needs presence first; a match's carries, once. */
+	suspend fun answerWithEntry(pending: VaultPendingRequest, op: ConsoleOp.VaultAnswerEntry, presence: suspend () -> Presence): EntryAnswered {
+		val carried = gate.spendMatch(pending.requestId, op.entryId, manager.stored(op.entryId)?.clear?.revision) &&
+			pending.requestId == op.requestId &&
+			manager.request(pending.requestId) != null
+		if (!carried) {
+			when (val read = onCard(presence())) {
+				CardPresence.Passed -> Unit
+				CardPresence.Declined -> return EntryAnswered.Declined
+				is CardPresence.Fault -> return EntryAnswered.Stays(read.line)
+			}
 		}
-		if (!reuse && !presence()) return EntryAnswered.Declined
 		return repoScope.async { answerWithEntryNow(pending, op) }.await()
 	}
 
@@ -272,10 +283,14 @@ internal class VaultOps(
 		pending: VaultPendingRequest,
 		draft: VaultDraft,
 		seed: NewSecretSeed,
-		presence: suspend () -> Boolean,
+		presence: suspend () -> Presence,
 	): SavedAnswer {
-		clearMatchProof()
-		if (!presence()) return SavedAnswer.Declined
+		gate.dropMatch()
+		when (val read = onCard(presence())) {
+			CardPresence.Passed -> Unit
+			CardPresence.Declined -> return SavedAnswer.Declined
+			is CardPresence.Fault -> return SavedAnswer.NotSaved(read.line)
+		}
 		return repoScope.async {
 			val request = pending.request as? VaultRequest.Typed ?: return@async SavedAnswer.NotSaved(ENTRY_REFUSED)
 			if (!manager.listed) return@async SavedAnswer.NotSaved(VAULT_UNLISTED)
@@ -384,8 +399,8 @@ internal class VaultOps(
 		return result.ok
 	}
 
-	private fun settleRequest(requestId: String) = synchronized(proofLock) {
-		matchProof = null
+	private fun settleRequest(requestId: String) {
+		gate.dropMatch()
 		manager.settleRequest(requestId)
 	}
 

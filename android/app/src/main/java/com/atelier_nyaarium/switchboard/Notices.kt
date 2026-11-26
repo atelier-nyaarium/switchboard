@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
 internal const val NOTICES_MAX = 5
@@ -22,6 +23,26 @@ internal fun ChatState.withoutNoticeKey(key: String): ChatState =
 	if (notices.none { it.key == key }) this else copy(notices = notices.filterNot { it.key == key })
 
 internal fun ChatState.withoutNotice(id: Long): ChatState = copy(notices = notices.filterNot { it.id == id })
+
+private const val PRESENCE_FAULT_KEY = "presence"
+
+/** A prompt the phone could not show is told; one that passes clears it. */
+internal fun ChatState.presenceFault(fault: Boolean): ChatState =
+	if (fault) withNotice(Line.PRESENCE_FAULT.text, PRESENCE_FAULT_KEY) else withoutNoticeKey(PRESENCE_FAULT_KEY)
+
+/** Only a prompt that was shown and passed clears it. */
+internal fun ChatState.promptAnswered(answer: OwnerPrompt): ChatState = when (answer) {
+	OwnerPrompt.PASSED -> presenceFault(false)
+	OwnerPrompt.COULD_NOT_ASK -> presenceFault(true)
+	OwnerPrompt.REFUSED, OwnerPrompt.NO_SCREEN_LOCK -> this
+}
+
+/** Prompt for a caller with no card. */
+internal suspend fun MutableStateFlow<ChatState>.asked(ask: suspend () -> OwnerPrompt): Boolean {
+	val answer = ask()
+	update { it.promptAnswered(answer) }
+	return passes(answer)
+}
 
 internal data class NoticeLine(val id: Long, val text: String)
 

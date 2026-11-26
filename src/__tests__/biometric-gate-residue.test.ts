@@ -47,6 +47,18 @@ describe("biometric gate residue", () => {
 		}
 	});
 
+	it("only the repository and the vault gate ask, and only the gate says a prompt passed or was not owed", () => {
+		const callers = (pattern: RegExp) =>
+			kotlinFiles(KOTLIN_DIR)
+				.filter((file) => pattern.test(fs.readFileSync(path.join(KOTLIN_DIR, file), "utf8")))
+				.sort();
+
+		expect(callers(/\brequireOwnerPresent\(/)).toEqual(["Biometric.kt", "ChatRepository.kt"]);
+		expect(callers(/\bPresence\.NotOwed\b|\bPresence\.Asked\(/)).toEqual(["vault/ApprovalGate.kt"]);
+		expect(callers(/\b(grantMatch|spendMatch)\(/)).toEqual(["VaultOps.kt", "vault/ApprovalGate.kt"]);
+		expect(callers(/\bMatchPresenceProof\(/)).toEqual(["vault/ApprovalGate.kt", "vault/MatchPresenceProof.kt"]);
+	});
+
 	// A dialog's context wraps the activity, so a bare cast answers null and the gate denies silently.
 	it("finds the activity through fragmentActivity, never a bare cast", () => {
 		for (const file of kotlinFiles(KOTLIN_DIR)) {

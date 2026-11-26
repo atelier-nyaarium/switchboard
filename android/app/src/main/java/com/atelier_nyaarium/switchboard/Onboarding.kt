@@ -60,11 +60,12 @@ internal fun looksProvisionable(s: String): Boolean = runIsolated {
 internal const val MAX_PROVISION_BLOB_BYTES = 1_000_000L
 
 @Composable
-fun LockScreen(onUnlock: () -> Unit) {
+fun LockScreen(fault: Boolean, onUnlock: () -> Unit) {
 	Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
 		Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
 			Text("Switchboard is locked", style = MaterialTheme.typography.titleLarge)
 			Button(onClick = hapticClick(onUnlock)) { Text("Unlock") }
+			if (fault) Text(Line.PRESENCE_FAULT.text, color = MaterialTheme.colorScheme.error)
 		}
 	}
 }

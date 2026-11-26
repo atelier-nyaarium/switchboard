@@ -7,6 +7,7 @@ import com.atelier_nyaarium.switchboard.proto.VaultRequest
 import com.atelier_nyaarium.switchboard.vault.ApprovalGate
 import com.atelier_nyaarium.switchboard.vault.EntryAnswered
 import com.atelier_nyaarium.switchboard.vault.NewSecretSeed
+import com.atelier_nyaarium.switchboard.vault.Presence
 import com.atelier_nyaarium.switchboard.vault.SavedAnswer
 import com.atelier_nyaarium.switchboard.vault.VaultDraft
 import com.atelier_nyaarium.switchboard.vault.VaultManager
@@ -33,7 +34,15 @@ class SandboxVaultTest {
 			testAmbient(nonceBytes = ByteArray(12) { 1 }),
 		) {}
 		val sandboxWriter = VaultRouterWriter { body, _ -> sandboxVaultOwnerOp(manager, body, 50L) }
-		val approvalGate = ApprovalGate({ "off" }, {}, { _, _, _ -> true }, { false })
+		val approvalGate = ApprovalGate(
+			policy = { "off" },
+			persist = {},
+			authenticate = { _, _, _ -> OwnerPrompt.PASSED },
+			lockOn = { false },
+			unlocked = { true },
+			lockEpoch = { 0 },
+			elapsed = { 50L },
+		)
 		val collaborators = object : VaultOpsCollaborators {
 			override val vault = manager
 			override val writer = sandboxWriter
@@ -49,7 +58,6 @@ class SandboxVaultTest {
 			provision = ProvisionFence(),
 			valueAnswer = ::sandboxVaultAnswer,
 			now = { 50L },
-			elapsed = { 50L },
 		)
 		manager.applyList(VaultListResult(0L, 0L, emptyList()), manager.generation)
 		val request = VaultRequest.Typed(
@@ -67,7 +75,7 @@ class SandboxVaultTest {
 			manager.request(request.requestId)!!,
 			VaultDraft(privateTitle = "Sandbox secret", value = "fixture secret", gateways = listOf("gateway")),
 			NewSecretSeed("fixture secret", "gateway", "saved-secret", "saved-policy"),
-		) { true }
+		) { Presence.NotOwed }
 
 		assertTrue(result is SavedAnswer.Saved && result.answered is EntryAnswered.Answered)
 		assertEquals("saved-secret", (result as SavedAnswer.Saved).entryId)

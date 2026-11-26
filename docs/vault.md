@@ -301,17 +301,30 @@ session holds a binding token. `vaultRun.ts` is the child run.
   - **The cost line follows Remember:** what Approve adds and ends is drawn only while Remember is
     on (`rememberLine`). On a request that cannot be remembered, Type mode's switch saves the secret
     alone and says so (`saveSecretLabel`).
-  - **One presence prompt for one approval** (`vault/MatchPresenceProof.kt`): under "Every
-    approval", the presence given before a typed value is matched also covers the Approve that
-    follows, for that request and that secret, once, within a minute. `VaultOps` holds at most one
-    proof, and `answerWithEntry` is its one reader. A proof is written only when "Every approval"
-    was already the rule before the prompt was asked and still is after the match, so a prompt that
-    was never owed carries nothing. It names the secret's revision as matched, the app lock's epoch
+  - **One presence prompt for one approval** (`vault/ApprovalGate.kt`, `MatchPresenceProof.kt`):
+    under "Every approval", the presence given before a typed value is matched also covers the
+    Approve that follows, for that request and that secret, once, within a minute. The gate holds
+    the carry and is the only one that can mint it: `require` answers `Asked` with a receipt only
+    for a prompt that passed, `grantMatch` takes that receipt, and `spendMatch` is the one reader,
+    spending whatever is held. `VaultOps` passes the facts (the request, the secret and its revision
+    as matched) and can drop the carry, never build one. A carry is written only when "Every
+    approval" with the app unlocked held when the prompt was asked and still does after the match,
+    and its minute runs from the prompt, so a prompt that was never owed carries nothing. It names the secret's revision as matched, the app lock's epoch
     (`AppLock.epoch`, which moves at every relock) and a monotonic time, so a changed secret, a
     relock passed some other way and a moved wall clock each spend it unused. Another secret
     picked, another request arriving, the request settling or being taken over, a change of the
-    approvals setting and a re-provision drop it. A phone that cannot authenticate at all has no
-    prompt to carry: the gate passes there with or without a proof.
+    approvals setting and a re-provision drop it.
+  - **A prompt the phone cannot show is no presence:** the prompt answers `PASSED`, `REFUSED`,
+    `NO_SCREEN_LOCK` or `COULD_NOT_ASK` (`OwnerPrompt` in `Biometric.kt`), and `passes` lets only
+    the first and the third through. A phone with no screen lock at all (the keyguard's
+    `isDeviceSecure`) has nothing to ask with, so it passes and carries nothing. Any other reason
+    the prompt could not show refuses: a status the platform reports, no activity to prompt on, a
+    prompt activity that never opens. A prompt left unanswered until it times out is the owner not
+    answering. The owner reads "Problem reading biometrics.": on the card for an approval or a
+    reveal, on the lock screen for the app lock (`AppLock.fault`), and as a notice everywhere else,
+    cleared when a prompt is next shown and passed. Turning the app lock on asks first, so it
+    cannot lock a phone that cannot ask. The gate's 30-minute window and the carry age on one
+    monotonic clock, and a change of the approvals setting or a re-provision ends both.
   - **A secret is offered for sudo alone, whatever the Gateway says** (`answeringOf`): the card
     honours a request's `answering` only when its shape's program is sudo, so a Gateway on an older
     build cannot pre-pick a secret for another program.

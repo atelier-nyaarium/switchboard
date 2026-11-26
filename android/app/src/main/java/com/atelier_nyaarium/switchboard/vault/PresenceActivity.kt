@@ -26,7 +26,7 @@ class PresenceActivity : FragmentActivity() {
 		val ask = PresencePrompt.started(token)
 		// A recreation counts as a cancel, so one tap never prompts twice.
 		if (ask == null || savedInstanceState != null) {
-			PresencePrompt.settle(token, false)
+			PresencePrompt.settle(token, Presence.Refused)
 			finish()
 			return
 		}
@@ -36,16 +36,16 @@ class PresenceActivity : FragmentActivity() {
 			finish()
 		}
 		lifecycleScope.launch {
-			val present = runCatchingCancellable { Repo.get(this@PresenceActivity).vaultOps.ownerPresent(this@PresenceActivity) }
-				.getOrDefault(false)
-			PresencePrompt.settle(token, present)
+			val answer = runCatchingCancellable { Repo.get(this@PresenceActivity).vaultOps.ownerPresence(this@PresenceActivity) }
+				.getOrDefault(Presence.CouldNotAsk)
+			PresencePrompt.settle(token, answer)
 			finish()
 		}
 	}
 
 	override fun onDestroy() {
 		// Gone before the gate answered.
-		if (isFinishing) PresencePrompt.settle(token, false)
+		if (isFinishing) PresencePrompt.settle(token, Presence.Refused)
 		super.onDestroy()
 	}
 
@@ -58,7 +58,7 @@ class PresenceActivity : FragmentActivity() {
 internal object PresencePrompt {
 	class Ask {
 		internal val started = CompletableDeferred<Unit>()
-		internal val present = CompletableDeferred<Boolean>()
+		internal val present = CompletableDeferred<Presence>()
 		val abandoned = CompletableDeferred<Unit>()
 	}
 
@@ -66,8 +66,8 @@ internal object PresencePrompt {
 	private val asks = ConcurrentHashMap<String, Ask>()
 	private val next = AtomicLong()
 
-	/** False when the owner cancels, fails, or the prompt never opens. */
-	suspend fun ask(context: Context): Boolean {
+	/** A prompt that never opens could not ask. */
+	suspend fun ask(context: Context): Presence {
 		val token = next.incrementAndGet().toString()
 		val ask = Ask()
 		asks[token] = ask
@@ -75,9 +75,9 @@ internal object PresencePrompt {
 			val intent = Intent(context, PresenceActivity::class.java)
 				.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
 				.putExtra(PresenceActivity.EXTRA_TOKEN, token)
-			if (runIsolated { context.startActivity(intent) }.isFailure) return false
+			if (runIsolated { context.startActivity(intent) }.isFailure) return Presence.CouldNotAsk
 			// A launch the platform blocks fails silently.
-			withTimeoutOrNull(START_WAIT_MS) { ask.started.await() } ?: return false
+			withTimeoutOrNull(START_WAIT_MS) { ask.started.await() } ?: return Presence.CouldNotAsk
 			return ask.present.await()
 		} finally {
 			asks.remove(token)
@@ -88,7 +88,8 @@ internal object PresencePrompt {
 	/** Null when no caller waits on this token. */
 	fun started(token: String?): Ask? = token?.let { asks[it] }?.also { it.started.complete(Unit) }
 
-	fun settle(token: String?, present: Boolean) {
-		token?.let { asks[it]?.present?.complete(present) }
+	/** The first answer stands. */
+	fun settle(token: String?, answer: Presence) {
+		token?.let { asks[it]?.present?.complete(answer) }
 	}
 }

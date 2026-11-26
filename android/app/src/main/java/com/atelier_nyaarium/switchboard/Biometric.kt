@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import android.app.KeyguardManager
 import android.content.Context
 import android.content.ContextWrapper
 import androidx.biometric.BiometricManager
@@ -25,26 +26,58 @@ private const val AUTHENTICATORS =
 private const val APP_LOCK_TITLE = "Unlock Switchboard"
 private const val APP_LOCK_SUBTITLE = "Authenticate to access your chats"
 
-fun deviceCanAuthenticate(activity: FragmentActivity): Boolean =
-	BiometricManager.from(activity).canAuthenticate(AUTHENTICATORS) == BiometricManager.BIOMETRIC_SUCCESS
+/** How one prompt ended. */
+enum class OwnerPrompt {
+	PASSED,
 
-/** Show the biometric / device-credential prompt. Unlocks open if nothing is enrolled. */
+	/** The owner backed out. */
+	REFUSED,
+
+	/** Nothing to ask with. */
+	NO_SCREEN_LOCK,
+
+	/** The phone could not ask. */
+	COULD_NOT_ASK,
+}
+
+/** Who gets through. */
+fun passes(answer: OwnerPrompt): Boolean = answer == OwnerPrompt.PASSED || answer == OwnerPrompt.NO_SCREEN_LOCK
+
+/** Null shows the prompt. `secure`: the phone has a screen lock. */
+internal fun promptWithout(secure: Boolean, status: Int): OwnerPrompt? = when {
+	!secure -> OwnerPrompt.NO_SCREEN_LOCK
+	status == BiometricManager.BIOMETRIC_SUCCESS -> null
+	else -> OwnerPrompt.COULD_NOT_ASK
+}
+
+/** A prompt's error code; unanswered is a refusal. */
+internal fun promptError(code: Int): OwnerPrompt = when (code) {
+	BiometricPrompt.ERROR_USER_CANCELED,
+	BiometricPrompt.ERROR_NEGATIVE_BUTTON,
+	BiometricPrompt.ERROR_CANCELED,
+	BiometricPrompt.ERROR_TIMEOUT,
+	-> OwnerPrompt.REFUSED
+	else -> OwnerPrompt.COULD_NOT_ASK
+}
+
+/** Shows the biometric or device-credential prompt. */
 fun promptUnlock(
 	activity: FragmentActivity,
 	title: String = APP_LOCK_TITLE,
 	subtitle: String = APP_LOCK_SUBTITLE,
-	onResult: (Boolean) -> Unit,
+	onResult: (OwnerPrompt) -> Unit,
 ): BiometricPrompt? {
-	if (!deviceCanAuthenticate(activity)) {
-		onResult(true)
+	val secure = activity.getSystemService(KeyguardManager::class.java)?.isDeviceSecure != false
+	promptWithout(secure, BiometricManager.from(activity).canAuthenticate(AUTHENTICATORS))?.let {
+		onResult(it)
 		return null
 	}
 	val prompt = BiometricPrompt(
 		activity,
 		ContextCompat.getMainExecutor(activity),
 		object : BiometricPrompt.AuthenticationCallback() {
-			override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) = onResult(true)
-			override fun onAuthenticationError(errorCode: Int, errString: CharSequence) = onResult(false)
+			override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) = onResult(OwnerPrompt.PASSED)
+			override fun onAuthenticationError(errorCode: Int, errString: CharSequence) = onResult(promptError(errorCode))
 		},
 	)
 	val info = BiometricPrompt.PromptInfo.Builder()
@@ -56,19 +89,16 @@ fun promptUnlock(
 	return prompt
 }
 
-/** Suspends until the user passes the biometric / device-credential prompt; returns false on cancel
- * or error. File-private: every gated action goes through requireOwnerPresent below. */
-private suspend fun promptBiometric(activity: FragmentActivity, title: String, subtitle: String): Boolean =
+/** Every gated action asks through `requireOwnerPresent`. */
+private suspend fun promptBiometric(activity: FragmentActivity, title: String, subtitle: String): OwnerPrompt =
 	suspendCancellableCoroutine { cont ->
-		val prompt = promptUnlock(activity, title, subtitle) { ok -> if (cont.isActive) cont.resume(ok) }
+		val prompt = promptUnlock(activity, title, subtitle) { answer -> if (cont.isActive) cont.resume(answer) }
 		cont.invokeOnCancellation { prompt?.cancelAuthentication() }
 	}
 
-/** The one gate for owner-present actions (admit, revoke, approve, delete, dropping the lock).
- * Off-lock passes; on-lock requires the prompt, and no activity to prompt on is DENIED. */
+/** Nothing to prompt on could not ask. */
 suspend fun requireOwnerPresent(
-	lockOn: Boolean,
 	activity: FragmentActivity?,
 	title: String = APP_LOCK_TITLE,
 	subtitle: String = APP_LOCK_SUBTITLE,
-): Boolean = !lockOn || (activity != null && promptBiometric(activity, title, subtitle))
+): OwnerPrompt = if (activity == null) OwnerPrompt.COULD_NOT_ASK else promptBiometric(activity, title, subtitle)

@@ -134,8 +134,8 @@ class VaultPrompt(
 	}
 
 	/** Asks only when the gate would; the card steps aside so the prompt is not drawn under it. */
-	private suspend fun confirmPresence(): Boolean {
-		if (repo.vaultOps.ownerPresent(null)) return true
+	private suspend fun confirmPresence(): Presence {
+		repo.approvalGate.notOwed()?.let { return it }
 		step(aside = true)
 		try {
 			return PresencePrompt.ask(context)

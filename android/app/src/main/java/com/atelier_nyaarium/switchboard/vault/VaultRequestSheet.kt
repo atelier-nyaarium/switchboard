@@ -63,10 +63,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** What the overlay supplies that the app's sheet does not. */
-class VaultPromptExits(
+internal class VaultPromptExits(
 	val goToSession: () -> Unit,
 	/** The presence gate, which the overlay has no activity to prompt on. */
-	val confirmPresence: suspend () -> Boolean,
+	val confirmPresence: suspend () -> Presence,
 )
 
 /** The app's dialog around [VaultRequestCard]. */
@@ -107,7 +107,7 @@ class CardBack {
  * app's sheet and the overlay both draw this, so neither can drift from the other.
  */
 @Composable
-fun VaultRequestCard(
+internal fun VaultRequestCard(
 	repo: ChatRepository,
 	state: ChatState,
 	request: VaultPendingRequest,
@@ -160,6 +160,8 @@ fun VaultRequestCard(
 	val shownNow by rememberUpdatedState(requestId)
 	val unlocked by AppLock.unlocked.collectAsState()
 	var revealed by remember(requestId) { mutableStateOf(false) }
+	// A prompt the phone could not show.
+	var fault by remember(requestId) { mutableStateOf<String?>(null) }
 	val named = namesChoices(appLockAsks(state, unlocked), revealed)
 	fun on(event: CardEvent) {
 		if (event is CardEvent.Picked) repo.vaultOps.clearMatchProof()
@@ -178,11 +180,12 @@ fun VaultRequestCard(
 		back?.formBack = { on(CardEvent.FormBack) }
 	}
 
-	suspend fun present(): Boolean = exits?.confirmPresence?.invoke() ?: repo.vaultOps.ownerPresent(activity)
+	suspend fun present(): Presence = exits?.confirmPresence?.invoke() ?: repo.vaultOps.ownerPresence(activity)
 
 	/** Lands only on its card. */
 	fun launchOp(work: suspend (owns: () -> Boolean) -> Unit) {
 		val sentFor = requestId
+		fault = null
 		scope.launch {
 			withBusyState({ busy = it }) {
 				work { ownsCard(sentFor, shownNow) }
@@ -193,8 +196,24 @@ fun VaultRequestCard(
 	fun answer(decision: String) = launchOp { owns ->
 		val approving = decision != VAULT_DECISION_DENY
 		val value = if (approving && typedRequest != null) held?.typed else null
-		val ok = repo.vaultOps.answer(request, decision, { present() }, value, if (approving) null else note)
-		if (ok && owns()) onClose()
+		val sent = repo.vaultOps.answer(request, decision, { present() }, value, if (approving) null else note)
+		if (!owns()) return@launchOp
+		when (sent) {
+			PlainAnswered.Sent -> onClose()
+			PlainAnswered.NotSent -> Unit
+			is PlainAnswered.Fault -> fault = sent.line
+		}
+	}
+
+	/** The gate, for a reveal. */
+	fun reveal() = launchOp { owns ->
+		val read = repo.vaultOps.onCard(present())
+		if (!owns()) return@launchOp
+		when (read) {
+			CardPresence.Passed -> revealed = true
+			CardPresence.Declined -> Unit
+			is CardPresence.Fault -> fault = read.line
+		}
 	}
 
 	fun withEntry(op: ConsoleOp.VaultAnswerEntry) = launchOp { owns ->
@@ -305,7 +324,7 @@ fun VaultRequestCard(
 				view?.quiet?.let {
 					Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				}
-				view?.refused?.let {
+				(view?.refused ?: fault)?.let {
 					Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 				}
 				windowCovers(request)?.let {
@@ -337,7 +356,7 @@ fun VaultRequestCard(
 						} else {
 							Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
 								Text(view.picked?.title.orEmpty(), Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-								TextButton(onClick = hapticClick { scope.launch { if (present()) revealed = true } }, enabled = !busy) {
+								TextButton(onClick = hapticClick { reveal() }, enabled = !busy) {
 									Text("Other secrets")
 								}
 							}
