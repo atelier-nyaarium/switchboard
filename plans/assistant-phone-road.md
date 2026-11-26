@@ -1902,7 +1902,7 @@ Asked, unanswered:
 
 - **Question 44 - A carry over the cap.** ✅ Answered: the refusal stays. The cap of 64 is shared by the event automations a move carries and the crossings, clocks and value automations that stay on a Gateway. The move is refused whole with the numbers before anything is written, and the home record keeps the sealed payload, which the phone carries onward at the next move.
 
-## Phase 2.7e - Functions: reusable bodies, ordered steps, branches and calls (Q48 to Q71)
+## Phase 2.7e - Functions: reusable bodies, ordered steps, branches and calls (Q48 to Q71) ✅
 
 Fourth draft. The third was audited from five lenses (`plan-27e-v3-audit-synthesis.md` in the session scratchpad, 21 changes kept, every high finding checked against the code); they are folded in here. Slices 1 to 3 are built. Builds named below: 8.14.87, the last release and the flat build the restore fixture is named for (`flat-8.14.87`); 8.14.83, the phone's last recorded install, whose `editable` rule the gates replay; N (functions, bodies still a list) and N+1 (the tree). The Gateway and the host daemon were restarted from the checkout on 2026-11-21, so they run slice 3's committed Gateway half while still reporting 8.14.87.
 
@@ -2342,7 +2342,7 @@ It counts toward the 32-function cap, and "Make unique" on an anonymous body giv
 Built on 2026-11-26 as written. For the phone half: a new unnamed function takes a fresh id every time (a removed id is buried and a save under it is refused `gone`), the picker leaves out rows whose names are blank, and `private` has its line. The Call picker and its unnamed-row filter come with the Call card (slice 6).
 
 
-## Phase 2.7e.4 - Calls (slice 6)
+## Phase 2.7e.4 - Calls (slice 6) ✅
 
 Design: Phase 2.7e above.
 
@@ -2531,4 +2531,7 @@ Still owed here: the owner's own use of it, and the list below.
 - **A dated shim classifies before its reader can.** `listAnswerOf` folds a prose refusal into `NotServed` under `ProseRefusal.OLDER_BUILD`, so `AutomationOps.refresh` could not tell the permanent token from the shim's prose and needed a side flag (`AutomationListing.prose`) to apply the rule only to prose. The first attempt demoted the token too.
 - **A new console answer is registered in four places.** A result schema goes in `schemasConsoleResults.ts`'s list, the codegen's schema lists (`scripts/codegen-kotlin.ts`, twice), the TypeScript fixture map in `src/__tests__/protocol-fixtures.test.ts` and the Kotlin `when` in `ProtocolFixturesTest.kt`; missing one fails late or not at all (the run op's answer was not generated until a grep found it missing). One registry the codegen and both fixture tests read would make it one entry.
 - **A wire word the phone reads has to be generated before it can be read.** `RUN_OUTCOMES` was a TypeScript enum the codegen did not emit, so `lastStepLine` first spelled "refused" by hand and the wire-vocabulary residue test caught it. Every `z.enum` the phone switches on could be emitted as a `Protocol.Wire` enum by the schema walk rather than listed by hand.
-- **The draft's card operations assume one tree.** `AutomationDraft.withStep`, `plusStep`, `minusStep` and the move menu work on `draft.steps`; a callee's cards (slice 6) need the same operations over another tree, so they either learn a tree id or every caller passes its list.
+- **A function body can sit in the draft twice, and every reader had to know which copy wins.** `AutomationDraft.callees` holds a callee copy beside the runs head and the automation's own cards, and the editor screen holds a third copy in `MirroredDraft`. The stale-copy class took four rounds before one reader (`functionSource`) and the re-read on a list landing (`freshened`) closed it. The runs head still stores a copy of the cards (`RunsDraft.Pointing.steps` beside `AutomationDraft.steps`, board entry), and `mirrorKey` is a hand-kept list of what an answer can replace (board entry).
+- **AutomationDraft.kt holds too many jobs to navigate.** The draft and its card tree operations, callee pages, reach, the moved-function reading, the outcome mapping, the check, the run offer and the dropped-edits line all live in `assistant/AutomationDraft.kt`, so a reader of one rule scrolls past the rest. A split by job (tree ops, callees and reach, outcomes) would be a move, not a redesign.
+- **Callee tests each rebuild the same world.** `AutomationOpsTest` has four near-identical 30-line setups of "an automation pointing at a function that calls another" for the reload and list-landing cases; a builder beside `functionRow` would make the next one a line.
+- **The cycle's saved step names do not follow a library rename.** This run's steps predate `red-team-fan-out` becoming `adversarial-fan-out`, so the adversarial steps auto-skip silently and a jump past them errors on a missing section. The adversarial read was run by hand each lap; Codex hitting its usage limit mid-phase sent it to Opus, at about half a million tokens a read.
