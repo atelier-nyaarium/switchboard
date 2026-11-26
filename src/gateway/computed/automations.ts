@@ -87,7 +87,7 @@ import {
 	movesWithHome,
 	NOT_HOME,
 } from "./automationJudge.js";
-import { COOLING, fireRow, logged, type RunRow } from "./automationLog.js";
+import { COOLING, fireRow, logged, type RowWhere, type RunRow } from "./automationLog.js";
 import { clip, type Dropped, memberOf, outboxOf, ownerOf, QUEUE_FULL, stepMember, told } from "./automationOutbox.js";
 import {
 	type Attempt,
@@ -378,8 +378,9 @@ export function createAutomations(deps: AutomationsDeps) {
 		);
 
 	/** The one writer of the versions. */
-	/** Drops clocks and sets of gone records. */
-	const pruned = (next: State): Pick<State, "firedAt" | "landedSets"> => ({
+	/** Drops clocks, sets and rows of gone records. */
+	const pruned = (next: State): Pick<State, "firedAt" | "landedSets" | "log"> => ({
+		log: next.log.filter((row) => records.get(row.automation) !== null),
 		firedAt: Object.fromEntries(
 			Object.entries(next.firedAt).filter(([id, held]) => records.get(id)?.incarnation === held.incarnation),
 		),
@@ -714,10 +715,20 @@ export function createAutomations(deps: AutomationsDeps) {
 		return effect ? natureOf(effect) : null;
 	};
 
+	/** A call names its function. */
+	const whereAt = (fire: Fire, path: string): RowWhere => {
+		const site = siteOf(path) ?? path;
+		const body = bodyOf(fire);
+		return {
+			step: path,
+			function: fire.frames?.[site]?.function ?? (body ? callAt(body, site)?.function : undefined),
+		};
+	};
+
 	/** An ended step's row. */
 	const endedRow = (fire: Fire, path: string, step: Step, reason?: string): RunRow => {
 		const ended = endedOutcome(step.word);
-		return fireRow(fire, ended.outcome, reason ?? ended.reason, kindAt(fire, path));
+		return fireRow(fire, ended.outcome, reason ?? ended.reason, kindAt(fire, path), whereAt(fire, path));
 	};
 
 	/** Judges steps a restart found. */
@@ -889,7 +900,7 @@ export function createAutomations(deps: AutomationsDeps) {
 				else if (told === "away") ended = { step: refusedUnsent(step), reason: NOT_HOME };
 				else if (outOfTime(step, at.now, window)) ended = { step: expired(step) };
 				else {
-					log = logged(log, fireRow(fire, "refused", QUEUE_FULL, "tell_assistant"));
+					log = logged(log, fireRow(fire, "refused", QUEUE_FULL, "tell_assistant", whereAt(fire, path)));
 					return { fire, log };
 				}
 			} else if (!action || !isEffect(action)) ended = { step: refusedUnsent(step) };
@@ -1419,8 +1430,8 @@ export function createAutomations(deps: AutomationsDeps) {
 		const held = records.list();
 		const verdict = assess(intent, held);
 		if ("written" in verdict) return verdict;
-		for (const { id, reason } of verdict.dropped) {
-			console.warn(`[automations] ${intent.kind}: ${id} dropped: ${reason}`);
+		for (const { id, why } of verdict.dropped) {
+			console.warn(`[automations] ${intent.kind}: ${id} dropped: ${why}`);
 		}
 		const result = store.batch(verdict.writes);
 		if (!result.stored) return storeRefused(result, verdict.writes);

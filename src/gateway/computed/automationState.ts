@@ -4,7 +4,7 @@ import { z } from "zod";
 import { type Automation, AutomationSchema } from "../../shared/schemasAutomation.js";
 import { type AutomationFunction, FunctionSchema } from "../../shared/schemasFunction.js";
 import { FIRES_MAX, type Fire, readFire } from "./automationFires.js";
-import { fireRow, LOG_MAX, logged, type RunRow, RunRowSchema } from "./automationLog.js";
+import { capped, fireRow, logged, type RunRow, RunRowSchema } from "./automationLog.js";
 import { QUEUE_MAX_EVENTS, QueueEntrySchema, type QueueState, retained } from "./automationOutbox.js";
 import { clamped, NATURES } from "./automationSteps.js";
 import { NO_SILENCES, type Silences, SilencesSchema } from "./sensorSilence.js";
@@ -174,7 +174,7 @@ export function restore(raw: unknown, now: number): { state: State; changed: boo
 				.filter((event) => retained(event, now))
 				.slice(-QUEUE_MAX_EVENTS),
 		},
-		log: dropped.reduce(logged, pick(loose.log, RunRowSchema)).slice(-LOG_MAX),
+		log: capped(dropped.reduce(logged, pick(loose.log, RunRowSchema))),
 		ran,
 		fires,
 		fired: loose.fired.slice(-FIRED_MAX),

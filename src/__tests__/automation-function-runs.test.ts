@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { composeAutomations } from "../gateway/compose/composeAutomations.js";
+import { QUEUE_FULL, QUEUE_MAX_EVENTS } from "../gateway/computed/automationOutbox.js";
 import type { Attempt } from "../gateway/computed/automationRunner.js";
 import { NEWER_SET, STEP_UNFIT, VALUE_UNREAD } from "../gateway/computed/automations.js";
 import { FUNCTION_GONE, FUNCTION_UNREAD, NO_SWITCH } from "../gateway/computed/automationValidity.js";
@@ -46,9 +47,11 @@ const pointing = (
 	actions: [{ kind: "run_function", function: "warm-up", values: { room: PLUG }, ...call }],
 });
 
-function world() {
+/** `stored`: the state file it opens over. */
+function world(stored?: object) {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "function-runs-"));
 	roots.push(dir);
+	if (stored) fs.writeFileSync(path.join(dir, "automation-state.json"), JSON.stringify(stored));
 	let clock = 1_000_000;
 	let n = 0;
 	const effects: string[] = [];
@@ -113,6 +116,7 @@ function world() {
 		await automations.settled();
 	};
 	const rows = () => automations.log().map((row) => [row.action, row.outcome, row.reason]);
+	const where = () => automations.log().map((row) => [row.step, row.function]);
 	/** Rewrite records, restart. */
 	const restartWith = (edit: (rows: { id: string; kind: string; body: unknown }[]) => object[]) => {
 		const file = path.join(dir, "automations.json");
@@ -126,6 +130,7 @@ function world() {
 		save,
 		later,
 		rows,
+		where,
 		restartWith,
 		get console() {
 			return stage.console;
@@ -188,15 +193,18 @@ describe("a run through a function", () => {
 			action: "device_set",
 			args: { device: lit(PLUG), verb: expr('"sideways"') },
 		} as const;
-		w.save(pointing(hourly), [turn("on", expr("room.missing")), sideways, turn("off")]);
+		const unread = turn("on", expr("room.missing"));
+		w.save(pointing(hourly), [unread, unread, sideways, turn("off")]);
 		await w.later(HOUR);
 
 		expect(w.effects).toEqual([`${PLUG}:off`]);
 		expect(w.rows()).toEqual([
 			["device_set", "refused", VALUE_UNREAD],
+			["device_set", "refused", VALUE_UNREAD],
 			["device_set", "refused", STEP_UNFIT],
 			["device_set", "ran", undefined],
 		]);
+		expect(w.where()).toEqual(["0.0", "0.1", "0.2", "0.3"].map((step) => [step, "warm-up"]));
 	});
 
 	it("refuses an unsound body where it is written, read, entered and run", async () => {
@@ -231,6 +239,7 @@ describe("a run through a function", () => {
 			["device_set", "ran", undefined],
 			["run_function", "refused", NO_SWITCH],
 		]);
+		expect(w.where().at(-1)).toEqual(["0", "warm-up"]);
 	});
 
 	it("tells through the outbox with its message filled, the owner's words beside it", async () => {
@@ -244,6 +253,23 @@ describe("a run through a function", () => {
 			{ when: "now", fields: { message: "Warm Lamp", note: "Warm {room}" } },
 		]);
 		expect(w.rows()).toEqual([["tell_assistant", "ran", undefined]]);
+	});
+
+	it("logs a tell step held for a full outbox under that step, and a deleted automation's rows go with it", async () => {
+		const urgent = Array.from({ length: QUEUE_MAX_EVENTS }, (_, n) => ({
+			member: `old:${n}`,
+			at: 500 + n,
+			body: { title: "Old", fields: { value: "x" }, when: "now" },
+		}));
+		const w = world({ automations: {}, queue: { lastAt: 999, events: urgent }, log: [] });
+		w.save(pointing(hourly), [{ kind: "do", action: "tell_assistant", args: { when: lit("now") } }]);
+		await w.later(HOUR);
+		const held = [w.rows(), w.where()];
+		w.automations.ownerRemove("warm", 1);
+		await w.automations.settled();
+
+		expect(held).toEqual([[["tell_assistant", "refused", QUEUE_FULL]], [["0.0", "warm-up"]]]);
+		expect(w.rows()).toEqual([]);
 	});
 
 	it("ends a step at its call's window, where the default keeps trying", async () => {

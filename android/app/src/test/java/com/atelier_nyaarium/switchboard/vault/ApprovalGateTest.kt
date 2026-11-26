@@ -110,8 +110,10 @@ class ApprovalGateTest {
 	@Test
 	fun tighteningIsFreeLooseningAsksAndAnyChangeEndsTheWindow() = runBlocking {
 		val gate = gate()
-		assertEquals(OwnerPrompt.PASSED, gate.changePolicy(VAULT_UNLOCK_WINDOW, null))
-		assertEquals(OwnerPrompt.PASSED, gate.changePolicy(VAULT_UNLOCK_EVERY, null))
+		// Null: nothing was asked.
+		assertEquals(null, gate.changePolicy(VAULT_UNLOCK_WINDOW, null))
+		assertEquals(null, gate.changePolicy(VAULT_UNLOCK_EVERY, null))
+		assertEquals(null, gate.changePolicy(VAULT_UNLOCK_EVERY, null))
 		assertEquals(0, prompts)
 		assertEquals(VAULT_UNLOCK_EVERY, policy)
 

@@ -75,7 +75,8 @@ export interface AutomationJudgeView {
 
 export interface DroppedAutomation {
 	id: string;
-	reason: string;
+	/** Fixed word; logged. */
+	why: "not_event" | BodyIssue["at"];
 }
 
 export type AutomationVerdict =
@@ -408,13 +409,13 @@ function fitting(rows: readonly CarriedAutomation[], view: AutomationJudgeView, 
 	const wanted = new Map<string, Automation>();
 	const dropped: DroppedAutomation[] = [];
 	for (const { id, automation } of rows) {
-		const reason = !movesWithHome(automation)
-			? "not an event automation"
+		const why = !movesWithHome(automation)
+			? "not_event"
 			: runnable
-				? (view.assess(automation).map(lineOf)[0] ?? null)
+				? (view.assess(automation)[0]?.at ?? null)
 				: null;
-		if (reason === null) wanted.set(id, canonicalAutomation(automation));
-		else dropped.push({ id, reason });
+		if (why === null) wanted.set(id, canonicalAutomation(automation));
+		else dropped.push({ id, why });
 	}
 	return { wanted, dropped };
 }

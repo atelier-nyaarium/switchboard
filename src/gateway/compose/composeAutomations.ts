@@ -11,12 +11,15 @@ import { type Automations, type AutomationsDeps, createAutomations } from "../co
 import { type ComputedFields, type ComputedFieldsDeps, createComputedFields } from "../computed/computedFields.js";
 import type { AutomationConsoleHandlers } from "../console/consoleTypes.js";
 
-export type AutomationStoreName =
-	| "computed-fields"
-	| "computed-state"
-	| "automations"
-	| "automation-state"
-	| "automation-function-key";
+/** Data dir files. */
+export const AUTOMATION_STORES = [
+	"computed-fields",
+	"computed-state",
+	"automations",
+	"automation-state",
+	"automation-function-key",
+] as const;
+export type AutomationStoreName = (typeof AUTOMATION_STORES)[number];
 
 export interface AutomationPairDeps {
 	dataDir: string;

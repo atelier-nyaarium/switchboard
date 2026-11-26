@@ -139,17 +139,18 @@ internal class ApprovalGate(
 		}
 	}
 
-	/** Tightening is free; loosening asks the owner; any change ends the window and the carry. */
-	suspend fun changePolicy(value: String, activity: FragmentActivity?): OwnerPrompt {
+	/** Null: nothing asked. */
+	suspend fun changePolicy(value: String, activity: FragmentActivity?): OwnerPrompt? {
 		val current = policy()
-		if (value == current) return OwnerPrompt.PASSED
-		if (strength(value) < strength(current)) {
-			val answer = authenticate(activity, VAULT_PRESENCE_TITLE, VAULT_PRESENCE_SUBTITLE)
-			if (!passes(answer)) return answer
+		if (value == current) return null
+		val asked = if (strength(value) < strength(current)) {
+			authenticate(activity, VAULT_PRESENCE_TITLE, VAULT_PRESENCE_SUBTITLE).also { if (!passes(it)) return it }
+		} else {
+			null
 		}
 		persist(value)
 		forget()
-		return OwnerPrompt.PASSED
+		return asked
 	}
 
 	private fun strength(value: String): Int = when (value) {

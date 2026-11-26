@@ -514,6 +514,8 @@ describe("automations", () => {
 		const urgent = { ...iceBucket(), actions: [{ kind: "tell_assistant", when: "now" }] } as AutomationInput;
 		automations.ownerPut("bucket", urgent, 0);
 		automations.ownerPut("pail", { ...urgent, label: "Pail" }, 0);
+		// Held, so their rows stay.
+		for (const owner of ["alpha", "beta"]) automations.ownerPut(owner, { ...urgent, enabled: false }, 0);
 		w.read(fields, -5);
 
 		const ids = automations.outbox.events().map((event) => event.id);
@@ -842,7 +844,7 @@ describe("automations", () => {
 
 		expect([over.written, taken.written]).toEqual([false, false]);
 		expect(kept).toEqual(["bucket", "old"]);
-		expect(fits).toMatchObject({ written: true, dropped: [{ id: "local" }] });
+		expect(fits).toMatchObject({ written: true, dropped: [{ id: "local", why: "not_event" }] });
 		expect(ids()).toEqual(["bucket", ...many.slice(2).map((row) => row.id), "elsewhere"]);
 		expect(automations.invalidOf("elsewhere")).not.toBeNull();
 		expect(automations.eventsOf("gmail")).toEqual([]);

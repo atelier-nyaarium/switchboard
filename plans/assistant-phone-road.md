@@ -2120,7 +2120,33 @@ From the adversarial read of rank 5, which found no road through without an owed
 - **The carry judged by what held at the match, not at the prompt.** The receipt now records whether "Every approval" with the app unlocked held when the prompt was asked, and when; the carry's minute runs from the prompt. A change of the approvals setting and a re-provision end the 30-minute window as well as the carry.
 - **Tests that could not fail.** Added: the app lock's answers, the one prompt road for a caller with no card, a cancelled loosening, a relock or a setting change during the prompt, the fault's line on each card road, and that a card lets through exactly what `passes` does. `biometric-gate-residue.test.ts` holds who may ask, who may say a prompt passed, and who may mint or spend the carry.
 
-Not walked on a device: the real prompt, the overlay's prompt activity and the carry (board, under the vault card).
+Walked in the emulator against the system's own PIN prompt (a device PIN set, no fingerprint), all passing: with no screen lock the app lock turns on unasked, the app opens and an approval passes unasked; with a PIN, turning the lock on asks first and a cancel leaves it off with no fault line; the lock screen stays locked on a cancel and opens on the PIN; an approval asks ("Approve request"), a cancel keeps the card, the PIN answers it; a typed password that matches a secret asks once and Approve asks nothing more; picking another secret and back asks again; loosening approvals and turning the lock off both ask. Not reached: the fault line itself (five wrong PINs made the system lock the device, which the app read as a cancel), a fingerprint, and the overlay's prompt activity over another app (board, under the vault card).
+
+### Compliance pass
+
+Five lenses (access control, data handling and logging, audit trail, retention, the presence change) and a synthesis that verified each finding against the code. Scoped to what a single-owner system owes: the owner's data staying where expected, a run reviewable afterwards, nothing outliving what it belonged to, nothing sensitive in a log or an answer.
+
+Fixed:
+
+- **A step's row did not say which step.** A run row held the action kind alone, so two `device_set` steps of one function read alike, and two steps refused for one reason logged one row. A row now names the step's path and the function it ran in; a call refused at entry names the call and its function; a standing refusal is logged once per automation, action and step.
+- **One busy function could push every other automation out of the run log.** Past its 64 rows the log now drops the oldest row of the automation holding the most.
+- **The Gateway called its own key file unrecognized at every boot** ("nothing in this build opens it"), since the automation stores open under a name passed in and the inventory test read literals only. The file is listed, the stores' names are one list, and the test refuses another opener of that shape.
+- **A dropped carried automation was logged with its issue's sentence,** which can quote a stored value. The log prints a fixed word.
+- **A tightened approvals setting cleared the "Problem reading biometrics." notice** though nothing was asked. An act that asks nothing now answers that, and leaves the notice.
+
+From the adversarial read of these fixes, closed before the commit:
+
+- **A key that two writers of one fact did not share.** The refusal logged for a tell step held by a full outbox carried no step, while that step's ended row did, so after the first refusal and its telling a second refusal read as already logged. Both go through `whereAt` now.
+- **A fair cap with nothing that ever leaves.** Under "the largest holder loses its oldest", a deleted automation's few rows would never be the largest and never leave, and enough deletions would starve the live ones. A row whose automation is gone is dropped at each write of the state.
+- **Slips:** the cap was a recursion that copied the log per row dropped (a loop now); the inventory test also names every module that constructs a store under a subdirectory, the shape that would slip past it next.
+
+Known and accepted: a build before this one reads the run log row by row under a strict schema, so a rollback loses the rows that name a step, which is nearly all of them. Fires, checkpoints and the outbox are untouched.
+
+Left as they are, with the reason: the key file's mode (a salt for derived ids in the owner's own volume, not a credential); a refusal line that can quote a stored choice value (it goes to the owner's phone alone); function step arguments readable in the live console by host sessions (flat actions already were).
+
+Deferred as a design item (board): nothing records a save, an edit, a copy, a sweep or a carry of an automation or a function, nor that a danger confirm was given. The store keeps a revision per record and no more. Out of scope here and pre-existing: a vault approval or refusal leaves no durable record.
+
+Checked and sound: the four automation ops arrive only as signed owner ops; `automation_check` writes nothing and mints no key; an edit of a shared function asks the danger confirm for every user; the assistant's allowlist names no automation op and the live console gained only a read; pinned bodies do not outlive their fires; a let-go empties the outbox; the phone persists no function, check answer or edit; the presence gate fails closed on a throw, a cancel, a null activity and a timeout.
 
 ## Phase 2.7e.3 - The tree (slices 4 and 5)
 

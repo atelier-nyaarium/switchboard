@@ -24,11 +24,12 @@ class NoticesTest {
 	@Test
 	fun aPromptThePhoneCouldNotShowIsToldOnceAndOnlyAShownPassClearsIt() = runBlocking {
 		val state = MutableStateFlow(ChatState())
-		val all = listOf(OwnerPrompt.COULD_NOT_ASK, OwnerPrompt.COULD_NOT_ASK, OwnerPrompt.REFUSED, OwnerPrompt.NO_SCREEN_LOCK, OwnerPrompt.PASSED)
+		// Null: nothing was asked.
+		val all = listOf(OwnerPrompt.COULD_NOT_ASK, OwnerPrompt.COULD_NOT_ASK, OwnerPrompt.REFUSED, OwnerPrompt.NO_SCREEN_LOCK, null, OwnerPrompt.PASSED)
 
 		val told = all.map { answer -> state.asked { answer } to state.value.notices.size }
 
-		assertEquals(listOf(false to 1, false to 1, false to 1, true to 1, true to 0), told)
+		assertEquals(listOf(false to 1, false to 1, false to 1, true to 1, true to 1, true to 0), told)
 		assertEquals(OwnerPrompt.COULD_NOT_ASK, requireOwnerPresent(null))
 	}
 

@@ -88,7 +88,7 @@ class ChatRepository(
 
 	/** Owner-present prompt; no lock asks nothing. */
 	suspend fun ownerPresent(activity: androidx.fragment.app.FragmentActivity?): Boolean =
-		!_state.value.biometricLock || lockAsks(activity)
+		_state.asked { if (_state.value.biometricLock) requireOwnerPresent(activity) else null }
 
 	/** Also asked before the lock turns on. */
 	suspend fun lockAsks(activity: androidx.fragment.app.FragmentActivity?): Boolean =

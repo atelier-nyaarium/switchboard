@@ -37,9 +37,9 @@ internal fun ChatState.promptAnswered(answer: OwnerPrompt): ChatState = when (an
 	OwnerPrompt.REFUSED, OwnerPrompt.NO_SCREEN_LOCK -> this
 }
 
-/** Prompt for a caller with no card. */
-internal suspend fun MutableStateFlow<ChatState>.asked(ask: suspend () -> OwnerPrompt): Boolean {
-	val answer = ask()
+/** A cardless caller's prompt. Null: nothing asked. */
+internal suspend fun MutableStateFlow<ChatState>.asked(ask: suspend () -> OwnerPrompt?): Boolean {
+	val answer = ask() ?: return true
 	update { it.promptAnswered(answer) }
 	return passes(answer)
 }
