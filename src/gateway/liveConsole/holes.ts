@@ -88,6 +88,20 @@ function unreadable(node: ConsoleNode, names: ReadonlySet<string>, registry: Con
 	}
 }
 
+type SourceIssue = { at: "whole"; why: "empty" | "many" } | { at: "span"; start: number; end: number; message: string };
+
+/** Offsets within the source. */
+function sourceIssue(source: string, scope: ReadonlySet<string>, registry: ConsoleRegistry): SourceIssue | null {
+	const parsed = parseConsole(source);
+	const first = parsed.issues[0];
+	if (first) return { at: "span", start: first.start, end: first.end, message: first.message };
+	const [statement, second] = parsed.statements;
+	if (!statement) return { at: "whole", why: "empty" };
+	if (second || statement.assign) return { at: "whole", why: "many" };
+	const found = unreadable(statement.node, scope, registry);
+	return found ? { at: "span", ...found } : null;
+}
+
 export function holeIssue(text: string, names: readonly string[], registry: ConsoleRegistry): HoleIssue | null {
 	const scope = new Set(names);
 	for (const part of scanHoles(text)) {
@@ -95,17 +109,38 @@ export function holeIssue(text: string, names: readonly string[], registry: Cons
 		const whole = { start: part.start, end: part.end };
 		if (!part.closed) return { ...whole, message: "missing }" };
 		const inner = part.start + 1;
-		const parsed = parseConsole(part.source);
-		const first = parsed.issues[0];
-		if (first) return { start: inner + first.start, end: inner + first.end, message: first.message };
-		const [statement, second] = parsed.statements;
-		if (!statement) return { ...whole, message: "a hole needs an expression" };
-		if (second || statement.assign) return { ...whole, message: "a hole holds one expression" };
-		const found = unreadable(statement.node, scope, registry);
-		if (found) return { start: inner + found.start, end: inner + found.end, message: found.message };
+		const found = sourceIssue(part.source, scope, registry);
+		if (!found) continue;
+		if (found.at === "span") return { start: inner + found.start, end: inner + found.end, message: found.message };
+		return {
+			...whole,
+			message: found.why === "empty" ? "a hole needs an expression" : "a hole holds one expression",
+		};
 	}
 	return null;
 }
+
+/** A bare expression, no braces. */
+export function expressionIssue(source: string, names: readonly string[], registry: ConsoleRegistry): HoleIssue | null {
+	const found = sourceIssue(source, new Set(names), registry);
+	if (!found) return null;
+	if (found.at === "span") return { start: found.start, end: found.end, message: found.message };
+	return {
+		start: 0,
+		end: source.length,
+		message: found.why === "empty" ? "it needs an expression" : "it holds one expression",
+	};
+}
+
+/** One registry's holes port. */
+export const holesOver = (registry: ConsoleRegistry) => ({
+	issue: (text: string, names: readonly string[]) => holeIssue(text, names, registry),
+	expression: (source: string, names: readonly string[]) => expressionIssue(source, names, registry),
+	fill: (text: string, names: Readonly<Record<string, HoleName>>) => fillHoles(text, names, registry),
+	evaluate: (source: string, names: Readonly<Record<string, HoleName>>) => evaluateHole(source, names, registry),
+});
+
+export type ConsoleHoles = ReturnType<typeof holesOver>;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);

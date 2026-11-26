@@ -1,6 +1,6 @@
 // Whether a trigger and an automation's values fill what a function takes.
 
-import { written } from "./automation-walk.js";
+import { stepsOf } from "./automation-walk.js";
 import { type ConsoleNode, parseConsole } from "./live-console-grammar.js";
 import type { AutomationTriggerKind, FunctionValue } from "./schemasAutomation.js";
 import type { AutomationFunction, FunctionParam, FunctionParamType, FunctionStep, StepArg } from "./schemasFunction.js";
@@ -108,41 +108,25 @@ export function functionReads(fn: Pick<AutomationFunction, "steps">): FunctionRe
 	const text = (value: string) => {
 		for (const part of scanHoles(value)) if (part.kind === "hole") read(part.source);
 	};
+	const expression = (held: StepArg) => {
+		if (held.kind === "expression") read(held.text);
+	};
 	const arg = (held: StepArg) => {
 		if (held.kind === "expression") read(held.text);
 		else if (typeof held.value === "string") text(held.value);
 	};
-	const each = (steps: readonly FunctionStep[]): void => {
-		for (const step of steps) {
-			switch (step.kind) {
-				case "do":
-					for (const held of Object.values(step.args)) arg(held);
-					break;
-				case "if":
-					read(step.when);
-					each(step.steps ?? []);
-					each(step.else ?? []);
-					break;
-				case "try":
-					each(step.steps);
-					each(step.catch);
-					break;
-				case "let":
-					if (step.value.kind === "expression") read(step.value.text);
-					break;
-				case "wait":
-					if (step.minutes.kind === "expression") read(step.minutes.text);
-					break;
-				case "throw":
-					if (step.text !== undefined) text(step.text);
-					break;
-				case "exit":
-				case "note":
-					break;
-			}
-		}
+	const none = () => undefined;
+	const reads: { [K in FunctionStep["kind"]]: (step: Extract<FunctionStep, { kind: K }>) => void } = {
+		do: (step) => Object.values(step.args).forEach(arg),
+		if: (step) => read(step.when),
+		let: (step) => expression(step.value),
+		wait: (step) => expression(step.minutes),
+		throw: (step) => (step.text === undefined ? undefined : text(step.text)),
+		try: none,
+		exit: none,
+		note: none,
 	};
-	each(written(fn));
+	for (const { step } of stepsOf(fn)) (reads[step.kind] as (step: FunctionStep) => void)(step);
 	return { names: [...into.names].sort(), eventFields: [...into.eventFields].sort() };
 }
 

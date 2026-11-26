@@ -71,7 +71,9 @@ import {
 	type Frame,
 	finished,
 	frameKey,
+	intentAt,
 	type StepRef,
+	sameRun,
 	siteIn,
 	started,
 	stepKey,
@@ -103,14 +105,8 @@ import {
 import { holeScope } from "./automationScope.js";
 import { type Checkpoint, FIRED_MAX, own, restore, type State, versionKey } from "./automationState.js";
 import { FRESH_STEP, failedAs, isEnded, KEEP_TRYING_MS, refusedUnsent, type Step, steered } from "./automationSteps.js";
-import { holeSpanOf, holeTextsOf, laneTellWhen, tellPlan } from "./automationText.js";
-import {
-	createAutomationValidity,
-	FUNCTION_GONE,
-	FUNCTION_UNREAD,
-	STEP_ISSUE_CODE,
-	STEP_UNFIT,
-} from "./automationValidity.js";
+import { holeSpanOf, holeTextsOf, laneTellWhen, STEP_ISSUE_CODE, stepPlaceOf, tellPlan } from "./automationText.js";
+import { createAutomationValidity, FUNCTION_GONE, FUNCTION_UNREAD, STEP_UNFIT } from "./automationValidity.js";
 import { createAutomationWords, fieldsOf, type WatchedReading } from "./automationWords.js";
 import type { ComputedFields, DerivedField } from "./computedFields.js";
 import { crossingField, crossingFieldId } from "./crossingBand.js";
@@ -166,7 +162,7 @@ const keepable = (value: unknown): { value: JsonValue } | null => {
 	} catch {
 		return null;
 	}
-	if (json === undefined || json.length > FRAME_VAR_BYTES_MAX) return null;
+	if (json === undefined || Buffer.byteLength(json, "utf8") > FRAME_VAR_BYTES_MAX) return null;
 	return { value: JSON.parse(json) as JsonValue };
 };
 
@@ -228,6 +224,8 @@ const isFunctionRecord = (record: OwnerRecord<StoredBody>): record is OwnerRecor
 /** Holes in a text, checked and filled. */
 export interface AutomationHoles {
 	issue: (text: string, names: readonly string[]) => { start: number; end: number; message: string } | null;
+	/** A bare expression, no braces. */
+	expression: (source: string, names: readonly string[]) => { start: number; end: number; message: string } | null;
 	/** Never throws. */
 	fill: (text: string, names: Readonly<FireNames>) => Promise<{ text: string; failed: number }>;
 	/** Null when it fails. */
@@ -947,6 +945,12 @@ export function createAutomations(deps: AutomationsDeps) {
 	};
 
 	/** A condition, a value, the minutes or a thrown text, read once at its turn. */
+	/** True pumps again: its run is over. */
+	const unwanted = (rows: RunRow[], log: RunRow[], current: Fire | undefined, step: Step | undefined): boolean => {
+		const landed = rows.length > 0 && commit({ ...state, log });
+		return landed || !current || (step !== undefined && isEnded(step));
+	};
+
 	async function readSteering(
 		fire: Fire,
 		ref: StepRef,
@@ -998,11 +1002,11 @@ export function createAutomations(deps: AutomationsDeps) {
 				return false;
 		}
 		const log = rows.reduce(logged, state.log);
-		const current = state.fires.find((held) => held.member === ref.member);
+		const current = state.fires.find((held) => sameRun(held, fire));
 		const step = current?.steps[ref.path];
 		const frame = current?.frames?.[site];
 		if (!current || !step || isEnded(step) || step.until !== undefined || !frame) {
-			return rows.length > 0 && commit({ ...state, log });
+			return unwanted(rows, log, current, step);
 		}
 		const overfull =
 			outcome.vars !== undefined && Object.keys({ ...frame.vars, ...outcome.vars }).length > FRAME_VARS_MAX;
@@ -1018,7 +1022,6 @@ export function createAutomations(deps: AutomationsDeps) {
 		return commit({ ...state, fires, log: failed.reduce(logged, log) });
 	}
 
-	/** Read once, at start. */
 	/** Another fire set this switch since; a toggle never outdates a toggle. */
 	const outdated = (fire: Fire, action: AutomationAction): boolean => {
 		const target = isEffect(action) ? switchOf(action) : null;
@@ -1026,11 +1029,12 @@ export function createAutomations(deps: AutomationsDeps) {
 		return (
 			newer !== undefined &&
 			newer.member !== fire.member &&
-			newer.at > fire.at &&
+			newer.at > intentAt(fire) &&
 			!(newer.nature === "nudges" && target?.nature === "nudges")
 		);
 	};
 
+	/** Read once, at start. */
 	async function readStep(fire: Fire, ref: StepRef): Promise<boolean> {
 		const steering = treeStep(fire, ref.path);
 		const frameSite = siteIn(fire, ref.path);
@@ -1043,12 +1047,11 @@ export function createAutomations(deps: AutomationsDeps) {
 		if (!at) read = { refused: FRAME_UNREAD };
 		else read = await valuesOf(fire, at, rows);
 		const log = rows.reduce(logged, state.log);
-		const current = state.fires.find((held) => held.member === ref.member);
+		const current = state.fires.find((held) => sameRun(held, fire));
 		const step = current?.steps[ref.path];
 		const site = siteIn(fire, ref.path);
 		const frame = site === null ? undefined : current?.frames?.[site];
-		if (!current || !step || isEnded(step) || !frame || site === null)
-			return rows.length > 0 && commit({ ...state, log });
+		if (!current || !step || isEnded(step) || !frame || site === null) return unwanted(rows, log, current, step);
 		if (!("refused" in read) && outdated(current, read.action)) read = { refused: NEWER_SET };
 		if ("refused" in read) {
 			const ended = refusedUnsent(step);
@@ -1173,7 +1176,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		for (const message of written) messages.push(await filled(message, "tell_assistant"));
 		const log = rows.reduce(logged, state.log);
 		// The pump may have withdrawn it.
-		const held = state.fires.find((stored) => stored.member === fire.member)?.tell;
+		const held = state.fires.find((stored) => sameRun(stored, fire))?.tell;
 		if (!held?.fill) return rows.length > 0 && commit({ ...state, log });
 		const tell = { when: held.when, fields: withMessage(held.fields, messages, written) };
 		return commit({ ...state, fires: patched(fire.member, { tell }), log });
@@ -1322,7 +1325,8 @@ export function createAutomations(deps: AutomationsDeps) {
 					return {
 						code: "hole",
 						record,
-						path: String(hole.action),
+						path: hole.step,
+						step: hole.step,
 						param: hole.param,
 						start: hole.start,
 						end: hole.end,
@@ -1331,8 +1335,9 @@ export function createAutomations(deps: AutomationsDeps) {
 				const { issue } = refusal;
 				if (!issue) return { code: "invalid", record, line: refusal.reason.slice(0, SAVE_LINE_MAX) };
 				const path = issue.path.join(".");
+				const place = stepPlaceOf(issue);
 				return issue.code === STEP_ISSUE_CODE
-					? { code: "invalid", record, path, line: issue.message.slice(0, SAVE_LINE_MAX) }
+					? { code: "invalid", record, path, ...place, line: issue.message.slice(0, SAVE_LINE_MAX) }
 					: { code: "invalid", record, path, line: `the ${record} is invalid` };
 			}
 			case "moved":
@@ -1448,13 +1453,14 @@ export function createAutomations(deps: AutomationsDeps) {
 			const landed = result.written ? result.records[0] : result.record;
 			const record = landed && isAutomationRecord(landed) ? landed : records.get(id);
 			if (result.written && record) return { stored: true, revision: record.revision, row: rowOf(record) };
+			const span = result.written ? undefined : holeSpanOf(result.issue);
 			return {
 				stored: false,
 				revision: record?.revision ?? 0,
 				reason: result.written ? "not saved; try again" : result.reason,
 				...(record ? { row: rowOf(record) } : {}),
 				...(!result.written && result.confirm ? { confirm: result.confirm } : {}),
-				...(!result.written && holeSpanOf(result.issue) ? { hole: holeSpanOf(result.issue) } : {}),
+				...(span ? { hole: { action: span.action, param: span.param, start: span.start, end: span.end } } : {}),
 			};
 		},
 		ownerRemove(id: string, base: number): ConsoleAutomationDeleteResult {

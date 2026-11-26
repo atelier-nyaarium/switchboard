@@ -106,9 +106,11 @@ export const sideNumber = (side: Side): 0 | 1 => (side === "then" || side === "t
 /** Numbers alone: a call, an index and a side each read as one. */
 export const STEP_PATH_RE = /^\d+(\.\d+)*$/;
 
+const numbered = (address: Address): number[] =>
+	address.map((segment) => (typeof segment === "number" ? segment : sideNumber(segment)));
+
 /** A step of the body the call at `site` runs. */
-export const within = (site: string, address: Address): string =>
-	[site, ...address.map((segment) => (typeof segment === "number" ? segment : sideNumber(segment)))].join(".");
+export const within = (site: string, address: Address): string => [site, ...numbered(address)].join(".");
 
 /** The call a step runs under: the longest of `sites` above it. */
 export const siteAmong = (path: string, sites: Iterable<string>): string | null => {
@@ -168,6 +170,10 @@ function stepsIn(steps: readonly FunctionStep[], base: Address): { address: Addr
 		return [{ address, step }];
 	});
 }
+
+/** A function's steps at every depth, each with its numbers under the function. */
+export const stepsOf = (fn: { steps: Sealed<FunctionStep> }): { path: string; step: FunctionStep }[] =>
+	stepsIn(open(fn.steps), []).map(({ address, step }) => ({ path: numbered(address).join("."), step }));
 
 export const pointerOf = (automation: Walked): RunFunction | null =>
 	open(automation.actions).find((action): action is RunFunction => action.kind === "run_function") ?? null;

@@ -1,6 +1,7 @@
 // Saving an automation with the function it runs, and why a save is refused.
 
 import { z } from "zod";
+import { STEP_PATH_RE } from "./automation-walk.js";
 import { RULE_ID_RE } from "./schemasAssistantRules.js";
 import {
 	AUTOMATIONS_MAX,
@@ -57,6 +58,8 @@ export const AutomationSaveRefusalSchema = z
 		kind: z.enum(SAVE_RECORDS).optional(),
 		max: z.number().int().positive().optional(),
 		path: z.string().max(64).optional(),
+		/** The step it names, by the walk's numbers under `record`. */
+		step: z.string().regex(STEP_PATH_RE).max(64).optional(),
 		param: z.string().max(32).optional(),
 		start: z.number().int().nonnegative().optional(),
 		end: z.number().int().nonnegative().optional(),

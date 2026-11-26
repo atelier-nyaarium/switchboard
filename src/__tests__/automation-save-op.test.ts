@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { composeAutomations } from "../gateway/compose/composeAutomations.js";
-import { evaluateHole, fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
+import { holesOver } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import type { ConsoleOp } from "../shared/console-protocol.js";
 import { unknown } from "../shared/expressions.js";
@@ -54,11 +54,7 @@ function stage() {
 			eventIssue: () => null,
 			eventFields: () => ["reason"],
 			entropy: (size) => crypto.randomBytes(size),
-			holes: () => ({
-				issue: (text, names) => holeIssue(text, names, REGISTRY),
-				fill: (text, names) => fillHoles(text, names, REGISTRY),
-				evaluate: (source, names) => evaluateHole(source, names, REGISTRY),
-			}),
+			holes: () => holesOver(REGISTRY),
 			actions: {
 				ready: () => true,
 				switchName: (device) => (device === PLUG ? "Lamp" : null),
@@ -161,6 +157,7 @@ describe("the automation save op", () => {
 				code: "hole",
 				record: "function",
 				path: "1",
+				step: "1",
 				param: "message",
 				start: 4,
 				end: 11,
@@ -169,6 +166,7 @@ describe("the automation save op", () => {
 				code: "hole",
 				record: "function",
 				path: "0",
+				step: "0",
 				param: "device",
 				start: 0,
 				end: 7,

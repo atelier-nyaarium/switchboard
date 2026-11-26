@@ -79,9 +79,7 @@ describe("the one walk", () => {
 		expect(importers("written").sort()).toEqual([
 			"src/gateway/computed/automationJudge.ts",
 			"src/gateway/computed/automationText.ts",
-			"src/gateway/computed/automationValidity.ts",
 			"src/gateway/computed/automations.ts",
-			"src/shared/automation-fit.ts",
 		]);
 		expect(importers("reached").length).toBeGreaterThan(0);
 	});

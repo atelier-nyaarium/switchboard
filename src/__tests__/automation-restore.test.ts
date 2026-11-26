@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openAutomationPair } from "../gateway/compose/composeAutomations.js";
-import { evaluateHole, fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
+import { holesOver } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { unknown } from "../shared/expressions.js";
 
@@ -63,11 +63,7 @@ function restored(fixture: string) {
 							now: () => null,
 						}
 					: null,
-			holes: () => ({
-				issue: (text, names) => holeIssue(text, names, REGISTRY),
-				fill: (text, names) => fillHoles(text, names, REGISTRY),
-				evaluate: (source, names) => evaluateHole(source, names, REGISTRY),
-			}),
+			holes: () => holesOver(REGISTRY),
 			actions: {
 				ready: () => true,
 				switchName: (device) => (device === PLUG ? "Lamp" : device === FAN ? "Fan" : null),

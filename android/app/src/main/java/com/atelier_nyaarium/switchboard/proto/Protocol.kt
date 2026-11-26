@@ -3055,6 +3055,8 @@ data class AutomationSaveRefusal(
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val path: String? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val step: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val param: String? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val start: Long? = null,

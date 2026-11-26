@@ -13,14 +13,7 @@ import { SESSION_COMMANDS } from "../../shared/session-commands.js";
 import { neutralizeMarkup, oneLine } from "../../shared/system-reminder.js";
 import { type ConsoleReaders, consoleEntities, consoleIds } from "../liveConsole/entities.js";
 import { type ConsoleVariable, EntityRef, evaluateConsole } from "../liveConsole/evaluate.js";
-import {
-	evaluateHole,
-	type FilledText,
-	fillHoles,
-	type HoleIssue,
-	type HoleName,
-	holeIssue,
-} from "../liveConsole/holes.js";
+import { type ConsoleHoles, holesOver } from "../liveConsole/holes.js";
 import { type ConsoleAudience, createConsoleRegistry } from "../liveConsole/registry.js";
 import {
 	CONSOLE_ITEMS_DEFAULT,
@@ -51,11 +44,7 @@ export interface LiveConsoleOwner {
 	) => Promise<ConsoleEvalResult>;
 }
 
-export interface LiveConsoleHoles {
-	issue: (text: string, names: readonly string[]) => HoleIssue | null;
-	fill: (text: string, names: Readonly<Record<string, HoleName>>) => Promise<FilledText>;
-	evaluate: (source: string, names: Readonly<Record<string, HoleName>>) => Promise<{ value: unknown } | null>;
-}
+export type LiveConsoleHoles = ConsoleHoles;
 
 export interface LiveConsoleStage {
 	routes: Map<string, Handler>;
@@ -161,11 +150,7 @@ export function composeLiveConsole(deps: LiveConsoleStageDeps): LiveConsoleStage
 		},
 	};
 
-	const holes: LiveConsoleHoles = {
-		issue: (text, names) => holeIssue(text, names, registry),
-		fill: (text, names) => fillHoles(text, names, registry),
-		evaluate: (source, names) => evaluateHole(source, names, registry),
-	};
+	const holes = holesOver(registry);
 
 	return { routes: consoleRoutes(deps.callerOf, answer), answer, console: owner, holes };
 }

@@ -7,10 +7,10 @@ import {
 	pointerOf,
 	reached,
 	steering,
+	stepsOf,
 	type Unfollowed,
 	visit,
 	type WalkEntry,
-	written,
 } from "../../shared/automation-walk.js";
 import {
 	AUTOMATION_ACTIONS,
@@ -33,7 +33,7 @@ import { clockIssue, isClock } from "./automationClock.js";
 import type { EffectKind } from "./automationRunner.js";
 import { holeNames } from "./automationScope.js";
 import type { AutomationsDeps } from "./automations.js";
-import { holeOwnerIssue } from "./automationText.js";
+import { holeOwnerIssue, stepOwnerIssue } from "./automationText.js";
 import { crossingField } from "./crossingBand.js";
 
 export type ValidityDeps = Pick<
@@ -58,7 +58,6 @@ export const FUNCTION_UNFIT = "it does not fit the function it runs";
 export const NO_SWITCH = "no such switch on this Gateway";
 /** A step's values fail its action. */
 export const STEP_UNFIT = "its values do not fit what it does";
-export const STEP_ISSUE_CODE = "invalid_step";
 const NO_ACTION = "this Gateway runs no such action";
 const UNRUNNABLE = "a step does what this Gateway cannot run";
 export const NAME_TAKEN = "that name is already a value here";
@@ -80,7 +79,7 @@ export type CallIssue = { kind: "unfit" } | { kind: "switch"; param: string };
 export type BodyIssue =
 	| { at: "trigger"; message: string }
 	| { at: "action"; index: number; issue: StepIssue }
-	| { at: "step"; via: string; index: number; issue: StepIssue }
+	| { at: "step"; via: string; path: string; issue: StepIssue }
 	/** Unfollowed function call. */
 	| { at: "call"; function: string; message: string }
 	| { at: "fit"; function: string; issue: CallIssue };
@@ -151,16 +150,19 @@ export function createAutomationValidity(
 	const switchHeld = (device: unknown): boolean =>
 		typeof device === "string" && (deps.actions?.switchName(device) ?? null) !== null;
 
-	/** A hole's issue in a text; `shift` for an expression's braces. */
-	const holeIn = (text: string, names: readonly string[], shift: number): Omit<StepIssue, "param"> | null => {
+	type Spanned = Omit<StepIssue, "param">;
+	const unreadYet = (text: string): Spanned => ({ start: 0, end: text.length, message: "holes cannot be read yet" });
+
+	/** A hole's issue in a text. */
+	const holeIn = (text: string, names: readonly string[]): Spanned | null => {
 		const holes = deps.holes?.();
-		const issue = holes
-			? holes.issue(text, names)
-			: { start: 0, end: text.length, message: "holes cannot be read yet" };
-		if (!issue) return null;
-		const length = text.length - 2 * shift;
-		const clamp = (offset: number) => Math.min(length, Math.max(0, offset - shift));
-		return { start: clamp(issue.start), end: clamp(issue.end), message: issue.message };
+		return holes ? holes.issue(text, names) : unreadYet(text);
+	};
+
+	/** A bare expression's issue. */
+	const expressionIn = (source: string, names: readonly string[]): Spanned | null => {
+		const holes = deps.holes?.();
+		return holes ? holes.expression(source, names) : unreadYet(source);
 	};
 
 	/** Null names skip holes. */
@@ -186,7 +188,7 @@ export function createAutomationValidity(
 			if (!arg) continue;
 			if (arg.kind === "expression") {
 				literalOnly = false;
-				const issue = holeIn(`{${arg.text}}`, names ?? [], 1);
+				const issue = expressionIn(arg.text, names ?? []);
 				if (issue) return { param: param.name, ...issue };
 				continue;
 			}
@@ -195,7 +197,7 @@ export function createAutomationValidity(
 			if (names !== null && typeof value === "string" && hasHoles(value)) {
 				if (param.kind !== "text")
 					return { param: param.name, start: 0, end: value.length, message: "only a text takes a hole" };
-				const issue = holeIn(value, names, 0);
+				const issue = holeIn(value, names);
 				if (issue) return { param: param.name, ...issue };
 				continue;
 			}
@@ -209,19 +211,14 @@ export function createAutomationValidity(
 
 	type Checked = Pick<AutomationFunction, "params" | "steps">;
 
-	/** Every name a `let` assigns, at any depth. */
-	const letNames = (steps: readonly FunctionStep[]): string[] =>
-		steps.flatMap((step) => [
-			...(step.kind === "let" ? [step.name] : []),
-			...(step.kind === "if" ? [...letNames(step.steps ?? []), ...letNames(step.else ?? [])] : []),
-			...(step.kind === "try" ? [...letNames(step.steps), ...letNames(step.catch)] : []),
-		]);
+	const letNames = (fn: Checked): string[] =>
+		stepsOf(fn).flatMap(({ step }) => (step.kind === "let" ? [step.name] : []));
 
-	/** What a step of this function may name. `e` reads only inside a catch, which the run decides. */
-	const namesIn = (fn: Checked): string[] => [...holeNames(TRIGGER_NAMES, fn.params), ...letNames(written(fn)), "e"];
+	/** The run scopes `e` to a catch. */
+	const namesIn = (fn: Checked): string[] => [...holeNames(TRIGGER_NAMES, fn.params), ...letNames(fn), "e"];
 
 	const expressionIssue = (param: string, text: string, names: readonly string[]): StepIssue | null => {
-		const issue = holeIn(`{${text}}`, names, 1);
+		const issue = expressionIn(text, names);
 		return issue ? { param, ...issue } : null;
 	};
 
@@ -249,7 +246,7 @@ export function createAutomationValidity(
 		},
 		throw: (fn, step) => {
 			if (step.text === undefined || !hasHoles(step.text)) return null;
-			const issue = holeIn(step.text, namesIn(fn), 0);
+			const issue = holeIn(step.text, namesIn(fn));
 			return issue ? { param: "text", ...issue } : null;
 		},
 		do: (fn, step) => {
@@ -261,24 +258,6 @@ export function createAutomationValidity(
 
 	const stepIssue = (fn: Checked, step: FunctionStep): StepIssue | null =>
 		(STEPS[step.kind] as (fn: Checked, step: FunctionStep) => StepIssue | null)(fn, step);
-
-	/** Every step with the keys it is stored under and its top-level index. */
-	const stored = (
-		steps: readonly FunctionStep[],
-		keys: readonly (string | number)[],
-		top?: number,
-	): { step: FunctionStep; keys: (string | number)[]; top: number }[] =>
-		steps.flatMap((step, index) => {
-			const here = [...keys, index];
-			const at = top ?? index;
-			const under = (key: string, list: readonly FunctionStep[] | undefined) =>
-				stored(list ?? [], [...here, key], at);
-			if (step.kind === "if")
-				return [{ step, keys: here, top: at }, ...under("steps", step.steps), ...under("else", step.else)];
-			if (step.kind === "try")
-				return [{ step, keys: here, top: at }, ...under("steps", step.steps), ...under("catch", step.catch)];
-			return [{ step, keys: here, top: at }];
-		});
 
 	/** Fit, then each device value against the switches. */
 	function callIssue(body: Automation, fn: AutomationFunction): CallIssue | null {
@@ -313,15 +292,15 @@ export function createAutomationValidity(
 					return issue && { at: "action", index, issue };
 				},
 				step: {
-					do: ({ index, step, via }) => {
+					do: ({ path, step, via }) => {
 						const fn = functions?.(via);
 						const issue = fn ? stepIssue(fn, step) : null;
-						return issue && { at: "step", via, index, issue };
+						return issue && { at: "step", via, path, issue };
 					},
-					...steering(({ index, step, via }) => {
+					...steering(({ path, step, via }) => {
 						const fn = functions?.(via);
 						const issue = fn ? stepIssue(fn, step) : null;
-						return issue && { at: "step", via, index, issue };
+						return issue && { at: "step", via, path, issue };
 					}),
 				},
 				unfollowedCall: ({ call, reason }) => {
@@ -363,7 +342,7 @@ export function createAutomationValidity(
 		const issues = [...assessBody(body, functions)].filter(stopsWrite);
 		for (const held of issues) {
 			if (held.at === "action" && holed(held.issue)) {
-				return holeOwnerIssue({ action: held.index, param: held.issue.param }, held.issue);
+				return holeOwnerIssue({ step: String(held.index), param: held.issue.param }, held.issue);
 			}
 		}
 		const [issue] = issues;
@@ -372,15 +351,11 @@ export function createAutomationValidity(
 
 	/** First function-step issue. */
 	function functionIssue(fn: AutomationFunction): OwnerIssue | null {
-		for (const { step, keys, top } of stored(written(fn), ["steps"])) {
+		for (const { step, path } of stepsOf(fn)) {
 			const issue = stepIssue(fn, step);
 			if (!issue) continue;
-			if (holed(issue)) return holeOwnerIssue({ action: top, param: issue.param }, issue, "steps");
-			return {
-				path: [...keys, ...(issue.param ? [issue.param] : [])],
-				message: issue.message,
-				code: STEP_ISSUE_CODE,
-			};
+			if (holed(issue)) return holeOwnerIssue({ step: path, param: issue.param }, issue, "steps");
+			return stepOwnerIssue({ step: path, param: issue.param }, issue.message);
 		}
 		return null;
 	}

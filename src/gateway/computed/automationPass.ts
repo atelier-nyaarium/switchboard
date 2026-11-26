@@ -9,6 +9,7 @@ import {
 	type Fire,
 	finished,
 	holdsClaim,
+	intentAt,
 	type LandedSet,
 	mayRun,
 	nextEffect,
@@ -214,7 +215,7 @@ export function createPass(ports: PassPorts): {
 			if (next.verdict !== "done") continue;
 			ran = { ...ran, [fire.automation]: fire.at };
 			const switched = switchOf(ports.stepAt(fire, path));
-			if (switched) sets.push({ member: fire.member, ...switched, at: fire.at });
+			if (switched) sets.push({ member: fire.member, ...switched, at: intentAt(fire) });
 		}
 		return { fire: landed, log, ran, sets };
 	};

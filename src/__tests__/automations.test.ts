@@ -21,7 +21,7 @@ import {
 	WAITING_EVENTS_MAX,
 } from "../gateway/computed/automations.js";
 import { type ComputedField, createComputedFields } from "../gateway/computed/computedFields.js";
-import { evaluateHole, fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
+import { fillHoles, holesOver } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { openDurable } from "../shared/durable-store.js";
 import { type FieldRef, known, refKey, unknown, type Value } from "../shared/expressions.js";
@@ -129,13 +129,12 @@ function world(dir: string, home = true) {
 					}
 					return readable
 						? {
-								issue: (text, names) => holeIssue(text, names, REGISTRY),
+								...holesOver(REGISTRY),
 								fill: async (text, names) => {
 									await fillGate;
 									if (broken) throw new Error("fill broke");
 									return fillHoles(text, names, REGISTRY);
 								},
-								evaluate: (source, names) => evaluateHole(source, names, REGISTRY),
 							}
 						: undefined;
 				},

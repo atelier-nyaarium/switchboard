@@ -191,7 +191,22 @@ export const nextEffect = (runnable: readonly Runnable[]): StepRef | null =>
 	runnable.reduce<Runnable | null>((best, next) => (best === null || next.dueAt < best.dueAt ? next : best), null)
 		?.ref ?? null;
 
-/** A switch step that landed: its device, its nature, and when its fire fired. */
+/** Fire time, or its last wait's end. */
+export const intentAt = (fire: Pick<Fire, "at" | "steps">): number =>
+	Object.values(fire.steps).reduce(
+		(latest, step) => (isEnded(step) && step.until !== undefined ? Math.max(latest, step.until) : latest),
+		fire.at,
+	);
+
+/** One admission, never its successor. */
+export const sameRun = (a: Fire, b: Fire): boolean =>
+	a.member === b.member &&
+	a.incarnation === b.incarnation &&
+	a.revision === b.revision &&
+	a.seq === b.seq &&
+	a.at === b.at;
+
+/** A landed switch step, dated by `intentAt`. */
 export interface LandedSet {
 	member: string;
 	device: string;
@@ -219,7 +234,7 @@ export function outdatedSets(
 				(set) =>
 					set.member !== fire.member &&
 					set.device === target.device &&
-					set.at > fire.at &&
+					set.at > intentAt(fire) &&
 					!(set.nature === "nudges" && target.nature === "nudges"),
 			);
 			return newer ? [{ member: fire.member, path }] : [];

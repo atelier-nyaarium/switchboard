@@ -11,7 +11,7 @@ import {
 	type SavedFunction,
 } from "../gateway/computed/automationJudge.js";
 import { FUNCTION_UNREAD, NO_SWITCH } from "../gateway/computed/automationValidity.js";
-import { evaluateHole, fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
+import { holesOver } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import type { OwnerRecord } from "../gateway/ownerRecords.js";
 import { unknown } from "../shared/expressions.js";
@@ -84,11 +84,7 @@ function open(home = true, seed: object[] = [], keyFile?: string) {
 			eventIssue: () => null,
 			eventFields: () => ["reason"],
 			entropy: (size) => crypto.randomBytes(size),
-			holes: () => ({
-				issue: (text, names) => holeIssue(text, names, REGISTRY),
-				fill: (text, names) => fillHoles(text, names, REGISTRY),
-				evaluate: (source, names) => evaluateHole(source, names, REGISTRY),
-			}),
+			holes: () => holesOver(REGISTRY),
 			actions: {
 				ready: () => true,
 				switchName: (device) => (switches.has(device) ? "Lamp" : null),
@@ -636,17 +632,14 @@ describe("an automation that runs a function", () => {
 					code: "hole",
 					record: "function",
 					path: "0",
+					step: "0",
 					param: "device",
 					start: 0,
 					end: 6,
 				},
-				{ code: "invalid", record: "function", path: "steps.0.colour" },
-				{
-					code: "invalid",
-					record: "function",
-					path: "steps.0.verb",
-				},
-				{ code: "invalid", record: "function", path: "steps.0.device" },
+				{ code: "invalid", record: "function", path: "steps.0.colour", step: "0", param: "colour" },
+				{ code: "invalid", record: "function", path: "steps.0.verb", step: "0", param: "verb" },
+				{ code: "invalid", record: "function", path: "steps.0.device", step: "0", param: "device" },
 				{ code: "invalid", record: "automation", path: "values.room" },
 			]);
 		});
@@ -671,6 +664,7 @@ describe("an automation that runs a function", () => {
 					code: "invalid",
 					record: "function",
 					path: "steps.0",
+					step: "0",
 				},
 				[],
 			]);

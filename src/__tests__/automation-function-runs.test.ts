@@ -8,15 +8,17 @@ import { QUEUE_FULL, QUEUE_MAX_EVENTS } from "../gateway/computed/automationOutb
 import { CALL_FAILED } from "../gateway/computed/automationPass.js";
 import type { Attempt } from "../gateway/computed/automationRunner.js";
 import {
+	type AutomationHoles,
 	CONDITION_UNREAD,
 	NEWER_SET,
 	NOT_TRUE_OR_FALSE,
 	STEP_UNFIT,
 	THROWN,
+	VALUE_TOO_LARGE,
 	VALUE_UNREAD,
 } from "../gateway/computed/automations.js";
 import { FUNCTION_GONE, FUNCTION_UNREAD, NO_SWITCH } from "../gateway/computed/automationValidity.js";
-import { evaluateHole, fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
+import { holesOver } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { unknown } from "../shared/expressions.js";
 import { type AutomationInput, AutomationSchema, type AutomationTrigger } from "../shared/schemasAutomation.js";
@@ -65,6 +67,7 @@ function world(stored?: object) {
 	const effects: string[] = [];
 	const unplugged = new Set<string>();
 	let answer: (effect: string) => Attempt = () => ({ word: "done" });
+	let evaluating: AutomationHoles["evaluate"] = holesOver(REGISTRY).evaluate;
 	const open = () =>
 		composeAutomations({
 			dataDir: dir,
@@ -76,11 +79,7 @@ function world(stored?: object) {
 				eventIssue: () => null,
 				eventFields: () => ["reason"],
 				entropy: (size) => crypto.randomBytes(size),
-				holes: () => ({
-					issue: (text, names) => holeIssue(text, names, REGISTRY),
-					fill: (text, names) => fillHoles(text, names, REGISTRY),
-					evaluate: (source, names) => evaluateHole(source, names, REGISTRY),
-				}),
+				holes: () => ({ ...holesOver(REGISTRY), evaluate: (source, names) => evaluating(source, names) }),
 				actions: {
 					ready: () => true,
 					switchName: (device) =>
@@ -150,6 +149,20 @@ function world(stored?: object) {
 			answer = next;
 		},
 		unplug: (device: string) => unplugged.add(device),
+		/** Holds every read until released. */
+		holdReads: () => {
+			let release = () => {};
+			const gate = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			const read = evaluating;
+			evaluating = async (source, names) => {
+				await gate;
+				return read(source, names);
+			};
+			return release;
+		},
+		state: () => JSON.parse(fs.readFileSync(path.join(dir, "automation-state.json"), "utf8")),
 		/** One starts; one waits. */
 		queueTwo: async () => {
 			answer = unreachable;
@@ -598,6 +611,83 @@ describe("a tree of steps", () => {
 		expect(w.effects.slice(0, 2)).toEqual([`${PLUG}:on`, `${PLUG}:off`]);
 	});
 
+	it("runs a step after a wait though another automation set its switch during the wait", async () => {
+		const w = world();
+		const other = (enabled: boolean): AutomationInput => ({
+			enabled,
+			trigger: { kind: "interval", everyMin: 1 },
+			actions: [{ kind: "device_set", device: PLUG, verb: "on" }],
+		});
+		w.save(pointing(event), [turn("on"), { kind: "wait", minutes: lit(5) }, turn("off")]);
+		w.automations.fireEvents([{ automation: "warm", key: "once", names: {} }], w.at());
+		await w.automations.settled();
+		w.automations.ownerPut("other", other(true), 0, true);
+		await w.later(60_000);
+		w.automations.ownerPut("other", other(false), 1, true);
+		await w.later(4 * 60_000 + 1_000);
+
+		expect(w.effects).toEqual([`${PLUG}:on`, `${PLUG}:on`, `${PLUG}:off`]);
+	});
+
+	it("drops a read that lands after its run was replaced under the same event", async () => {
+		const w = world();
+		const titled = (title: string) => [{ automation: "warm", key: "same", names: { event: { value: { title } } } }];
+		w.save(pointing(event), [
+			{ kind: "if", when: 'event.title == "old"', steps: [turn("on")], else: [turn("off")] },
+		]);
+		const release = w.holdReads();
+		w.automations.fireEvents(titled("old"), w.at());
+		await Promise.resolve();
+		w.automations.ownerPut("warm", { ...pointing(event), enabled: false }, 1, true);
+		w.automations.ownerPut("warm", pointing(event), 2, true);
+		w.automations.ownerPut(
+			"other",
+			{ enabled: true, trigger: event, actions: [{ kind: "tell_assistant", when: "quietly", message: "x" }] },
+			0,
+			true,
+		);
+		w.automations.fireEvents(
+			Array.from({ length: 257 }, (_, n) => ({ automation: "other", key: `other${n}`, names: {} })),
+			w.at(),
+		);
+		w.automations.fireEvents(titled("new"), w.at());
+		release();
+		await w.automations.settled();
+
+		expect(w.effects).toEqual([`${PLUG}:off`]);
+	});
+
+	it("keeps what a catch caught and a let kept across a restart", async () => {
+		const w = world();
+		w.answer((effect) => (effect.endsWith(":on") ? { word: "refused" } : { word: "done" }));
+		w.save(pointing(hourly), [
+			{ kind: "let", name: "level", value: lit(7) },
+			{
+				kind: "try",
+				steps: [turn("on")],
+				catch: [{ kind: "wait", minutes: lit(5) }, ifttt("caught", "{e.code} at {level}")],
+			},
+		]);
+		await w.later(HOUR);
+		w.restartWith((rows) => rows);
+		await w.later(5 * 60_000 + 1_000);
+
+		expect(w.effects).toEqual([`${PLUG}:on`, "ifttt:caught:refused at 7"]);
+	});
+
+	it("fails a let whose value is past its bytes, counted as stored", async () => {
+		const w = world();
+		const wide = String.fromCharCode(0x754c).repeat(500);
+		w.save(pointing(hourly), [{ kind: "let", name: "wide", value: lit(wide) }, ifttt("after")]);
+		await w.later(HOUR);
+
+		expect(w.rows()).toEqual([
+			["let", "refused", VALUE_TOO_LARGE],
+			["ifttt_trigger", "ran", undefined],
+			["run_function", "refused", CALL_FAILED],
+		]);
+	});
+
 	it("refuses at the save a name already taken, a wait out of range, and a condition it cannot read, at any depth", () => {
 		const bodies: AutomationFunctionInput["steps"][] = [
 			[{ kind: "let", name: "room", value: lit(1) }],
@@ -606,9 +696,32 @@ describe("a tree of steps", () => {
 			[{ kind: "if", when: "nobody > 1" }],
 			[{ kind: "try", steps: [{ kind: "if", when: "(", steps: [turn("on")] }], catch: [] }],
 			[{ kind: "if", when: "true", else: [{ kind: "throw", text: "{nobody}" }] }],
+			[{ kind: "if", when: "true} ignored {false", steps: [turn("on")] }],
+			[turn("on", expr("room} {room"))],
 		];
 
 		expect(bodies.map((steps) => world().save(pointing(hourly), steps).stored)).toEqual(bodies.map(() => false));
+	});
+
+	it("names the step a save was refused for by its numbers, at any depth", () => {
+		const bodies: AutomationFunctionInput["steps"][] = [
+			[{ kind: "if", when: "true", steps: [{ kind: "throw", text: "{nobody}" }] }],
+			[{ kind: "try", steps: [turn("on")], catch: [turn("on"), { kind: "wait", minutes: lit(-1) }] }],
+			[turn("on"), { kind: "if", when: "true", else: [{ kind: "let", name: "room", value: lit(1) }] }],
+			[turn("on"), ifttt("bell", "{nobody}")],
+		];
+		const refused = bodies.map((steps) => {
+			const saved = world().save(pointing(hourly), steps);
+			const refusal = saved.stored ? undefined : saved.refusal;
+			return [refusal?.code, refusal?.step, refusal?.param];
+		});
+
+		expect(refused).toEqual([
+			["hole", "0.0.0", "text"],
+			["invalid", "0.1.1", "minutes"],
+			["invalid", "1.1.0", "name"],
+			["hole", "1", "value1"],
+		]);
 	});
 
 	it("refuses a body nested past its depth or holding too many steps", () => {

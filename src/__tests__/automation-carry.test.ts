@@ -7,7 +7,7 @@ import vectors from "../../tests/fixtures/automation-carry/vectors.json" with { 
 import { openAutomationPair } from "../gateway/compose/composeAutomations.js";
 import { FUNCTION_UNUSED_KEEP_MS } from "../gateway/computed/automations.js";
 import { FUNCTION_LEFT, FUNCTION_UNFIT } from "../gateway/computed/automationValidity.js";
-import { evaluateHole, fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
+import { holesOver } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { carriedFunctionsOf } from "../shared/automation-carry.js";
 import { pointerOf } from "../shared/automation-walk.js";
@@ -83,11 +83,7 @@ function destination(held: readonly (readonly string[])[], now = { at: 1_000 }) 
 			isHome: () => true,
 			eventIssue: () => null,
 			eventFields: () => [],
-			holes: () => ({
-				issue: (text, names) => holeIssue(text, names, REGISTRY),
-				fill: (text, names) => fillHoles(text, names, REGISTRY),
-				evaluate: (source, names) => evaluateHole(source, names, REGISTRY),
-			}),
+			holes: () => holesOver(REGISTRY),
 		},
 	});
 	const functions = () =>
