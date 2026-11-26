@@ -2161,6 +2161,17 @@ Gates: the failure table's vectors; phone-encoded nested unknown steps re-encode
 
 First step, carried from the 2.7e.1 architecture pass: take the pump's pass out as a pure function of the state, the answers and the clock, with the active list as the authority for whose turn it is, and drop the fill slot.
 
+Order of work for slice 4, each a child of its board card (`bd_57a7ad81b206819572775b4c9ba5682d`):
+
+1. The pump's pass as a pure function; the active list decides whose turn it is; no fill slot.
+2. The step path with sides: one typed path in the walk, spelled per Question 89 (asked 2026-11-26, recommendation `0.2t.1`), a Kotlin twin, shared vectors.
+3. The step kinds `if`, `try`, `exit`, `throw`, `let`, `wait`, `note` in the schema, a future-kind fixture at every depth.
+4. The frame walk and the failure table with its vectors; conditions, variables, `as`, `wait`.
+5. Tells as steps.
+6. The log row with a declared kind and its own key; the last run served.
+7. Questions 82 and 83.
+8. The judge's tree checks and the condition preview op.
+
 Carried from 2.7e.2:
 
 - **The log row gets a declared kind that carries its own key,** and "this refusal is standing" becomes state, not a comparison with the last row (Painpoints: the dedupe's seventh patch). Rename the row away from "run" in the same change, since a run will mean a pinned run here.
