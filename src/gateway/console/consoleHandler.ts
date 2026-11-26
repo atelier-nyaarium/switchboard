@@ -545,6 +545,11 @@ export function createConsoleDispatcher({
 				return requireAutomations().save(save);
 			}
 
+			case "automation_check": {
+				const { kind: _kind, ...check } = op;
+				return requireAutomations().check(check);
+			}
+
 			case "automation_delete":
 				return requireAutomations().remove(op.automationId, op.baseRevision);
 

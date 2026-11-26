@@ -172,6 +172,12 @@
 		{ "file": "automation-save-result-stored.json", "schema": "ConsoleAutomationSaveResult", "expect": "pass" },
 		{ "file": "automation-save-result-refused.json", "schema": "ConsoleAutomationSaveResult", "expect": "pass" },
 		{ "file": "automation-save-result-line.json", "schema": "ConsoleAutomationSaveResult", "expect": "pass" },
+		{ "file": "console-op-automation-check.json", "schema": "ConsoleOp", "expect": "pass" },
+		{
+			"file": "automation-check-result-refused.json",
+			"schema": "ConsoleAutomationCheckResult",
+			"expect": "pass"
+		},
 		{ "file": "assistant-home-carried-functions.json", "schema": "AssistantHomeCarried", "expect": "pass" },
 		{
 			"file": "function-step-future-kind.json",

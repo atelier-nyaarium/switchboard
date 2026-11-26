@@ -7,6 +7,7 @@ import {
 	AutomationFunctionRowSchema,
 	AutomationRowSchema,
 	AutomationSchema,
+	FunctionReadsSchema,
 } from "./schemasAutomation.js";
 import { FunctionSchema } from "./schemasFunction.js";
 
@@ -95,9 +96,25 @@ export const AutomationSaveOpShape = {
 	automationBase: z.number().int().nonnegative(),
 	/** Absent: flat or unchanged. */
 	function: AutomationSaveFunctionSchema.optional(),
+	/** Its function's revision as shown. */
+	functionBase: z.number().int().positive().optional(),
 	/** Owner confirmed. */
 	confirmed: z.boolean().optional(),
 };
+
+/** A save, judged only. */
+export const AutomationCheckOpShape = { ...AutomationSaveOpShape, kind: z.literal("automation_check") };
+
+/** A save's answer, unwritten. */
+export const ConsoleAutomationCheckResultSchema = z
+	.object({
+		ready: z.boolean(),
+		refusal: AutomationSaveRefusalSchema.optional(),
+		/** Its body's reads. */
+		reads: FunctionReadsSchema.optional(),
+	})
+	.meta({ id: "ConsoleAutomationCheckResult" });
+export type ConsoleAutomationCheckResult = z.infer<typeof ConsoleAutomationCheckResultSchema>;
 
 export const ConsoleAutomationSaveResultSchema = z
 	.object({

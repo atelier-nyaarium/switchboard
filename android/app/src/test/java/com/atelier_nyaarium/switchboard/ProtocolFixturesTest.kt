@@ -9,6 +9,7 @@ import com.atelier_nyaarium.switchboard.proto.FunctionStep
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationCheckResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleVaultAnswerEntryResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleVaultAnswerResult
@@ -84,6 +85,7 @@ class ProtocolFixturesTest {
 			"AutomationFunction" -> wireJson.decodeFromString<AutomationFunction>(body)
 			"FunctionStep" -> wireJson.decodeFromString<FunctionStep>(body)
 			"ConsoleAutomationSaveResult" -> wireJson.decodeFromString<ConsoleAutomationSaveResult>(body)
+			"ConsoleAutomationCheckResult" -> wireJson.decodeFromString<ConsoleAutomationCheckResult>(body)
 			"VaultRequest" -> wireJson.decodeFromString<VaultRequest>(body)
 			"AssistantHomeCarried" -> wireJson.decodeFromString<AssistantHomeCarried>(body)
 			"ConsoleVaultAnswerResult" -> wireJson.decodeFromString<ConsoleVaultAnswerResult>(body)

@@ -188,6 +188,86 @@ describe("the automation save op", () => {
 		expect(refusalOf(stale)).toMatchObject({ code: "moved", record: "automation", revision: 1 });
 	});
 
+	it("answers a check as the save would on the same rows, with what the body reads, and writes nothing", () => {
+		const { console, save } = stage();
+		save("warm", pointing(hourly), 0, { id: "warm-up", body: warmUp([on]), base: 0 });
+		const tellsTitle = {
+			kind: "do",
+			action: "tell_assistant",
+			args: { when: lit("now"), message: lit("{event.title}") },
+		} as const;
+		const op = (
+			id: string,
+			body: AutomationInput,
+			automationBase: number,
+			fn?: { body: AutomationFunctionInput; base: number },
+			confirmed = true,
+		) => ({
+			automationId: id,
+			automation: AutomationSchema.parse(body),
+			automationBase,
+			...(fn
+				? {
+						function: {
+							as: "edit" as const,
+							id: "warm-up",
+							body: FunctionSchema.parse(fn.body),
+							base: fn.base,
+						},
+					}
+				: {}),
+			confirmed,
+		});
+		const cases = {
+			ready: op("warm", pointing({ kind: "interval", everyMin: 30 }), 1),
+			stale: op("warm", { ...pointing(hourly), label: "Changed" }, 0),
+			unfit: op("warm", pointing(hourly), 1, { body: warmUp([on, tellsTitle]), base: 1 }),
+			confirm: op("event", pointing(event), 0, undefined, false),
+			function_moved: op("warm", pointing(hourly), 1, { body: warmUp([on]), base: 7 }),
+		};
+		const before = console.list();
+
+		const checked = Object.fromEntries(
+			Object.entries(cases).map(([name, each]) => [name, console.check(each).refusal ?? null]),
+		);
+		const untouched = console.list();
+		const saved = Object.fromEntries(
+			Object.entries(cases)
+				.filter(([name]) => name !== "ready")
+				.map(([name, each]) => [name, console.save(each).refusal ?? null]),
+		);
+
+		expect(untouched).toEqual(before);
+		expect(
+			Object.fromEntries(Object.entries(checked).map(([name, refusal]) => [name, refusal?.code ?? null])),
+		).toEqual({ ready: null, stale: "moved", unfit: "unfit", confirm: "confirm", function_moved: "moved" });
+		expect({ ...checked, ready: undefined }).toEqual({ ...saved, ready: undefined });
+		expect(console.check(cases.unfit)).toMatchObject({ ready: false, reads: { names: ["event"] } });
+		expect(console.check(cases.ready)).toMatchObject({ ready: true, reads: { names: [], eventFields: [] } });
+	});
+
+	it("refuses a save that only points when the function is no longer the one shown", () => {
+		const { console, save } = stage();
+		save("warm", pointing(hourly), 0, { id: "warm-up", body: warmUp([on]), base: 0 });
+		save("warm", pointing(hourly), 1, { id: "warm-up", body: { ...warmUp([on]), name: "Renamed" }, base: 1 });
+		const held = console.list().automations.find((row) => row.id === "warm")?.revision ?? 0;
+		const pointer = (functionBase: number) => ({
+			automationId: "warm",
+			automation: AutomationSchema.parse(pointing({ kind: "interval", everyMin: 30 })),
+			automationBase: held,
+			functionBase,
+			confirmed: true,
+		});
+
+		const shownOld = console.save(pointer(1));
+		const shownNow = console.save(pointer(2));
+
+		expect([shownOld.refusal, shownNow.stored]).toMatchObject([
+			{ code: "moved", record: "function", revision: 2 },
+			true,
+		]);
+	});
+
 	it("answers an older phone's put as before", () => {
 		const { console } = stage();
 		const flat = AutomationSchema.parse({

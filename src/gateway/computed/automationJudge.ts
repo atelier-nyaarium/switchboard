@@ -37,6 +37,8 @@ export type AutomationIntent =
 			body: unknown;
 			base: number;
 			function?: SavedFunction;
+			/** Its function's shown revision. */
+			functionBase?: number;
 			confirmed?: boolean;
 	  }
 	| { kind: "owner_remove"; id: string; base: number }
@@ -233,6 +235,17 @@ function judgeSave(
 					id: pointer.function,
 				})
 			: refused("the function it runs is gone", { code: "unknown_function", id: pointer.function });
+	}
+	// The screen showed another body.
+	if (!toggle && pointer && !sent && intent.kind === "save" && intent.functionBase !== undefined) {
+		const shown = functionAt(pointer.function);
+		if (shown && shown.revision !== intent.functionBase) {
+			return refused(`revision ${shown.revision} is stored`, {
+				code: "moved",
+				record: "function",
+				revision: shown.revision,
+			});
+		}
 	}
 	// Fresh pointers need sound functions.
 	if (!toggle && pointer && pointer.function !== heldPointer?.function && fnWrite?.id !== pointer.function) {

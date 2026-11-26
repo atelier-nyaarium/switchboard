@@ -25,7 +25,10 @@ import {
 	ConsoleAutomationPreviewResultSchema,
 	ConsoleAutomationPutResultSchema,
 } from "../shared/schemasAutomation.js";
-import { ConsoleAutomationSaveResultSchema } from "../shared/schemasAutomationSave.js";
+import {
+	ConsoleAutomationCheckResultSchema,
+	ConsoleAutomationSaveResultSchema,
+} from "../shared/schemasAutomationSave.js";
 import { MailboxEntrySchema } from "../shared/schemasConsoleOp.js";
 import {
 	ConsoleDeviceListResultSchema,
@@ -81,6 +84,7 @@ const SCHEMAS: Record<string, z.ZodType> = {
 	ConsoleAutomationListResult: ConsoleAutomationListResultSchema,
 	ConsoleAutomationPutResult: ConsoleAutomationPutResultSchema,
 	ConsoleAutomationSaveResult: ConsoleAutomationSaveResultSchema,
+	ConsoleAutomationCheckResult: ConsoleAutomationCheckResultSchema,
 	AssistantHomeCarried: AssistantHomeCarriedSchema,
 	ConsoleAutomationPreviewResult: ConsoleAutomationPreviewResultSchema,
 	WorkspaceSaveSpanAnswer: SaveSpanAnswerSchema,

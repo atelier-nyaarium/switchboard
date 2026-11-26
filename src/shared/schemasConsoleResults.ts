@@ -9,7 +9,7 @@ import {
 	ConsoleAutomationPreviewResultSchema,
 	ConsoleAutomationPutResultSchema,
 } from "./schemasAutomation.js";
-import { ConsoleAutomationSaveResultSchema } from "./schemasAutomationSave.js";
+import { ConsoleAutomationCheckResultSchema, ConsoleAutomationSaveResultSchema } from "./schemasAutomationSave.js";
 import { BoardEntrySchema } from "./schemasBoard.js";
 import { CrossDomainShareTargetSchema, MailboxEntrySchema } from "./schemasConsoleOp.js";
 import { DomainStatusSchema } from "./schemasCore.js";
@@ -418,6 +418,7 @@ export const ConsoleOpResultSchema = z.union([
 	ConsoleAutomationListResultSchema,
 	ConsoleAutomationPutResultSchema,
 	ConsoleAutomationSaveResultSchema,
+	ConsoleAutomationCheckResultSchema,
 	ConsoleAutomationDeleteResultSchema,
 	ConsoleAutomationPreviewResultSchema,
 ]);

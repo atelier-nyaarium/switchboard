@@ -13,7 +13,7 @@ import {
 	AutomationTriggerSchema,
 	FunctionValuesSchema,
 } from "./schemasAutomation.js";
-import { AutomationSaveOpShape } from "./schemasAutomationSave.js";
+import { AutomationCheckOpShape, AutomationSaveOpShape } from "./schemasAutomationSave.js";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
 import { DEVICE_CONSOLE_OP_KINDS, DEVICE_CONSOLE_REQUESTS } from "./schemasDevices.js";
 import { FUNCTION_PARAMS_MAX, FunctionParamSchema } from "./schemasFunction.js";
@@ -372,6 +372,8 @@ export const ConsoleOpSchema = z
 		}),
 		/** Automation plus function, one write. */
 		z.object(AutomationSaveOpShape),
+		/** The same, judged only. */
+		z.object(AutomationCheckOpShape),
 		z.object({
 			kind: z.literal("automation_delete"),
 			automationId: z.string().regex(RULE_ID_RE),
@@ -527,6 +529,7 @@ export const VALUE_OP_KINDS = new Set([
 	"automation_list",
 	"automation_put",
 	"automation_save",
+	"automation_check",
 	"automation_delete",
 	"automation_preview",
 	"assistant_watcher_grants",

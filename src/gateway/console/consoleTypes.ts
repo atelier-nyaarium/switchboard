@@ -25,7 +25,7 @@ import type {
 	ConsoleAutomationPutResult,
 	FunctionValues,
 } from "../../shared/schemasAutomation.js";
-import type { ConsoleAutomationSaveResult } from "../../shared/schemasAutomationSave.js";
+import type { ConsoleAutomationCheckResult, ConsoleAutomationSaveResult } from "../../shared/schemasAutomationSave.js";
 import type { ContentEnvelope } from "../../shared/schemasContentKey.js";
 import type { DeviceConsoleOp, DeviceConsoleResult } from "../../shared/schemasDevices.js";
 import type { FunctionParam } from "../../shared/schemasFunction.js";
@@ -220,6 +220,8 @@ export interface AutomationConsoleHandlers {
 	list: () => ConsoleAutomationListResult;
 	put: (automationId: string, automation: Automation, base: number, confirmed: boolean) => ConsoleAutomationPutResult;
 	save: (op: Omit<Extract<ConsoleOp, { kind: "automation_save" }>, "kind">) => ConsoleAutomationSaveResult;
+	/** A save's answer, nothing written. */
+	check: (op: Omit<Extract<ConsoleOp, { kind: "automation_check" }>, "kind">) => ConsoleAutomationCheckResult;
 	remove: (automationId: string, base: number) => ConsoleAutomationDeleteResult;
 	/** `text` is a message whose holes to fill. */
 	preview: (

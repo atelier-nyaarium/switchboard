@@ -200,6 +200,7 @@ import {
 	AUTOMATION_SAVE_REFUSALS,
 	AutomationSaveFunctionSchema,
 	AutomationSaveRefusalSchema,
+	ConsoleAutomationCheckResultSchema,
 	ConsoleAutomationSaveResultSchema,
 	SAVE_RECORDS,
 } from "../src/shared/schemasAutomationSave.js";
@@ -630,6 +631,7 @@ const ROOTS: z.ZodType[] = [
 	AutomationSaveFunctionSchema,
 	AutomationSaveRefusalSchema,
 	ConsoleAutomationSaveResultSchema,
+	ConsoleAutomationCheckResultSchema,
 	AssistantHomeCarriedWatcherSchema,
 	AssistantHomeCarriedSchema,
 	AssistantHomeSealedSchema,

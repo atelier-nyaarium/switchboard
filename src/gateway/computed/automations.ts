@@ -29,6 +29,7 @@ import {
 } from "../../shared/schemasAutomation.js";
 import {
 	type AutomationSaveRefusal,
+	type ConsoleAutomationCheckResult,
 	type ConsoleAutomationSaveResult,
 	SAVE_LINE_MAX,
 } from "../../shared/schemasAutomationSave.js";
@@ -73,6 +74,7 @@ import {
 import {
 	AUTOMATION_KIND,
 	type AutomationIntent,
+	type AutomationVerdict,
 	type DroppedAutomation,
 	FUNCTION_KIND,
 	judgeAutomationWrite,
@@ -1372,9 +1374,22 @@ export function createAutomations(deps: AutomationsDeps) {
 	const refusalWithLine = (refusal: AutomationSaveRefusal, reason: string): AutomationSaveRefusal =>
 		refusal.line === undefined ? { ...refusal, line: reason.slice(0, SAVE_LINE_MAX) } : refusal;
 
-	/** Every row lands, or none. */
-	function write(intent: AutomationIntent): AutomationWritten {
-		const held = records.list();
+	const storeRefused = (
+		result: Extract<OwnerBatchResult<StoredBody>, { stored: false }>,
+		writes: readonly OwnerWrite[],
+	): Extract<AutomationWritten, { written: false }> => ({
+		written: false,
+		reason: result.reason,
+		refusal: refusalWithLine(storeRefusal(result, writes[result.at]), result.reason),
+		...(result.record ? { record: result.record } : {}),
+		...(result.issue ? { issue: result.issue } : {}),
+	});
+
+	/** `write`'s answer, unwritten. */
+	function assess(
+		intent: AutomationIntent,
+		held: readonly OwnerRecord<Automation>[],
+	): Extract<AutomationWritten, { written: false }> | Extract<AutomationVerdict, { kind: "writes" }> {
 		const verdict = judged(intent, held);
 		if (verdict.kind === "refused") {
 			return {
@@ -1384,19 +1399,20 @@ export function createAutomations(deps: AutomationsDeps) {
 				...(verdict.confirm ? { confirm: verdict.confirm } : {}),
 			};
 		}
+		const refused = store.refusalOf(verdict.writes);
+		return refused ? storeRefused(refused, verdict.writes) : verdict;
+	}
+
+	/** Every row lands, or none. */
+	function write(intent: AutomationIntent): AutomationWritten {
+		const held = records.list();
+		const verdict = assess(intent, held);
+		if ("written" in verdict) return verdict;
 		for (const { id, reason } of verdict.dropped) {
 			console.warn(`[automations] ${intent.kind}: ${id} dropped: ${reason}`);
 		}
 		const result = store.batch(verdict.writes);
-		if (!result.stored) {
-			return {
-				written: false,
-				reason: result.reason,
-				refusal: refusalWithLine(storeRefusal(result, verdict.writes[result.at]), result.reason),
-				...(result.record ? { record: result.record } : {}),
-				...(result.issue ? { issue: result.issue } : {}),
-			};
-		}
+		if (!result.stored) return storeRefused(result, verdict.writes);
 		const known = new Set(held.map((record) => record.id));
 		forgetRan(verdict.writes.filter((row) => row.op === "remove" || !known.has(row.id)).map((row) => row.id));
 		const live = new Set(records.list().map((record) => record.id));
@@ -1485,19 +1501,37 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	/** Both rows from one read. */
 	function saveOp(op: Omit<Extract<ConsoleOp, { kind: "automation_save" }>, "kind">): ConsoleAutomationSaveResult {
-		const saved = save({
-			id: op.automationId,
-			body: op.automation,
-			base: op.automationBase,
-			...(op.function ? { function: op.function } : {}),
-			confirmed: op.confirmed === true,
-		});
+		const { kind: _kind, ...intent } = saveIntentOf(op);
+		const saved = save(intent);
 		if (!saved.stored) return { stored: false, refusal: refusalWithLine(saved.refusal, saved.reason) };
 		const listed = listing();
 		const row = listed.automations.find((held) => held.id === saved.automation.id);
 		const pointer = pointerOf(saved.automation.body);
 		const fn = pointer ? listed.functions.find((held) => held.id === pointer.function) : undefined;
 		return { stored: true, ...(row ? { automation: row } : {}), ...(fn ? { function: fn } : {}) };
+	}
+
+	const saveIntentOf = (
+		op: Omit<Extract<ConsoleOp, { kind: "automation_save" | "automation_check" }>, "kind">,
+	): Extract<AutomationIntent, { kind: "save" }> => ({
+		kind: "save",
+		id: op.automationId,
+		body: op.automation,
+		base: op.automationBase,
+		...(op.function ? { function: op.function } : {}),
+		...(op.functionBase === undefined ? {} : { functionBase: op.functionBase }),
+		confirmed: op.confirmed === true,
+	});
+
+	/** A save's answer, unwritten. */
+	function checkOp(op: Omit<Extract<ConsoleOp, { kind: "automation_check" }>, "kind">): ConsoleAutomationCheckResult {
+		const verdict = assess(saveIntentOf(op), records.list());
+		const pointer = pointerOf(op.automation);
+		const sent = op.function && FunctionSchema.safeParse(op.function.body);
+		const body = sent ? (sent.success ? sent.data : null) : pointer ? functionOf(pointer.function) : null;
+		const read = body ? functionReads(body) : null;
+		const reads = read ? { reads: { names: [...read.names], eventFields: [...read.eventFields] } } : {};
+		return "written" in verdict ? { ready: false, refusal: verdict.refusal, ...reads } : { ready: true, ...reads };
 	}
 
 	function save(intent: Omit<Extract<AutomationIntent, { kind: "save" }>, "kind">): AutomationSaved {
@@ -1520,13 +1554,12 @@ export function createAutomations(deps: AutomationsDeps) {
 		rows: (): AutomationRow[] => records.list().map(rowOf),
 		listing,
 		saveOp,
+		checkOp,
 		write,
 		/** Why `write` would refuse it; writes nothing. */
 		refusalOf(intent: AutomationIntent): { reason: string; full: boolean } | null {
-			const verdict = judged(intent, records.list());
-			if (verdict.kind === "refused") return { reason: verdict.reason, full: false };
-			const refused = store.refusalOf(verdict.writes);
-			return refused ? { reason: refused.reason, full: typeof refused.cause === "object" } : null;
+			const verdict = assess(intent, records.list());
+			return "written" in verdict ? { reason: verdict.reason, full: verdict.refusal.code === "full" } : null;
 		},
 		derivedFields,
 		save,

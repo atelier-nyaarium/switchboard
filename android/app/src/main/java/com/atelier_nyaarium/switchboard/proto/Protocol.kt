@@ -355,6 +355,7 @@ object Protocol {
 			const val AUTOMATION_LIST: String = "automation_list"
 			const val AUTOMATION_PUT: String = "automation_put"
 			const val AUTOMATION_SAVE: String = "automation_save"
+			const val AUTOMATION_CHECK: String = "automation_check"
 			const val AUTOMATION_DELETE: String = "automation_delete"
 			const val AUTOMATION_PREVIEW: String = "automation_preview"
 			const val ASSISTANT_SAFETY: String = "assistant_safety"
@@ -1514,6 +1515,22 @@ sealed class ConsoleOp {
 		val automationBase: Long,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val function: AutomationSaveFunction? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val functionBase: Long? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val confirmed: Boolean? = null,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("automation_check")
+	data class AutomationCheck(
+		val automationId: String,
+		val automation: Automation,
+		val automationBase: Long,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val function: AutomationSaveFunction? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val functionBase: Long? = null,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val confirmed: Boolean? = null,
 	) : ConsoleOp()
@@ -2999,6 +3016,15 @@ data class ConsoleAutomationSaveResult(
 	val function: AutomationFunctionRow? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val refusal: AutomationSaveRefusal? = null,
+)
+
+@Serializable
+data class ConsoleAutomationCheckResult(
+	val ready: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val refusal: AutomationSaveRefusal? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val reads: FunctionReads? = null,
 )
 
 @Serializable

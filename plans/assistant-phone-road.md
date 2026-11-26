@@ -1155,6 +1155,28 @@ A: Add it to the confirm. When an IFTTT value reads the event's own words, the c
 
 Recommended: a few lines on a confirm that already exists, at the one moment it matters that someone else's words are about to leave.
 
+## Question 84 - In what order do the architecture audit's changes land?
+
+The audit after 2.7e.2 ranked seven changes. Four bug classes were closed only by patches: the phone judging a draft against facts it does not hold (three rounds), the walk reading a pointer as a step, a function's checks living on separate roads, and the checker and evaluator resolving names separately.
+
+Q: Follow the audit's order, ship phone N first, or do the engine changes only?
+A: The audit's order. The Gateway checks a draft before it is saved, now, while phone N is unshipped. Then the closed walk, one body check and one name resolver before the tree's engine slice. Vault presence as a typed answer and the Router's inbox sweep behind the migration fence alongside. Screens taking computed views with the tree's phone slice.
+
+> 84 A it is.
+
+Recommended: the draft check is the only class that recurred three times, its newest instance is in code that has not shipped, and it deletes phone code where the alternative adds a grammar to the phone later.
+
+## Question 85 - How does phone N learn that a Gateway can check a save?
+
+The check is a new op, `automation_check`: a save's payload, judged by the Gateway's real save rules, with nothing written. A Gateway on an older build does not know it.
+
+Q: Part of the existing functions capability, or a separate capability with a fallback?
+A: Part of the existing functions capability. A Gateway that says it serves functions also checks. The phone keeps no fallback. It relies on the order already kept: a Gateway is updated before phone N is installed.
+
+> A
+
+Recommended: no Gateway has ever served functions to a phone without this op, since N is unshipped, and a fallback would keep the guessing code this change exists to delete.
+
 ## Question 50 - Where does the flow map live?
 
 Q: A Map and List toggle at the top of Automations, its own menu entry, or only inside an automation's page?
