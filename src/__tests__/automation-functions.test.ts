@@ -187,22 +187,6 @@ describe("save refusal lines", () => {
 				view({ held: [automationRecord("old", pointing(hourly, "fn"))] }),
 			),
 			refusal(copyIntent("missing"), view()),
-			refusal(
-				saveIntent("cool", {
-					enabled: true,
-					trigger: {
-						kind: "crossing",
-						device: PLUG,
-						measure: "temperature",
-						direction: "above",
-						threshold: 1,
-						deadZone: 1,
-						coolDownSec: 30,
-					},
-					actions: [{ kind: "run_function", function: "fn", coolDownSec: 60 }],
-				}),
-				view(),
-			),
 			refusal(saveIntent("later", pointing(hourly, "later")), view({ unreadAt: (id) => id === "later" })),
 			refusal(saveIntent("gone", pointing(hourly, "gone")), view()),
 			refusal(
@@ -234,7 +218,6 @@ describe("save refusal lines", () => {
 			"newer_app",
 			"not_home",
 			"confirm",
-			"cool_down_twice",
 			"newer_function",
 			"no_key",
 			"no_free_id",
@@ -313,29 +296,10 @@ describe("an automation that runs a function", () => {
 			body: fn([tell]),
 			base: 0,
 		});
-		const crossing: AutomationTrigger = {
-			kind: "crossing",
-			device: PLUG,
-			measure: "temperature",
-			direction: "above",
-			threshold: 1,
-			deadZone: 1,
-			coolDownSec: 0,
-		};
-		const twice = save(
-			"twice",
-			{
-				...pointing(crossing, "warm-up", { room: PLUG }),
-				actions: [{ kind: "run_function", function: "warm-up", values: { room: PLUG }, coolDownSec: 60 }],
-			},
-			0,
-		);
-
-		expect([refusalOf(mixed)?.code, flat.stored, refusalOf(gone), refusalOf(twice)?.code]).toEqual([
+		expect([refusalOf(mixed)?.code, flat.stored, refusalOf(gone)]).toEqual([
 			"mixed",
 			false,
 			{ code: "unknown_function", id: "nowhere" },
-			"cool_down_twice",
 		]);
 		expect([refusalOf(taken), refusalOf(takenBy)]).toEqual([
 			{ code: "invalid", record: "automation", id: "warm-up" },
@@ -485,6 +449,41 @@ describe("an automation that runs a function", () => {
 			true,
 			true,
 			{ code: "confirm", labels: ["Send to IFTTT"] },
+		]);
+	});
+
+	it("names the event's words a dangerous step would send out, in its confirm", () => {
+		const { automations, save } = open();
+		const sending = (value1: StepArg) =>
+			refusalOf(
+				save(
+					"gh",
+					pointing(event, "steps", {}),
+					0,
+					{ as: "edit", id: "steps", body: fn([{ ...bell, args: { ...bell.args, value1 } }]), base: 0 },
+					false,
+				),
+			);
+		const flat = automations.ownerPut(
+			"flat",
+			{
+				enabled: true,
+				trigger: event,
+				actions: [{ kind: "ifttt_trigger", event: "bell", value1: "{event.title} for {event.reason}" }],
+			},
+			0,
+		);
+
+		expect([
+			sending(lit("{event}")),
+			sending({ kind: "expression", text: "event.reason" }),
+			sending(lit("plain")),
+			flat.confirm,
+		]).toEqual([
+			{ code: "confirm", labels: ["Send to IFTTT, with the event's title"] },
+			{ code: "confirm", labels: ["Send to IFTTT, with the event's reason"] },
+			{ code: "confirm", labels: ["Send to IFTTT"] },
+			["Send to IFTTT, with the event's title and reason"],
 		]);
 	});
 

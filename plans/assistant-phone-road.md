@@ -1219,6 +1219,32 @@ A: Numbers only. The first side of an If or a Try is `0`, the second (else, catc
 
 > B sounds simple.
 
+## Question 90 - One Fable block, or two?
+
+The owner runs this work on the Fable tier and wants to switch to Opus for what does not need it. About a third of what is left is hard engine or language work (tells as steps, the nested editor model, the Calls engine, the script's Gateway slice, side by side and tasks); the rest is phone screens, ripples, checks and docs.
+
+Standing instruction, 2026-11-26: run the Fable work back to back, then pause and tell the owner to switch tiers; keep the Fable items consecutive where possible.
+
+> kool. pause and inform me to switch tiers when all fable slices end. try to keep them consecutive where possible, so I'm not flip flopping 10 times.
+
+Q: One Fable block with one switch (A: every engine phase before any phone work), or two blocks with three switches (B: tells as steps, the nested editor model and the Calls engine now; Opus for the tree and Calls on the phone, the run log, checks, audits and an install; Fable again for the script's Gateway slice and side by side; Opus to the end)?
+A: Two blocks. No handoff file: the session keeps its knowledge across the model switch.
+
+> 2 is fine.
+>
+> ohh well you don't need to leave a file handoff. You will take on all knowledge to the /model switch
+
+Recommended: the script and side by side stand on the tree and calls, and using those from the phone first catches a wrong shape cheaply.
+
+The order that follows:
+
+1. **Fable, now:** Question 82, tells as steps, the nested editor model's design (slice 5), the Calls engine (slice 6, Gateway half). Then pause and message the owner to switch.
+2. **Opus:** the Opus-tier leftovers of slice 4 (the run log rework and the last run served, the judge's tree checks and the condition preview, comment clean-up, the phase audits), the tree on the phone (slice 5), Calls on the phone (slice 6), an install on the owner's word. Then pause and message the owner to switch back.
+3. **Fable:** the script's Gateway slice (2.7f), side by side and tasks (2.7g, Gateway). Then pause and message the owner.
+4. **Opus:** the script and the flow map on the phone, the walk-through and cleanup.
+
+At each pause: every gate green and pushed, both Gateways on the last commit, then the message.
+
 ## Question 50 - Where does the flow map live?
 
 Q: A Map and List toggle at the top of Automations, its own menu entry, or only inside an automation's page?
@@ -2188,7 +2214,16 @@ Written before the code, so a restart of the work reads it here. Each line is a 
   - A variable's size cap counted UTF-16 units. It counts UTF-8 bytes.
   - By design: a wait is woken by the persist tick, as a retry is, so it ends up to three seconds late. An exact wake is one timer for the pump's next due time, covering retries and waits alike; noted on the board.
 - **`as` and the statements key are in:** a `do` step's `as` is refused while its action's row has no `gives` (`GIVES_NOTHING`), and a row gaining one stops the build until a step's end stores its result. `serves.functions.statements` lists the step kinds a Gateway runs, required from 2026-12-10; absent means `do` alone.
-- **Still open in slice 4:** tells as steps and the fill slot; the log row's kind and the last run served; Questions 82 and 83; the judge's tree checks and the condition preview; the failure of a call inside a function (`call_failed` beyond the top frame) waits for calls.
+- **Question 83 is in on the Gateway:** a confirm's label for a dangerous step names the event's words its own values read (`askLabel`): "Send to IFTTT, with the event's title and reason". A bare `event` reads its title. Not named: a word that reaches the value through a `let`; that would need following values through variables.
+- **Question 82 is in on the Gateway:** the automation record holds `keepTryingMin` (every step's window), an event trigger holds an optional `coolDownSec`, and `run_function` holds neither; `cool_down_twice` and the catalogue's `undrawn` are gone. No Gateway stored a function when it landed (checked on Sakura and Mikan), and the installed app never wrote either key on a pointer. An event's cool-down counts from its last admitted match, or from a match the lane alone tells, and covers the lane too: `eventsOf` answers `cooling`, and a cooling automation wakes nobody. The phone draws both settings in slice 5.
+- **Tells as steps, as it is being built** (from a map of today's two roads, the fire's aggregate tell and a function step's tell):
+  - Every `tell_assistant` action holds a step record at its own path and is told at its turn under `stepMember(member, path)`, with its own `when`, its message, and `note` when the written message had holes. Two tells are two events. A tell after an effect waits for it.
+  - A top-level tell whose message has holes is filled at its turn through the read slot into `fire.resolved`, as a frame's `do` step is. The fill slot (`filling`, `nextFill`, `startFill`, `fill`), `tellPlan` and the fire's aggregate `tell` go.
+  - The lane keeps an event automation's leading tells with no message, through a pointer into its function's leading top-level steps (`laneTells(body, functionOf)`). Those hold no record at the top level and are passed over inside a frame.
+  - A run whose every step is a top-level tell is light: every light run advances each pass, does not count in an event automation's waiting cap, is not replaced by a newer fire, and is the first to go at the fire limit. An event fire past the waiting cap keeps its top-level tell steps and is light. This keeps what a tell-only fire meant before, read from the body and not from a shape.
+  - Away from the home a tell step ends refused at its turn. With no room it waits, logged once, until its window passes, then `timeout`.
+  - A fire stored with an aggregate `tell` by the build before is told as it stands by a dated reader; one still waiting on its fill is told without its message.
+- **Still open in slice 4:** tells as steps (designed above); the log row's kind and the last run served; the judge's tree checks and the condition preview; the failure of a call inside a function (`call_failed` beyond the top frame) waits for calls.
 - **How the pass will run a tree** (in `advance`):
   - The automation's own list is the top frame and stays as it is: its records are made at admission, its turn is its first unended step, and a call's record stays open while its frame runs (today `enter` replaces it with the function's steps; it will keep it and end it when the frame ends, `done` or failed `call_failed` with the frame's first error).
   - Inside a frame `fire.active` names the step whose turn it is and nothing scans for it. A step's record is made at its turn. When a step ends, `moved(body, address, how, memory)` answers the next address, a catch entered, or the frame's end, and the frame keeps `failed` (first uncaught), `caught` by try address (what `e` reads), and `vars`.

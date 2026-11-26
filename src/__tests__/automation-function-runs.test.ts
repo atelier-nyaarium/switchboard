@@ -50,11 +50,15 @@ const room = [{ name: "room", type: "device" as const }];
 
 const pointing = (
 	trigger: AutomationTrigger,
-	call: { keepTryingMin?: number; coolDownSec?: number } = {},
+	settings: { keepTryingMin?: number; coolDownSec?: number } = {},
 ): AutomationInput => ({
 	enabled: true,
-	trigger,
-	actions: [{ kind: "run_function", function: "warm-up", values: { room: PLUG }, ...call }],
+	trigger:
+		trigger.kind === "event" && settings.coolDownSec !== undefined
+			? { ...trigger, coolDownSec: settings.coolDownSec }
+			: trigger,
+	actions: [{ kind: "run_function", function: "warm-up", values: { room: PLUG } }],
+	...(settings.keepTryingMin === undefined ? {} : { keepTryingMin: settings.keepTryingMin }),
 });
 
 /** `stored`: the state file it opens over. */
@@ -295,7 +299,7 @@ describe("a run through a function", () => {
 		expect(w.rows()).toEqual([]);
 	});
 
-	it("ends a step at its call's window, where the default keeps trying", async () => {
+	it("ends a step at its automation's window, where the default keeps trying", async () => {
 		const short = world();
 		const long = world();
 		short.save(pointing(hourly, { keepTryingMin: 1 }), [turn("on")]);
@@ -314,6 +318,48 @@ describe("a run through a function", () => {
 		expect(long.rows()).toEqual([]);
 	});
 
+	it("ends a step of an automation's own at its window too", async () => {
+		const flat = (keepTryingMin?: number): AutomationInput => ({
+			enabled: true,
+			trigger: hourly,
+			actions: [{ kind: "device_set", device: PLUG, verb: "on" }],
+			...(keepTryingMin === undefined ? {} : { keepTryingMin }),
+		});
+		const short = world();
+		const long = world();
+		short.automations.ownerPut("flat", flat(1), 0, true);
+		long.automations.ownerPut("flat", flat(), 0, true);
+		for (const w of [short, long]) {
+			w.answer(unreachable);
+			await w.later(HOUR);
+			await w.later(61_000);
+		}
+
+		expect([short.effects.length, long.effects.length]).toEqual([1, 2]);
+		expect([short, long].map((w) => w.automations.log().map((row) => row.outcome))).toEqual([["refused"], []]);
+	});
+
+	it("says an event automation is cooling after a match the lane alone tells, and logs the matches inside it once", async () => {
+		const w = world();
+		const cooled: AutomationInput = {
+			enabled: true,
+			trigger: { kind: "event", source: "github", conditions: [], coolDownSec: 60 },
+			actions: [{ kind: "tell_assistant", when: "now" }],
+		};
+		const cooling = () => w.automations.eventsOf("github").map((held) => held.cooling);
+		const match = (key: string) => w.automations.fireEvents([{ automation: "gh", key, names: {} }], w.at());
+		w.automations.ownerPut("gh", cooled, 0, true);
+		const before = cooling();
+		match("one");
+		match("two");
+		match("three");
+		const during = cooling();
+		await w.later(61_000);
+
+		expect([before, during, cooling()]).toEqual([[false], [true], [false]]);
+		expect(w.automations.log().map((row) => row.outcome)).toEqual(["suppressed"]);
+	});
+
 	it("starts a waiting run in the pump where the run before it ended at its turn", async () => {
 		const w = world();
 		w.save(pointing({ kind: "interval", everyMin: 1 }, { keepTryingMin: 1 }), [turn("on")]);
@@ -328,7 +374,7 @@ describe("a run through a function", () => {
 		]);
 	});
 
-	it("counts the call's cool-down from admission, so a failing run still cools down", async () => {
+	it("counts the event trigger's cool-down from admission, so a failing run still cools down", async () => {
 		const w = world();
 		w.save(pointing(event, { coolDownSec: 60 }), [ifttt("bell")]);
 		w.answer(() => ({ word: "refused" }));
@@ -371,7 +417,7 @@ describe("a run through a function", () => {
 		expect(w.effects).toEqual(["ifttt:bell", "ifttt:bell"]);
 	});
 
-	it("admits nothing inside the call's cool-down, logging it once until a run comes between", async () => {
+	it("admits nothing inside the event trigger's cool-down, logging it once until a run comes between", async () => {
 		const w = world();
 		w.save(pointing(event, { coolDownSec: 60 }), [ifttt("bell")]);
 		const fire = async (key: string, after: number) => {
@@ -414,7 +460,8 @@ describe("a newer setting of a switch", () => {
 			{
 				enabled: true,
 				trigger: hourly,
-				actions: [{ kind: "run_function", function: "warm-up", values: { room: FAN }, keepTryingMin: 60 }],
+				actions: [{ kind: "run_function", function: "warm-up", values: { room: FAN } }],
+				keepTryingMin: 60,
 			},
 			[turn("on"), turn("on", lit(PLUG))],
 		);

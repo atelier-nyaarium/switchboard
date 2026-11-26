@@ -53,8 +53,6 @@ class AutomationCheckTest {
 	private val pointer = AutomationAction.RunFunction(
 		"shared",
 		values = buildJsonObject { put("room", "Bedroom"); put("lamp", SANDBOX_SWITCH) },
-		keepTryingMin = 5L,
-		coolDownSec = 30L,
 	)
 	private val automation = Automation(
 		enabled = true,
@@ -200,7 +198,6 @@ class AutomationCheckTest {
 		assertEquals(8L to "New name", reloadedRuns.base to reloadedRuns.name)
 		assertEquals(PointMode.SHARED, reloadedRuns.mode)
 		assertEquals(mapOf("room" to "Bedroom"), reloadedRuns.valuesByName())
-		assertEquals(5L to 30L, reloadedRuns.held.keepTryingMin to reloadedRuns.held.coolDownSec)
 		assertEquals(written(changed.function), reloadedRuns.steps.map { stepOf(it, offer, reloadedRuns.params) })
 	}
 

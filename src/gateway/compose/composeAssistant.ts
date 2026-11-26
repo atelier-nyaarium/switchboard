@@ -267,7 +267,10 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	const wakers = (sourceId: string, event: SourceEvent): string[] => {
 		const specs = specsOf(sourceId) ?? [];
 		return (automations?.eventsOf(sourceId) ?? [])
-			.filter(({ trigger, when }) => when === "now" && conditionsMatch(trigger.conditions, specs, event.fields))
+			.filter(
+				({ trigger, when, cooling }) =>
+					when === "now" && !cooling && conditionsMatch(trigger.conditions, specs, event.fields),
+			)
 			.map(({ id }) => id);
 	};
 	/** Every match fires; one waking match wakes. */

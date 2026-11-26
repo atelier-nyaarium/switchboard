@@ -100,6 +100,37 @@ function collect(node: ConsoleNode | null, into: { names: Set<string>; eventFiel
 	for (const child of childrenOf(node)) collect(child, into);
 }
 
+/** A bare `event` prints its title. */
+const BARE_EVENT = "title";
+
+function eventWord(node: ConsoleNode | null, into: Set<string>): void {
+	if (!node) return;
+	const onEvent = (target: ConsoleNode) => target.kind === "ident" && target.name === "event";
+	if (node.kind === "ident" && node.name === "event") into.add(BARE_EVENT);
+	if (node.kind === "member" && onEvent(node.target)) {
+		into.add(node.name);
+		return;
+	}
+	if (node.kind === "index" && onEvent(node.target)) {
+		const at = node.index;
+		into.add(at?.kind === "literal" && typeof at.value === "string" ? at.value : BARE_EVENT);
+		eventWord(at, into);
+		return;
+	}
+	for (const child of childrenOf(node)) eventWord(child, into);
+}
+
+/** The event's fields these texts and expressions read, in reading order. */
+export function eventWords(read: { texts: readonly string[]; expressions: readonly string[] }): string[] {
+	const into = new Set<string>();
+	const source = (text: string) => {
+		for (const statement of parseConsole(text).statements) eventWord(statement.node, into);
+	};
+	for (const text of read.texts) for (const part of scanHoles(text)) if (part.kind === "hole") source(part.source);
+	for (const text of read.expressions) source(text);
+	return [...into];
+}
+
 export function functionReads(fn: Pick<AutomationFunction, "steps">): FunctionReads {
 	const into = { names: new Set<string>(), eventFields: new Set<string>() };
 	const read = (source: string) => {

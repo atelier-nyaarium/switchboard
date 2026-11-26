@@ -59,7 +59,6 @@ class RunsDraftTest {
 	private val pointer = AutomationAction.RunFunction(
 		function = "blink",
 		values = buildJsonObject { put("lamp", SANDBOX_SWITCH) },
-		keepTryingMin = 5L,
 	)
 	private fun open(actions: List<AutomationAction>) =
 		runsDraftOf("mine", Automation(enabled = true, trigger = CROSSING, actions = actions), listOf(blink), FN_OFFER)
@@ -83,7 +82,6 @@ class RunsDraftTest {
 		assertEquals(3L, op.functionBase)
 		val sent = written(op.automation).single() as AutomationAction.RunFunction
 		assertEquals("blink", sent.function)
-		assertEquals(5L, sent.keepTryingMin)
 		assertEquals(buildJsonObject {
 			put("lamp", SANDBOX_SWITCH)
 			put("times", 3)

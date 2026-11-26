@@ -60,13 +60,12 @@
 		"warm:inc-warm:1": {
 			"enabled": true,
 			"trigger": { "kind": "interval", "everyMin": 60 },
+			"keepTryingMin": 60,
 			"actions": [
 				{
 					"kind": "run_function",
 					"function": "warm-up",
-					"values": { "room": "aa:bb:cc:dd:ee:02" },
-					"keepTryingMin": 60,
-					"coolDownSec": 120
+					"values": { "room": "aa:bb:cc:dd:ee:02" }
 				}
 			]
 		}

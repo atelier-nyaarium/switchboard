@@ -685,7 +685,6 @@ class AutomationPartsTest {
 		val called = AutomationAction.RunFunction(
 			"warm-up",
 			values = buildJsonObject { put("room", "aa:bb:cc:dd:ee:01") },
-			keepTryingMin = 5,
 		)
 		val stored = listOf(
 			AutomationAction.TellAssistant("quietly", "It is {value}"),

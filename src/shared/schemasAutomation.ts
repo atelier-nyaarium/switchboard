@@ -60,6 +60,8 @@ export const AutomationTriggerSchema = z
 			kind: z.literal("event"),
 			source: z.string().regex(SOURCE_ID_RE),
 			conditions: z.array(AutomationConditionSchema).max(ASSISTANT_RULE_CONDITIONS_MAX),
+			/** From a run's admission; absent is none. */
+			coolDownSec: z.number().int().min(0).max(AUTOMATION_COOL_DOWN_MAX_SEC).optional(),
 		}),
 		/** A choice or boolean field becomes a value. */
 		z.strictObject({
@@ -128,10 +130,6 @@ export const AutomationActionSchema = z
 			function: z.string().regex(RULE_ID_RE),
 			/** Keyed by value name. */
 			values: FunctionValuesSchema.optional(),
-			/** Per-step window. */
-			keepTryingMin: z.number().int().min(KEEP_TRYING_MIN_MIN).max(KEEP_TRYING_MIN_MAX).optional(),
-			/** Only if trigger has none. */
-			coolDownSec: z.number().int().nonnegative().max(AUTOMATION_COOL_DOWN_MAX_SEC).optional(),
 		}),
 	])
 	.meta({ id: "AutomationAction" });
@@ -166,8 +164,6 @@ export interface AutomationActionRow {
 	home: boolean;
 	/** In the order an editor draws them. */
 	params: readonly AutomationActionParam[];
-	/** Never served. */
-	undrawn?: readonly string[];
 	/** What a step may keep under `as`; absent gives nothing. */
 	gives?: FunctionParamType;
 }
@@ -234,7 +230,6 @@ export const AUTOMATION_ACTIONS = {
 			{ name: "function", label: "Function", kind: "function" },
 			{ name: "values", label: "Values", kind: "values", optional: true },
 		],
-		undrawn: ["keepTryingMin", "coolDownSec"],
 	},
 } as const satisfies Record<AutomationActionKind, AutomationActionRow>;
 
@@ -300,6 +295,8 @@ export const AutomationSchema = z
 		enabled: z.boolean(),
 		trigger: AutomationTriggerSchema,
 		actions: walked(z.array(AutomationActionSchema).min(1).max(AUTOMATION_ACTIONS_MAX)),
+		/** Each step's window; absent is `KEEP_TRYING_MIN_DEFAULT`. */
+		keepTryingMin: z.number().int().min(KEEP_TRYING_MIN_MIN).max(KEEP_TRYING_MIN_MAX).optional(),
 	})
 	.meta({ id: "Automation" });
 

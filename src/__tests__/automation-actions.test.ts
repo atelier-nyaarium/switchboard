@@ -8,7 +8,6 @@ import {
 	AUTOMATION_SERVES,
 	type AutomationActionKind,
 	type AutomationActionParam,
-	type AutomationActionRow,
 	AutomationActionSchema,
 	ConsoleAutomationListResultSchema,
 } from "../shared/schemasAutomation.js";
@@ -33,12 +32,15 @@ const sample = (kind: AutomationActionKind, over: Record<string, unknown> = {}) 
 const takes = (action: unknown) => AutomationActionSchema.safeParse(action).success;
 
 describe("the action catalogue", () => {
-	it.each(kinds)("names exactly the parameters %s is stored with, drawn or declared undrawn", (kind) => {
+	it.each(kinds)("names exactly the parameters %s is stored with", (kind) => {
 		const member = AutomationActionSchema.options.find((option) => option.shape.kind.value === kind);
 		const stored = Object.keys(member?.shape ?? {}).filter((key) => key !== "kind");
-		const row: AutomationActionRow = AUTOMATION_ACTIONS[kind];
 
-		expect([...paramsOf(kind).map((param) => param.name), ...(row.undrawn ?? [])].sort()).toEqual(stored.sort());
+		expect(
+			paramsOf(kind)
+				.map((param) => param.name)
+				.sort(),
+		).toEqual(stored.sort());
 		expect(takes(sample(kind))).toBe(true);
 	});
 

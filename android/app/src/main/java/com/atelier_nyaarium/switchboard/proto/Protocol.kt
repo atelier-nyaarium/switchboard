@@ -226,7 +226,6 @@ object Protocol {
 			NEWER_APP("newer_app"),
 			NOT_HOME("not_home"),
 			CONFIRM("confirm"),
-			COOL_DOWN_TWICE("cool_down_twice"),
 			NEWER_FUNCTION("newer_function"),
 			NO_KEY("no_key"),
 			UNWRITTEN("unwritten"),
@@ -2640,6 +2639,8 @@ sealed class AutomationTrigger {
 	data class Event(
 		val source: String,
 		val conditions: List<AutomationCondition>,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val coolDownSec: Long? = null,
 	) : AutomationTrigger()
 
 	@Serializable
@@ -2748,10 +2749,6 @@ sealed class AutomationAction {
 		val function: String,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val values: JsonObject? = null,
-		@EncodeDefault(EncodeDefault.Mode.NEVER)
-		val keepTryingMin: Long? = null,
-		@EncodeDefault(EncodeDefault.Mode.NEVER)
-		val coolDownSec: Long? = null,
 	) : AutomationAction()
 
 	/** Unknown member, preserved as sent. */
@@ -2798,6 +2795,8 @@ data class Automation(
 	val trigger: AutomationTrigger,
 	@property:OpensWalk
 	val actions: List<AutomationAction>,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val keepTryingMin: Long? = null,
 )
 
 @Serializable

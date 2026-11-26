@@ -69,7 +69,7 @@ export interface PassPorts {
 	stepAt(fire: Fire, path: string): AutomationEffect | null;
 	kindAt(fire: Fire, path: string): string | undefined;
 	writtenStep(fire: Fire, path: string): WalkStep<"do"> | null;
-	windowOf(fire: Fire, path: string): number;
+	windowOf(fire: Fire): number;
 	callAt(body: Automation, path: string): RunFunction | null;
 	ready(action: AutomationAction): boolean;
 	sentenceOf(body: Automation): string;
@@ -159,7 +159,7 @@ export function createPass(ports: PassPorts): {
 		let log = held;
 		let landed = fire;
 		for (const [path, step] of Object.entries(fire.steps)) {
-			const next = recovered(step, natureAt(fire, path, retiring), now, ports.windowOf(fire, path));
+			const next = recovered(step, natureAt(fire, path, retiring), now, ports.windowOf(fire));
 			landed = withStep(landed, path, next);
 			if (!isEnded(step) && isEnded(next)) log = logged(log, endedRow(fire, path, next));
 		}
@@ -202,13 +202,7 @@ export function createPass(ports: PassPorts): {
 				continue;
 			}
 			log = answer.rows.reduce(logged, log);
-			const next = heard(
-				step,
-				natureAt(fire, path, retiring),
-				answer.attempt.word,
-				now,
-				ports.windowOf(fire, path),
-			);
+			const next = heard(step, natureAt(fire, path, retiring), answer.attempt.word, now, ports.windowOf(fire));
 			landed = withStep(landed, path, next);
 			if (!isEnded(next)) continue;
 			log = logged(log, endedRow(fire, path, next, answer.reason));
@@ -367,7 +361,7 @@ export function createPass(ports: PassPorts): {
 				log = logged(log, endedRow(fire, path, ended, entered.refused));
 				continue;
 			}
-			const window = ports.windowOf(fire, path);
+			const window = ports.windowOf(fire);
 			const site = siteIn(fire, path);
 			const tree = site === null ? null : ports.frameBody(fire, site);
 			const address = tree && site !== null ? addressIn(tree, below(path, site)) : null;

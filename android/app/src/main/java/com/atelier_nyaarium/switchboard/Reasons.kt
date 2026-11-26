@@ -400,7 +400,6 @@ internal fun automationSaveLine(
 		Protocol.Wire.AutomationSaveRefusalCode.NEWER_APP -> "Edit this in the newer app."
 		Protocol.Wire.AutomationSaveRefusalCode.NOT_HOME -> "Only the assistant's Gateway can save this."
 		Protocol.Wire.AutomationSaveRefusalCode.CONFIRM -> "It needs your go-ahead."
-		Protocol.Wire.AutomationSaveRefusalCode.COOL_DOWN_TWICE -> "Its trigger cools down already."
 		Protocol.Wire.AutomationSaveRefusalCode.NEWER_FUNCTION -> "Its function needs a newer Gateway."
 		Protocol.Wire.AutomationSaveRefusalCode.NO_KEY -> "This Gateway cannot make a copy right now."
 		Protocol.Wire.AutomationSaveRefusalCode.UNWRITTEN -> "The Gateway could not save it. Try again."

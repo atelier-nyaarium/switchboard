@@ -104,7 +104,7 @@ import {
 } from "./automationRunner.js";
 import { holeScope } from "./automationScope.js";
 import { type Checkpoint, FIRED_MAX, own, restore, type State, versionKey } from "./automationState.js";
-import { FRESH_STEP, failedAs, isEnded, KEEP_TRYING_MS, refusedUnsent, type Step, steered } from "./automationSteps.js";
+import { FRESH_STEP, failedAs, isEnded, refusedUnsent, type Step, steered } from "./automationSteps.js";
 import { holeSpanOf, holeTextsOf, laneTellWhen, STEP_ISSUE_CODE, stepPlaceOf, tellPlan } from "./automationText.js";
 import { createAutomationValidity, FUNCTION_GONE, FUNCTION_UNREAD, STEP_UNFIT } from "./automationValidity.js";
 import { createAutomationWords, fieldsOf, type WatchedReading } from "./automationWords.js";
@@ -457,13 +457,19 @@ export function createAutomations(deps: AutomationsDeps) {
 	const kindAt = (fire: Fire, path: string): string | undefined =>
 		actionOf(fire, path)?.kind ?? writtenStep(fire, path)?.step.action ?? treeStep(fire, path)?.kind;
 
-	/** Call window, else default. */
-	const windowOf = (fire: Fire, path: string): number => {
-		const site = siteIn(fire, path);
-		const body = bodyOf(fire);
-		if (site === null || !body) return KEEP_TRYING_MS;
-		return (callAt(body, site)?.keepTryingMin ?? KEEP_TRYING_MIN_DEFAULT) * 60_000;
+	/** Inside an event trigger's cool-down, from its last admission. */
+	const coolingAt = (
+		firedAt: State["firedAt"],
+		record: Pick<OwnerRecord<Automation>, "id" | "incarnation">,
+		now: number,
+		coolDownSec: number,
+	): boolean => {
+		const held = own(firedAt, record.id);
+		return held?.incarnation === record.incarnation && now - held.at < coolDownSec * 1000;
 	};
+
+	/** Its automation's window, else default. */
+	const windowOf = (fire: Fire): number => (bodyOf(fire)?.keepTryingMin ?? KEEP_TRYING_MIN_DEFAULT) * 60_000;
 
 	/** Baselines whose write has not landed. */
 	let unsaved: State["automations"] = {};
@@ -500,15 +506,17 @@ export function createAutomations(deps: AutomationsDeps) {
 		const plan = tellPlan(record.body);
 		const fired = { automation: record.id, seq: at.seq, at: at.at };
 		const call = pointerOf(record.body);
-		if (call?.coolDownSec !== undefined) {
-			// From admission, as a trigger's own.
-			const held = own(work.firedAt, record.id);
-			const last = held?.incarnation === record.incarnation ? held.at : undefined;
-			if (last !== undefined && at.at - last < call.coolDownSec * 1000) {
-				work.log = logged(work.log, fireRow(fired, "suppressed", COOLING));
-				return false;
-			}
+		const { trigger } = record.body;
+		// A crossing's or a value's is its checkpoint's.
+		const cool = trigger.kind === "event" ? (trigger.coolDownSec ?? 0) : 0;
+		if (cool > 0 && coolingAt(work.firedAt, record, at.at, cool)) {
+			work.log = logged(work.log, fireRow(fired, "suppressed", COOLING));
+			return false;
 		}
+		const cooled = (): void => {
+			if (cool > 0)
+				work.firedAt = { ...work.firedAt, [record.id]: { incarnation: record.incarnation, at: at.at } };
+		};
 		const home = deps.isHome();
 		if (plan.when !== null && !home) work.log = logged(work.log, fireRow(fired, "refused", NOT_HOME));
 		const told = Object.fromEntries(Object.entries(fields).map(([name, value]) => [name, clip(value)]));
@@ -519,7 +527,11 @@ export function createAutomations(deps: AutomationsDeps) {
 					? { when: plan.when, fields: told, fill: true }
 					: { when: plan.when, fields: withMessage(told, plan.messages.map(unescapedText)) };
 		const effects = hasSteps(record.body);
-		if (!tell && !effects) return false;
+		if (!tell && !effects) {
+			// The lane tells it.
+			cooled();
+			return false;
+		}
 		const recorded: Fire = {
 			...fired,
 			member: at.member,
@@ -540,8 +552,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		});
 		work.fires = verdict.fires;
 		for (const row of verdict.rows) work.log = logged(work.log, fireRow(row.fire, row.outcome, row.reason));
-		if (verdict.admitted && call?.coolDownSec !== undefined)
-			work.firedAt = { ...work.firedAt, [record.id]: { incarnation: record.incarnation, at: at.at } };
+		if (verdict.admitted) cooled();
 		return verdict.admitted;
 	};
 
@@ -1475,8 +1486,11 @@ export function createAutomations(deps: AutomationsDeps) {
 				const record = records.get(automation);
 				if (!record || !armed(record)) continue;
 				const member = memberOf(record.id, record.incarnation, key);
+				const { trigger } = record.body;
+				// A cooling one counts the lane's own tells.
+				const cools = trigger.kind === "event" && (trigger.coolDownSec ?? 0) > 0;
 				const runs = hasSteps(record.body) || tellPlan(record.body).when !== null;
-				if (!runs || fired.includes(member)) continue;
+				if ((!runs && !cools) || fired.includes(member)) continue;
 				fired.push(member);
 				fire(work, record, { member, seq: 0, at }, names, fieldsOf(names));
 			}
@@ -1563,11 +1577,14 @@ export function createAutomations(deps: AutomationsDeps) {
 			return record ? sentenceOf(record.body) : null;
 		},
 		/** A source's armed event automations. */
-		eventsOf(sourceId: string): { id: string; trigger: EventTrigger; when: TellWhen | null }[] {
+		eventsOf(sourceId: string): { id: string; trigger: EventTrigger; when: TellWhen | null; cooling: boolean }[] {
+			const now = deps.now();
 			return records.list().flatMap((record) => {
 				const { trigger } = record.body;
 				if (trigger.kind !== "event" || trigger.source !== sourceId || !armed(record)) return [];
-				return [{ id: record.id, trigger, when: laneTellWhen(record.body) }];
+				const cool = trigger.coolDownSec ?? 0;
+				const cooling = cool > 0 && coolingAt(state.firedAt, record, now, cool);
+				return [{ id: record.id, trigger, when: laneTellWhen(record.body), cooling }];
 			});
 		},
 		log: (): readonly RunRow[] => state.log,

@@ -1,5 +1,6 @@
 // Every automation write, judged once.
 
+import { eventWords } from "../../shared/automation-fit.js";
 import {
 	type FollowedEntry,
 	type FunctionOf,
@@ -17,6 +18,7 @@ import {
 	type AutomationActionKind,
 	type AutomationInput,
 	AutomationSchema,
+	actionTexts,
 	type CarriedAutomation,
 	type CarriedFunction,
 	canonicalAutomation,
@@ -153,6 +155,41 @@ const labelOf = (kind: string): string =>
 
 const CALL_KIND: RunFunction["kind"] = "run_function";
 
+const LABEL_MAX = 80;
+
+const listed = (words: readonly string[]): string =>
+	words.length < 2 ? words.join("") : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
+
+/** The event's words a dangerous step would send out. */
+const sentWords = (at: FollowedEntry): string[] =>
+	visit(at, {
+		action: ({ action }) =>
+			stepDanger(action.kind)
+				? eventWords({ texts: actionTexts(action).map((held) => held.text), expressions: [] })
+				: [],
+		step: {
+			do: ({ step }) => {
+				if (!stepDanger(step.action)) return [];
+				const args = Object.values(step.args);
+				return eventWords({
+					texts: args.flatMap((arg) =>
+						arg.kind === "literal" && typeof arg.value === "string" ? [arg.value] : [],
+					),
+					expressions: args.flatMap((arg) => (arg.kind === "expression" ? [arg.text] : [])),
+				});
+			},
+			...steering((): string[] => []),
+		},
+		unfollowedCall: () => [],
+	});
+
+/** What a confirm asks, naming outside words that would leave. */
+const askLabel = (at: FollowedEntry): string => {
+	const label = labelOf(doneKind(at) ?? CALL_KIND);
+	const words = sentWords(at);
+	return (words.length === 0 ? label : `${label}, with the event's ${listed(words)}`).slice(0, LABEL_MAX);
+};
+
 /** New dangerous actions; for an event user, all new reach. */
 function asksOf(next: FollowedEntry[], held: FollowedEntry[] | null, event: boolean, heldWasEvent: boolean): string[] {
 	const known = new Set((held ?? []).map(dangerKey).filter((key) => key !== null));
@@ -164,7 +201,7 @@ function asksOf(next: FollowedEntry[], held: FollowedEntry[] | null, event: bool
 	const prior = (held ?? []).map(doneKind).filter((kind) => kind !== null);
 	const toldOnly = !heldWasEvent || prior.every((kind) => kind === "tell_assistant");
 	const reach = event && toldOnly ? next.filter((at) => doneKind(at) !== "tell_assistant") : [];
-	return [...danger, ...reach].map((at) => labelOf(doneKind(at) ?? CALL_KIND));
+	return [...danger, ...reach].map(askLabel);
 }
 
 function judgeSave(
@@ -237,8 +274,6 @@ function judgeSave(
 		}
 	}
 	const pointer = pointerOf(next);
-	if (pointer?.coolDownSec !== undefined && "coolDownSec" in next.trigger)
-		return refused("its trigger cools down already", { code: "cool_down_twice", record: "automation" });
 	const toggle = !sent && onlyEnabledMoved(next, held?.body);
 
 	const functionNext = (id: string): AutomationFunction | null =>

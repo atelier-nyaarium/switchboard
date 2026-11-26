@@ -442,7 +442,6 @@ internal fun saveAnswerOf(result: ConsoleAutomationSaveResult): SaveAnswer {
 		AutomationSaveRefusalCode.MIXED,
 		AutomationSaveRefusalCode.NEWER_APP,
 		AutomationSaveRefusalCode.NOT_HOME,
-		AutomationSaveRefusalCode.COOL_DOWN_TWICE,
 		AutomationSaveRefusalCode.NEWER_FUNCTION,
 		AutomationSaveRefusalCode.NO_KEY,
 		AutomationSaveRefusalCode.UNWRITTEN,

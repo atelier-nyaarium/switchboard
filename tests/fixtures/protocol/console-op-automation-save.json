@@ -4,12 +4,12 @@
 	"automation": {
 		"enabled": true,
 		"trigger": { "kind": "interval", "everyMin": 60 },
+		"keepTryingMin": 5,
 		"actions": [
 			{
 				"kind": "run_function",
 				"function": "warm-up",
-				"values": { "room": "aa:bb:cc:dd:ee:ff" },
-				"keepTryingMin": 5
+				"values": { "room": "aa:bb:cc:dd:ee:ff" }
 			}
 		]
 	},

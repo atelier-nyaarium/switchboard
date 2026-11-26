@@ -32,8 +32,6 @@ export const AUTOMATION_SAVE_REFUSALS = [
 	"not_home",
 	/** `labels` to confirm. */
 	"confirm",
-	/** Trigger has its own cool-down. */
-	"cool_down_twice",
 	/** `record`, `id`: held by a newer build. */
 	"newer_function",
 	/** Its derived id's key is unreadable. */
