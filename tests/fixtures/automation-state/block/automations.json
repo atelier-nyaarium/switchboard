@@ -1,0 +1,97 @@
+[
+	{
+		"id": "warm-up",
+		"kind": "function",
+		"revision": 1,
+		"incarnation": "inc-3",
+		"body": {
+			"name": "Warm up",
+			"params": [
+				{
+					"name": "room",
+					"type": "device"
+				}
+			],
+			"steps": [
+				{
+					"kind": "parallel",
+					"steps": [
+						{
+							"kind": "do",
+							"action": "device_set",
+							"args": {
+								"device": {
+									"kind": "expression",
+									"text": "room"
+								},
+								"verb": {
+									"kind": "literal",
+									"value": "on"
+								}
+							}
+						},
+						{
+							"kind": "try",
+							"steps": [
+								{
+									"kind": "wait",
+									"minutes": {
+										"kind": "literal",
+										"value": 5
+									}
+								},
+								{
+									"kind": "do",
+									"action": "ifttt_trigger",
+									"args": {
+										"event": {
+											"kind": "literal",
+											"value": "slow"
+										}
+									}
+								}
+							],
+							"catch": []
+						},
+						{
+							"kind": "throw",
+							"text": "no"
+						}
+					]
+				},
+				{
+					"kind": "do",
+					"action": "ifttt_trigger",
+					"args": {
+						"event": {
+							"kind": "literal",
+							"value": "after"
+						}
+					}
+				}
+			]
+		}
+	},
+	{
+		"id": "warm",
+		"kind": "automation",
+		"revision": 1,
+		"incarnation": "inc-4",
+		"body": {
+			"enabled": true,
+			"trigger": {
+				"kind": "interval",
+				"everyMin": 60
+			},
+			"actions": [
+				{
+					"kind": "run_function",
+					"function": "warm-up",
+					"values": {
+						"room": "aa:bb:cc:dd:ee:01"
+					}
+				}
+			]
+		}
+	}
+]

@@ -16,7 +16,7 @@ const body = AutomationSchema.parse({
 const ports: PassPorts = {
 	retireOf: () => null,
 	stampOf: () => ({ body: "body", functions: [] }),
-	enter: (fire) => fire,
+	enter: (fire, path) => ({ fire, first: path }),
 	frameBody: () => null,
 	bodyOf: () => body,
 	actionOf: () => action,
@@ -72,7 +72,7 @@ const inputOf = (fire: Fire, overrides: Partial<PassInput> = {}): PassInput => (
 	recover: false,
 	answers: new Map(),
 	inFlight: () => false,
-	busy: { effect: false, read: false },
+	busy: { free: 1, devices: new Set(), read: false },
 	...overrides,
 });
 
@@ -82,7 +82,7 @@ describe("automation pass", () => {
 
 		const result = createPass(ports).pass(inputOf(fire));
 
-		expect(result.effect).toEqual({ member: fire.member, path: "0" });
+		expect(result.effects).toEqual([{ member: fire.member, path: "0" }]);
 		expect(result.next.fires[0]?.steps["0"]?.claimed).toBe(true);
 	});
 
@@ -164,9 +164,9 @@ describe("automation pass", () => {
 	it("leaves a ready effect unclaimed while one is busy", () => {
 		const fire = fireOf({ attempts: 0 });
 
-		const result = createPass(ports).pass(inputOf(fire, { busy: { effect: true, read: false } }));
+		const result = createPass(ports).pass(inputOf(fire, { busy: { free: 0, devices: new Set(), read: false } }));
 
-		expect(result.effect).toBeNull();
+		expect(result.effects).toEqual([]);
 		expect(result.next.fires[0]?.steps["0"]?.claimed).toBeUndefined();
 	});
 });

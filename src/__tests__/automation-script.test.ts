@@ -136,6 +136,22 @@ const CANONICAL: Record<string, FunctionStep[]> = {
 		{ kind: "note", text: "" },
 		{ kind: "exit" },
 	],
+	"a block of steps side by side, one holding a try": [
+		{
+			kind: "parallel",
+			steps: [
+				turn(lit(LAMP)),
+				{
+					kind: "try",
+					steps: [turn(lit(FAN), "off"), { kind: "wait", minutes: lit(1) }],
+					catch: [tell("{e.errors}")],
+				},
+				{ kind: "note", text: "beside the rest" },
+			],
+		},
+		{ kind: "parallel", steps: [] },
+		{ kind: "exit" },
+	],
 	"an else that is not a lone if, and sides left empty": [
 		{
 			kind: "if",
@@ -434,12 +450,7 @@ describe("a function's steps as script", () => {
 			"Upper",
 			'"open',
 		]);
-		expect(spansOf("if armed {\n}\nelse {\n}\ntry {\n}\nparallel {\n}")).toEqual([
-			"armed",
-			"else",
-			"try",
-			"parallel",
-		]);
+		expect(spansOf("if armed {\n}\nelse {\n}\ntry {\n}\nawait x")).toEqual(["armed", "else", "try", "await"]);
 		expect(spansOf("if (armed) {\n\texit")).toEqual(["if"]);
 		expect(spansOf("}\nexit")).toEqual(["}"]);
 		expect(spansOf('f(a, // one\n b)\nifttt.trigger("a", "b", "c", "d", "e")\nthrow 5\nwait()')).toEqual([
@@ -612,6 +623,7 @@ function drawn(seed: number): FunctionStep[] {
 					? { kind: "if", when: draw.pick(EXPRESSIONS), steps: list(depth + 1, 3), else: list(depth + 1, 2) }
 					: { kind: "exit" },
 			() => (nested ? { kind: "try", steps: list(depth + 1, 3), catch: list(depth + 1, 2) } : { kind: "exit" }),
+			() => (nested ? { kind: "parallel", steps: list(depth + 1, 3) } : { kind: "exit" }),
 		])();
 	};
 	return list(1, 7);
@@ -648,6 +660,8 @@ function meaningOf(steps: readonly FunctionStep[]): unknown[] {
 				return [...meaningOf(step.steps ?? []), ...meaningOf(step.else ?? [])];
 			case "try":
 				return [...meaningOf(step.steps), ...meaningOf(step.catch)];
+			case "parallel":
+				return meaningOf(step.steps);
 			default:
 				return [];
 		}
@@ -797,6 +811,7 @@ describe("the script's console reads", () => {
 				members: [
 					{ name: "code", type: "Text" },
 					{ name: "message", type: "Text" },
+					{ name: "errors", type: "List<Error>" },
 				],
 			},
 		]);

@@ -2513,6 +2513,33 @@ Size: about 2,500 to 3,500 lines.
 - **A canonical form can outgrow a cap the printer never checked.** Mechanism: printing escapes (a lone backslash doubled, braces escaped, a line break in a string) and the parser bounds the escaped form. Patched once, as one mechanism: `printScript` parses what it printed and says `readOnly` when that fails, so no growth has to be listed.
 - **Turning one spelling into another changed meaning.** Mechanism: an expression that is a single literal was printed as the literal, which a position then read by its own rule (a text filled, a plug looked up by name, a number refused). Patched as one rule: an expression is never turned into a literal.
 
+### One grammar (the owner's ruling, 2026-11-26)
+
+The owner asked how the language is parsed, and whether strings and holes are tokenized by regular expressions or by a proper lexer and parser. The audit: nothing shipped tokenizes with regular expressions, and expressions have a real lexer and a recursive descent parser, but four scanners each decide where a quoted string ends (the lexer, the script's line scanner, the hole scanner, the script's string decoder), a whole-value string and a string inside an expression follow different escapes, and the script parser lexes, splits arguments by bracket depth and parses slices again. Both adversarial reads of the script slice found their bugs on those seams.
+
+> ok start it when convenient.
+> Keep in mind how proper language parsing works, and don't let strings become it's own ecosystem. Also clamp down on any other ecosystems you detect as well.
+
+Rulings, before the code:
+
+- **One lexer.** `lexConsole` is the language's lexer. A string is one token whose body the lexer reads itself: runs of text and `{holes}`, each hole lexed in place as tokens. A quote inside a hole opens a nested string; it never ends the outer one. So `"{sensors.value("Hall", "x")}"` is one string. The lexer alone decides where a string ends.
+- **A text is a string's body.** A stored text (a tell's message, an IFTTT value, a `throw`'s text) is read by the same body rule with no quote around it: `scanHoles` becomes that read, not a scanner of its own. Its escapes stay `\{`, `\}` and `\\`. A quoted string adds only what quoting needs: `\"`, `\'`, `\n`, `\t`, `\r`. An unknown escape keeps its backslash, in every string.
+- **One parser, one tree.** A string with a hole is a node of the expression tree (a template) and is evaluated like any other: each hole read, its shown form joined in. `fillHoles` becomes evaluating that node and `holeIssue` checking it. In script mode the lexer also answers comments and line ends (outside brackets), and one recursive descent parser reads statements and expressions from that one stream into a script tree with spans. A `{` is a block or a record by where the grammar is, never by a statement's first word.
+- **Steps are lowered from the tree and raised back to it.** The Gateway turns the script tree into steps with its tables (plugs, functions, action rows) and turns steps back into a tree that one printer writes. No slice is parsed twice and no argument is split by counting brackets.
+- **A value is a literal or an expression again.** A string with no hole is a constant, so it is a literal; a string with a hole is an expression, so a `let`'s or a call's `"Room {device}"` is stored as that expression. The `text` value kind added this morning goes, before anything stored one. An action's text parameter keeps its stored shape, a text, and takes a template's body.
+- **What goes:** `script-scan.ts` and its vectors; `readText`, `printText`, `closing`, `splitTop` and the per-position string reading in `automationScript.ts`; `holeEnd`; the `catch (e)` match by stripped whitespace; the emulator's two regular expressions that imitate reads.
+- **What changes for a writer:** a hole's own strings need no escaping inside a quoted string; a literal brace in any quoted string is written `\{`; a string inside an expression may now hold holes.
+- **Stored rows:** read both Gateways before this was written. Sakura holds five automations, each a tell with no message, and no function or computed field; Mikan holds none. No stored row holds an expression, a text or a quoted string, so nothing stored changes meaning.
+- **Twins:** the phone's tokenizer (`ConsoleTokens.kt`) and hole scanner (`TextHoles.kt`) are pinned by shared vectors. Each moves with its TypeScript side in the same commit, and the hole scanner's twin becomes a read through the tokenizer's.
+
+**The exit rule (the owner, 2026-11-26):**
+
+> cool ensure all follows that one at a time character to token building, and then token to potential grammer rules. audit everywhere once you finish. phase don't end unless unified
+
+Every reader goes characters to tokens through the one lexer, then tokens to grammar rules through the one parser. Once built, every place either runtime reads expression, text or script source is audited for a scanner that goes around the lexer or a rule decided from raw characters. The phase does not end until that audit is clean.
+
+**Order:** the lexer's string body and holes, with the token vectors and the Kotlin tokenizer; the template node through the parser, the evaluator and the checker, with `scanHoles`, `fillHoles` and `holeIssue` re-seated on them and the text vectors and their twin; the script lexer mode, the script tree, lowering, raising and the printer, with the old scanner and codec deleted and the `text` kind removed; the smaller ecosystems. Each ends green. Tasks are written on this, after it.
+
 ### How side by side is to be built (Fable block)
 
 Written before the code. Each line is a ruling until the code says otherwise. This block builds the Gateway's half; the "Together" card, the script editor and the map are the next Opus block.
@@ -2547,6 +2574,8 @@ Written before the code. Each line is a ruling until the code says otherwise. Th
 - **Several attempts are claimed in one commit, then started:** every claim of a pass is written before any runner registers, as one claim is today; a retiring run drains every claim and moves no cursor; `stop` waits for every runner.
 
 **What stores change.** `Fire.active` holds up to `RUN_STRANDS_MAX` paths; a frame holds `strands`, the first uncaught failure by strand root; a failure may hold `errors`; a step may hold `awaits`, `seen` and the order it `ended` in. A build before this drops a fire it cannot read with one `uncertain` row and holds a function it cannot read unread, as it does today for any newer kind.
+
+**As built, the block (2026-11-26):** as ruled above. `advance` in `automationPass.ts` is one loop over cursors: a step whose turn it is waits, ends or forks; an ended one asks `moved` where its cursor goes; a cursor that leaves settles the owners above it, innermost first. No flag says a frame's line ran out: "no cursor beneath its path" is the whole test. The two real-plug tests that pinned one attempt at a time across runs were replaced by the rules that hold now (runs on other plugs do not wait; one plug takes one attempt at a time). A state fixture holds a run stored mid-block.
 
 **Order:** the strand rules in `moved` with their table; the `parallel` kind through the schema, the walk (and its Kotlin twin and vectors), the save checks and the script; the pass over several cursors and the join; several effects in the pump and the device order; then `start` and `await` on the same rules, `all` and `any`, a task's members and type. Each ends green.
 

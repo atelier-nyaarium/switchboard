@@ -25,6 +25,10 @@
 				{
 					"name": "message",
 					"type": "Text"
+				},
+				{
+					"name": "errors",
+					"type": "List<Error>"
 				}
 			]
 		}

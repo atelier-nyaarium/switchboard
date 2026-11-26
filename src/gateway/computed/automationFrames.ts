@@ -11,6 +11,7 @@ export const FAILURE_CODES = [
 	"thrown",
 	"call_failed",
 	"loop",
+	"together",
 ] as const;
 export type FailureCode = (typeof FAILURE_CODES)[number];
 
@@ -19,11 +20,13 @@ export const FAILURE_MESSAGE_MAX = 200;
 export interface Failure {
 	code: FailureCode;
 	message: string;
+	/** First failure per branch. */
+	errors?: { code: FailureCode; message: string }[];
 }
 
 export type { Address, Side } from "../../shared/automation-walk.js";
 
-/** What the walk reads of a step. `steps` is an if's first side and a try's guarded one. */
+/** Lists read by walker. */
 export interface TreeStep {
 	kind: string;
 	steps?: readonly TreeStep[];
@@ -35,6 +38,8 @@ const sideOf = (step: TreeStep, side: Side): readonly TreeStep[] | undefined => 
 	switch (side) {
 		case "then":
 		case "try":
+		case "parallel":
+		case "start":
 			return step.steps;
 		case "else":
 			return step.else;
@@ -44,7 +49,35 @@ const sideOf = (step: TreeStep, side: Side): readonly TreeStep[] | undefined => 
 };
 
 /** A step's lists, first then second. */
-const SIDES_OF: Readonly<Record<string, readonly [Side, Side]>> = { if: ["then", "else"], try: ["try", "catch"] };
+const SIDES_OF: Readonly<Record<string, readonly Side[]>> = {
+	if: ["then", "else"],
+	try: ["try", "catch"],
+	parallel: ["parallel"],
+	start: ["start"],
+};
+
+/** Innermost strand index. */
+const strandAt = (address: Address): number => Math.max(address.lastIndexOf("parallel"), address.lastIndexOf("start"));
+
+/** Strand owner address. */
+export const ownerOf = (address: Address): Address | null => {
+	const at = strandAt(address);
+	return at < 0 ? null : address.slice(0, at);
+};
+
+/** Strand memory key. */
+export const strandOf = (address: Address): Address | null => {
+	const at = strandAt(address);
+	if (at < 0) return null;
+	return address[at] === "parallel" ? address.slice(0, at + 2) : address.slice(0, at);
+};
+
+/** One-step block branches. */
+export const branchesOf = (body: readonly TreeStep[], at: Address): Address[] =>
+	(listAt(body, [...at, "parallel"]) ?? []).map((_, index) => [...at, "parallel", index]);
+
+/** Task entry, if present. */
+export const taskOf = (body: readonly TreeStep[], at: Address): Address | null => first(body, [...at, "start"]);
 
 /** A path's numbers below its call, read against the body they address. Null where they name no step. */
 export const addressIn = (body: readonly TreeStep[], numbers: readonly number[]): Address | null => {
@@ -86,22 +119,25 @@ export const stepAt = <T extends TreeStep>(body: readonly T[], address: Address)
 const first = (body: readonly TreeStep[], base: Address): Address | null =>
 	(listAt(body, base)?.length ?? 0) > 0 ? [...base, 0] : null;
 
-/** The next sibling, else what follows the owner of its side. */
-const after = (body: readonly TreeStep[], address: Address): Address | null => {
+/** Next or strand end. */
+const after = (body: readonly TreeStep[], address: Address): Address | "ran" | null => {
 	let at = address;
 	for (;;) {
 		const base = at.slice(0, -1);
 		const index = at.at(-1) as number;
-		if (index + 1 < (listAt(body, base)?.length ?? 0)) return [...base, index + 1];
+		const side = base.at(-1);
+		// Branches contain one step.
+		if (side !== "parallel" && index + 1 < (listAt(body, base)?.length ?? 0)) return [...base, index + 1];
 		if (base.length === 0) return null;
+		if (side === "parallel" || side === "start") return "ran";
 		at = base.slice(0, -1);
 	}
 };
 
-/** The `try` whose guarded side holds this step. A catch guards nothing. */
+/** Strand-local try guard. */
 export const guardOf = (address: Address): Address | null => {
 	const at = address.lastIndexOf("try");
-	return at < 0 ? null : address.slice(0, at);
+	return at < 0 || at < strandAt(address) ? null : address.slice(0, at);
 };
 
 /** The `try` whose catch holds this step; `e` is its failure. */
@@ -121,19 +157,27 @@ export type Ended =
 
 export type Move =
 	/** `caught`: the catch entered, with its `try` and what it holds as `e`. */
-	{ to: Address; caught?: { by: Address; failure: Failure } } | { end: "done" } | { end: "failed"; failure: Failure };
+	| { to: Address; caught?: { by: Address; failure: Failure } }
+	| { end: "done" }
+	| { end: "failed"; failure: Failure }
+	/** Branch completion and owner. */
+	| { strand: Address; failure?: Failure };
 
-/** The first failure nothing caught. */
+/** Uncaught failure. */
 export interface FrameMemory {
 	failed?: Failure;
 }
 
-const ended = (memory: FrameMemory): Move =>
-	memory.failed ? { end: "failed", failure: memory.failed } : { end: "done" };
+/** Owner closes strand. */
+const ended = (at: Address, memory: FrameMemory): Move => {
+	const owner = ownerOf(at);
+	if (owner) return { strand: owner, ...(memory.failed ? { failure: memory.failed } : {}) };
+	return memory.failed ? { end: "failed", failure: memory.failed } : { end: "done" };
+};
 
 const onward = (body: readonly TreeStep[], from: Address, memory: FrameMemory): Move => {
 	const to = after(body, from);
-	return to ? { to } : ended(memory);
+	return to === null || to === "ran" ? ended(from, memory) : { to };
 };
 
 /** The first step, or an empty body's end. */
@@ -142,7 +186,6 @@ export const entered = (body: readonly TreeStep[]): Move => {
 	return to ? { to } : { end: "done" };
 };
 
-/** Where the frame goes once the step at `at` ended. */
 export function moved(
 	body: readonly TreeStep[],
 	at: Address,
@@ -157,7 +200,7 @@ export function moved(
 			return { move: to ? { to } : onward(body, at, memory), memory };
 		}
 		case "exit":
-			return { move: ended(memory), memory };
+			return { move: ended(at, memory), memory };
 		case "failed":
 		case "thrown": {
 			const guard = guardOf(at);
@@ -168,7 +211,7 @@ export function moved(
 				return { move: to ? { to, caught } : onward(body, guard, memory), memory };
 			}
 			const noted = { failed: memory.failed ?? how.failure };
-			if (how.how === "thrown") return { move: ended(noted), memory: noted };
+			if (how.how === "thrown") return { move: ended(at, noted), memory: noted };
 			return { move: onward(body, at, noted), memory: noted };
 		}
 	}

@@ -1,0 +1,264 @@
+{
+	"automations": {},
+	"queue": {
+		"lastAt": 0,
+		"events": []
+	},
+	"ran": {},
+	"fires": [
+		{
+			"automation": "warm",
+			"seq": 0,
+			"at": 4600000,
+			"member": "automation:warm:inc-4:slot:4600000",
+			"incarnation": "inc-4",
+			"revision": 1,
+			"names": {
+				"time": {
+					"value": 4600000,
+					"shown": "01:16 UTC"
+				}
+			},
+			"steps": {
+				"0": {
+					"attempts": 0,
+					"startedAt": 4600000
+				},
+				"0.0": {
+					"attempts": 0,
+					"startedAt": 4600000
+				},
+				"0.0.0.0": {
+					"attempts": 1,
+					"startedAt": 4600000,
+					"claimed": true,
+					"lastAt": 4600000
+				},
+				"0.0.0.1": {
+					"attempts": 0,
+					"startedAt": 4600000,
+					"word": "done",
+					"verdict": "done"
+				},
+				"0.0.0.2": {
+					"attempts": 0,
+					"startedAt": 4600000,
+					"word": "refused",
+					"verdict": "failed",
+					"code": "thrown",
+					"message": "no"
+				},
+				"0.0.0.1.0.0": {
+					"attempts": 0,
+					"startedAt": 4600000,
+					"until": 4900000
+				}
+			},
+			"active": ["0.0.0.0", "0.0.0.1.0.0"],
+			"fields": {
+				"time": "01:16 UTC"
+			},
+			"frames": {
+				"0": {
+					"function": "warm-up",
+					"incarnation": "inc-3",
+					"revision": 1,
+					"values": {
+						"room": "aa:bb:cc:dd:ee:01"
+					},
+					"strands": {
+						"0.0.0.2": {
+							"code": "thrown",
+							"message": "no"
+						}
+					},
+					"resolved": {
+						"0.0.0.0": {
+							"kind": "device_set",
+							"device": "aa:bb:cc:dd:ee:01",
+							"verb": "on"
+						}
+					}
+				}
+			}
+		}
+	],
+	"fired": [],
+	"slots": {
+		"warm": {
+			"revision": 1,
+			"incarnation": "inc-4",
+			"at": 4600000
+		}
+	},
+	"silences": {
+		"told": {},
+		"recovered": {}
+	},
+	"versions": {
+		"warm:inc-4:1": {
+			"enabled": true,
+			"trigger": {
+				"kind": "interval",
+				"everyMin": 60
+			},
+			"actions": [
+				{
+					"kind": "run_function",
+					"function": "warm-up",
+					"values": {
+						"room": "aa:bb:cc:dd:ee:01"
+					}
+				}
+			]
+		}
+	},
+	"functionVersions": {
+		"warm-up:inc-3:1": {
+			"name": "Warm up",
+			"params": [
+				{
+					"name": "room",
+					"type": "device"
+				}
+			],
+			"steps": [
+				{
+					"kind": "parallel",
+					"steps": [
+						{
+							"kind": "do",
+							"action": "device_set",
+							"args": {
+								"device": {
+									"kind": "expression",
+									"text": "room"
+								},
+								"verb": {
+									"kind": "literal",
+									"value": "on"
+								}
+							}
+						},
+						{
+							"kind": "try",
+							"steps": [
+								{
+									"kind": "wait",
+									"minutes": {
+										"kind": "literal",
+										"value": 5
+									}
+								},
+								{
+									"kind": "do",
+									"action": "ifttt_trigger",
+									"args": {
+										"event": {
+											"kind": "literal",
+											"value": "slow"
+										}
+									}
+								}
+							],
+							"catch": []
+						},
+						{
+							"kind": "throw",
+							"text": "no"
+						}
+					]
+				},
+				{
+					"kind": "do",
+					"action": "ifttt_trigger",
+					"args": {
+						"event": {
+							"kind": "literal",
+							"value": "after"
+						}
+					}
+				}
+			]
+		}
+	},
+	"unusedFunctions": {},
+	"landedSets": {},
+	"firedAt": {},
+	"lastRuns": {
+		"warm": {
+			"member": "automation:warm:inc-4:slot:4600000",
+			"incarnation": "inc-4",
+			"order": 0,
+			"stamp": {
+				"body": "056da60681e4ecefa79bbc8df290bafc",
+				"functions": ["warm-up@inc-3:1"]
+			},
+			"run": {
+				"at": 4600000,
+				"revision": 1,
+				"steps": [
+					{
+						"path": "0",
+						"kind": "run_function",
+						"function": "warm-up"
+					},
+					{
+						"path": "0.0",
+						"kind": "parallel",
+						"function": "warm-up"
+					},
+					{
+						"path": "0.0.0.0",
+						"kind": "device_set",
+						"function": "warm-up"
+					},
+					{
+						"path": "0.0.0.1",
+						"kind": "try",
+						"outcome": "ran",
+						"function": "warm-up"
+					},
+					{
+						"path": "0.0.0.1.0.0",
+						"kind": "wait",
+						"function": "warm-up"
+					},
+					{
+						"path": "0.0.0.2",
+						"kind": "throw",
+						"outcome": "refused",
+						"reason": "no",
+						"function": "warm-up"
+					}
+				],
+				"active": "0.0.0.0",
+				"beside": ["0.0.0.0", "0.0.0.1.0.0"],
+				"running": true
+			}
+		}
+	},
+	"order": {
+		"next": 1,
+		"members": {
+			"automation:warm:inc-4:slot:4600000": 0
+		}
+	},
+	"log": [
+		{
+			"automation": "warm",
+			"seq": 0,
+			"at": 4600000,
+			"outcome": "refused",
+			"reason": "it threw",
+			"action": "throw",
+			"step": "0.0.0.2",
+			"function": "warm-up"
+		}
+	],
+	"standing": {
+		"warm": {
+			"step:warm-up:0.0.0.2:throw": "it threw"
+		}
+	}
+}

@@ -71,6 +71,7 @@ import {
 import { CLOCK_GRACE_MS, clockShown, isClock, nextSlot, walkSlots } from "./automationClock.js";
 import {
 	admit,
+	EFFECTS_MAX,
 	type Fire,
 	type FireNames,
 	FRAME_VAR_BYTES_MAX,
@@ -875,8 +876,8 @@ export function createAutomations(deps: AutomationsDeps) {
 		return landed;
 	}
 
-	/** The effect in flight. */
-	let running: { ref: StepRef; done: Promise<void> } | null = null;
+	const running = new Map<string, { done: Promise<void>; device?: string }>();
+	const runningDone = (): Promise<void>[] => [...running.values()].map((held) => held.done);
 	/** Read in flight. */
 	let reading: Promise<void> | null = null;
 	/** Answers kept until written. */
@@ -884,7 +885,7 @@ export function createAutomations(deps: AutomationsDeps) {
 	/** Judged each pass until committed. */
 	let recovering = true;
 
-	const isRunning = (ref: StepRef): boolean => running !== null && stepKey(running.ref) === stepKey(ref);
+	const isRunning = (ref: StepRef): boolean => running.has(stepKey(ref));
 
 	/** Why a fire stops; started ones finish pinned. */
 	const retireOf = (fire: Fire): LogRow | null => {
@@ -905,7 +906,11 @@ export function createAutomations(deps: AutomationsDeps) {
 		records.list().filter((record) => pointerOf(record.body)?.function === id).length;
 
 	/** Opens the frame on its first step; the call's record stays. */
-	const enter = (fire: Fire, path: string, call: Call): Fire | { refused: string; code?: FailureCode } => {
+	const enter = (
+		fire: Fire,
+		path: string,
+		call: Call,
+	): { fire: Fire; first: string } | { refused: string; code?: FailureCode } => {
 		const above = Object.entries(fire.frames ?? {}).filter(([site]) => path.startsWith(`${site}.`));
 		// An edit can close a loop.
 		if (above.some(([, held]) => held.function === call.function)) return { refused: CALL_LOOPS, code: "loop" };
@@ -931,12 +936,12 @@ export function createAutomations(deps: AutomationsDeps) {
 		const first = entered(written(record.body));
 		if (!("to" in first)) return { refused: FRAME_UNREAD };
 		const to = within(path, first.to);
-		return {
+		const opened = {
 			...fire,
 			steps: { ...fire.steps, [to]: FRESH_STEP },
-			active: [to],
 			frames: { ...fire.frames, [path]: frame },
 		};
+		return { fire: opened, first: to };
 	};
 
 	/** The steps a frame runs. */
@@ -1029,7 +1034,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		const home = deps.isHome();
 		const {
 			next,
-			effect,
+			effects,
 			read: toRead,
 			queued,
 		} = automationPass.pass({
@@ -1039,7 +1044,13 @@ export function createAutomations(deps: AutomationsDeps) {
 			recover: recovering,
 			answers: spent,
 			inFlight: isRunning,
-			busy: { effect: running !== null, read: reading !== null },
+			busy: {
+				free: Math.max(0, EFFECTS_MAX - running.size),
+				devices: new Set(
+					[...running.values()].flatMap((held) => (held.device === undefined ? [] : [held.device])),
+				),
+				read: reading !== null,
+			},
 		});
 		// An unlanded pass is retried whole, its claim with it.
 		if ((unwritten || canonicalJson(next) !== canonicalJson(state)) && !commit(next)) return;
@@ -1049,8 +1060,8 @@ export function createAutomations(deps: AutomationsDeps) {
 			const claimed = state.fires.some((held) => held.member === ref.member && held.steps[ref.path]?.claimed);
 			if (!claimed) spent.delete(key);
 		}
-		// The claim's runner registers first.
-		if (effect) startEffect(effect);
+		// Register claims before answers.
+		for (const effect of effects) startEffect(effect);
 		if (toRead) startRead(toRead);
 		if (queued) deps.onQueued?.();
 	}
@@ -1087,11 +1098,12 @@ export function createAutomations(deps: AutomationsDeps) {
 					return true;
 				}),
 			() => {
-				running = null;
+				running.delete(stepKey(ref));
 			},
 			true,
 		);
-		running = { ref, done };
+		const device = switchOf(stepAt(held.fire, ref.path))?.device;
+		running.set(stepKey(ref), { done, ...(device === undefined ? {} : { device }) });
 	}
 
 	function startRead(ref: StepRef): void {
@@ -1208,13 +1220,13 @@ export function createAutomations(deps: AutomationsDeps) {
 	}
 
 	/** Another fire set this switch since; a toggle never outdates a toggle. */
-	const outdated = (fire: Fire, action: AutomationAction): boolean => {
+	const outdated = (fire: Fire, path: string, action: AutomationAction): boolean => {
 		const target = isEffect(action) ? switchOf(action) : null;
 		const newer = target ? own(state.landedSets, target.device) : undefined;
 		return (
 			newer !== undefined &&
 			newer.member !== fire.member &&
-			newer.at > intentAt(fire) &&
+			newer.at > intentAt(fire, path, (at) => automationPass.rootOf(fire, at)) &&
 			!(newer.nature === "nudges" && target?.nature === "nudges")
 		);
 	};
@@ -1262,7 +1274,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		const site = siteIn(fire, ref.path);
 		const frame = site === null ? undefined : current?.frames?.[site];
 		if (!current || !step || isEnded(step) || !frame || site === null) return unwanted(rows, log, current, step);
-		if (!("refused" in read) && outdated(current, read.action)) read = { refused: NEWER_SET };
+		if (!("refused" in read) && outdated(current, ref.path, read.action)) read = { refused: NEWER_SET };
 		if ("refused" in read) {
 			const ended = refusedUnsent(step);
 			const fires = patched(ref.member, { steps: { ...current.steps, [ref.path]: ended } });
@@ -1834,7 +1846,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		},
 		/** Resolves when idle. */
 		async settled(): Promise<void> {
-			while (running || reading) await Promise.all([running?.done, reading]);
+			while (running.size > 0 || reading) await Promise.all([...runningDone(), reading]);
 		},
 		/** Event automations that woke the assistant. */
 		noteEvents(ids: readonly string[], at: number): void {
@@ -1866,7 +1878,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			stopped = true;
 			if (clock) deps.timers?.clearTimer(clock.handle());
 			clock = null;
-			while (running || reading) await Promise.all([running?.done, reading]);
+			while (running.size > 0 || reading) await Promise.all([...runningDone(), reading]);
 			landSpent();
 		},
 		/** Clear events, then drain; a repeat retries. */

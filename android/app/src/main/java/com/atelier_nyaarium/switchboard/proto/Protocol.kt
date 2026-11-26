@@ -2944,6 +2944,12 @@ sealed class FunctionStep {
 	) : FunctionStep()
 
 	@Serializable
+	@SerialName("parallel")
+	data class Parallel(
+		val steps: List<FunctionStep>,
+	) : FunctionStep()
+
+	@Serializable
 	@SerialName("exit")
 	data object Exit : FunctionStep()
 
@@ -2998,6 +3004,7 @@ object FunctionStepSerializer : KSerializer<FunctionStep> {
 				"do" -> input.json.decodeFromJsonElement(FunctionStep.Do.serializer(), body)
 				"if" -> input.json.decodeFromJsonElement(FunctionStep.If.serializer(), body)
 				"try" -> input.json.decodeFromJsonElement(FunctionStep.Try.serializer(), body)
+				"parallel" -> input.json.decodeFromJsonElement(FunctionStep.Parallel.serializer(), body)
 				"exit" -> input.json.decodeFromJsonElement(FunctionStep.Exit.serializer(), body)
 				"throw" -> input.json.decodeFromJsonElement(FunctionStep.Throw.serializer(), body)
 				"let" -> input.json.decodeFromJsonElement(FunctionStep.Let.serializer(), body)
@@ -3018,6 +3025,7 @@ object FunctionStepSerializer : KSerializer<FunctionStep> {
 			is FunctionStep.Do -> tagged("do", output.json.encodeToJsonElement(FunctionStep.Do.serializer(), value))
 			is FunctionStep.If -> tagged("if", output.json.encodeToJsonElement(FunctionStep.If.serializer(), value))
 			is FunctionStep.Try -> tagged("try", output.json.encodeToJsonElement(FunctionStep.Try.serializer(), value))
+			is FunctionStep.Parallel -> tagged("parallel", output.json.encodeToJsonElement(FunctionStep.Parallel.serializer(), value))
 			is FunctionStep.Exit -> tagged("exit", output.json.encodeToJsonElement(FunctionStep.Exit.serializer(), value))
 			is FunctionStep.Throw -> tagged("throw", output.json.encodeToJsonElement(FunctionStep.Throw.serializer(), value))
 			is FunctionStep.Let -> tagged("let", output.json.encodeToJsonElement(FunctionStep.Let.serializer(), value))
@@ -5724,6 +5732,8 @@ data class AutomationLastRun(
 	val steps: List<AutomationLastStep>,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val active: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val beside: List<String>? = null,
 	val running: Boolean,
 )
 

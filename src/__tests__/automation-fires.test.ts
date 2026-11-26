@@ -3,8 +3,9 @@ import {
 	admit,
 	FIRES_MAX,
 	type Fire,
+	intentAt,
 	mayRun,
-	nextEffect,
+	nextEffects,
 	outdatedSets,
 	readFire,
 } from "../gateway/computed/automationFires.js";
@@ -127,6 +128,9 @@ describe("admission past the bound", () => {
 
 describe("the runner's next attempt", () => {
 	const offer = (member: string, step: Step) => ({ ref: { member, path: "0" }, dueAt: dueAt(begun(step, 0)) });
+	/** One slot free, as one run's own line asks. */
+	const nextOne = (runnable: Parameters<typeof nextEffects>[0]) =>
+		nextEffects(runnable, [], { free: 1, devices: new Set() })[0] ?? null;
 
 	it("takes a retry that fell due ahead of every first attempt whose turn came later", () => {
 		const retry = offer("silent:0", { attempts: 1, startedAt: 0, lastAt: 0, word: "unreachable" });
@@ -135,8 +139,8 @@ describe("the runner's next attempt", () => {
 			offer("fan:2", { attempts: 0, startedAt: 7_000 }),
 		];
 
-		expect(nextEffect([...later, retry])?.member).toBe("silent:0");
-		expect(nextEffect(later)?.member).toBe("lamp:1");
+		expect(nextOne([...later, retry])?.member).toBe("silent:0");
+		expect(nextOne(later)?.member).toBe("lamp:1");
 	});
 
 	it("takes a healthy first attempt ahead of dead plugs whose gaps put them later, and a resumed retry from its turn", () => {
@@ -145,23 +149,85 @@ describe("the runner's next attempt", () => {
 		const healthy = offer("lamp:1", { attempts: 0, startedAt: 10_000 });
 		const resumed = offer("heat:0", { attempts: 1, startedAt: 9_000 });
 
-		expect(nextEffect([dead("a:0", 10_000), dead("b:0", 12_000), dead("c:0", 14_000), healthy])?.member).toBe(
+		expect(nextOne([dead("a:0", 10_000), dead("b:0", 12_000), dead("c:0", 14_000), healthy])?.member).toBe(
 			"lamp:1",
 		);
-		expect(nextEffect([healthy, resumed])?.member).toBe("heat:0");
+		expect(nextOne([healthy, resumed])?.member).toBe("heat:0");
 	});
 
 	it("breaks a tie by fire order", () => {
 		const tied = [offer("a:0", { attempts: 0, startedAt: 5_000 }), offer("b:0", { attempts: 0, startedAt: 5_000 })];
 
-		expect(nextEffect(tied)?.member).toBe("a:0");
-		expect(nextEffect([])).toBeNull();
+		expect(nextOne(tied)?.member).toBe("a:0");
+		expect(nextOne([])).toBeNull();
 	});
 
 	it("gives every run of tells alone a turn, and one more to its automation's oldest other fire", () => {
 		const held = [telling("bell", 0), fire("bell", 1), fire("bell", 2), telling("bell", 3)];
 
 		expect([...mayRun(held)]).toEqual(["bell:0", "bell:1", "bell:3"]);
+	});
+});
+
+describe("several attempts at once", () => {
+	const ready = (member: string, path: string, startedAt: number) => ({
+		ref: { member, path },
+		dueAt: dueAt(begun({ attempts: 0, startedAt }, startedAt)),
+	});
+	const none = { free: 4, devices: new Set<string>() };
+
+	it("starts as many as are free, and never two on one device", () => {
+		const runnable = [ready("a:0", "0", 1), ready("b:0", "0", 2), ready("c:0", "0", 3)];
+		const targets = [
+			{ member: "a:0", path: "0", device: "plug-1" },
+			{ member: "b:0", path: "0", device: "plug-1" },
+		];
+
+		expect(nextEffects(runnable, targets, none).map((ref) => ref.member)).toEqual(["a:0", "c:0"]);
+		expect(nextEffects(runnable, targets, { free: 1, devices: new Set() }).map((ref) => ref.member)).toEqual([
+			"a:0",
+		]);
+		expect(
+			nextEffects(runnable, targets, { free: 4, devices: new Set(["plug-1"]) }).map((ref) => ref.member),
+		).toEqual(["c:0"]);
+		expect(nextEffects(runnable, targets, { free: 0, devices: new Set() })).toEqual([]);
+	});
+
+	it("holds a run's later step on a device while an earlier one is open, though the earlier waits out a retry", () => {
+		const later = ready("run:0", "0.0.1", 5);
+		const targets = [
+			{ member: "run:0", path: "0.0.0", device: "plug-1" },
+			{ member: "run:0", path: "0.0.1", device: "plug-1" },
+			{ member: "run:0", path: "0.0.2", device: "plug-2" },
+		];
+
+		expect(nextEffects([later, ready("run:0", "0.0.2", 5)], targets, none).map((ref) => ref.path)).toEqual([
+			"0.0.2",
+		]);
+		expect(nextEffects([later], targets.slice(1), none).map((ref) => ref.path)).toEqual(["0.0.1"]);
+	});
+});
+
+describe("when a step meant its set", () => {
+	const ended = (until: number): Step => ({ attempts: 0, word: "done", verdict: "done", until });
+	const run = fire("heat", 100, {
+		"0.0": ended(500),
+		"0.1.0.0.0.0": ended(900),
+		"0.1.0.0.0.1": { attempts: 0 },
+		"0.1.0.1": { attempts: 0 },
+		"0.2": { attempts: 0 },
+	});
+	/** Two branches of the block at `0.1`. */
+	const rootOf = (path: string) =>
+		path.startsWith("0.1.0.0") ? "0.1.0.0" : path.startsWith("0.1.0.1") ? "0.1.0.1" : null;
+
+	it("is the last wait before it in its own strand or one around it, never a sibling's", () => {
+		expect([
+			intentAt(run, "0.1.0.0.0.1", rootOf),
+			intentAt(run, "0.1.0.1", rootOf),
+			intentAt(run, "0.2", rootOf),
+			intentAt(run, "0.0", rootOf),
+		]).toEqual([900, 500, 500, 100]);
 	});
 });
 
@@ -182,16 +248,21 @@ describe("a switch set that landed", () => {
 		const newer = on("cool", 300);
 		const otherSwitch = on("fan", 50);
 
-		expect(outdatedSets([older, claimedOlder, endedOlder, newer, otherSwitch], landedSet(200), targetOf)).toEqual([
-			{ member: "heat:100", path: "0" },
-		]);
+		expect(
+			outdatedSets([older, claimedOlder, endedOlder, newer, otherSwitch], landedSet(200), targetOf, () => null),
+		).toEqual([{ member: "heat:100", path: "0" }]);
 	});
 
 	it("never ends a step of the fire whose set landed", () => {
 		const own = on("heat", 100);
 
 		expect(
-			outdatedSets([own], [{ member: "heat:100", device: "plug-1", nature: "sets", at: 500 }], targetOf),
+			outdatedSets(
+				[own],
+				[{ member: "heat:100", device: "plug-1", nature: "sets", at: 500 }],
+				targetOf,
+				() => null,
+			),
 		).toEqual([]);
 	});
 
@@ -199,13 +270,13 @@ describe("a switch set that landed", () => {
 		const olderOn = on("heat", 100);
 		const olderFlip = on("flip", 100);
 
-		expect(outdatedSets([olderOn], landedSet(200, "nudges"), targetOf)).toEqual([
+		expect(outdatedSets([olderOn], landedSet(200, "nudges"), targetOf, () => null)).toEqual([
 			{ member: "heat:100", path: "0" },
 		]);
-		expect(outdatedSets([olderFlip], landedSet(200, "sets"), targetOf)).toEqual([
+		expect(outdatedSets([olderFlip], landedSet(200, "sets"), targetOf, () => null)).toEqual([
 			{ member: "flip:100", path: "0" },
 		]);
-		expect(outdatedSets([olderFlip], landedSet(200, "nudges"), targetOf)).toEqual([]);
+		expect(outdatedSets([olderFlip], landedSet(200, "nudges"), targetOf, () => null)).toEqual([]);
 	});
 });
 

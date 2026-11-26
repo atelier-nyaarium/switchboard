@@ -364,6 +364,11 @@ export function printScript(steps: readonly FunctionStep[], tables: ScriptTables
 				case "call":
 					lines.push(`${indent}${calling(step)}`);
 					break;
+				case "parallel":
+					lines.push(`${indent}parallel {`);
+					block(step.steps, `${indent}\t`, `${path}.0.`);
+					lines.push(`${indent}}`);
+					break;
 				case "try": {
 					lines.push(`${indent}try {`);
 					block(step.steps, `${indent}\t`, `${path}.0.`);
@@ -490,7 +495,9 @@ function overBounds(steps: readonly FunctionStep[]): { step: string; message: st
 					? [step.steps ?? [], step.else ?? []]
 					: step.kind === "try"
 						? [step.steps, step.catch]
-						: [];
+						: step.kind === "parallel"
+							? [step.steps]
+							: [];
 			for (const [side, inner] of sides.entries()) {
 				const found = walk(inner, `${path}.${side}.`, depth + 1);
 				if (found) return found;
@@ -780,6 +787,8 @@ export function parseScript(source: string, tables: ScriptTables): ScriptParse {
 				}
 				return { kind: "try", steps, catch: braced(caught, path, 1, "e") };
 			}
+			case "parallel":
+				return { kind: "parallel", steps: braced(word, path, 0) };
 			case "exit": {
 				const extra = codeAfter(word);
 				if (extra) fail(extra.start, extra.end, "exit stands alone");
@@ -855,7 +864,7 @@ export function parseScript(source: string, tables: ScriptTables): ScriptParse {
 				const step = piece.kind === "word" ? worded(piece, own) : plain(piece, own);
 				const last = pieces[at - 1] as ScriptPiece;
 				const trailing = pieces[at];
-				const simple = step.kind !== "if" && step.kind !== "try";
+				const simple = step.kind !== "if" && step.kind !== "try" && step.kind !== "parallel";
 				// A comment after a statement is a note before it.
 				if (simple && trailing?.kind === "comment" && sameLine(last, trailing)) {
 					at++;

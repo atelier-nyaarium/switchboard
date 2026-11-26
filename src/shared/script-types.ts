@@ -34,7 +34,12 @@ export const PARAM_SCRIPT_TYPES = {
 	number: "Number",
 } as const satisfies Record<FunctionParamType, ScriptType>;
 
-export const ERROR_MEMBERS: Readonly<Record<string, ScriptType>> = { code: "Text", message: "Text" };
+export const ERROR_MEMBERS: Readonly<Record<string, string>> = {
+	code: "Text",
+	message: "Text",
+	// First failure per branch.
+	errors: "List<Error>",
+};
 
 export interface TypeScope {
 	/** Held names; one shadows an entity. */

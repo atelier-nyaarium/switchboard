@@ -120,4 +120,21 @@ describe("a restore across builds", () => {
 		expect(after.functionVersions).toEqual(held.functionVersions);
 		expect(after.unusedFunctions).toEqual(held.unusedFunctions);
 	});
+
+	it("resumes a run it held in a block: every branch where it stood, and the block's end with what failed", async () => {
+		const held = JSON.parse(fs.readFileSync(path.join(FIXTURES, "block", "automation-state.json"), "utf8"));
+		const { automations, stored } = restored("block");
+		await automations.settled();
+
+		expect(held.fires[0].active).toEqual(["0.0.0.0", "0.0.0.1.0.0"]);
+		expect(automations.log().map((row) => [row.step, row.action, row.outcome])).toEqual([
+			["0.0.0.2", "throw", "refused"],
+			["0.0.0.0", "device_set", "refused"],
+			["0.0.0.1.0.1", "ifttt_trigger", "ran"],
+			["0.0", "parallel", "refused"],
+			["0.1", "ifttt_trigger", "ran"],
+			["0", "run_function", "refused"],
+		]);
+		expect(stored().fires).toEqual([]);
+	});
 });

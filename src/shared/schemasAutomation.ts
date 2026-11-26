@@ -17,6 +17,7 @@ import {
 	type FunctionParamType,
 	FunctionSchema,
 	PARAM_NAME_RE,
+	RUN_STRANDS_MAX,
 	STEP_TEXT_MAX,
 } from "./schemasFunction.js";
 import { ASSISTANT_RULE_CONDITIONS_MAX, ASSISTANT_RULES_MAX } from "./wire-vocabulary.js";
@@ -405,8 +406,10 @@ export const AutomationLastRunSchema = z
 		revision: z.number().int().positive(),
 		/** Every step it reached, in written order. */
 		steps: z.array(AutomationLastStepSchema).max(LAST_RUN_STEPS_MAX),
-		/** The step in flight. */
+		/** First active step. */
 		active: z.string().regex(STEP_PATH_RE).optional(),
+		/** All active steps. */
+		beside: z.array(z.string().regex(STEP_PATH_RE)).max(RUN_STRANDS_MAX).optional(),
 		running: z.boolean(),
 	})
 	.meta({ id: "AutomationLastRun" });

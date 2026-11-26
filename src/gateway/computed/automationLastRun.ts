@@ -65,12 +65,13 @@ export function lastRunOf(fire: Fire, running: boolean, ports: LastRunPorts): He
 		.map(([path, step]) => stepOf(fire, path, step, ports));
 	if (steps.length === 0) return null;
 	const active = running ? fire.active[0] : undefined;
+	const beside = running && fire.active.length > 1 ? { beside: fire.active } : {};
 	return {
 		member: fire.member,
 		incarnation: fire.incarnation,
 		order: ports.orderOf(fire.member),
 		stamp: ports.stampOf(fire),
-		run: { at: fire.at, revision: fire.revision, steps, ...(active ? { active } : {}), running },
+		run: { at: fire.at, revision: fire.revision, steps, ...(active ? { active } : {}), ...beside, running },
 	};
 }
 
@@ -88,7 +89,7 @@ export const settledRuns = (held: LastRuns, live: ReadonlySet<string>): LastRuns
 	Object.fromEntries(
 		Object.entries(held).map(([id, last]) => {
 			if (!last.run.running || live.has(last.member)) return [id, last];
-			const { active: _active, ...run } = last.run;
+			const { active: _active, beside: _beside, ...run } = last.run;
 			return [id, { ...last, run: { ...run, running: false } }];
 		}),
 	);

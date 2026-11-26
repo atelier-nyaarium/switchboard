@@ -134,7 +134,7 @@ describe("the automation save op", () => {
 		expect(listed.serves?.functions).toEqual({
 			max: 32,
 			steps: ["tell_assistant", "device_set", "ifttt_trigger"],
-			statements: ["do", "if", "try", "exit", "throw", "let", "wait", "note", "call"],
+			statements: ["do", "if", "try", "parallel", "exit", "throw", "let", "wait", "note", "call"],
 			paramTypes: ["device", "text", "number"],
 			unnamed: true,
 			script: true,

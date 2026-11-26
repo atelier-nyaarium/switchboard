@@ -1000,9 +1000,9 @@ describe("automations", () => {
 		await automations.settled();
 
 		expect(crowded).toEqual([["flash", "suppressed"]]);
-		expect([w.effects.filter((at) => at === "fan:toggle").length, w.effects.at(-1)]).toEqual([
+		expect([w.effects.filter((at) => at === "fan:toggle").length, w.effects.includes("plug:on")]).toEqual([
 			WAITING_EVENTS_MAX,
-			"plug:on",
+			true,
 		]);
 	});
 

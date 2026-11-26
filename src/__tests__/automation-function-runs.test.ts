@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { composeAutomations } from "../gateway/compose/composeAutomations.js";
 import { QUEUE_FULL, QUEUE_MAX_EVENTS } from "../gateway/computed/automationOutbox.js";
-import { CALL_FAILED } from "../gateway/computed/automationPass.js";
+import { CALL_FAILED, TOO_MANY_BESIDE } from "../gateway/computed/automationPass.js";
 import type { Attempt } from "../gateway/computed/automationRunner.js";
 import {
 	type AutomationHoles,
@@ -74,6 +74,8 @@ function world(stored?: object) {
 	const effects: string[] = [];
 	const unplugged = new Set<string>();
 	let answer: (effect: string) => Attempt = () => ({ word: "done" });
+	/** Attempts wait here before they answer. */
+	let gate: Promise<void> = Promise.resolve();
 	let evaluating: AutomationHoles["evaluate"] = holesOver(REGISTRY).evaluate;
 	const open = () =>
 		composeAutomations({
@@ -93,10 +95,12 @@ function world(stored?: object) {
 						unplugged.has(device) ? null : device === PLUG ? "Lamp" : device === FAN ? "Fan" : null,
 					deviceSet: async (device, verb) => {
 						effects.push(`${device}:${verb}`);
+						await gate;
 						return answer(`${device}:${verb}`);
 					},
 					iftttTrigger: async ({ event, value1 }) => {
 						effects.push(value1 === undefined ? `ifttt:${event}` : `ifttt:${event}:${value1}`);
+						await gate;
 						return answer(`ifttt:${event}`);
 					},
 				},
@@ -129,6 +133,23 @@ function world(stored?: object) {
 		automations.tick();
 		await automations.settled();
 	};
+	/** Moves the clock and lets what can start, start; never waits for an attempt. */
+	const advance = async (ms: number) => {
+		clock += ms;
+		automations.tick();
+		for (let turn = 0; turn < 20; turn++) await new Promise((resolve) => setImmediate(resolve));
+	};
+	/** Every attempt from now waits until released. */
+	const holdEffects = () => {
+		let release = () => {};
+		gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		return () => {
+			release();
+			gate = Promise.resolve();
+		};
+	};
 	const rows = () => automations.log().map((row) => [row.action, row.outcome, row.reason]);
 	const where = () => automations.log().map((row) => [row.step, row.function]);
 	/** Rewrite records, restart. */
@@ -143,6 +164,8 @@ function world(stored?: object) {
 		effects,
 		save,
 		later,
+		advance,
+		holdEffects,
 		rows,
 		where,
 		restartWith,
@@ -1409,5 +1432,213 @@ describe("a restart", () => {
 
 		expect(w.effects).toEqual([`${PLUG}:on`, `${PLUG}:on`]);
 		expect(w.rows()).toEqual([["device_set", "ran", undefined]]);
+	});
+
+	describe("a block of steps side by side", () => {
+		const block = (...steps: AutomationFunctionInput["steps"]) => ({ kind: "parallel" as const, steps });
+		const lane = (...steps: AutomationFunctionInput["steps"]) => ({ kind: "try" as const, steps, catch: [] });
+
+		it("runs each branch on its own: one waits while another sends, and the step after runs once every one has ended", async () => {
+			const w = world();
+			w.save(pointing(hourly), [
+				block(lane({ kind: "wait", minutes: lit(5) }, ifttt("slow")), ifttt("fast")),
+				ifttt("after"),
+			]);
+			await w.later(HOUR);
+			const first = [...w.effects];
+			await w.later(5 * 60_000);
+
+			expect(first).toEqual(["ifttt:fast"]);
+			expect(w.effects).toEqual(["ifttt:fast", "ifttt:slow", "ifttt:after"]);
+			expect(w.rows().every(([, outcome]) => outcome === "ran")).toBe(true);
+		});
+
+		it("has two plugs' attempts out at once, and sets one plug in the order written though the first has to retry", async () => {
+			const w = world();
+			const release = w.holdEffects();
+			w.save(pointing(hourly), [block(turn("on"), turn("on", lit(FAN)), turn("off"))]);
+			await w.advance(HOUR);
+			const together = [...w.effects];
+			// The lamp's On is not reached at first; its Off must still wait for it.
+			let tries = 0;
+			w.answer((effect) => (effect === `${PLUG}:on` && tries++ === 0 ? unreachable() : { word: "done" }));
+			release();
+			await w.automations.settled();
+			const beforeRetry = [...w.effects];
+			await w.later(60_000);
+
+			expect(together).toEqual([`${PLUG}:on`, `${FAN}:on`]);
+			expect(beforeRetry).toEqual(together);
+			expect(w.effects).toEqual([`${PLUG}:on`, `${FAN}:on`, `${PLUG}:on`, `${PLUG}:off`]);
+		});
+
+		it("lets every branch end before it fails, hands the catch each branch's first failure, and remembers one nothing caught", async () => {
+			const w = world();
+			w.answer((effect) => (effect.endsWith(":on") ? { word: "refused" } : { word: "done" }));
+			w.save(pointing(hourly), [
+				{
+					kind: "try",
+					steps: [
+						block(
+							lane(turn("on"), ifttt("skipped")),
+							{
+								kind: "if",
+								when: "true",
+								steps: [
+									{ kind: "wait", minutes: lit(1) },
+									ifttt("late"),
+									{ kind: "throw", text: "slow" },
+								],
+							},
+							{ kind: "throw", text: "no" },
+						),
+						ifttt("unreached"),
+					],
+					catch: [ifttt("caught", "{e.code} {e.errors.count()} {e.errors[0].message} {e.errors[1].message}")],
+				},
+				block(turn("on"), ifttt("beside")),
+				ifttt("after"),
+			]);
+			await w.later(HOUR);
+			const early = [...w.effects];
+			await w.later(60_000);
+
+			// The first lane caught its own refusal; the two throws are listed as written, not as they ended.
+			expect(early).toEqual([`${PLUG}:on`]);
+			expect(w.effects.slice(1)).toEqual([
+				"ifttt:late",
+				"ifttt:caught:together 2 slow no",
+				`${PLUG}:on`,
+				"ifttt:beside",
+				"ifttt:after",
+			]);
+			expect(w.rows().at(-1)).toEqual(["run_function", "refused", CALL_FAILED]);
+		});
+
+		it("fails for its own branches alone: a failure the frame already remembers is not a branch's", async () => {
+			const w = world();
+			w.answer((effect) => (effect.endsWith(":on") ? { word: "refused" } : { word: "done" }));
+			w.save(pointing(hourly), [turn("on"), block(ifttt("a"), ifttt("b")), ifttt("after")]);
+			await w.later(HOUR);
+
+			expect(w.rows().map(([action, outcome]) => [action, outcome])).toEqual([
+				["device_set", "refused"],
+				["ifttt_trigger", "ran"],
+				["ifttt_trigger", "ran"],
+				["ifttt_trigger", "ran"],
+				["run_function", "refused"],
+			]);
+		});
+
+		it("refuses at the save an exit beside running steps and a block wider than a run may hold", () => {
+			const leaves = world().save(pointing(hourly), [block(ifttt("a"), lane({ kind: "exit" }))]);
+			const three = () => block(ifttt("a"), ifttt("b"), ifttt("c"));
+			const wide = world().save(pointing(hourly), [block(three(), three(), three())]);
+			const fits = world().save(pointing(hourly), [block(three(), three(), ifttt("d"), ifttt("e"))]);
+
+			expect(leaves).toMatchObject({ stored: false, refusal: { step: "0.0.1.0.0" } });
+			expect(wide).toMatchObject({ stored: false, refusal: { step: "0" } });
+			expect(fits).toMatchObject({ stored: true });
+		});
+
+		it("finds every branch where it stood after a restart: a wait goes on, and a send that was out is not sent again", async () => {
+			const w = world();
+			const release = w.holdEffects();
+			w.save(pointing(hourly), [
+				block(ifttt("out"), lane({ kind: "wait", minutes: lit(5) }, ifttt("slow"))),
+				ifttt("after"),
+			]);
+			await w.advance(HOUR);
+			const stored = w.state();
+			release();
+			await w.automations.settled();
+			await w.automations.stop();
+			// The file as it stood with the send still out.
+			fs.writeFileSync(path.join(w.dir, "automation-state.json"), JSON.stringify(stored));
+			w.restartWith((rows) => rows);
+			await w.later(5 * 60_000);
+
+			expect((stored.fires as { active: string[] }[])[0]?.active).toEqual(["0.0.0.0", "0.0.0.1.0.0"]);
+			// From its block's turn the fire holds a key no build before blocks reads, so a rollback drops it whole.
+			expect(
+				(stored.fires as { frames: Record<string, { strands?: object }> }[])[0]?.frames["0"]?.strands,
+			).toEqual({});
+			expect(w.effects).toEqual(["ifttt:out", "ifttt:slow", "ifttt:after"]);
+			expect(w.rows().map(([action, outcome]) => [action, outcome])).toContainEqual([
+				"ifttt_trigger",
+				"uncertain",
+			]);
+		});
+
+		it("refuses a block that would pass a run's cap at its turn, which a save cannot see through a call", async () => {
+			const w = world();
+			const waits = Array.from({ length: 5 }, () => ({ kind: "wait" as const, minutes: lit(1) }));
+			w.automations.save({
+				id: "h-wide",
+				body: { enabled: false, trigger: hourly, actions: [{ kind: "run_function", function: "wide" }] },
+				base: 0,
+				function: {
+					as: "edit",
+					id: "wide",
+					body: { name: "Wide", params: [], steps: [block(...waits)] },
+					base: 0,
+				},
+				confirmed: true,
+			});
+			const saved = w.save(pointing(hourly), [
+				block({ kind: "call", function: "wide" }, { kind: "call", function: "wide" }),
+				ifttt("after"),
+			]);
+			await w.later(HOUR);
+			await w.later(60_000);
+
+			expect(saved).toMatchObject({ stored: true });
+			expect(w.rows().filter(([, , reason]) => reason === TOO_MANY_BESIDE)).toEqual([
+				["parallel", "refused", TOO_MANY_BESIDE],
+			]);
+			expect(w.effects).toEqual(["ifttt:after"]);
+		});
+
+		it("serves every step in flight, and lets a run switched off land what is out and start nothing more", async () => {
+			const w = world();
+			const release = w.holdEffects();
+			w.save(pointing(hourly), [block(ifttt("one"), ifttt("two")), ifttt("after")]);
+			await w.advance(HOUR);
+			const running = w.automations.listing().automations.find((row) => row.id === "warm")?.lastRun;
+			w.automations.ownerPut("warm", { ...pointing(hourly), enabled: false }, 1, true);
+			release();
+			await w.automations.settled();
+
+			expect(running).toMatchObject({ running: true, active: "0.0.0.0", beside: ["0.0.0.0", "0.0.0.1"] });
+			expect(w.effects).toEqual(["ifttt:one", "ifttt:two"]);
+			expect(w.rows().filter(([action]) => action === "ifttt_trigger")).toHaveLength(2);
+		});
+
+		it("runs a function a branch calls as part of that branch, and ends only the branch at its throw", async () => {
+			const w = world();
+			w.automations.save({
+				id: "h-inner",
+				body: { enabled: false, trigger: hourly, actions: [{ kind: "run_function", function: "inner" }] },
+				base: 0,
+				function: {
+					as: "edit",
+					id: "inner",
+					body: { name: "Inner", params: [], steps: [ifttt("inner"), { kind: "exit" }, ifttt("never")] },
+					base: 0,
+				},
+				confirmed: true,
+			});
+			w.save(pointing(hourly), [
+				block(
+					{ kind: "call", function: "inner" },
+					lane({ kind: "throw", text: "stop" }, ifttt("unreached")),
+					ifttt("beside"),
+				),
+				ifttt("after"),
+			]);
+			await w.later(HOUR);
+
+			expect(w.effects.sort()).toEqual(["ifttt:after", "ifttt:beside", "ifttt:inner"]);
+		});
 	});
 });

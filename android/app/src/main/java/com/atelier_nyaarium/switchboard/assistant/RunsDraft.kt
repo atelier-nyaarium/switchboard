@@ -134,6 +134,7 @@ private fun stepKind(step: FunctionStep): String = when (step) {
 	is FunctionStep.Do -> step.action
 	is FunctionStep.If -> "if"
 	is FunctionStep.Try -> "try"
+	is FunctionStep.Parallel -> "parallel"
 	is FunctionStep.Exit -> "exit"
 	is FunctionStep.Throw -> "throw"
 	is FunctionStep.Let -> "let"

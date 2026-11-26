@@ -73,7 +73,16 @@ export type WalkHandlers<E extends WalkEntry, R> = {
 };
 
 /** Kinds that steer or hold steps and act on nothing themselves. A new kind joins by hand. */
-export const STEERING = ["if", "try", "exit", "throw", "let", "wait", "note"] as const satisfies readonly StepKind[];
+export const STEERING = [
+	"if",
+	"try",
+	"parallel",
+	"exit",
+	"throw",
+	"let",
+	"wait",
+	"note",
+] as const satisfies readonly StepKind[];
 type Steering = (typeof STEERING)[number];
 
 /** One answer for every steering kind. */
@@ -98,15 +107,15 @@ export type FunctionOf = (id: string) => AutomationFunction | null;
 
 type Walked = { actions: Sealed<AutomationAction> };
 
-/** A list a step holds, in written order. */
-export const SIDES = ["then", "else", "try", "catch"] as const;
+/** Concurrent `parallel` and `start`. */
+export const SIDES = ["then", "else", "try", "catch", "parallel", "start"] as const;
 export type Side = (typeof SIDES)[number];
 
 /** Within one body: indexes and sides, ending on an index. */
 export type Address = readonly (number | Side)[];
 
 /** A step's first list is 0, its second 1. */
-export const sideNumber = (side: Side): 0 | 1 => (side === "then" || side === "try" ? 0 : 1);
+export const sideNumber = (side: Side): 0 | 1 => (side === "else" || side === "catch" ? 1 : 0);
 
 /** Numbers alone: a call, an index and a side each read as one. */
 export const STEP_PATH_RE = /^\d+(\.\d+)*$/;
@@ -199,13 +208,29 @@ function stepsIn(steps: readonly FunctionStep[], base: Address): { address: Addr
 		const held = (side: Side, list: readonly FunctionStep[] | undefined) => stepsIn(list ?? [], [...address, side]);
 		if (step.kind === "if") return [{ address, step }, ...held("then", step.steps), ...held("else", step.else)];
 		if (step.kind === "try") return [{ address, step }, ...held("try", step.steps), ...held("catch", step.catch)];
+		if (step.kind === "parallel") return [{ address, step }, ...held("parallel", step.steps)];
 		return [{ address, step }];
 	});
 }
 
 /** A function's steps at every depth, each with its numbers under the function. */
-export const stepsOf = (fn: { steps: Sealed<FunctionStep> }): { path: string; step: FunctionStep }[] =>
-	stepsIn(open(fn.steps), []).map(({ address, step }) => ({ path: numbered(address).join("."), step }));
+export const stepsOf = (fn: {
+	steps: Sealed<FunctionStep>;
+}): { path: string; address: Address; step: FunctionStep }[] =>
+	stepsIn(open(fn.steps), []).map(({ address, step }) => ({ path: numbered(address).join("."), address, step }));
+
+/** Peak concurrent width. */
+export const widthOf = (steps: readonly FunctionStep[]): number =>
+	steps.reduce((widest, step) => {
+		if (step.kind === "parallel")
+			return Math.max(
+				widest,
+				step.steps.reduce((sum, each) => sum + widthOf([each]), 0),
+			);
+		if (step.kind === "if") return Math.max(widest, widthOf(step.steps ?? []), widthOf(step.else ?? []));
+		if (step.kind === "try") return Math.max(widest, widthOf(step.steps), widthOf(step.catch));
+		return widest;
+	}, 1);
 
 /** The functions a function's steps call, at any depth. */
 export const callsOf = (fn: { steps: Sealed<FunctionStep> }): string[] =>
@@ -231,6 +256,7 @@ export const recalled = (fn: { steps: Sealed<FunctionStep> }, to: (id: string) =
 		steps.map((step): FunctionStep => {
 			if (step.kind === "call") return { ...step, function: to(step.function) };
 			if (step.kind === "try") return { ...step, steps: each(step.steps), catch: each(step.catch) };
+			if (step.kind === "parallel") return { ...step, steps: each(step.steps) };
 			if (step.kind !== "if") return step;
 			return {
 				...step,

@@ -570,6 +570,7 @@ internal class SandboxAutomationGateway(
 				is FunctionStep.Do -> if (step.action != IFTTT) return null else step.args.mapValues { (_, arg) -> literalOf(arg) ?: arg }
 				is FunctionStep.If -> return null
 				is FunctionStep.Try -> return null
+				is FunctionStep.Parallel -> return null
 				is FunctionStep.Exit -> return null
 				is FunctionStep.Throw -> return null
 				is FunctionStep.Let -> return null

@@ -83,6 +83,7 @@ private fun stepsIn(steps: List<FunctionStep>, base: List<Int>): List<Pair<List<
 		val sides = when (step) {
 			is FunctionStep.If -> listOf(0 to step.steps.orEmpty(), 1 to step.`else`.orEmpty())
 			is FunctionStep.Try -> listOf(0 to step.steps, 1 to step.catch)
+			is FunctionStep.Parallel -> listOf(0 to step.steps)
 			is FunctionStep.Do, is FunctionStep.Exit, is FunctionStep.Throw, is FunctionStep.Let,
 			is FunctionStep.Wait, is FunctionStep.Note, is FunctionStep.Call, is FunctionStep.Unknown -> emptyList()
 		}
@@ -124,6 +125,7 @@ private fun called(steps: List<FunctionStep>): List<String> = steps.flatMap { st
 		is FunctionStep.Call -> listOf(step.function)
 		is FunctionStep.If -> called(step.steps.orEmpty()) + called(step.`else`.orEmpty())
 		is FunctionStep.Try -> called(step.steps) + called(step.catch)
+		is FunctionStep.Parallel -> called(step.steps)
 		is FunctionStep.Do, is FunctionStep.Exit, is FunctionStep.Throw, is FunctionStep.Let,
 		is FunctionStep.Wait, is FunctionStep.Note, is FunctionStep.Unknown -> emptyList()
 	}

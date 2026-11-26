@@ -268,8 +268,8 @@ describe("automations on real plugs", () => {
 		expect(outcomes(automations)).toEqual(["fast ran", "slow ran"]);
 	});
 
-	it("takes whichever step fell due first: a run whose turn came before a silent plug's retry fell due goes ahead of it", async () => {
-		const { lamp, heater, ambient, automationsOf, relayOrder } = await plugs();
+	it("starts a run on another plug while two silent plugs' attempts are still out", async () => {
+		const { lamp, heater, fan, automationsOf, relayOrder } = await plugs();
 		const { automations, fire } = automationsOf({
 			slow: switched(LAMP),
 			warm: switched(HEATER),
@@ -279,37 +279,32 @@ describe("automations on real plugs", () => {
 		fire("slow");
 		await lamp.waitForHeldReply();
 		fire("warm");
-		await ambient.advance(AUTOMATION_ATTEMPT_MS);
 		await heater.waitForHeldReply();
 		fire("fast");
-		await ambient.advance(AUTOMATION_ATTEMPT_MS);
+		await vi.waitFor(() => expect(relays(fan)).toBe(1));
+		const order = [...relayOrder];
+		lamp.releaseHeldReplies();
+		heater.releaseHeldReplies();
+		await automations.settled();
+
+		expect(order).toEqual(["10.0.0.1", "10.0.0.3", "10.0.0.2"]);
+		expect(outcomes(automations).sort()).toEqual(["fast ran", "slow ran", "warm ran"]);
+	});
+
+	it("sends a plug one attempt at a time: another automation's set of it waits for the first's answer", async () => {
+		const { lamp, ambient, automationsOf, relayOrder } = await plugs();
+		const { automations, fire } = automationsOf({ first: switched(LAMP), second: switched(LAMP, "toggle") });
+
+		fire("first");
+		await lamp.waitForHeldReply();
+		fire("second");
+		await ambient.advance(1_000);
+		const whileOut = relayOrder.length;
+		lamp.releaseHeldReplies();
 		await vi.waitFor(() => expect(relays(lamp)).toBe(2));
 		await automations.settled();
 
-		expect(relayOrder).toEqual(["10.0.0.1", "10.0.0.3", "10.0.0.2", "10.0.0.1"]);
-	});
-
-	it("takes a retry that fell due before a later run's turn came, though it is barely overdue", async () => {
-		const { lamp, heater, fan, ambient, automationsOf, relayOrder } = await plugs();
-		const { automations, fire } = automationsOf({
-			slow: switched(LAMP),
-			warm: switched(HEATER),
-			fast: switched(FAN),
-		});
-
-		fire("slow");
-		await lamp.waitForHeldReply();
-		fire("warm");
-		await ambient.advance(AUTOMATION_ATTEMPT_MS);
-		await heater.waitForHeldReply();
-		// Lamp retry already due.
-		await ambient.advance(BACKOFF_MIN_MS + 2_000);
-		fire("fast");
-		await ambient.advance(AUTOMATION_ATTEMPT_MS - BACKOFF_MIN_MS - 2_000);
-		await vi.waitFor(() => expect(relays(fan)).toBe(1));
-		await automations.settled();
-
-		expect(relays(lamp)).toBe(2);
-		expect(relayOrder).toEqual(["10.0.0.1", "10.0.0.3", "10.0.0.1", "10.0.0.2"]);
+		expect(whileOut).toBe(1);
+		expect(outcomes(automations)).toEqual(["first ran", "second ran"]);
 	});
 });

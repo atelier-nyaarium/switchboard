@@ -171,6 +171,7 @@ internal fun stepPaths(steps: List<FunctionStep>, base: String? = null): List<St
 		val sides = when (step) {
 			is FunctionStep.If -> listOf(Side.THEN to step.steps.orEmpty(), Side.ELSE to step.`else`.orEmpty())
 			is FunctionStep.Try -> listOf(Side.BODY to step.steps, Side.CATCH to step.catch)
+			is FunctionStep.Parallel -> listOf(Side.BODY to step.steps)
 			is FunctionStep.Do, is FunctionStep.Exit, is FunctionStep.Throw, is FunctionStep.Let,
 			is FunctionStep.Wait, is FunctionStep.Note, is FunctionStep.Call, is FunctionStep.Unknown -> emptyList()
 		}
@@ -210,7 +211,7 @@ internal fun treeOf(
 	is FunctionStep.Exit -> StepDraft.Exit(key())
 	is FunctionStep.Note -> StepDraft.Note(key(), step.text)
 	is FunctionStep.Call -> callValuesOf(step)?.let { StepDraft.Call(key(), step.function, it) } ?: StepDraft.Kept(key(), step)
-	is FunctionStep.Throw, is FunctionStep.Let, is FunctionStep.Unknown -> StepDraft.Kept(key(), step)
+	is FunctionStep.Throw, is FunctionStep.Let, is FunctionStep.Parallel, is FunctionStep.Unknown -> StepDraft.Kept(key(), step)
 }
 
 private fun callValuesOf(step: FunctionStep.Call): Map<String, CallValue>? =
@@ -325,6 +326,7 @@ internal fun cardLabel(step: StepDraft, offer: AutomationOffer): String = when (
 		is FunctionStep.Let -> "Keep a value"
 		is FunctionStep.Call -> "Run a function"
 		is FunctionStep.Wait -> "Wait"
+		is FunctionStep.Parallel -> "Together"
 		is FunctionStep.Unknown -> held.kind
 		is FunctionStep.Do, is FunctionStep.If, is FunctionStep.Try, is FunctionStep.Exit, is FunctionStep.Note -> "Step"
 	}

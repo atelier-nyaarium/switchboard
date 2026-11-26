@@ -9,7 +9,7 @@ import {
 	FunctionValuesSchema,
 	TELL_WHEN,
 } from "../../shared/schemasAutomation.js";
-import { FUNCTION_STEPS_MAX } from "../../shared/schemasFunction.js";
+import { FUNCTION_STEPS_MAX, RUN_STRANDS_MAX } from "../../shared/schemasFunction.js";
 import { FAILURE_CODES, FAILURE_MESSAGE_MAX } from "./automationFrames.js";
 import { BEHIND, CROWDED, type LostReason, REPLACED, TOO_MANY } from "./automationLog.js";
 import { type AutomationEffect, natureOf } from "./automationRunner.js";
@@ -48,9 +48,14 @@ const FireBase = {
 	waiting: z.literal(true).optional(),
 };
 
-export const FailureSchema = z.strictObject({
+const OneFailureSchema = z.strictObject({
 	code: z.enum(FAILURE_CODES),
 	message: z.string().max(FAILURE_MESSAGE_MAX),
+});
+
+export const FailureSchema = OneFailureSchema.extend({
+	/** First failure per branch. */
+	errors: z.array(OneFailureSchema).max(RUN_STRANDS_MAX).optional(),
 });
 
 /** Variables a run keeps. */
@@ -68,6 +73,8 @@ export const FrameSchema = z.strictObject({
 	failed: FailureSchema.optional(),
 	/** By its try's path: what `e` reads in that catch. */
 	caught: z.record(StepPathSchema, FailureSchema).optional(),
+	/** Uncaught failure per strand. */
+	strands: z.record(StepPathSchema, OneFailureSchema).optional(),
 	/** By name. */
 	vars: z.record(z.string(), z.json()).optional(),
 	/** What its call gave it, by value name. */
@@ -84,8 +91,8 @@ export const FireSchema = z
 		...FireBase,
 		/** By step path. */
 		steps: z.record(StepPathSchema, StepSchema),
-		/** The step whose turn it is; set by `advance` alone. */
-		active: z.array(StepPathSchema).max(1),
+		/** Active step per strand. */
+		active: z.array(StepPathSchema).max(RUN_STRANDS_MAX),
 		/** By call path. */
 		frames: z.record(StepPathSchema, FrameSchema).optional(),
 		/** Tell fields. */
@@ -198,17 +205,53 @@ export function mayRun(fires: readonly Fire[]): Set<string> {
 	return runs;
 }
 
-/** Due longest ago; fire order breaks a tie. */
-export const nextEffect = (runnable: readonly Runnable[]): StepRef | null =>
-	runnable.reduce<Runnable | null>((best, next) => (best === null || next.dueAt < best.dueAt ? next : best), null)
-		?.ref ?? null;
+export interface Target extends StepRef {
+	device: string;
+}
 
-/** Fire time, or its last wait's end. */
-export const intentAt = (fire: Pick<Fire, "at" | "steps">): number =>
-	Object.values(fire.steps).reduce(
-		(latest, step) => (isEnded(step) && step.until !== undefined ? Math.max(latest, step.until) : latest),
-		fire.at,
-	);
+/** Global attempt limit. */
+export const EFFECTS_MAX = 4;
+
+/** Oldest due; fire then written path; one device attempt at a time, retries included. */
+export function nextEffects(
+	runnable: readonly Runnable[],
+	targets: readonly Target[],
+	busy: { free: number; devices: ReadonlySet<string> },
+): StepRef[] {
+	const deviceOf = (ref: StepRef) => targets.find((held) => stepKey(held) === stepKey(ref))?.device;
+	const taken = new Set(busy.devices);
+	const chosen: StepRef[] = [];
+	const order = runnable.map((held, at) => ({ held, at })).sort((a, b) => a.held.dueAt - b.held.dueAt || a.at - b.at);
+	for (const { held } of order) {
+		if (chosen.length >= busy.free) break;
+		const device = deviceOf(held.ref);
+		if (device !== undefined) {
+			const earlier = targets.some(
+				(other) =>
+					other.member === held.ref.member &&
+					other.device === device &&
+					byPath(other.path, held.ref.path) < 0,
+			);
+			if (taken.has(device) || earlier) continue;
+			taken.add(device);
+		}
+		chosen.push(held.ref);
+	}
+	return chosen;
+}
+
+/** Fire time or an enclosing strand's last wait. */
+export const intentAt = (
+	fire: Pick<Fire, "at" | "steps">,
+	path: string,
+	rootOf: (path: string) => string | null,
+): number =>
+	Object.entries(fire.steps).reduce((latest, [at, step]) => {
+		if (!isEnded(step) || step.until === undefined || byPath(at, path) >= 0) return latest;
+		const root = rootOf(at);
+		const mine = root === null || path === root || path.startsWith(`${root}.`);
+		return mine ? Math.max(latest, step.until) : latest;
+	}, fire.at);
 
 /** One admission, never its successor. */
 export const sameRun = (a: Fire, b: Fire): boolean =>
@@ -235,6 +278,7 @@ export function outdatedSets(
 	fires: readonly Fire[],
 	landed: readonly LandedSet[],
 	stepAt: (fire: Fire, path: string) => AutomationEffect | null,
+	rootOf: (fire: Fire, path: string) => string | null,
 ): { member: string; path: string }[] {
 	return fires.flatMap((fire) =>
 		pathsOf(fire).flatMap((path) => {
@@ -246,7 +290,7 @@ export function outdatedSets(
 				(set) =>
 					set.member !== fire.member &&
 					set.device === target.device &&
-					set.at > intentAt(fire) &&
+					set.at > intentAt(fire, path, (at) => rootOf(fire, at)) &&
 					!(set.nature === "nudges" && target.nature === "nudges"),
 			);
 			return newer ? [{ member: fire.member, path }] : [];

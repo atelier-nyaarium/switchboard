@@ -2,6 +2,7 @@
 
 import { fitOf, functionReads, type TriggerGiven, triggerGiven } from "../../shared/automation-fit.js";
 import {
+	type Address,
 	type FunctionOf,
 	type LeafAction,
 	pointerOf,
@@ -12,6 +13,7 @@ import {
 	type Unfollowed,
 	visit,
 	type WalkEntry,
+	widthOf,
 } from "../../shared/automation-walk.js";
 import { CONSOLE_WORD_OPS } from "../../shared/live-console-grammar.js";
 import {
@@ -28,6 +30,7 @@ import {
 import {
 	type AutomationFunction,
 	type FunctionStep,
+	RUN_STRANDS_MAX,
 	type StepArg,
 	unnamed,
 	WAIT_MINUTES_MAX,
@@ -36,6 +39,7 @@ import { SCRIPT_RESERVED } from "../../shared/script-scan.js";
 import { hasHoles } from "../../shared/text-holes.js";
 import type { OwnerIssue, OwnerRecord } from "../ownerRecords.js";
 import { clockIssue, isClock } from "./automationClock.js";
+import { ownerOf } from "./automationFrames.js";
 import type { EffectKind } from "./automationRunner.js";
 import { holeNames } from "./automationScope.js";
 import type { AutomationsDeps } from "./automations.js";
@@ -71,6 +75,8 @@ const NO_ACTION = "this Gateway runs no such action";
 const UNRUNNABLE = "a step does what this Gateway cannot run";
 export const NAME_TAKEN = "that name is already a value here";
 export const NAME_RESERVED = "that name is reserved";
+export const EXIT_BESIDE = "an exit here would leave the steps beside it running";
+export const TOO_WIDE = `more than ${RUN_STRANDS_MAX} steps would run at once`;
 
 /** Words the language keeps. */
 const RESERVED_NAMES = new Set<string>([...SCRIPT_RESERVED, ...CONSOLE_WORD_OPS, "true", "false", "null"]);
@@ -263,11 +269,17 @@ export function createAutomationValidity(
 	};
 
 	const STEPS: {
-		[K in FunctionStep["kind"]]: (fn: Checked, step: Extract<FunctionStep, { kind: K }>) => StepIssue | null;
+		[K in FunctionStep["kind"]]: (
+			fn: Checked,
+			step: Extract<FunctionStep, { kind: K }>,
+			address: Address,
+		) => StepIssue | null;
 	} = {
-		exit: () => null,
+		// Exit abandons sibling steps.
+		exit: (_fn, _step, address) => (ownerOf(address) ? { message: EXIT_BESIDE } : null),
 		note: () => null,
 		try: () => null,
+		parallel: (_fn, step) => (widthOf([step]) > RUN_STRANDS_MAX ? { message: TOO_WIDE } : null),
 		if: (fn, step) => expressionIssue("when", step.when, namesIn(fn)),
 		let: (fn, step) => {
 			if (nameTaken(fn, step.name)) return { param: "name", message: NAME_TAKEN };
@@ -298,8 +310,12 @@ export function createAutomationValidity(
 		},
 	};
 
-	const stepIssue = (fn: Checked, step: FunctionStep): StepIssue | null =>
-		(STEPS[step.kind] as (fn: Checked, step: FunctionStep) => StepIssue | null)(fn, step);
+	const stepIssue = (fn: Checked, step: FunctionStep, address: Address): StepIssue | null =>
+		(STEPS[step.kind] as (fn: Checked, step: FunctionStep, address: Address) => StepIssue | null)(
+			fn,
+			step,
+			address,
+		);
 
 	/** Fit, then held switches. */
 	function boundIssue(
@@ -382,14 +398,14 @@ export function createAutomationValidity(
 					return issue && { at: "action", index, issue };
 				},
 				step: {
-					do: ({ path, step, via }) => {
+					do: ({ path, step, via, address }) => {
 						const fn = functions?.(via);
-						const issue = fn ? stepIssue(fn, step) : null;
+						const issue = fn ? stepIssue(fn, step, address) : null;
 						return issue && { at: "step", via, path, issue };
 					},
-					call: ({ path, step, via }): BodyIssue | null => {
+					call: ({ path, step, via, address }): BodyIssue | null => {
 						const fn = functions?.(via);
-						const issue = fn ? stepIssue(fn, step) : null;
+						const issue = fn ? stepIssue(fn, step, address) : null;
 						if (issue) return { at: "step", via, path, issue };
 						const callee = functions?.(step.function);
 						if (callee && unnamed(callee))
@@ -398,9 +414,9 @@ export function createAutomationValidity(
 							? { at: "fit", function: step.function, issue: { kind: "unfit" } }
 							: null;
 					},
-					...steering(({ path, step, via }) => {
+					...steering(({ path, step, via, address }) => {
 						const fn = functions?.(via);
-						const issue = fn ? stepIssue(fn, step) : null;
+						const issue = fn ? stepIssue(fn, step, address) : null;
 						return issue && { at: "step", via, path, issue };
 					}),
 				},
@@ -470,8 +486,8 @@ export function createAutomationValidity(
 
 	/** First function-step issue. */
 	function functionIssue(fn: AutomationFunction): OwnerIssue | null {
-		for (const { step, path } of stepsOf(fn)) {
-			const issue = stepIssue(fn, step);
+		for (const { step, path, address } of stepsOf(fn)) {
+			const issue = stepIssue(fn, step, address);
 			if (!issue) continue;
 			if (holed(issue)) return holeOwnerIssue({ step: path, param: issue.param }, issue, "steps");
 			return stepOwnerIssue({ step: path, param: issue.param }, issue.message);

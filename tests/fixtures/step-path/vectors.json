@@ -52,11 +52,25 @@
 			"steps": [
 				{
 					"kind": "try",
-					"steps": [{ "kind": "parallel", "steps": [{ "kind": "exit" }] }],
+					"steps": [{ "kind": "future_kind", "steps": [{ "kind": "exit" }] }],
 					"catch": [{ "kind": "exit" }]
 				}
 			],
 			"paths": ["0", "0.0.0", "0.1.0"]
+		},
+		{
+			"name": "a block's branches, each on its first side, with what one holds",
+			"steps": [
+				{
+					"kind": "parallel",
+					"steps": [
+						{ "kind": "exit" },
+						{ "kind": "if", "when": "a", "steps": [{ "kind": "exit" }], "else": [{ "kind": "exit" }] }
+					]
+				},
+				{ "kind": "exit" }
+			],
+			"paths": ["0", "0.0.0", "0.0.1", "0.0.1.0.0", "0.0.1.1.0", "1"]
 		}
 	],
 	"order": [

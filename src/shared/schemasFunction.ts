@@ -14,6 +14,8 @@ export const FUNCTION_DEPTH_MAX = 4;
 /** A day. */
 export const WAIT_MINUTES_MAX = 1_440;
 export const FUNCTION_PARAMS_MAX = 8;
+/** Maximum concurrent steps. */
+export const RUN_STRANDS_MAX = 8;
 /** A run's variables, and `e`. */
 export const RUN_NAMES_MAX = 17;
 export const FUNCTION_NAME_MAX = 80;
@@ -80,6 +82,13 @@ export const FunctionStepSchema = z
 				return side();
 			},
 		}),
+		/** Concurrent branches join. */
+		z.strictObject({
+			kind: z.literal("parallel"),
+			get steps() {
+				return side();
+			},
+		}),
 		z.strictObject({ kind: z.literal("exit") }),
 		z.strictObject({ kind: z.literal("throw"), text: z.string().max(STEP_TEXT_MAX).optional() }),
 		z.strictObject({ kind: z.literal("let"), name: z.string().regex(PARAM_NAME_RE), value: StepArgSchema }),
@@ -107,6 +116,7 @@ const STATEMENTS: { [K in FunctionStep["kind"]]: true } = {
 	do: true,
 	if: true,
 	try: true,
+	parallel: true,
 	exit: true,
 	throw: true,
 	let: true,
