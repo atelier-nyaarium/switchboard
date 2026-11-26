@@ -23,6 +23,9 @@ data class ConsoleToken(
 )
 
 private val KEYWORDS = setOf("true", "false", "null")
+
+/** Operators spelled as words. */
+private val WORD_OPS = setOf("and", "or")
 private val PUNCT = setOf('.', '(', ')', '[', ']', '{', '}', ',', ':', ';')
 private val TWO_CHAR_OPS = setOf("==", "!=", "<=", ">=")
 private val ONE_CHAR_OPS = setOf('!', '+', '-', '*', '/', '=', '<', '>')
@@ -51,7 +54,12 @@ fun lexConsole(source: String): List<ConsoleToken> {
 		if (isIdentStart(c)) {
 			while (at < source.length && isIdentPart(source[at])) at++
 			val text = source.substring(start, at)
-			tokens += ConsoleToken(if (text in KEYWORDS) ConsoleTokenKind.KEYWORD else ConsoleTokenKind.IDENT, text, start, at)
+			val kind = when (text) {
+				in KEYWORDS -> ConsoleTokenKind.KEYWORD
+				in WORD_OPS -> ConsoleTokenKind.OP
+				else -> ConsoleTokenKind.IDENT
+			}
+			tokens += ConsoleToken(kind, text, start, at)
 			continue
 		}
 		if (isDigit(c)) {

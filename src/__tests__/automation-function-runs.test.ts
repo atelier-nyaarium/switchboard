@@ -39,6 +39,8 @@ const event: AutomationTrigger = { kind: "event", source: "github", conditions: 
 
 const lit = (value: string | number) => ({ kind: "literal" as const, value });
 const expr = (text: string) => ({ kind: "expression" as const, text });
+/** A text whose holes fill. */
+const filled = (text: string) => ({ kind: "text" as const, text });
 const turn = (verb: string, device: StepArg = expr("room")) =>
 	({ kind: "do", action: "device_set", args: { device, verb: lit(verb) } }) as const;
 const ifttt = (name: string, value1?: string) =>
@@ -925,6 +927,32 @@ describe("a tree of steps", () => {
 		expect(w.effects).toEqual(["ifttt:high:10"]);
 	});
 
+	it("fills a kept text's holes at its turn, keeps a literal as written, and refuses at the save a hole it cannot read", async () => {
+		const w = world();
+		w.save(pointing(hourly), [
+			{ kind: "let", name: "level", value: lit(5) },
+			{ kind: "let", name: "label", value: filled("Level {level}, braces \\{kept\\}") },
+			{ kind: "let", name: "raw", value: lit("as {written} \\\\ here") },
+			ifttt("said", "{label} / {raw}"),
+		]);
+		await w.later(HOUR);
+		const unread = world().save(pointing(hourly), [
+			{ kind: "let", name: "label", value: filled("Is {nowhere}") },
+			turn("on"),
+		]);
+		const written = world().save(pointing(hourly), [
+			{ kind: "let", name: "label", value: lit("Is {nowhere}") },
+			turn("on"),
+		]);
+
+		expect(w.effects).toEqual(["ifttt:said:Level 5, braces {kept} / as {written} \\\\ here"]);
+		expect(unread).toMatchObject({
+			stored: false,
+			refusal: { code: "hole", step: "0", param: "value", start: 4, end: 11 },
+		});
+		expect(written).toMatchObject({ stored: true });
+	});
+
 	it("fails an if whose condition cannot be read or is no true or false, taking neither side", async () => {
 		const w = world();
 		w.save(pointing(hourly), [
@@ -1146,6 +1174,57 @@ describe("a function calling another", () => {
 			["0.1.0", "inner"],
 			["0.2", "warm-up"],
 		]);
+	});
+
+	it("fills the holes of a text a call gives, read where the call runs, and gives a literal as written", async () => {
+		const w = world();
+		w.automations.save({
+			id: "h-say",
+			body: {
+				enabled: false,
+				trigger: hourly,
+				actions: [{ kind: "run_function", function: "say", values: { line: "x" } }],
+			},
+			base: 0,
+			function: {
+				as: "edit",
+				id: "say",
+				body: { name: "say", params: [{ name: "line", type: "text" }], steps: [ifttt("inner", "{line}")] },
+				base: 0,
+			},
+			confirmed: true,
+		});
+		w.save(pointing(hourly), [
+			{ kind: "let", name: "level", value: lit(7) },
+			call("say", { line: filled("Level {level}") }),
+			call("say", { line: lit("Level {level}") }),
+		]);
+		await w.later(HOUR);
+
+		expect(w.effects).toEqual(["ifttt:inner:Level 7", "ifttt:inner:Level {level}"]);
+
+		// A filled text is a text: a number it can never be is refused at the save.
+		const counted = world();
+		counted.automations.save({
+			id: "h-count",
+			body: {
+				enabled: false,
+				trigger: hourly,
+				actions: [{ kind: "run_function", function: "count", values: { times: 1 } }],
+			},
+			base: 0,
+			function: {
+				as: "edit",
+				id: "count",
+				body: { name: "count", params: [{ name: "times", type: "number" }], steps: [ifttt("inner")] },
+				base: 0,
+			},
+			confirmed: true,
+		});
+		expect(counted.save(pointing(hourly), [call("count", { times: filled("{1}") })])).toMatchObject({
+			stored: false,
+		});
+		expect(counted.save(pointing(hourly), [call("count", { times: expr("1") })])).toMatchObject({ stored: true });
 	});
 
 	it("catches a callee's failure in its caller's try, as the call's own", async () => {

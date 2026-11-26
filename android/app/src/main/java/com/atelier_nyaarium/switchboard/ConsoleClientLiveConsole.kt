@@ -20,7 +20,7 @@ private suspend inline fun <reified T> ConsoleClient.consoleCall(gatewayId: Stri
 	}
 
 internal suspend fun ConsoleClient.consoleDescribe(gatewayId: String): ConsoleCall<ConsoleDescribeResult> =
-	consoleCall(gatewayId, ConsoleOp.ConsoleDescribe)
+	consoleCall(gatewayId, ConsoleOp.ConsoleDescribe())
 
 internal suspend fun ConsoleClient.consoleIds(gatewayId: String): ConsoleCall<ConsoleIds> =
 	consoleCall(gatewayId, ConsoleOp.ConsoleIds)

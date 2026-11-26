@@ -18,4 +18,5 @@ export const CONSOLE_TOKEN_CASES: readonly (readonly [string, string])[] = [
 	["a keyword must stand alone", "trueish true_ null"],
 	["an assignment reads as tokens", "outside = sensors.list"],
 	["a semicolon separates statements", "a = 1; a + 2;\n b"],
+	["and and or are operators, as whole words only", "a and b or andrew oracle"],
 ];

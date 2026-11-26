@@ -139,21 +139,24 @@ export function functionReads(fn: Pick<AutomationFunction, "steps">): FunctionRe
 	const text = (value: string) => {
 		for (const part of scanHoles(value)) if (part.kind === "hole") read(part.source);
 	};
-	const expression = (held: StepArg) => {
+	/** A literal is as written. */
+	const value = (held: StepArg) => {
 		if (held.kind === "expression") read(held.text);
+		else if (held.kind === "text") text(held.text);
 	};
+	/** An action's literal string may be a text. */
 	const arg = (held: StepArg) => {
-		if (held.kind === "expression") read(held.text);
-		else if (typeof held.value === "string") text(held.value);
+		if (held.kind === "literal" && typeof held.value === "string") text(held.value);
+		else value(held);
 	};
 	const none = () => undefined;
 	const reads: { [K in FunctionStep["kind"]]: (step: Extract<FunctionStep, { kind: K }>) => void } = {
 		do: (step) => Object.values(step.args).forEach(arg),
 		if: (step) => read(step.when),
-		let: (step) => expression(step.value),
-		wait: (step) => expression(step.minutes),
+		let: (step) => value(step.value),
+		wait: (step) => value(step.minutes),
 		throw: (step) => (step.text === undefined ? undefined : text(step.text)),
-		call: (step) => Object.values(step.values ?? {}).forEach(expression),
+		call: (step) => Object.values(step.values ?? {}).forEach(value),
 		try: none,
 		exit: none,
 		note: none,

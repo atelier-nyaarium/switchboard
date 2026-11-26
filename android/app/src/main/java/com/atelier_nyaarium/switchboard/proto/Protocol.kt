@@ -382,6 +382,8 @@ object Protocol {
 			const val AUTOMATION_DELETE: String = "automation_delete"
 			const val AUTOMATION_PREVIEW: String = "automation_preview"
 			const val AUTOMATION_RUN: String = "automation_run"
+			const val SCRIPT_PRINT: String = "script_print"
+			const val SCRIPT_PARSE: String = "script_parse"
 			const val ASSISTANT_SAFETY: String = "assistant_safety"
 			const val ASSISTANT_TEMPERATURE_UNIT: String = "assistant_temperature_unit"
 			const val ASSISTANT_WATCHER_GRANTS: String = "assistant_watcher_grants"
@@ -1477,7 +1479,10 @@ sealed class ConsoleOp {
 
 	@Serializable
 	@SerialName("console_describe")
-	data object ConsoleDescribe : ConsoleOp()
+	data class ConsoleDescribe(
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val script: Boolean? = null,
+	) : ConsoleOp()
 
 	@Serializable
 	@SerialName("console_ids")
@@ -1591,6 +1596,32 @@ sealed class ConsoleOp {
 	data class AutomationRun(
 		val automationId: String,
 		val callId: String,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("script_print")
+	data class ScriptPrint(
+		val steps: List<FunctionStep>,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val trigger: AutomationTrigger? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val params: List<FunctionParam>? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val functions: List<ScriptFunction>? = null,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("script_parse")
+	data class ScriptParse(
+		val text: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val trigger: AutomationTrigger? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val params: List<FunctionParam>? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val functions: List<ScriptFunction>? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val place: ScriptPlaceRequest? = null,
 	) : ConsoleOp()
 
 	@Serializable
@@ -2368,11 +2399,17 @@ object ConsoleDeviceReadResultSerializer : KSerializer<ConsoleDeviceReadResult> 
 		val input = decoder as? JsonDecoder ?: throw SerializationException("ConsoleDeviceReadResult reads JSON only")
 		val raw = input.decodeJsonElement().jsonObject
 		val body = JsonObject(raw - "kind")
-		return when (val kind = (raw["kind"] as? JsonPrimitive)?.contentOrNull) {
-			"ok" -> input.json.decodeFromJsonElement(ConsoleDeviceReadResult.Ok.serializer(), body)
-			"sensor" -> input.json.decodeFromJsonElement(ConsoleDeviceReadResult.Sensor.serializer(), body)
-			"refused" -> input.json.decodeFromJsonElement(ConsoleDeviceReadResult.Refused.serializer(), body)
-			else -> ConsoleDeviceReadResult.Unknown(kind ?: "", raw)
+		val kind = (raw["kind"] as? JsonPrimitive)?.contentOrNull
+		return try {
+			when (kind) {
+				"ok" -> input.json.decodeFromJsonElement(ConsoleDeviceReadResult.Ok.serializer(), body)
+				"sensor" -> input.json.decodeFromJsonElement(ConsoleDeviceReadResult.Sensor.serializer(), body)
+				"refused" -> input.json.decodeFromJsonElement(ConsoleDeviceReadResult.Refused.serializer(), body)
+				else -> ConsoleDeviceReadResult.Unknown(kind ?: "", raw)
+			}
+		} catch (_: IllegalArgumentException) {
+			// A known member this build cannot read whole.
+			ConsoleDeviceReadResult.Unknown(kind ?: "", raw)
 		}
 	}
 
@@ -2725,13 +2762,19 @@ object AutomationTriggerSerializer : KSerializer<AutomationTrigger> {
 		val input = decoder as? JsonDecoder ?: throw SerializationException("AutomationTrigger reads JSON only")
 		val raw = input.decodeJsonElement().jsonObject
 		val body = JsonObject(raw - "kind")
-		return when (val kind = (raw["kind"] as? JsonPrimitive)?.contentOrNull) {
-			"event" -> input.json.decodeFromJsonElement(AutomationTrigger.Event.serializer(), body)
-			"value" -> input.json.decodeFromJsonElement(AutomationTrigger.Value.serializer(), body)
-			"crossing" -> input.json.decodeFromJsonElement(AutomationTrigger.Crossing.serializer(), body)
-			"time" -> input.json.decodeFromJsonElement(AutomationTrigger.Time.serializer(), body)
-			"interval" -> input.json.decodeFromJsonElement(AutomationTrigger.Interval.serializer(), body)
-			else -> AutomationTrigger.Unknown(kind ?: "", raw)
+		val kind = (raw["kind"] as? JsonPrimitive)?.contentOrNull
+		return try {
+			when (kind) {
+				"event" -> input.json.decodeFromJsonElement(AutomationTrigger.Event.serializer(), body)
+				"value" -> input.json.decodeFromJsonElement(AutomationTrigger.Value.serializer(), body)
+				"crossing" -> input.json.decodeFromJsonElement(AutomationTrigger.Crossing.serializer(), body)
+				"time" -> input.json.decodeFromJsonElement(AutomationTrigger.Time.serializer(), body)
+				"interval" -> input.json.decodeFromJsonElement(AutomationTrigger.Interval.serializer(), body)
+				else -> AutomationTrigger.Unknown(kind ?: "", raw)
+			}
+		} catch (_: IllegalArgumentException) {
+			// A known member this build cannot read whole.
+			AutomationTrigger.Unknown(kind ?: "", raw)
 		}
 	}
 
@@ -2800,12 +2843,18 @@ object AutomationActionSerializer : KSerializer<AutomationAction> {
 		val input = decoder as? JsonDecoder ?: throw SerializationException("AutomationAction reads JSON only")
 		val raw = input.decodeJsonElement().jsonObject
 		val body = JsonObject(raw - "kind")
-		return when (val kind = (raw["kind"] as? JsonPrimitive)?.contentOrNull) {
-			"tell_assistant" -> input.json.decodeFromJsonElement(AutomationAction.TellAssistant.serializer(), body)
-			"device_set" -> input.json.decodeFromJsonElement(AutomationAction.DeviceSet.serializer(), body)
-			"ifttt_trigger" -> input.json.decodeFromJsonElement(AutomationAction.IftttTrigger.serializer(), body)
-			"run_function" -> input.json.decodeFromJsonElement(AutomationAction.RunFunction.serializer(), body)
-			else -> AutomationAction.Unknown(kind ?: "", raw)
+		val kind = (raw["kind"] as? JsonPrimitive)?.contentOrNull
+		return try {
+			when (kind) {
+				"tell_assistant" -> input.json.decodeFromJsonElement(AutomationAction.TellAssistant.serializer(), body)
+				"device_set" -> input.json.decodeFromJsonElement(AutomationAction.DeviceSet.serializer(), body)
+				"ifttt_trigger" -> input.json.decodeFromJsonElement(AutomationAction.IftttTrigger.serializer(), body)
+				"run_function" -> input.json.decodeFromJsonElement(AutomationAction.RunFunction.serializer(), body)
+				else -> AutomationAction.Unknown(kind ?: "", raw)
+			}
+		} catch (_: IllegalArgumentException) {
+			// A known member this build cannot read whole.
+			AutomationAction.Unknown(kind ?: "", raw)
 		}
 	}
 
@@ -2856,6 +2905,12 @@ sealed class StepArg {
 	@Serializable
 	@SerialName("expression")
 	data class Expression(
+		val text: String,
+	) : StepArg()
+
+	@Serializable
+	@SerialName("text")
+	data class Text(
 		val text: String,
 	) : StepArg()
 }
@@ -2937,17 +2992,23 @@ object FunctionStepSerializer : KSerializer<FunctionStep> {
 		val input = decoder as? JsonDecoder ?: throw SerializationException("FunctionStep reads JSON only")
 		val raw = input.decodeJsonElement().jsonObject
 		val body = JsonObject(raw - "kind")
-		return when (val kind = (raw["kind"] as? JsonPrimitive)?.contentOrNull) {
-			"do" -> input.json.decodeFromJsonElement(FunctionStep.Do.serializer(), body)
-			"if" -> input.json.decodeFromJsonElement(FunctionStep.If.serializer(), body)
-			"try" -> input.json.decodeFromJsonElement(FunctionStep.Try.serializer(), body)
-			"exit" -> input.json.decodeFromJsonElement(FunctionStep.Exit.serializer(), body)
-			"throw" -> input.json.decodeFromJsonElement(FunctionStep.Throw.serializer(), body)
-			"let" -> input.json.decodeFromJsonElement(FunctionStep.Let.serializer(), body)
-			"wait" -> input.json.decodeFromJsonElement(FunctionStep.Wait.serializer(), body)
-			"note" -> input.json.decodeFromJsonElement(FunctionStep.Note.serializer(), body)
-			"call" -> input.json.decodeFromJsonElement(FunctionStep.Call.serializer(), body)
-			else -> FunctionStep.Unknown(kind ?: "", raw)
+		val kind = (raw["kind"] as? JsonPrimitive)?.contentOrNull
+		return try {
+			when (kind) {
+				"do" -> input.json.decodeFromJsonElement(FunctionStep.Do.serializer(), body)
+				"if" -> input.json.decodeFromJsonElement(FunctionStep.If.serializer(), body)
+				"try" -> input.json.decodeFromJsonElement(FunctionStep.Try.serializer(), body)
+				"exit" -> input.json.decodeFromJsonElement(FunctionStep.Exit.serializer(), body)
+				"throw" -> input.json.decodeFromJsonElement(FunctionStep.Throw.serializer(), body)
+				"let" -> input.json.decodeFromJsonElement(FunctionStep.Let.serializer(), body)
+				"wait" -> input.json.decodeFromJsonElement(FunctionStep.Wait.serializer(), body)
+				"note" -> input.json.decodeFromJsonElement(FunctionStep.Note.serializer(), body)
+				"call" -> input.json.decodeFromJsonElement(FunctionStep.Call.serializer(), body)
+				else -> FunctionStep.Unknown(kind ?: "", raw)
+			}
+		} catch (_: IllegalArgumentException) {
+			// A known member this build cannot read whole.
+			FunctionStep.Unknown(kind ?: "", raw)
 		}
 	}
 
@@ -3155,6 +3216,29 @@ data class ConsoleAutomationCheckResult(
 )
 
 @Serializable
+data class ConsoleScriptPrintResult(
+	val text: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val readOnly: String? = null,
+	val names: List<ScriptName>,
+	val types: List<ScriptType>,
+	val statements: List<ScriptStatement>,
+)
+
+@Serializable
+data class ConsoleScriptParseResult(
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val steps: List<FunctionStep>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val issues: List<ScriptIssue>? = null,
+	val names: List<ScriptName>,
+	val types: List<ScriptType>,
+	val statements: List<ScriptStatement>,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val placed: ScriptSpan? = null,
+)
+
+@Serializable
 data class AssistantHomeCarriedWatcher(
 	val id: String,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
@@ -3342,12 +3426,18 @@ object AssistantFieldSpecSerializer : KSerializer<AssistantFieldSpec> {
 		val input = decoder as? JsonDecoder ?: throw SerializationException("AssistantFieldSpec reads JSON only")
 		val raw = input.decodeJsonElement().jsonObject
 		val body = JsonObject(raw - "kind")
-		return when (val kind = (raw["kind"] as? JsonPrimitive)?.contentOrNull) {
-			"enumeration" -> input.json.decodeFromJsonElement(AssistantFieldSpec.Enumeration.serializer(), body)
-			"text" -> input.json.decodeFromJsonElement(AssistantFieldSpec.Text.serializer(), body)
-			"number" -> input.json.decodeFromJsonElement(AssistantFieldSpec.Number.serializer(), body)
-			"bytes" -> input.json.decodeFromJsonElement(AssistantFieldSpec.Bytes.serializer(), body)
-			else -> AssistantFieldSpec.Unknown(kind ?: "", raw)
+		val kind = (raw["kind"] as? JsonPrimitive)?.contentOrNull
+		return try {
+			when (kind) {
+				"enumeration" -> input.json.decodeFromJsonElement(AssistantFieldSpec.Enumeration.serializer(), body)
+				"text" -> input.json.decodeFromJsonElement(AssistantFieldSpec.Text.serializer(), body)
+				"number" -> input.json.decodeFromJsonElement(AssistantFieldSpec.Number.serializer(), body)
+				"bytes" -> input.json.decodeFromJsonElement(AssistantFieldSpec.Bytes.serializer(), body)
+				else -> AssistantFieldSpec.Unknown(kind ?: "", raw)
+			}
+		} catch (_: IllegalArgumentException) {
+			// A known member this build cannot read whole.
+			AssistantFieldSpec.Unknown(kind ?: "", raw)
 		}
 	}
 
@@ -5332,6 +5422,24 @@ data class AutomationSaveCalled(
 )
 
 @Serializable
+data class ScriptFunction(
+	val id: String,
+	val name: String,
+	val params: List<FunctionParam>,
+)
+
+@Serializable
+data class ScriptPlaceRequest(
+	val step: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val param: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val start: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val end: Long? = null,
+)
+
+@Serializable
 data class DomainSnapshot(
 	val ownerSignPub: String,
 	val admissions: List<SignedAdmission>,
@@ -5710,6 +5818,8 @@ data class AutomationFunctionServes(
 	val statements: List<String>? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val unnamed: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val script: Boolean? = null,
 )
 
 @Serializable
@@ -5754,6 +5864,46 @@ data class AutomationConditionIssue(
 	val start: Long,
 	val end: Long,
 	val message: String,
+)
+
+@Serializable
+data class ScriptName(
+	val name: String,
+	val type: String,
+	val start: Long,
+	val end: Long,
+)
+
+@Serializable
+data class ScriptType(
+	val name: String,
+	val members: List<ScriptTypeMember>,
+)
+
+@Serializable
+data class ScriptTypeMember(
+	val name: String,
+	val type: String,
+)
+
+@Serializable
+data class ScriptStatement(
+	val step: String,
+	val start: Long,
+	val end: Long,
+)
+
+@Serializable
+data class ScriptIssue(
+	val start: Long,
+	val end: Long,
+	val message: String,
+)
+
+@Serializable
+data class ScriptSpan(
+	val start: Long,
+	val end: Long,
 )
 
 @Serializable

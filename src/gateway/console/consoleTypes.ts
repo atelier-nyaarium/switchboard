@@ -46,6 +46,7 @@ import type {
 	Routine,
 } from "../../shared/schemasRoutine.js";
 import type { Runbook } from "../../shared/schemasRunbook.js";
+import type { ConsoleScriptParseResult, ConsoleScriptPrintResult } from "../../shared/schemasScript.js";
 import type {
 	ConsoleVaultAnswerEntryResult,
 	ConsoleVaultAnswerResult,
@@ -227,6 +228,10 @@ export interface AutomationConsoleHandlers {
 	) => Promise<ConsoleAutomationPreviewResult>;
 	/** Once by hand, under its call id. */
 	run: (automationId: string, callId: string) => ConsoleAutomationRunResult;
+	/** Steps as script; writes nothing. */
+	scriptPrint: (request: Omit<Extract<ConsoleOp, { kind: "script_print" }>, "kind">) => ConsoleScriptPrintResult;
+	/** A script as steps; writes nothing. */
+	scriptParse: (request: Omit<Extract<ConsoleOp, { kind: "script_parse" }>, "kind">) => ConsoleScriptParseResult;
 }
 
 export interface PolicyConsoleHandlers {

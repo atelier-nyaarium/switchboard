@@ -218,7 +218,8 @@ private fun callValuesOf(step: FunctionStep.Call): Map<String, CallValue>? =
 		when (val arg = runIsolated { wireJson.decodeFromJsonElement(StepArg.serializer(), raw) }.getOrNull()) {
 			is StepArg.Expression -> CallValue.Read(arg.text)
 			is StepArg.Literal -> (arg.value as? JsonPrimitive)?.takeIf { it.isString || it.doubleOrNull != null }?.let { CallValue.Typed(it.content) }
-			null -> null
+			// A filled text is kept as sent.
+			is StepArg.Text, null -> null
 		} ?: return null
 	}
 

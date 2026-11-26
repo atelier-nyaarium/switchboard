@@ -8,6 +8,7 @@ import { type ConsoleCaller, composeLiveConsole } from "../gateway/compose/compo
 import type { Automations } from "../gateway/computed/automations.js";
 import type { ComputedFields } from "../gateway/computed/computedFields.js";
 import { createDeviceStore } from "../gateway/devices/store.js";
+import { withDoing } from "../gateway/liveConsole/doing.js";
 import { type ConsoleReaders, consoleEntities } from "../gateway/liveConsole/entities.js";
 import { CONSOLE_TEXT_BYTES } from "../gateway/liveConsole/render.js";
 import type { HostOpResult } from "../shared/host-op.js";
@@ -208,6 +209,12 @@ describe("live console stage", () => {
 			expect(await gateway.ask('sensors.extremes("freezer", "temperature").high.shown')).toMatchObject({
 				text: "75.9 °F",
 			});
+			expect(await gateway.ask('sensors.value("freezer", "temperature") > 75 and true')).toMatchObject({
+				text: "yes",
+			});
+			expect(await gateway.ask('sensors.value("freezer", "nope")')).toMatchObject({
+				issue: { code: "not_found" },
+			});
 			expect(await gateway.ask("[bluetooth.listen(1), bluetooth.listen(1)]")).toMatchObject({
 				issue: { code: "too_slow" },
 			});
@@ -294,6 +301,22 @@ describe("live console stage", () => {
 			const described = gateway.owner.describe();
 			expect(described.description.entities.map((entity) => entity.name)).not.toContain("bluetooth");
 			expect(gateway.owner.describe().registryHash).toBe(described.registryHash);
+			const script = gateway.owner.describe(true);
+			const doing = script.description.entities.flatMap((entity) =>
+				entity.members
+					.filter((member) => member.kind === "doing")
+					.map((member) => `${entity.name}.${member.name}`),
+			);
+			expect(doing.sort()).toEqual(["assistant.tell", "devices.set", "functions.run", "ifttt.trigger"]);
+			expect(
+				described.description.entities.flatMap((entity) => entity.members.map((member) => member.kind)),
+			).not.toContain("doing");
+			expect(script.registryHash).not.toBe(described.registryHash);
+			// A script is offered nothing a save refuses as slow.
+			expect(script.description.entities.map((entity) => entity.name)).not.toContain("bluetooth");
+			expect(
+				script.description.entities.flatMap((entity) => entity.members.map((member) => member.slow)),
+			).not.toContain(true);
 			expect(gateway.owner.ids()).toMatchObject({
 				devices: [{ id: MAC, name: "Freezer", readings: ["temperature", "humidity", "battery"] }],
 				fields: [{ id: FIELD_ID }],
@@ -328,6 +351,9 @@ describe("live console stage", () => {
 					cold: { value: saved.results[0]?.value, type: "Sensor" },
 				}),
 			).toMatchObject({ kind: "ok", results: [{ value: 3 }] });
+			expect(
+				await gateway.owner.evaluate("sensors.list.count()", undefined, { sensors: { value: 1 } }),
+			).toMatchObject({ kind: "ok", results: [{ value: 1 }] });
 			expect(
 				await gateway.owner.evaluate("big", undefined, { big: { value: "x".repeat(CONSOLE_VALUE_BYTES * 4) } }),
 			).toMatchObject({ kind: "error", issue: { code: "too_big" }, registryHash: described.registryHash });
@@ -413,6 +439,7 @@ const EVERY_MEMBER: Record<string, string> = {
 	"sensors.list": "sensors.list",
 	"sensors.read": 'sensors.read("Freezer")',
 	"sensors.payloads": 'sensors.payloads("Freezer")',
+	"sensors.value": 'sensors.value("Freezer", "temperature")',
 	"sensors.extremes": 'sensors.extremes("Freezer", "temperature")',
 	"fields.list": "fields.list",
 	"fields.get": `fields.get("${STORED_FIELD}")`,
@@ -445,6 +472,13 @@ function filesOf(dir: string): Record<string, string> {
 			}),
 	);
 }
+
+const EVERY_DOING: Readonly<Record<string, string>> = {
+	"assistant.tell": 'assistant.tell("now", "hello")',
+	"devices.set": 'devices.set("Freezer", "on")',
+	"ifttt.trigger": 'ifttt.trigger("go")',
+	"functions.run": 'functions.run("Blink")',
+};
 
 describe("live console read-only fence", () => {
 	it("reads every member over real stores and leaves every byte and the radio as it found them", async () => {
@@ -550,6 +584,26 @@ describe("live console read-only fence", () => {
 			for (const [member, expr] of Object.entries(EVERY_MEMBER)) {
 				const answer = await stage.answer("host", expr);
 				expect({ member, kind: answer.kind }).toEqual({ member, kind: "ok" });
+			}
+			const doing = withDoing(consoleEntities(readers)).flatMap((entity) =>
+				Object.entries(entity.members).flatMap(([name, member]) =>
+					member.kind === "doing" ? [`${entity.name}.${name}`] : [],
+				),
+			);
+			expect(Object.keys(EVERY_DOING).sort()).toEqual(doing.sort());
+			for (const [member, expr] of Object.entries(EVERY_DOING)) {
+				const answer = await stage.answer("host", expr);
+				expect({ member, kind: answer.kind }).toEqual({ member, kind: "error" });
+				// Even the audience served it cannot run it.
+				const served = await stage.answer("script", expr);
+				expect({ member, code: served.kind === "error" ? served.issue.code : served.kind }).toEqual({
+					member,
+					code: "doing",
+				});
+				expect({ member, refused: stage.holes.issue(`{${expr}}`, []) !== null }).toEqual({
+					member,
+					refused: true,
+				});
 			}
 			expect(stage.console.ids().devices).toHaveLength(1);
 			stage.console.describe();

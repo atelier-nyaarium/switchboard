@@ -46,6 +46,7 @@ import {
 	ConsoleRunbookPreviewResultSchema,
 	ConsoleRunbookPutResultSchema,
 } from "./schemasRunbook.js";
+import { ConsoleScriptParseResultSchema, ConsoleScriptPrintResultSchema } from "./schemasScript.js";
 import { ConsoleSessionCutPlanResultSchema, ConsoleSessionCutStartResultSchema } from "./schemasSessionCut.js";
 import {
 	ConsoleVaultAnswerEntryResultSchema,
@@ -423,6 +424,8 @@ export const ConsoleOpResultSchema = z.union([
 	ConsoleAutomationDeleteResultSchema,
 	ConsoleAutomationPreviewResultSchema,
 	ConsoleAutomationRunResultSchema,
+	ConsoleScriptPrintResultSchema,
+	ConsoleScriptParseResultSchema,
 ]);
 
 ////////////////////////////////

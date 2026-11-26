@@ -52,6 +52,7 @@ import {
 import {
 	type AutomationFunction,
 	FUNCTIONS_MAX,
+	type FunctionParam,
 	FunctionSchema,
 	type FunctionStep,
 	type StepArg,
@@ -118,6 +119,7 @@ import {
 	isTell,
 	laneTells,
 	laneTellWhen,
+	NAME_ISSUE_CODE,
 	ownTellPaths,
 	STEP_ISSUE_CODE,
 	stepPlaceOf,
@@ -272,6 +274,7 @@ export interface AutomationHoles {
 	fill: (text: string, names: Readonly<FireNames>) => Promise<{ text: string; failed: number }>;
 	/** Null when it fails. */
 	evaluate: (source: string, names: Readonly<FireNames>) => Promise<{ value: unknown } | null>;
+	entity: (name: string) => boolean;
 }
 
 export interface AutomationsDeps {
@@ -314,7 +317,9 @@ export function createAutomations(deps: AutomationsDeps) {
 	const startedAt = deps.now();
 	const {
 		triggerIssue,
+		givenOf,
 		functionIssue,
+		namingIssue,
 		assessBody,
 		automationIssue,
 		writeIssue,
@@ -1136,8 +1141,11 @@ export function createAutomations(deps: AutomationsDeps) {
 	): Promise<boolean> {
 		const rows: LogRow[] = [];
 		const names = scopeOf(fire, ref);
-		const argValue = async (arg: StepArg) =>
-			arg.kind === "literal" ? { value: arg.value as unknown } : await evaluated(arg.text, names);
+		const text = fillerOf(fire, ref.path, rows, names);
+		const argValue = async (arg: StepArg) => {
+			if (arg.kind === "expression") return evaluated(arg.text, names);
+			return { value: arg.kind === "text" ? await text(arg.text) : (arg.value as unknown) };
+		};
 		const fail = (code: FailureCode, message: string, reason = message) => ({
 			step: (held: Step) => failedAs(held, code, message),
 			reason,
@@ -1216,11 +1224,17 @@ export function createAutomations(deps: AutomationsDeps) {
 		fire: Fire,
 		path: string,
 		step: Extract<FunctionStep, { kind: "call" }>,
+		rows: LogRow[],
 	): Promise<{ action: AutomationAction } | { refused: string }> {
 		const names = scopeOf(fire, { path });
+		const text = fillerOf(fire, path, rows, names);
 		const values: Record<string, unknown> = {};
 		for (const [name, arg] of Object.entries(step.values ?? {})) {
-			const read = arg.kind === "literal" ? { value: arg.value as unknown } : await evaluated(arg.text, names);
+			if (arg.kind !== "expression") {
+				values[name] = arg.kind === "text" ? await text(arg.text) : arg.value;
+				continue;
+			}
+			const read = await evaluated(arg.text, names);
 			if (read === null) return { refused: VALUE_UNREAD };
 			values[name] = read.value;
 		}
@@ -1239,7 +1253,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		const rows: LogRow[] = [];
 		const at = writtenStep(fire, ref.path);
 		let read: { action: AutomationAction } | { refused: string };
-		if (written?.kind === "call") read = await calledOf(fire, ref.path, written);
+		if (written?.kind === "call") read = await calledOf(fire, ref.path, written, rows);
 		else if (!at) read = { refused: FRAME_UNREAD };
 		else read = await valuesOf(fire, at, rows);
 		const log = rows.reduce(logged, state.log);
@@ -1284,12 +1298,13 @@ export function createAutomations(deps: AutomationsDeps) {
 				raw[name] = value.value;
 				continue;
 			}
-			if (typeof arg.value !== "string") {
-				raw[name] = arg.value;
+			const written = arg.kind === "text" ? arg.text : arg.value;
+			if (typeof written !== "string") {
+				raw[name] = written;
 				continue;
 			}
 			const max = params.find((held) => held.name === name && held.kind === "text")?.max;
-			const text = await filled(arg.value);
+			const text = await filled(written);
 			raw[name] = max === undefined ? text : text.slice(0, max);
 		}
 		return resolved(kind, raw);
@@ -1479,6 +1494,19 @@ export function createAutomations(deps: AutomationsDeps) {
 		...(result.issue ? { issue: result.issue } : {}),
 	});
 
+	/** A function the owner's save names wrongly. */
+	const namingRefusal = (
+		writes: readonly OwnerWrite[],
+	): Extract<OwnerBatchResult<StoredBody>, { stored: false }> | null => {
+		for (const [at, row] of writes.entries()) {
+			if (row.op !== "put" || row.kind !== FUNCTION_KIND) continue;
+			const body = FunctionSchema.safeParse(row.body);
+			const issue = body.success ? namingIssue(body.data) : null;
+			if (issue) return { stored: false, at, reason: issue.message, cause: "invalid", issue };
+		}
+		return null;
+	};
+
 	/** `write`'s answer, unwritten. */
 	function assess(
 		intent: AutomationIntent,
@@ -1493,6 +1521,8 @@ export function createAutomations(deps: AutomationsDeps) {
 				...(verdict.confirm ? { confirm: verdict.confirm } : {}),
 			};
 		}
+		const named = intent.kind === "save" ? namingRefusal(verdict.writes) : null;
+		if (named) return storeRefused(named, verdict.writes, intent);
 		const refused = store.refusalOf(verdict.writes);
 		return refused ? storeRefused(refused, verdict.writes, intent) : verdict;
 	}
@@ -1559,7 +1589,7 @@ export function createAutomations(deps: AutomationsDeps) {
 				if (!issue) return { code: "invalid", record, ...which, line: refusal.reason.slice(0, SAVE_LINE_MAX) };
 				const path = issue.path.join(".");
 				const place = stepPlaceOf(issue);
-				return issue.code === STEP_ISSUE_CODE
+				return issue.code === STEP_ISSUE_CODE || issue.code === NAME_ISSUE_CODE
 					? { code: "invalid", record, ...which, path, ...place, line: issue.message.slice(0, SAVE_LINE_MAX) }
 					: { code: "invalid", record, ...which, path, line: `the ${record} is invalid` };
 			}
@@ -1698,6 +1728,22 @@ export function createAutomations(deps: AutomationsDeps) {
 		list: () => records.list(),
 		/** Null when not held. */
 		functionOf,
+		functionRows: () =>
+			store
+				.list()
+				.filter(isFunctionRecord)
+				.map((record) => ({ id: record.id, name: record.body.name, params: record.body.params })),
+		givenOf,
+		stepIssueOf(body: { params: readonly FunctionParam[]; steps: readonly FunctionStep[] }) {
+			const parsed = FunctionSchema.safeParse({ name: "", ...body });
+			if (!parsed.success) return null;
+			const named = namingIssue(parsed.data);
+			const issue = named && stepPlaceOf(named) ? named : functionIssue(parsed.data);
+			const place = stepPlaceOf(issue ?? undefined);
+			if (!issue || !place) return null;
+			const span = holeSpanOf(issue);
+			return { ...place, ...(span ? { start: span.start, end: span.end } : {}), message: issue.message };
+		},
 		rows: (): AutomationRow[] => records.list().map(rowOf),
 		listing,
 		saveOp,

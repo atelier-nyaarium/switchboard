@@ -7,6 +7,9 @@ import {
 import { ConsoleError, checkArgs, elementOf, freeBuiltin, runBuiltin, runFree, sameValue } from "./builtins.js";
 import { type ConsoleAudience, type ConsoleEntity, type ConsoleRegistry, resolveName } from "./registry.js";
 
+/** What an action answers anywhere but a script's own statement. */
+export const DOING_REFUSED = "an action is a statement of its own";
+
 export const CONSOLE_STEPS_MAX = 100_000;
 
 /** Defers entity member lookup. */
@@ -112,6 +115,7 @@ export async function evaluateConsole(
 				? target.entity.members[node.name]
 				: undefined;
 			if (!found) fail(node, "no_member", `${target.entity.name} has no ${node.name}`);
+			if (found?.kind === "doing") fail(node, "doing", DOING_REFUSED);
 			if (found?.kind === "method")
 				fail(node, "is_method", `${target.entity.name}.${node.name} is a method; call it with ()`);
 			return found?.kind === "property" ? typed(await settle(found.get()), found.type) : null;
@@ -157,6 +161,7 @@ export async function evaluateConsole(
 			if (!found) return fail(node.target, "no_member", `${owner.entity.name} has no ${name}`);
 			if (found.kind === "property")
 				return fail(node, "not_callable", `${owner.entity.name}.${name} is not a method`);
+			if (found.kind === "doing") return fail(node, "doing", DOING_REFUSED);
 			const required = found.params.filter((param) => !param.optional).length;
 			if (args.length < required || args.length > found.params.length) {
 				return fail(
@@ -252,6 +257,17 @@ export async function evaluateConsole(
 					: fail(node, "wrong_type", `- needs a number, not ${kindOf(operand)}`);
 			}
 			case "binary": {
+				if (node.op === "and" || node.op === "or") {
+					const first = scalar(node.left, await walk(node.left));
+					if (typeof first !== "boolean") {
+						return fail(node.left, "wrong_type", `${node.op} needs a yes/no, not ${kindOf(first)}`);
+					}
+					if (first === (node.op === "or")) return first;
+					const second = scalar(node.right, await walk(node.right));
+					return typeof second === "boolean"
+						? second
+						: fail(node.right, "wrong_type", `${node.op} needs a yes/no, not ${kindOf(second)}`);
+				}
 				const left = scalar(node.left, await walk(node.left));
 				const right = scalar(node.right, await walk(node.right));
 				if (node.op === "==") return sameValue(left, right);

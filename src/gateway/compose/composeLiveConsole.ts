@@ -4,6 +4,7 @@ import {
 	CONSOLE_VALUE_BYTES,
 	CONSOLE_VARIABLES_BYTES,
 	type ConsoleDescribeResult,
+	type ConsoleDescription,
 	type ConsoleEvalResult,
 	type ConsoleIds,
 	type ConsoleResultItem,
@@ -11,6 +12,7 @@ import {
 } from "../../shared/schemasLiveConsole.js";
 import { SESSION_COMMANDS } from "../../shared/session-commands.js";
 import { neutralizeMarkup, oneLine } from "../../shared/system-reminder.js";
+import { withDoing } from "../liveConsole/doing.js";
 import { type ConsoleReaders, consoleEntities, consoleIds } from "../liveConsole/entities.js";
 import { type ConsoleVariable, EntityRef, evaluateConsole } from "../liveConsole/evaluate.js";
 import { type ConsoleHoles, holesOver } from "../liveConsole/holes.js";
@@ -35,7 +37,7 @@ export interface LiveConsoleStageDeps {
 }
 
 export interface LiveConsoleOwner {
-	describe: () => ConsoleDescribeResult;
+	describe: (script?: boolean) => ConsoleDescribeResult;
 	ids: () => ConsoleIds;
 	evaluate: (
 		expr: string,
@@ -51,6 +53,7 @@ export interface LiveConsoleStage {
 	answer: (audience: ConsoleAudience, expr?: string, limit?: number) => Promise<LiveConsoleAnswer>;
 	console: LiveConsoleOwner;
 	holes: LiveConsoleHoles;
+	scriptVocabulary: () => ConsoleDescription;
 }
 
 const json = (body: unknown, status: number): Response =>
@@ -82,7 +85,7 @@ function fitted(
 }
 
 export function composeLiveConsole(deps: LiveConsoleStageDeps): LiveConsoleStage {
-	const registry = createConsoleRegistry(consoleEntities(deps.readers));
+	const registry = createConsoleRegistry(withDoing(consoleEntities(deps.readers)));
 
 	const answer = async (audience: ConsoleAudience, expr?: string, limit?: number): Promise<LiveConsoleAnswer> => {
 		const registryHash = registry.hash(audience);
@@ -110,7 +113,10 @@ export function composeLiveConsole(deps: LiveConsoleStageDeps): LiveConsoleStage
 	};
 
 	const owner: LiveConsoleOwner = {
-		describe: () => ({ description: registry.projection("owner"), registryHash: registry.hash("owner") }),
+		describe: (script = false) => {
+			const audience: ConsoleAudience = script ? "script" : "owner";
+			return { description: registry.projection(audience), registryHash: registry.hash(audience) };
+		},
 		ids: () => consoleIds(deps.readers),
 		evaluate: async (expr, limit = CONSOLE_ITEMS_DEFAULT, variables = {}) => {
 			const registryHash = registry.hash("owner");
@@ -120,7 +126,11 @@ export function composeLiveConsole(deps: LiveConsoleStageDeps): LiveConsoleStage
 				registryHash,
 			});
 			if (bytesOf(variables) > CONSOLE_VARIABLES_BYTES) return tooBig("the saved values sent are too large");
-			const result = await evaluateConsole(expr, registry, "owner", { variables });
+			// No save takes an entity's name.
+			const saved = Object.fromEntries(
+				Object.entries(variables).filter(([name]) => registry.get(name, "owner") === null),
+			);
+			const result = await evaluateConsole(expr, registry, "owner", { variables: saved });
 			if (!result.ok) return { kind: "error", issue: result.issue, registryHash };
 			const results: ConsoleResultItem[] = [];
 			let budget = CONSOLE_VALUE_BYTES;
@@ -152,7 +162,13 @@ export function composeLiveConsole(deps: LiveConsoleStageDeps): LiveConsoleStage
 
 	const holes = holesOver(registry);
 
-	return { routes: consoleRoutes(deps.callerOf, answer), answer, console: owner, holes };
+	return {
+		routes: consoleRoutes(deps.callerOf, answer),
+		answer,
+		console: owner,
+		holes,
+		scriptVocabulary: () => registry.projection("script"),
+	};
 }
 
 function consoleRoutes(

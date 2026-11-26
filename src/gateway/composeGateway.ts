@@ -620,6 +620,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		},
 		offers: () => devices?.automationOffers() ?? { numbers: [], switches: [] },
 		previewEvent: assistant.previewEvent,
+		scriptVocabulary: () => liveConsole.scriptVocabulary(),
 	});
 	fields = automationStage.fields;
 	automations = automationStage.automations;

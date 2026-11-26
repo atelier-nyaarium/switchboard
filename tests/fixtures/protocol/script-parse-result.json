@@ -1,0 +1,189 @@
+{
+	"steps": [
+		{
+			"kind": "note",
+			"text": "Warm the room, then say so."
+		},
+		{
+			"kind": "let",
+			"name": "humid",
+			"value": {
+				"kind": "expression",
+				"text": "sensors.value(\"Hall\", \"humidity\")"
+			}
+		},
+		{
+			"kind": "if",
+			"when": "value < threshold and humid > 60",
+			"steps": [
+				{
+					"kind": "do",
+					"action": "device_set",
+					"args": {
+						"device": {
+							"kind": "literal",
+							"value": "aa:bb:cc:dd:ee:01"
+						},
+						"verb": {
+							"kind": "literal",
+							"value": "on"
+						}
+					}
+				},
+				{
+					"kind": "wait",
+					"minutes": {
+						"kind": "literal",
+						"value": 5
+					}
+				}
+			],
+			"else": [
+				{
+					"kind": "exit"
+				}
+			]
+		},
+		{
+			"kind": "try",
+			"steps": [
+				{
+					"kind": "call",
+					"function": "fn-blink",
+					"values": {
+						"lamp": {
+							"kind": "literal",
+							"value": "aa:bb:cc:dd:ee:01"
+						}
+					}
+				}
+			],
+			"catch": [
+				{
+					"kind": "do",
+					"action": "tell_assistant",
+					"args": {
+						"when": {
+							"kind": "literal",
+							"value": "now"
+						},
+						"message": {
+							"kind": "literal",
+							"value": "It failed: {e}"
+						}
+					}
+				}
+			]
+		}
+	],
+	"names": [
+		{
+			"name": "value",
+			"type": "Number",
+			"start": 0,
+			"end": 278
+		},
+		{
+			"name": "device",
+			"type": "Text",
+			"start": 0,
+			"end": 278
+		},
+		{
+			"name": "measure",
+			"type": "Text",
+			"start": 0,
+			"end": 278
+		},
+		{
+			"name": "threshold",
+			"type": "Number",
+			"start": 0,
+			"end": 278
+		},
+		{
+			"name": "room",
+			"type": "Device",
+			"start": 0,
+			"end": 278
+		},
+		{
+			"name": "humid",
+			"type": "Number",
+			"start": 72,
+			"end": 278
+		},
+		{
+			"name": "e",
+			"type": "Error",
+			"start": 234,
+			"end": 278
+		}
+	],
+	"types": [
+		{
+			"name": "Error",
+			"members": [
+				{
+					"name": "code",
+					"type": "Text"
+				},
+				{
+					"name": "message",
+					"type": "Text"
+				}
+			]
+		}
+	],
+	"statements": [
+		{
+			"step": "0",
+			"start": 0,
+			"end": 30
+		},
+		{
+			"step": "1",
+			"start": 31,
+			"end": 72
+		},
+		{
+			"step": "2",
+			"start": 73,
+			"end": 170
+		},
+		{
+			"step": "2.0.0",
+			"start": 114,
+			"end": 144
+		},
+		{
+			"step": "2.0.1",
+			"start": 146,
+			"end": 153
+		},
+		{
+			"step": "2.1.0",
+			"start": 164,
+			"end": 168
+		},
+		{
+			"step": "3",
+			"start": 171,
+			"end": 278
+		},
+		{
+			"step": "3.0.0",
+			"start": 178,
+			"end": 221
+		},
+		{
+			"step": "3.1.0",
+			"start": 237,
+			"end": 276
+		}
+	],
+	"placed": {
+		"start": 77,
+		"end": 82
+	}
+}

@@ -1,0 +1,1 @@
+{ "kind": "let", "name": "label", "value": { "kind": "text", "text": "Room {device}" } }

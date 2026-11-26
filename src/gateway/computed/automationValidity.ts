@@ -13,6 +13,7 @@ import {
 	visit,
 	type WalkEntry,
 } from "../../shared/automation-walk.js";
+import { CONSOLE_WORD_OPS } from "../../shared/live-console-grammar.js";
 import {
 	AUTOMATION_ACTIONS,
 	AUTOMATION_TRIGGER_NAMES,
@@ -31,13 +32,14 @@ import {
 	unnamed,
 	WAIT_MINUTES_MAX,
 } from "../../shared/schemasFunction.js";
+import { SCRIPT_RESERVED } from "../../shared/script-scan.js";
 import { hasHoles } from "../../shared/text-holes.js";
 import type { OwnerIssue, OwnerRecord } from "../ownerRecords.js";
 import { clockIssue, isClock } from "./automationClock.js";
 import type { EffectKind } from "./automationRunner.js";
 import { holeNames } from "./automationScope.js";
 import type { AutomationsDeps } from "./automations.js";
-import { holeOwnerIssue, stepOwnerIssue } from "./automationText.js";
+import { holeOwnerIssue, nameOwnerIssue, stepOwnerIssue } from "./automationText.js";
 import { crossingField } from "./crossingBand.js";
 
 export type ValidityDeps = Pick<
@@ -68,6 +70,10 @@ export const STEP_UNFIT = "its values do not fit what it does";
 const NO_ACTION = "this Gateway runs no such action";
 const UNRUNNABLE = "a step does what this Gateway cannot run";
 export const NAME_TAKEN = "that name is already a value here";
+export const NAME_RESERVED = "that name is reserved";
+
+/** Words the language keeps. */
+const RESERVED_NAMES = new Set<string>([...SCRIPT_RESERVED, ...CONSOLE_WORD_OPS, "true", "false", "null"]);
 export const GIVES_NOTHING = "this action gives nothing to keep";
 
 type Giving = {
@@ -208,6 +214,8 @@ export function createAutomationValidity(
 				if (issue) return { param: param.name, ...issue };
 				continue;
 			}
+			// An action's own literal is its text.
+			if (arg.kind === "text") return { param: param.name, message: STEP_UNFIT };
 			const { value } = arg;
 			literal[param.name] = value;
 			if (names !== null && typeof value === "string" && hasHoles(value)) {
@@ -242,6 +250,18 @@ export function createAutomationValidity(
 		return issue ? { param, ...issue } : null;
 	};
 
+	const textIssue = (param: string, text: string, names: readonly string[]): StepIssue | null => {
+		if (!hasHoles(text)) return null;
+		const issue = holeIn(text, names);
+		return issue ? { param, ...issue } : null;
+	};
+
+	/** A literal is as written. */
+	const valueIssue = (param: string, arg: StepArg, names: readonly string[]): StepIssue | null => {
+		if (arg.kind === "expression") return expressionIssue(param, arg.text, names);
+		return arg.kind === "text" ? textIssue(param, arg.text, names) : null;
+	};
+
 	const STEPS: {
 		[K in FunctionStep["kind"]]: (fn: Checked, step: Extract<FunctionStep, { kind: K }>) => StepIssue | null;
 	} = {
@@ -251,23 +271,19 @@ export function createAutomationValidity(
 		if: (fn, step) => expressionIssue("when", step.when, namesIn(fn)),
 		let: (fn, step) => {
 			if (nameTaken(fn, step.name)) return { param: "name", message: NAME_TAKEN };
-			return step.value.kind === "expression" ? expressionIssue("value", step.value.text, namesIn(fn)) : null;
+			return valueIssue("value", step.value, namesIn(fn));
 		},
 		wait: (fn, step) => {
 			if (step.minutes.kind === "expression") return expressionIssue("minutes", step.minutes.text, namesIn(fn));
-			const minutes = step.minutes.value;
+			const minutes = step.minutes.kind === "literal" ? step.minutes.value : null;
 			return typeof minutes === "number" && minutes >= 0 && minutes <= WAIT_MINUTES_MAX
 				? null
 				: { param: "minutes", message: WAIT_RANGE };
 		},
-		throw: (fn, step) => {
-			if (step.text === undefined || !hasHoles(step.text)) return null;
-			const issue = holeIn(step.text, namesIn(fn));
-			return issue ? { param: "text", ...issue } : null;
-		},
+		throw: (fn, step) => (step.text === undefined ? null : textIssue("text", step.text, namesIn(fn))),
 		call: (fn, step) => {
 			for (const [name, arg] of Object.entries(step.values ?? {})) {
-				const issue = arg.kind === "expression" ? expressionIssue(name, arg.text, namesIn(fn)) : null;
+				const issue = valueIssue(name, arg, namesIn(fn));
 				if (issue) return issue;
 			}
 			return null;
@@ -323,7 +339,10 @@ export function createAutomationValidity(
 		const unjudged = new Set<string>();
 		for (const [name, arg] of Object.entries(step.values ?? {})) {
 			if (!callee.params.some((param) => param.name === name)) return false;
-			if (arg.kind === "expression") unjudged.add(name);
+			const declared = callee.params.find((param) => param.name === name);
+			// A filled text is a text; what it names is read at entry.
+			if (arg.kind === "text" && declared?.type === "number") return false;
+			if (arg.kind !== "literal") unjudged.add(name);
 			else if (typeof arg.value === "boolean") return false;
 			else literal[name] = arg.value;
 		}
@@ -434,6 +453,21 @@ export function createAutomationValidity(
 		return issue ? lineOf(issue) : null;
 	}
 
+	/** A word of the language, or an entity. */
+	const reservedName = (name: string): boolean => RESERVED_NAMES.has(name) || deps.holes?.()?.entity(name) === true;
+
+	/** A save's alone; stored rows are read as they are. */
+	function namingIssue(fn: Checked): OwnerIssue | null {
+		const param = fn.params.findIndex((held) => held.name === "e" || reservedName(held.name));
+		if (param >= 0) return nameOwnerIssue(param, NAME_RESERVED);
+		for (const { step, path } of stepsOf(fn)) {
+			if (step.kind === "let" && reservedName(step.name)) {
+				return stepOwnerIssue({ step: path, param: "name" }, NAME_RESERVED);
+			}
+		}
+		return null;
+	}
+
 	/** First function-step issue. */
 	function functionIssue(fn: AutomationFunction): OwnerIssue | null {
 		for (const { step, path } of stepsOf(fn)) {
@@ -484,6 +518,7 @@ export function createAutomationValidity(
 		automationIssue,
 		writeIssue,
 		functionIssue,
+		namingIssue,
 		entryIssue,
 		calledEntryIssue,
 		resolved,

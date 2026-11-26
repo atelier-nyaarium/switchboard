@@ -1,11 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { ConsoleError } from "../gateway/liveConsole/builtins.js";
-import { type ConsoleResult, type ConsoleStatementResult, evaluateConsole } from "../gateway/liveConsole/evaluate.js";
+import { withDoing } from "../gateway/liveConsole/doing.js";
+import {
+	type ConsoleResult,
+	type ConsoleStatementResult,
+	DOING_REFUSED,
+	evaluateConsole,
+} from "../gateway/liveConsole/evaluate.js";
 import { fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
 import { type ConsoleEntity, createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { renderConsoleIssue, renderConsoleValue } from "../gateway/liveConsole/render.js";
-import { CONSOLE_SOURCE_MAX, parseConsole } from "../shared/live-console-grammar.js";
+import {
+	CONSOLE_SOURCE_MAX,
+	isConsoleVariableName,
+	parseConsole,
+	parseConsoleExpression,
+} from "../shared/live-console-grammar.js";
 import { ConsoleVariablesSchema } from "../shared/schemasLiveConsole.js";
 import { REMINDER_TAG } from "../shared/system-reminder.js";
 
@@ -99,6 +110,32 @@ describe("live console grammar", () => {
 		expect(await run("sensors.read(")).toMatchObject({ ok: false, issue: { code: "incomplete" } });
 		expect(parseConsole("x".repeat(CONSOLE_SOURCE_MAX + 1)).issues[0]?.code).toBe("too_big");
 	});
+
+	it("binds or below and below a comparison, and reads the right side only when the left does not decide", async () => {
+		expect(parseConsole("a or b and c == d").statements[0]?.node).toMatchObject({
+			kind: "binary",
+			op: "or",
+			right: { kind: "binary", op: "and", right: { kind: "binary", op: "==" } },
+		});
+		expect(await run("false and 1 / 0 == 1")).toMatchObject({ ok: true, value: false });
+		expect(await run("true or 1 / 0 == 1")).toMatchObject({ ok: true, value: true });
+		expect(await run("1 < 2 and 2 < 3")).toMatchObject({ ok: true, value: true });
+		expect(await run("true and 5")).toMatchObject({ ok: false, issue: { code: "wrong_type", start: 9, end: 10 } });
+		expect(await run("1 or true")).toMatchObject({ ok: false, issue: { code: "wrong_type", start: 0, end: 1 } });
+		expect(["and", "or", "andrew"].map(isConsoleVariableName)).toEqual([false, false, true]);
+		// A record keeps a member or a key spelled as one.
+		expect(await run('{and: 1, "or": 2}.and + {or: 2}.or')).toMatchObject({ ok: true, value: 3 });
+	});
+
+	it("parses one expression and refuses a save or a second statement", () => {
+		expect(parseConsoleExpression("a + 1")).toMatchObject({ node: { kind: "binary", op: "+" }, issues: [] });
+		expect(parseConsoleExpression("a = 1").issues[0]).toMatchObject({ code: "unexpected", start: 2, end: 3 });
+		expect(parseConsoleExpression("a; b").issues[0]).toMatchObject({ code: "unexpected", start: 1, end: 2 });
+		expect(parseConsoleExpression("x".repeat(CONSOLE_SOURCE_MAX + 1))).toMatchObject({
+			node: null,
+			issues: [{ code: "too_big" }],
+		});
+	});
 });
 
 describe("live console evaluation", () => {
@@ -173,7 +210,7 @@ describe("live console evaluation", () => {
 			assigned: "cold",
 			type: "Sensor",
 		});
-		const saved = { cold: { value: held, type: "Sensor" }, n: { value: 4 }, sensors: { value: 1 } };
+		const saved = { cold: { value: held, type: "Sensor" }, n: { value: 4 } };
 		expect(await owner("cold.name", saved)).toEqual({ ok: true, value: "Freezer" });
 		expect(await owner("cold", saved)).toMatchObject({ type: "Sensor" });
 		expect(await owner("n * 2 + sensors.list.count()", saved)).toEqual({ ok: true, value: 10 });
@@ -280,6 +317,54 @@ describe("live console evaluation", () => {
 	});
 });
 
+describe("doing members", () => {
+	const devices: ConsoleEntity = {
+		name: "devices",
+		description: "Devices.",
+		audiences: ["host", "owner"],
+		members: { list: { kind: "property", description: "Every device.", type: "List<Device>", get: () => [] } },
+	};
+	const plain = createConsoleRegistry([sensors, devices]);
+	const doing = createConsoleRegistry(withDoing([sensors, devices]));
+
+	it("are served to a script alone, one per action, and leave the other audiences' vocabulary as it was", () => {
+		const written = doing
+			.projection("script")
+			.entities.flatMap((entity) =>
+				entity.members
+					.filter((member) => member.kind === "doing")
+					.map(
+						(member) =>
+							`${entity.name}.${member.name}(${member.params.map((param) => `${param.name}${param.optional ? "?" : ""}`).join(", ")})`,
+					),
+			);
+
+		expect(written.sort()).toEqual([
+			"assistant.tell(when, message?)",
+			"devices.set(device, verb)",
+			"functions.run(function, values?)",
+			"ifttt.trigger(event, value1?, value2?, value3?)",
+		]);
+		expect([doing.hash("owner"), doing.hash("host")]).toEqual([plain.hash("owner"), plain.hash("host")]);
+		expect([doing.get("assistant", "host"), doing.has("assistant")]).toEqual([null, true]);
+		expect(doing.get("devices", "script")?.name).toBe("devices");
+	});
+
+	it("are refused by the evaluator, called or named, and by a hole's save check with the call's span", async () => {
+		const ask = async (source: string) => single(await evaluateConsole(source, doing, "host"));
+
+		expect(await ask('devices.set("Lamp", "on")')).toMatchObject({ ok: false, issue: { code: "doing" } });
+		expect(await ask("devices.set")).toMatchObject({ ok: false, issue: { code: "doing" } });
+		expect(await ask('assistant.tell("now")')).toMatchObject({ ok: false, issue: { code: "unknown_name" } });
+		expect(holeIssue('Now {devices.set("Lamp", "on")}', [], doing)).toEqual({
+			start: 5,
+			end: 30,
+			message: DOING_REFUSED,
+		});
+		expect(holeIssue("{devices.list.count()}", [], doing)).toBeNull();
+	});
+});
+
 describe("holes in an automation's text", () => {
 	const slow: ConsoleEntity = {
 		name: "radio",
@@ -325,13 +410,12 @@ describe("holes in an automation's text", () => {
 		expect(at("It is {if(true, radio, 0).listen()} now")).toBe("if(true, radio, 0).listen");
 	});
 
-	it("reads a name that is also an entity's as the entity, at the save as at the fire", async () => {
-		const shadowed = { sensors: { value: "mine", shown: "Mine" } };
+	it("reads a name that is also an entity's as the held name, at the save as at the fire", async () => {
+		const shadowing = { sensors: { value: "mine", shown: "Mine" } };
 
-		expect(holeIssue("It is {sensors} now", ["sensors"], scope)).toMatchObject({ start: 7, end: 14 });
-		expect(holeIssue("{sensors.list.count()}", ["sensors"], scope)).toBeNull();
-		expect(await fillHoles("{sensors} {sensors.list.count()}", shadowed, scope)).toEqual({
-			text: "{?} 2",
+		expect(holeIssue("It is {sensors} now", ["sensors"], scope)).toBeNull();
+		expect(await fillHoles("{sensors} {sensors.list.count()}", shadowing, scope)).toEqual({
+			text: "Mine {?}",
 			failed: 1,
 		});
 	});

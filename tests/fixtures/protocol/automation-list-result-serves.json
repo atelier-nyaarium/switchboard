@@ -199,7 +199,8 @@
 			"steps": ["tell_assistant", "device_set", "ifttt_trigger"],
 			"paramTypes": ["device", "text", "number"],
 			"statements": ["do", "if", "try", "exit", "throw", "let", "wait", "note", "call"],
-			"unnamed": true
+			"unnamed": true,
+			"script": true
 		}
 	}
 }

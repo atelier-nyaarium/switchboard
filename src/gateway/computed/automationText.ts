@@ -95,6 +95,14 @@ export const holeOwnerIssue = (
 	code: HOLE_ISSUE_CODE,
 });
 
+export const NAME_ISSUE_CODE = "invalid_name";
+
+export const nameOwnerIssue = (param: number, message: string): OwnerIssue => ({
+	path: ["params", param, "name"],
+	message,
+	code: NAME_ISSUE_CODE,
+});
+
 /** Path: list, step numbers, parameter. */
 export const stepOwnerIssue = (at: StepPlace, message: string): OwnerIssue => ({
 	path: ["steps", at.step, ...(at.param ? [at.param] : [])],

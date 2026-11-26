@@ -6,7 +6,9 @@ import {
 	type AutomationNumberOffer,
 	type AutomationSwitchOffer,
 } from "../../shared/schemasAutomation.js";
+import type { ConsoleDescription } from "../../shared/schemasLiveConsole.js";
 import { type AutomationPreviewDeps, previewAutomation } from "../computed/automationPreview.js";
+import { scriptOps } from "../computed/automationScriptOps.js";
 import { type Automations, type AutomationsDeps, createAutomations } from "../computed/automations.js";
 import { type ComputedFields, type ComputedFieldsDeps, createComputedFields } from "../computed/computedFields.js";
 import type { AutomationConsoleHandlers } from "../console/consoleTypes.js";
@@ -85,6 +87,8 @@ export function openAutomationPair(deps: AutomationPairDeps): AutomationPair {
 export interface AutomationStageDeps extends AutomationPairDeps {
 	offers: () => { numbers: AutomationNumberOffer[]; switches: AutomationSwitchOffer[] };
 	previewEvent: AutomationPreviewDeps["event"];
+	/** Absent before the console is composed. */
+	scriptVocabulary?: () => ConsoleDescription | undefined;
 }
 
 export interface AutomationStage extends AutomationPair {
@@ -94,6 +98,13 @@ export interface AutomationStage extends AutomationPair {
 export function composeAutomations(deps: AutomationStageDeps): AutomationStage {
 	const pair = openAutomationPair(deps);
 	const { automations } = pair;
+	const script = scriptOps({
+		switches: () => deps.offers().switches.map((offer) => ({ id: offer.device, name: offer.name })),
+		functions: () => automations.functionRows(),
+		givenOf: (trigger) => automations.givenOf(trigger),
+		vocabulary: () => deps.scriptVocabulary?.() ?? { builtins: [], entities: [] },
+		stepIssue: (body) => automations.stepIssueOf(body),
+	});
 	return {
 		...pair,
 		console: {
@@ -113,6 +124,8 @@ export function composeAutomations(deps: AutomationStageDeps): AutomationStage {
 					request,
 				),
 			run: (id, callId) => automations.run(id, callId),
+			scriptPrint: script.print,
+			scriptParse: script.parse,
 		},
 	};
 }

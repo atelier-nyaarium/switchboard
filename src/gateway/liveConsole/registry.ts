@@ -7,7 +7,8 @@ import type {
 } from "../../shared/schemasLiveConsole.js";
 import { BUILTINS } from "./builtins.js";
 
-export type ConsoleAudience = "host" | "owner";
+/** `script` reads what a host reads, and may name a doing member. */
+export type ConsoleAudience = "host" | "owner" | "script";
 
 export interface ConsoleParam {
 	name: string;
@@ -28,7 +29,9 @@ export type ConsoleMember =
 			/** One slow read per request. */
 			slow?: boolean;
 			call: (args: unknown[]) => unknown;
-	  };
+	  }
+	/** A script's statement; nothing evaluates it. */
+	| { kind: "doing"; description: string; params: readonly ConsoleParam[]; action: string };
 
 /** Handlers are read-only. */
 export interface ConsoleEntity {
@@ -45,7 +48,7 @@ function check(entity: ConsoleEntity): void {
 	if (!NAME.test(entity.name)) throw new Error(`console entity name ${entity.name} is not a name`);
 	for (const [name, member] of Object.entries(entity.members)) {
 		if (!NAME.test(name)) throw new Error(`console member ${entity.name}.${name} is not a name`);
-		if (member.kind !== "method") continue;
+		if (member.kind === "property") continue;
 		let optional = false;
 		for (const param of member.params) {
 			if (!NAME.test(param.name))
@@ -60,15 +63,24 @@ function check(entity: ConsoleEntity): void {
 	}
 }
 
-export function describeEntity(entity: ConsoleEntity): ConsoleEntityDescription {
+/** Doing members are a script's alone; it names nothing slow, which a save refuses. */
+const membersFor = (entity: ConsoleEntity, audience: ConsoleAudience) =>
+	Object.entries(entity.members).filter(([, member]) =>
+		audience === "script" ? !(member.kind === "method" && member.slow) : member.kind !== "doing",
+	);
+
+const servedTo = (entity: ConsoleEntity, audience: ConsoleAudience): boolean =>
+	entity.audiences.includes(audience) || (audience === "script" && entity.audiences.includes("host"));
+
+export function describeEntity(entity: ConsoleEntity, audience: ConsoleAudience = "host"): ConsoleEntityDescription {
 	return {
 		name: entity.name,
 		description: entity.description,
 		catalogue: entity.catalogue === true,
-		members: Object.entries(entity.members).map(([name, member]) => ({
+		members: membersFor(entity, audience).map(([name, member]) => ({
 			name,
 			kind: member.kind,
-			returns: member.kind === "property" ? member.type : member.returns,
+			returns: member.kind === "property" ? member.type : member.kind === "method" ? member.returns : "",
 			description: member.description,
 			params:
 				member.kind === "property"
@@ -117,7 +129,7 @@ function descriptionText(description: ConsoleDescription): string {
 		list.length === 0 ? [] : [title, ...list.flatMap(entityText), ""];
 	return [
 		"Read-only expressions over this Gateway.",
-		'Grammar: paths and calls (sensors.read("Freezer")), indexing (x[0], x["key"]), == != < > <= >= ! + - * /, lists [a, b] and dicts {k: v}. No assignment.',
+		'Grammar: paths and calls (sensors.read("Freezer")), indexing (x[0], x["key"]), == != < > <= >= ! + - * /, and, or, lists [a, b] and dicts {k: v}. No assignment.',
 		"Builtins on values:",
 		...description.builtins.map(
 			(builtin) =>
@@ -146,20 +158,23 @@ export function createConsoleRegistry(entities: readonly ConsoleEntity[]) {
 		byName.set(entity.name, entity);
 	}
 
-	const served = (audience: ConsoleAudience) =>
-		[...byName.values()].filter((entity) => entity.audiences.includes(audience));
+	const served = (audience: ConsoleAudience) => [...byName.values()].filter((entity) => servedTo(entity, audience));
 
 	const projection = (audience: ConsoleAudience): ConsoleDescription => ({
 		builtins: BUILTIN_DESCRIPTIONS,
-		entities: served(audience).map(describeEntity),
+		entities: served(audience)
+			.map((entity) => describeEntity(entity, audience))
+			// One a script can name nothing of.
+			.filter((entity) => audience !== "script" || entity.members.length > 0),
 	});
 
 	return {
 		get(name: string, audience: ConsoleAudience): ConsoleEntity | null {
 			const entity = byName.get(name);
-			return entity?.audiences.includes(audience) ? entity : null;
+			return entity && servedTo(entity, audience) ? entity : null;
 		},
 		names: (audience: ConsoleAudience) => served(audience).map((entity) => entity.name),
+		has: (name: string) => byName.has(name),
 		projection,
 		describe: (audience: ConsoleAudience) => descriptionText(projection(audience)),
 		hash: (audience: ConsoleAudience) => sha256Hex(canonicalJson(projection(audience))).slice(0, 16),
@@ -173,15 +188,15 @@ export type NameMeaning<T> =
 	| { kind: "held"; held: T }
 	| { kind: "missing" };
 
-/** What a bare name means. An entity shadows a held name, for the checker, the evaluator and the fill alike. */
+/** A held name shadows an entity. */
 export function resolveName<T>(
 	registry: Pick<ConsoleRegistry, "get">,
 	audience: ConsoleAudience,
 	name: string,
 	held: (name: string) => T | undefined,
 ): NameMeaning<T> {
-	const entity = registry.get(name, audience);
-	if (entity) return { kind: "entity", entity };
 	const found = held(name);
-	return found === undefined ? { kind: "missing" } : { kind: "held", held: found };
+	if (found !== undefined) return { kind: "held", held: found };
+	const entity = registry.get(name, audience);
+	return entity ? { kind: "entity", entity } : { kind: "missing" };
 }

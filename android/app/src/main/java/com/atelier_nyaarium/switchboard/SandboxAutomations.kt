@@ -184,6 +184,7 @@ internal fun sandboxReads(function: AutomationFunction): FunctionReads {
 				is StepArg.Literal -> (held.value as? JsonPrimitive)?.takeIf { it.isString }?.content?.let { text ->
 					scanHoles(text).filterIsInstance<HolePart.Hole>().forEach { read(it.source) }
 				}
+				is StepArg.Text -> scanHoles(held.text).filterIsInstance<HolePart.Hole>().forEach { read(it.source) }
 				null -> Unit
 			}
 		}

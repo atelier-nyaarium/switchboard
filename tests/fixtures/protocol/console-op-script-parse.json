@@ -1,0 +1,25 @@
+{
+	"kind": "script_parse",
+	"text": "// Warm the room, then say so.\nhumid = sensors.value(\"Hall\", \"humidity\")\nif (value < threshold and humid > 60) {\n\tdevices.set(\"Desk lamp\", \"on\")\n\twait(5)\n} else {\n\texit\n}\ntry {\n\tfunctions.run(\"Blink\", {lamp: \"Desk lamp\"})\n} catch (e) {\n\tassistant.tell(\"now\", \"It failed: {e}\")\n}",
+	"trigger": {
+		"kind": "crossing",
+		"device": "aa:bb:cc:dd:ee:10",
+		"measure": "temperature",
+		"direction": "below",
+		"threshold": 2,
+		"deadZone": 0,
+		"coolDownSec": 0
+	},
+	"params": [
+		{
+			"name": "room",
+			"type": "device"
+		}
+	],
+	"place": {
+		"step": "2",
+		"param": "when",
+		"start": 0,
+		"end": 5
+	}
+}

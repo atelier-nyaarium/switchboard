@@ -2434,6 +2434,69 @@ Slices:
 
 Size: about 2,500 to 3,500 lines.
 
+### How the script's Gateway slice is to be built (Fable block)
+
+Written before the code. Each line is a ruling until the code says otherwise. This block builds the Gateway's half of both slices; the phone's scanner twin, the read-only view and the editor are the next Opus block.
+
+**The text.** One statement to a line, blocks in braces, tabs for indent:
+
+```
+// Warm the room, then say so.
+if (value < threshold and sensors.value("Hall", "humidity") > 60) {
+	devices.set("Desk lamp", "on")
+	wait(5)
+} else if (value > 30) {
+	throw "Too hot: {value}"
+} else {
+	exit
+}
+try {
+	ifttt.trigger("lamp_on", "{device}")
+	functions.run("Blink", {lamp: "Desk lamp", message: label})
+} catch (e) {
+	assistant.tell("now", "It failed: {e}")
+}
+label = "Room {device}"
+```
+
+| Statement | Step |
+|---|---|
+| `// text` | `note`. Lines that follow one another are one note; a blank line parts two. |
+| `name = value` | `let` |
+| `if (when) { } else if (when) { } else { }` | `if`; `else if` is an `else` holding one `if`. An empty side is absent. |
+| `try { } catch (e) { }` | `try` |
+| `exit` | `exit` |
+| `throw "text"` or `throw` | `throw` |
+| `wait(minutes)` | `wait` |
+| `entity.method(values)` | `do`, one method per action kind |
+| `functions.run("Name", {name: value})` | `call` |
+
+- **A doing call's name is its action row's.** Each row of `AUTOMATION_ACTIONS` a step may name declares `call` (an entity and a method): `assistant.tell(when, message?)`, `devices.set(device, verb)`, `ifttt.trigger(event, value1?, value2?, value3?)`, and `functions.run(function, values?)` for a call. Values are positional in the row's own order; trailing optional ones are left off, and one skipped in the middle is written `null`. As built: a value whose expression is `null` prints `(null)`, so it is not read back as left out.
+- **A value is a literal or an expression** as the step stores it: a quoted string, a number, `true` or `false` is a literal, anything else is the expression's own text, trimmed. A `-` before a number is that number.
+- **A string is a text wherever a text sits.** Its `{holes}` fill at the step's turn: a `do`'s text values and a `throw` today, and from this slice a `let`'s value and a call's values too. The save checks a hole wherever it sits. Double quotes are printed and either quote is read. `\"`, `\'`, `\n` and `\t` are the string's escapes; `\{`, `\}` and `\\` stay as the text's own, so an escaped brace stays escaped. As built: a string in a position that is no text (a plug, a choice, a word, a function's name, a call's device value) is read as written, since a save compares those raw; and a string inside a larger expression is the console's own and fills nothing.
+- **Names for ids.** A switch is written by its name when exactly one switch holds that name and no switch's id equals it, else by its id; a function the same way. Reading resolves a name first, then an id, and refuses with the span when two hold the name or none does. A function's values are read against its declared types, so a device value takes a switch's name too.
+- **The canonical function** is what `parse(print(f))` answers, and the corpus pins `parse(print(c)) = c` for every canonical `c` and `canonical(f) = parse(print(f))`. It differs from `f` only where two spellings mean one thing: an expression that is one literal becomes the literal (a string's braces and backslashes escaped, so it still prints unfilled); a text's lone backslash is doubled; an expression's line breaks outside brackets become spaces and its ends are trimmed; an empty `if` side is absent; a note's line ends are `\n`.
+- **What print refuses:** nothing a save accepts. A step naming an action with no `call`, or a `do` with `as`, prints as a comment line saying so and makes the text read-only, since parsing it back would lose the step. As built, three more read only: a call to a function not held, a `let` named as a word the language took (a stored row from before the names rule), and a text past `SCRIPT_SOURCE_MAX`.
+
+**The pieces.**
+
+- **A line scanner** in `src/shared/script-scan.ts`, pure, with vectors in `tests/fixtures/script-scan/vectors.json` written by a generator from a case list, as the console tokens are. It answers pieces with spans: `comment` (`//` to the line's end, outside a string), `word` (a reserved word that opens a statement, and `else` and `catch` after a `}`), `open` and `close` (a block's braces), and `code` (the rest of a statement, which runs past a newline while a `(`, `[` or a value's `{` is open). A `{` opens a block only where its statement began with a block word (`if`, `else`, `try`, `catch`, `parallel`); anywhere else it is a record. Reserved: `if`, `else`, `try`, `catch`, `exit`, `throw`, `wait`, `parallel`, `start`, `await`, `all`, `any`. The console's lexer is untouched by it.
+- **One expression** is exported from the console's grammar (`parseConsoleExpression`), bounded as the console is, and the script is capped whole (`SCRIPT_SOURCE_MAX`).
+- **`and` and `or`** join the console's grammar as its loosest operators (`or` below `and`), over two true-or-false values, reading the right side only when the left does not decide. They are reserved as names. The token vectors grow by their cases and no existing case moves.
+- **`sensors.value(device, key)`** answers one reading's value, the short read a condition needs.
+- **Doing members** are a third member kind in the registry, built from the action table, served to an audience of their own (`script`) and to no other, with no handler: the evaluator refuses one (`an action is a statement of its own`), a hole's save check refuses one with its span, and so does a script that nests one in a condition or a value. The read-only fence lists each and proves both refusals.
+- **The parser** (`src/gateway/computed/automationScript.ts`) reads pieces into steps: block words by hand, everything else through the one-expression parse, lifting a doing call into its step. It answers the steps or up to eight issues with spans in the script. A statement that is neither an assignment nor a doing call is refused (`it does nothing`), and an assignment from a doing call is refused while no action gives a result.
+- **The printer** is the same module, with its own number encoder (plain decimals, never an exponent) and string encoder.
+- **One rule for names:** `resolveName` reads a held name before an entity, for the checker, the evaluator and the fill alike; the console keeps refusing a save under an entity's name, so nothing changes there. A save refuses a declared value or a variable named as an entity (any audience's), a trigger's name, a reserved word, `and`, `or`, `true`, `false`, `null` or `e`. Rows already stored are read as they are. As built: a declared value may share a trigger's name, since fit fills it from the trigger; only a variable is refused one.
+- **Types** (`src/shared/script-types.ts`): a closed vocabulary (`Text`, `Number`, `Truth`, `Time`, `Device`, `Event`, `Error`, `List`, `Record`, `Unknown`, and the registry's own labels) with member tables for the ones a script meets by name: `Error` (`code`, `message`), `Event` (its given fields and its source's declared ones). A static reading of an expression answers its type where the registry declares one and `Unknown` elsewhere, never a refusal.
+- **Two console ops**, both reads: `script_print` (a function's body, its trigger and values; answers the text, or why it is read-only) and `script_parse` (a text with the same; answers the canonical steps or the issues, and for each statement the names in scope there with their types). The phone holds no parser.
+- **Changed after the adversarial read (2026-11-26):** filling a `let`'s and a call's literal strings was wrong. It changed what stored rows mean (a call value typed on the phone's card is a literal with no escaping, so `{"a": 1}` or `50% {off}` became a hole) and left a pointer's value and a call's value reading differently. A value now has a third kind, `text`, and only it fills; a literal stays as written everywhere but an action's text parameter, where it has always been the text. A script's string in a `let` or a call becomes a `text` when it holds a hole or an escape. Also: an expression is never turned into a literal (one that is a single literal prints in parentheses); the printer parses what it printed and says `readOnly` when that fails, and answers no text at all past the cap; carriage returns keep every span on its own characters; `and` and `or` still read as a member after `.` and as a key; a script's vocabulary leaves out every slow member; the phone's generated decoder keeps a known step it cannot read whole as sent.
+- **Changed after the second read (2026-11-26):** printing a text doubled a backslash inside a hole, which changed what the hole's own string said, with the text still parsing; the codec now follows the hole scan and keeps a hole as written, and the sweep compares every text's runs and holes after the first round, since settling alone did not catch it. A carriage return inside an expression's string is kept. A filled text given to a number is refused at the save. A placed offset covers the whole escape it names and is held to the value.
+- **Known and accepted:** a held name now shadows an entity, and `and` and `or` are operators. A function stored before this with a value named as an entity that also reads that entity, or a value or variable named `and` or `or`, reads invalid until renamed. Neither Gateway held one when this shipped.
+- **As built (2026-11-26):** both ops also take `functions`, the draft's functions as a call names them, over the stored ones, since a callee minted on the phone is in no store. Both answer `statements` (each step's span by its walk path, for a last run drawn on the text) and `names` (each name with its type and the span it is offered over: a trigger's name and a declared value everywhere, a kept name from the end of its statement until it is kept again, `e` inside its catch), read past an issue too. The printer computes both itself, so a read-only text needs no parse. `script_parse` with steps also answers the first thing a save would refuse of them (the save's own naming and step checks), placed in the text, so a bad hole costs one round trip; `place` asks where a later refusal (a fit, a confirm) sits. A parse bounds its body as a save does and refuses at the first step over. `serves.functions.script` says a Gateway holds both. Both answer `types`, the members of `Error` and of `Event` under an event trigger, and `console_describe` with `script` answers the script's vocabulary (what a host reads, with the doing members), so the phone's completions need no table of their own. A comment after a statement is a note before it. A seeded sweep of 400 drawn functions pins the round trip (6,000 were run once).
+
+**Order:** `and`, `or`, `sensors.value` and the one-expression parse; the names rule; strings as texts in `let` and call values; the scanner and its vectors; doing members and the fence; the parser, the printer and the corpus; the ops; types and scope. Each ends green.
+
 ## Phase 2.7g - Side by side, and the map (Q50, Q64)
 
 Stands on 2.7e and 2.7f.
@@ -2443,6 +2506,49 @@ Stands on 2.7e and 2.7f.
 3. **The flow map** (phone L), after a Designer pass for function nodes and call edges. The styling locked in Question 50, replay per automation.
 
 Size: about 2,500 to 3,500 lines.
+
+### Bug Classes (2.7f, Gateway slice)
+
+- **Language growth changes how stored rows read.** Mechanism: a rule added for the script (holes in a `let`'s and a call's literals, a held name before an entity, `and` and `or` as operators) is applied by the readers every stored row passes through (`STEPS` on each read, `fillerOf` at each turn), so a row saved under the old rule changes meaning with no write. Found by the adversarial read in three places at once. Patched: the fill moved to a value kind of its own (`text`), so no stored literal changes; `and` and `or` still read as a member and a key. Left as accepted, with neither Gateway holding such a row: a value named as an entity that also reads the entity, and a name spelled `and` or `or`. What would close the class: a row carrying the language version it was saved under, read by that version's rules.
+- **A canonical form can outgrow a cap the printer never checked.** Mechanism: printing escapes (a lone backslash doubled, braces escaped, a line break in a string) and the parser bounds the escaped form. Patched once, as one mechanism: `printScript` parses what it printed and says `readOnly` when that fails, so no growth has to be listed.
+- **Turning one spelling into another changed meaning.** Mechanism: an expression that is a single literal was printed as the literal, which a position then read by its own rule (a text filled, a plug looked up by name, a number refused). Patched as one rule: an expression is never turned into a literal.
+
+### How side by side is to be built (Fable block)
+
+Written before the code. Each line is a ruling until the code says otherwise. This block builds the Gateway's half; the "Together" card, the script editor and the map are the next Opus block.
+
+**One mechanism, a strand.** A run today has one cursor: the step whose turn it is (`Fire.active`, already a list). A strand is a cursor with a root of its own and its own memory of the first failure nothing caught. `parallel` opens one strand per line and waits for them all; `start` opens one and moves on; `await` waits on strands by their task. Both steps build on the same three rules:
+
+- **A strand ends at its root.** `moved` answers where a cursor goes; running off the end of a strand's list ends the strand and nothing else. A failed step in a strand is remembered by the strand and its next step runs, as a frame's is; a `throw` ends the strand. A `try` guards only what is inside its own strand, so a failure in a branch never jumps to a catch outside the block while its siblings run.
+- **`exit` inside a strand is refused at the save,** since it would leave the others running. A run that meets one all the same ends that strand.
+- **The owner step stays open while its strands run,** as a call's record stays open while its function runs, so nothing new decides whether a run is finished, a restart finds every cursor in the stored fire, and each strand's step is claimed alone.
+- **One rule ends an owner** (settled with Sol, 2026-11-26): a block, a task and a call's frame are each over when their own cursor has run out and no cursor remains beneath their path. So a block waits for a task one of its branches started, a task waits for a task started inside it, and a frame waits for every task it started, by one rule and no flag per case.
+- **`exit` is refused by where it is written:** inside a strand of the same function. A called function's `exit` returns from that function, wherever its call sits.
+- **Intent is a strand's own.** A set is dated by the last wait that ended before it in written order in its own strand or one that encloses it (`intentAt(fire, path)`), never by a sibling's wait.
+
+**`parallel { }`** (step kind `parallel`, one list `steps`, each child a branch; path side 0).
+
+- At its turn it opens a cursor on every branch. When the last one ends it ends: done, or failed `together` with `errors`, each failed branch's first uncaught failure in written order. That failure then follows the ordinary rule where the block sits: inside a `try` it jumps to the catch, where `e.errors` lists them (each `code` and `message`); outside it is remembered and the next step runs.
+- **Width is capped.** A run holds at most `RUN_STRANDS_MAX` (8) cursors. A save refuses a body whose widest moment is wider (a block's width is the sum of its branches', an `if` or a `try` the wider of its sides). Through calls the walk cannot know, so a block that would pass the cap at its turn ends refused, before any branch starts.
+- **Several effects at once.** The pump holds up to `EFFECTS_MAX` (4) attempts in flight, across every run. Two attempts never go to one device at once, and among one run's active steps on a device the one written first goes first, so two sets of one plug in a block land in the order written. A run without a block still has one cursor, so its steps stay one at a time. The read slot stays one.
+- A `let` in a branch writes the frame's variables; two branches keeping one name is last write wins.
+
+**Tasks** (`start`, `await`; `all` and `any` are functions over tasks).
+
+- `t = start devices.set("Lamp", "on")` and `t = start { ... }`: a step kind `start` with `steps` and an optional `as`. At its turn it opens a strand on its list, keeps a task under `as`, and ends its own turn at once; its record stays open until the strand ends, done or failed with the strand's failure. A task is `{task: path}`, the start step's path in the run, which no two tasks share.
+- `await t`, `await all(a, b)`, `first = await any(a, b)`: a step kind `await` with one expression `task` and an optional `as`. Its expression is read once at its turn, through the read slot, and the tasks it names are stored on its step. It ends when they have: one task, done or failed with that task's failure; `all`, when every one has, failed `together` with `errors` if any failed; `any`, at the first to end, never failed, keeping that task under `as`.
+- A task reads `done`, `failed` and `error` (its failure, or none) as the run stands. Two tasks are equal when they are one task.
+- **A task's outcome is its start step's record and is never used up:** awaiting it twice answers the same twice, and `all(a, a)` is `all(a)`. An `await` of one task or of `all` marks what it took as seen; `any` marks nothing, so a failed loser is still remembered by its frame.
+- **`any` names the first to end, even when both ended before it was asked:** a task's record keeps the order it ended in.
+- **A wait that can never end is refused at its turn:** an `await` naming a task its own step runs under, or one that already waits on it through other awaits (an `any` only when every one of its tasks does), fails `refused`; a value that names no task of this run fails `unread`.
+- **Nothing is left behind.** A frame's end, at its last step or at `exit`, waits for every task it started. A failed task no `await` took is remembered by the frame then, as a failed step is.
+- `start` and `await` are script only: cards draw neither, and keep one as they keep any step they cannot draw.
+
+- **Several attempts are claimed in one commit, then started:** every claim of a pass is written before any runner registers, as one claim is today; a retiring run drains every claim and moves no cursor; `stop` waits for every runner.
+
+**What stores change.** `Fire.active` holds up to `RUN_STRANDS_MAX` paths; a frame holds `strands`, the first uncaught failure by strand root; a failure may hold `errors`; a step may hold `awaits`, `seen` and the order it `ended` in. A build before this drops a fire it cannot read with one `uncertain` row and holds a function it cannot read unread, as it does today for any newer kind.
+
+**Order:** the strand rules in `moved` with their table; the `parallel` kind through the schema, the walk (and its Kotlin twin and vectors), the save checks and the script; the pass over several cursors and the join; several effects in the pump and the device order; then `start` and `await` on the same rules, `all` and `any`, a task's members and type. Each ends green.
 
 ## Phase 2.7d - Walk-through and cleanup
 

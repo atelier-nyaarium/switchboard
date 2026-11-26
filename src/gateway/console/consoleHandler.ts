@@ -502,7 +502,7 @@ export function createConsoleDispatcher({
 				return requireRoutines().dismiss(op.routineId, op.occurrenceId);
 
 			case "console_describe":
-				return requireLiveConsole().describe();
+				return requireLiveConsole().describe(op.script === true);
 
 			case "console_ids":
 				return requireLiveConsole().ids();
@@ -558,6 +558,12 @@ export function createConsoleDispatcher({
 
 			case "automation_run":
 				return requireAutomations().run(op.automationId, op.callId);
+
+			case "script_print":
+				return requireAutomations().scriptPrint(op);
+
+			case "script_parse":
+				return requireAutomations().scriptParse(op);
 
 			case "assistant_safety":
 				return requireAssistant().setSafety(op.approveEverySend);

@@ -50,7 +50,8 @@ export const ConsoleParamDescriptionSchema = z
 export const ConsoleMemberDescriptionSchema = z
 	.object({
 		name: z.string(),
-		kind: z.enum(["property", "method"]),
+		/** `doing`: a script's statement, served to a script alone. */
+		kind: z.enum(["property", "method", "doing"]),
 		returns: z.string(),
 		description: z.string(),
 		params: z.array(ConsoleParamDescriptionSchema),

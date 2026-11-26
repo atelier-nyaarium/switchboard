@@ -137,6 +137,7 @@ describe("the automation save op", () => {
 			statements: ["do", "if", "try", "exit", "throw", "let", "wait", "note", "call"],
 			paramTypes: ["device", "text", "number"],
 			unnamed: true,
+			script: true,
 		});
 	});
 

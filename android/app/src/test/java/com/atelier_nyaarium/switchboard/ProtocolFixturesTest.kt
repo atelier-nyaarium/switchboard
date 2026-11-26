@@ -9,6 +9,8 @@ import com.atelier_nyaarium.switchboard.proto.FunctionStep
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationRunResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleScriptParseResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleScriptPrintResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationCheckResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
@@ -95,6 +97,8 @@ class ProtocolFixturesTest {
 			"ConsoleAutomationPutResult" -> wireJson.decodeFromString<ConsoleAutomationPutResult>(body)
 			"ConsoleAutomationPreviewResult" -> wireJson.decodeFromString<ConsoleAutomationPreviewResult>(body)
 			"ConsoleAutomationRunResult" -> wireJson.decodeFromString<ConsoleAutomationRunResult>(body)
+			"ConsoleScriptPrintResult" -> wireJson.decodeFromString<ConsoleScriptPrintResult>(body)
+			"ConsoleScriptParseResult" -> wireJson.decodeFromString<ConsoleScriptParseResult>(body)
 			"WorkspaceSaveSpanAnswer" -> wireJson.decodeFromString<WorkspaceSaveSpanAnswer>(body)
 			"WorkspaceFileMutationAnswer" -> wireJson.decodeFromString<WorkspaceFileMutationAnswer>(body)
 			"WorkspaceFileStateAnswer" -> wireJson.decodeFromString<WorkspaceFileStateAnswer>(body)

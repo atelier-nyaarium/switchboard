@@ -47,9 +47,9 @@ internal fun consolePaint(source: String, entities: Set<String>, variables: Set<
 				ConsoleTokenKind.IDENT ->
 					when {
 						afterDot -> CodeToken.FUNCTION
-						// An entity outranks a saved name.
-						token.text in entities -> CodeToken.TYPE
+						// A held name shadows an entity.
 						token.text in variables -> CodeToken.VARIABLE
+						token.text in entities -> CodeToken.TYPE
 						called -> CodeToken.FUNCTION
 						else -> CodeToken.PROPERTY
 					}

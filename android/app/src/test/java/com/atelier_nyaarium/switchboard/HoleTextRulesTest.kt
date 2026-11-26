@@ -145,6 +145,13 @@ class HoleTextRulesTest {
 			painted("{round(value) + other}").filter { it.second != CodeToken.PUNCTUATION && it.second != CodeToken.OPERATOR },
 		)
 		assertEquals(emptyList<Any>(), painted("plain } text"))
+		// A held name shadows an entity.
+		assertEquals(
+			listOf("sensors" to CodeToken.VARIABLE),
+			holePaint("{sensors}", entities = setOf("sensors"), names = setOf("sensors"))
+				.filter { it.token != CodeToken.PUNCTUATION }
+				.map { "sensors" to it.token },
+		)
 	}
 
 	@Test

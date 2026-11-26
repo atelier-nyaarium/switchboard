@@ -40,6 +40,7 @@ import {
 	ConsoleDeviceSchedulePutResultSchema,
 } from "../shared/schemasDevices.js";
 import { FunctionSchema, FunctionStepSchema } from "../shared/schemasFunction.js";
+import { ConsoleScriptParseResultSchema, ConsoleScriptPrintResultSchema } from "../shared/schemasScript.js";
 import {
 	ConsoleVaultAnswerEntryResultSchema,
 	ConsoleVaultAnswerResultSchema,
@@ -89,6 +90,8 @@ const SCHEMAS: Record<string, z.ZodType> = {
 	AssistantHomeCarried: AssistantHomeCarriedSchema,
 	ConsoleAutomationPreviewResult: ConsoleAutomationPreviewResultSchema,
 	ConsoleAutomationRunResult: ConsoleAutomationRunResultSchema,
+	ConsoleScriptPrintResult: ConsoleScriptPrintResultSchema,
+	ConsoleScriptParseResult: ConsoleScriptParseResultSchema,
 	WorkspaceSaveSpanAnswer: SaveSpanAnswerSchema,
 	WorkspaceFileMutationAnswer: FileMutationAnswerSchema,
 	WorkspaceFileStateAnswer: FileStateAnswerSchema,

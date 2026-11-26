@@ -28,7 +28,9 @@ import {
 } from "../shared/schemasAutomationSave.js";
 import { type AutomationFunctionInput, FunctionSchema, type StepArg } from "../shared/schemasFunction.js";
 
-const REGISTRY = createConsoleRegistry([]);
+const REGISTRY = createConsoleRegistry([
+	{ name: "sensors", description: "Paired sensors.", audiences: ["host", "owner"], members: {} },
+]);
 const roots: string[] = [];
 afterEach(() => {
 	for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
@@ -769,6 +771,45 @@ describe("an automation that runs a function", () => {
 			]);
 			expect(stored.automations.invalidOf("event")).not.toBeNull();
 			expect(stored.automations.eventsOf("github")).toEqual([]);
+		});
+
+		it("refuses a value or a variable named as an entity or a word of the language on save, and reads a stored one as it is", () => {
+			const plain = { kind: "do", action: "device_set", args: { device: lit(PLUG), verb: lit("on") } } as const;
+			const named = (
+				params: AutomationFunctionInput["params"],
+				steps: AutomationFunctionInput["steps"] = [plain],
+			) => {
+				const values = Object.fromEntries((params ?? []).map((param) => [param.name, "x"]));
+				return refusalOf(
+					open().save("warm", pointing(hourly, "warm-up", values), 0, {
+						as: "edit",
+						id: "warm-up",
+						body: fn(steps, params),
+						base: 0,
+					}),
+				);
+			};
+			const row = (id: string, kind: string, body: object) => ({ id, kind, revision: 1, incarnation: id, body });
+			const stored = open(true, [
+				row("later", "function", fn([plain], [{ name: "sensors", type: "text" }])),
+				row("clock", "automation", pointing(hourly, "later", { sensors: "x" })),
+			]);
+			const byParam = { code: "invalid", record: "function", id: "warm-up", path: "params.0.name" };
+
+			expect([
+				named([{ name: "sensors", type: "text" }]),
+				named([{ name: "wait", type: "text" }]),
+				named([{ name: "e", type: "text" }]),
+				named([], [{ kind: "let", name: "or", value: lit(1) }, plain]),
+				named([{ name: "sensor", type: "text" }]),
+			]).toEqual([
+				byParam,
+				byParam,
+				byParam,
+				{ code: "invalid", record: "function", id: "warm-up", path: "steps.0.name", step: "0", param: "name" },
+				null,
+			]);
+			expect(stored.automations.invalidOf("clock")).toBeNull();
 		});
 
 		it("lets an edit of a shared function through when another user's plug went before it", () => {

@@ -2,7 +2,7 @@ import { type ConsoleNode, parseConsole } from "../../shared/live-console-gramma
 import { oneLine } from "../../shared/system-reminder.js";
 import { HOLE_FAILED, scanHoles } from "../../shared/text-holes.js";
 import { arityIssue, freeBuiltin, valueBuiltin } from "./builtins.js";
-import { evaluateConsole } from "./evaluate.js";
+import { DOING_REFUSED, evaluateConsole } from "./evaluate.js";
 import { type ConsoleAudience, type ConsoleRegistry, resolveName } from "./registry.js";
 import { numberText } from "./render.js";
 
@@ -48,6 +48,7 @@ function unreadable(node: ConsoleNode, names: ReadonlySet<string>, registry: Con
 			if (!entity) return walk(node.target);
 			const found = Object.hasOwn(entity.members, node.name) ? entity.members[node.name] : undefined;
 			if (!found) return { start: node.start, end: node.end, message: `${entity.name} has no ${node.name}` };
+			if (found.kind === "doing") return { start: node.start, end: node.end, message: DOING_REFUSED };
 			return found.kind === "method"
 				? { start: node.start, end: node.end, message: `call it: ${node.name}()` }
 				: null;
@@ -63,6 +64,7 @@ function unreadable(node: ConsoleNode, names: ReadonlySet<string>, registry: Con
 				const entity = entityOf(target.target);
 				const found =
 					entity && Object.hasOwn(entity.members, target.name) ? entity.members[target.name] : undefined;
+				if (found?.kind === "doing") return { start: node.start, end: node.end, message: DOING_REFUSED };
 				if (found?.kind === "method" && found.slow) {
 					return { start: node.start, end: node.end, message: "too slow for an automation" };
 				}
@@ -138,6 +140,7 @@ export const holesOver = (registry: ConsoleRegistry) => ({
 	expression: (source: string, names: readonly string[]) => expressionIssue(source, names, registry),
 	fill: (text: string, names: Readonly<Record<string, HoleName>>) => fillHoles(text, names, registry),
 	evaluate: (source: string, names: Readonly<Record<string, HoleName>>) => evaluateHole(source, names, registry),
+	entity: (name: string) => registry.has(name),
 });
 
 export type ConsoleHoles = ReturnType<typeof holesOver>;

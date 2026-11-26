@@ -19,6 +19,7 @@ import { DEVICE_CONSOLE_OP_KINDS, DEVICE_CONSOLE_REQUESTS } from "./schemasDevic
 import {
 	FUNCTION_PARAMS_MAX,
 	FunctionParamSchema,
+	FunctionStepsSchema,
 	PARAM_NAME_RE,
 	RUN_NAMES_MAX,
 	STEP_TEXT_MAX,
@@ -28,6 +29,7 @@ import { PhoneCapabilityAnswerSchema } from "./schemasPhoneCapabilities.js";
 import { AuthorizationPolicySchema } from "./schemasPolicy.js";
 import { RoutineSchema } from "./schemasRoutine.js";
 import { RunbookFireTargetSchema, RunbookSchema } from "./schemasRunbook.js";
+import { SCRIPT_CONTEXT, SCRIPT_TEXT_SCHEMA, ScriptPlaceRequestSchema } from "./schemasScript.js";
 import { CUT_MODES, CUT_ROW_TEXT_MAX } from "./schemasSessionCut.js";
 import { VaultDecisionSchema, VaultEntryTierSchema, VaultRememberSchema } from "./schemasVault.js";
 import { FileMutationSchema, SymbolFacetSchema } from "./schemasWorkspace.js";
@@ -343,7 +345,11 @@ export const ConsoleOpSchema = z
 			baseRevision: z.number().int().positive(),
 		}),
 		...DEVICE_CONSOLE_REQUESTS,
-		z.object({ kind: z.literal("console_describe") }),
+		z.object({
+			kind: z.literal("console_describe"),
+			/** A script's vocabulary: doing members beside what a host reads. */
+			script: z.boolean().optional(),
+		}),
 		z.object({ kind: z.literal("console_ids") }),
 		z.object({
 			kind: z.literal("console_eval"),
@@ -403,6 +409,16 @@ export const ConsoleOpSchema = z
 			kind: z.literal("automation_run"),
 			automationId: z.string().regex(RULE_ID_RE),
 			callId: z.string().min(1).max(64),
+		}),
+		/** A function's steps as script; a read. */
+		z.object({ kind: z.literal("script_print"), steps: FunctionStepsSchema, ...SCRIPT_CONTEXT }),
+		/** A script as steps, or its issues; a read. */
+		z.object({
+			kind: z.literal("script_parse"),
+			text: SCRIPT_TEXT_SCHEMA,
+			...SCRIPT_CONTEXT,
+			/** A save's refusal to find in the text. */
+			place: ScriptPlaceRequestSchema.optional(),
 		}),
 		/** Gateway-local; survives release. */
 		z.object({ kind: z.literal("assistant_safety"), approveEverySend: z.boolean() }),
@@ -549,6 +565,8 @@ export const VALUE_OP_KINDS = new Set([
 	"automation_delete",
 	"automation_preview",
 	"automation_run",
+	"script_print",
+	"script_parse",
 	"assistant_watcher_grants",
 	"assistant_rule_put",
 	"assistant_rule_delete",

@@ -1,0 +1,107 @@
+{
+	"kind": "script_print",
+	"steps": [
+		{
+			"kind": "note",
+			"text": "Warm the room, then say so."
+		},
+		{
+			"kind": "let",
+			"name": "humid",
+			"value": {
+				"kind": "expression",
+				"text": "sensors.value(\"Hall\", \"humidity\")"
+			}
+		},
+		{
+			"kind": "if",
+			"when": "value < threshold and humid > 60",
+			"steps": [
+				{
+					"kind": "do",
+					"action": "device_set",
+					"args": {
+						"device": {
+							"kind": "literal",
+							"value": "aa:bb:cc:dd:ee:01"
+						},
+						"verb": {
+							"kind": "literal",
+							"value": "on"
+						}
+					}
+				},
+				{
+					"kind": "wait",
+					"minutes": {
+						"kind": "literal",
+						"value": 5
+					}
+				}
+			],
+			"else": [
+				{
+					"kind": "exit"
+				}
+			]
+		},
+		{
+			"kind": "try",
+			"steps": [
+				{
+					"kind": "call",
+					"function": "fn-blink",
+					"values": {
+						"lamp": {
+							"kind": "literal",
+							"value": "aa:bb:cc:dd:ee:01"
+						}
+					}
+				}
+			],
+			"catch": [
+				{
+					"kind": "do",
+					"action": "tell_assistant",
+					"args": {
+						"when": {
+							"kind": "literal",
+							"value": "now"
+						},
+						"message": {
+							"kind": "literal",
+							"value": "It failed: {e}"
+						}
+					}
+				}
+			]
+		}
+	],
+	"trigger": {
+		"kind": "crossing",
+		"device": "aa:bb:cc:dd:ee:10",
+		"measure": "temperature",
+		"direction": "below",
+		"threshold": 2,
+		"deadZone": 0,
+		"coolDownSec": 0
+	},
+	"params": [
+		{
+			"name": "room",
+			"type": "device"
+		}
+	],
+	"functions": [
+		{
+			"id": "fn-blink",
+			"name": "Blink",
+			"params": [
+				{
+					"name": "lamp",
+					"type": "device"
+				}
+			]
+		}
+	]
+}

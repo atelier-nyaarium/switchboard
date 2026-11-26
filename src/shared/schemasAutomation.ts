@@ -167,6 +167,7 @@ export interface AutomationActionRow {
 	params: readonly AutomationActionParam[];
 	/** What a step may keep under `as`; absent gives nothing. */
 	gives?: FunctionParamType;
+	call: { entity: string; method: string };
 }
 
 const optionsOf = (values: readonly string[]) =>
@@ -187,6 +188,7 @@ export const AUTOMATION_ACTIONS = {
 		runs: "assistant",
 		danger: false,
 		home: true,
+		call: { entity: "assistant", method: "tell" },
 		params: [
 			{ name: "when", label: "When", kind: "choice", options: optionsOf(TELL_WHEN) },
 			{
@@ -204,6 +206,7 @@ export const AUTOMATION_ACTIONS = {
 		runs: "gateway",
 		danger: false,
 		home: false,
+		call: { entity: "devices", method: "set" },
 		params: [
 			{ name: "device", label: "Plug", kind: "switch" },
 			{ name: "verb", label: "Set", kind: "choice", options: optionsOf(DeviceVerbSchema.options) },
@@ -214,6 +217,7 @@ export const AUTOMATION_ACTIONS = {
 		runs: "gateway",
 		danger: true,
 		home: true,
+		call: { entity: "ifttt", method: "trigger" },
 		params: [
 			{ name: "event", label: "Event name", kind: "word", max: IFTTT_EVENT_MAX },
 			iftttValue(1),
@@ -227,6 +231,7 @@ export const AUTOMATION_ACTIONS = {
 		// Its steps carry their own.
 		danger: false,
 		home: false,
+		call: { entity: "functions", method: "run" },
 		params: [
 			{ name: "function", label: "Function", kind: "function" },
 			{ name: "values", label: "Values", kind: "values", optional: true },
@@ -464,6 +469,7 @@ export const AUTOMATION_SERVES = {
 		paramTypes: [...FUNCTION_PARAM_TYPES],
 		statements: [...FUNCTION_STATEMENT_KINDS],
 		unnamed: true,
+		script: true,
 	},
 	triggers: Object.entries(AUTOMATION_TRIGGERS).map(([kind, row]) => ({
 		kind,
@@ -574,6 +580,8 @@ export const ConsoleAutomationListResultSchema = z
 						statements: z.array(z.string().max(16)).max(32).optional(),
 						/** It holds a function with no name. Required from 2026-12-10. */
 						unnamed: z.boolean().optional(),
+						/** It prints and parses a function as script. Required from 2026-12-10. */
+						script: z.boolean().optional(),
 					})
 					.meta({ id: "AutomationFunctionServes" })
 					.optional(),

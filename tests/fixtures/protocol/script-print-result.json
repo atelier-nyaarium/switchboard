@@ -1,0 +1,109 @@
+{
+	"text": "// Warm the room, then say so.\nhumid = sensors.value(\"Hall\", \"humidity\")\nif (value < threshold and humid > 60) {\n\tdevices.set(\"Desk lamp\", \"on\")\n\twait(5)\n} else {\n\texit\n}\ntry {\n\tfunctions.run(\"Blink\", {lamp: \"Desk lamp\"})\n} catch (e) {\n\tassistant.tell(\"now\", \"It failed: {e}\")\n}",
+	"names": [
+		{
+			"name": "value",
+			"type": "Number",
+			"start": 0,
+			"end": 278
+		},
+		{
+			"name": "device",
+			"type": "Text",
+			"start": 0,
+			"end": 278
+		},
+		{
+			"name": "measure",
+			"type": "Text",
+			"start": 0,
+			"end": 278
+		},
+		{
+			"name": "threshold",
+			"type": "Number",
+			"start": 0,
+			"end": 278
+		},
+		{
+			"name": "room",
+			"type": "Device",
+			"start": 0,
+			"end": 278
+		},
+		{
+			"name": "humid",
+			"type": "Number",
+			"start": 72,
+			"end": 278
+		},
+		{
+			"name": "e",
+			"type": "Error",
+			"start": 234,
+			"end": 278
+		}
+	],
+	"types": [
+		{
+			"name": "Error",
+			"members": [
+				{
+					"name": "code",
+					"type": "Text"
+				},
+				{
+					"name": "message",
+					"type": "Text"
+				}
+			]
+		}
+	],
+	"statements": [
+		{
+			"step": "0",
+			"start": 0,
+			"end": 30
+		},
+		{
+			"step": "1",
+			"start": 31,
+			"end": 72
+		},
+		{
+			"step": "2",
+			"start": 73,
+			"end": 170
+		},
+		{
+			"step": "2.0.0",
+			"start": 114,
+			"end": 144
+		},
+		{
+			"step": "2.0.1",
+			"start": 146,
+			"end": 153
+		},
+		{
+			"step": "2.1.0",
+			"start": 164,
+			"end": 168
+		},
+		{
+			"step": "3",
+			"start": 171,
+			"end": 278
+		},
+		{
+			"step": "3.0.0",
+			"start": 178,
+			"end": 221
+		},
+		{
+			"step": "3.1.0",
+			"start": 237,
+			"end": 276
+		}
+	]
+}

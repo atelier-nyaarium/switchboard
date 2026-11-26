@@ -1,0 +1,33 @@
+{
+	"issues": [
+		{
+			"start": 13,
+			"end": 38,
+			"message": "write wait(minutes)"
+		}
+	],
+	"names": [
+		{
+			"name": "kept",
+			"type": "Number",
+			"start": 8,
+			"end": 38
+		}
+	],
+	"types": [
+		{
+			"name": "Error",
+			"members": [
+				{
+					"name": "code",
+					"type": "Text"
+				},
+				{
+					"name": "message",
+					"type": "Text"
+				}
+			]
+		}
+	],
+	"statements": []
+}

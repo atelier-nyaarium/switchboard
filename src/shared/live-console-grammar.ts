@@ -3,11 +3,14 @@ export const CONSOLE_NODES_MAX = 256;
 export const CONSOLE_STATEMENTS_MAX = 16;
 
 const KEYWORDS = new Set(["true", "false", "null"]);
+/** Operators spelled as words. */
+export const CONSOLE_WORD_OPS = ["and", "or"] as const;
+const WORD_OPS = new Set<string>(CONSOLE_WORD_OPS);
 const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 
 /** Record parsing drops `__proto__`. */
 export const isConsoleVariableName = (name: string): boolean =>
-	VARIABLE_NAME.test(name) && name !== "__proto__" && !KEYWORDS.has(name);
+	VARIABLE_NAME.test(name) && name !== "__proto__" && !KEYWORDS.has(name) && !WORD_OPS.has(name);
 
 /** UTF-16 offsets, end-exclusive. */
 export interface ConsoleIssue {
@@ -32,7 +35,7 @@ const PUNCT = new Set([".", "(", ")", "[", "]", "{", "}", ",", ":", ";"]);
 const TWO_CHAR_OPS = new Set(["==", "!=", "<=", ">="]);
 const ONE_CHAR_OPS = new Set(["!", "+", "-", "*", "/", "=", "<", ">"]);
 
-export const CONSOLE_BINARY_OPS = ["==", "!=", "<", ">", "<=", ">=", "+", "-", "*", "/"] as const;
+export const CONSOLE_BINARY_OPS = ["or", "and", "==", "!=", "<", ">", "<=", ">=", "+", "-", "*", "/"] as const;
 export type ConsoleBinaryOp = (typeof CONSOLE_BINARY_OPS)[number];
 const ESCAPES: Record<string, string> = { n: "\n", t: "\t", "\\": "\\", '"': '"', "'": "'" };
 
@@ -55,7 +58,8 @@ export function lexConsole(source: string): ConsoleToken[] {
 		if (isIdentStart(c)) {
 			while (at < source.length && isIdentPart(source[at] as string)) at++;
 			const text = source.slice(start, at);
-			tokens.push({ kind: KEYWORDS.has(text) ? "keyword" : "ident", text, start, end: at });
+			const kind = KEYWORDS.has(text) ? "keyword" : WORD_OPS.has(text) ? "op" : "ident";
+			tokens.push({ kind, text, start, end: at });
 			continue;
 		}
 		if (isDigit(c)) {
@@ -133,6 +137,9 @@ export interface ConsoleParse {
 	/** Partial input parses. */
 	issues: ConsoleIssue[];
 }
+
+/** A word operator; still a name after `.` and as a key. */
+const wordOp = (token: ConsoleToken): boolean => token.kind === "op" && WORD_OPS.has(token.text);
 
 class Parser {
 	private at = 0;
@@ -214,8 +221,18 @@ class Parser {
 		return this.binary(0);
 	}
 
+	/** One expression and nothing after it. */
+	parseOne(): ConsoleNode {
+		const node = this.expression();
+		const rest = this.peek();
+		if (rest) this.issue("unexpected", rest.start, rest.end, `unexpected ${rest.text}`);
+		return node;
+	}
+
 	/** Loosest first. */
 	private static readonly LEVELS: readonly (readonly ConsoleBinaryOp[])[] = [
+		["or"],
+		["and"],
 		["==", "!="],
 		["<", ">", "<=", ">="],
 		["+", "-"],
@@ -255,7 +272,7 @@ class Parser {
 			if (this.is(".")) {
 				const dot = this.take() as ConsoleToken;
 				const name = this.peek();
-				if (name?.kind === "ident" || name?.kind === "keyword") {
+				if (name && (name.kind === "ident" || name.kind === "keyword" || wordOp(name))) {
 					this.take();
 					node = this.node({
 						kind: "member",
@@ -387,7 +404,7 @@ class Parser {
 			const entries: { key: string; value: ConsoleNode }[] = [];
 			while (this.peek() && !this.is("}")) {
 				const key = this.take() as ConsoleToken;
-				if (key.kind !== "ident" && key.kind !== "string") {
+				if (key.kind !== "ident" && key.kind !== "string" && !wordOp(key)) {
 					this.issue("unexpected", key.start, key.end, "a key must be a name or a string");
 					break;
 				}
@@ -427,4 +444,24 @@ export function parseConsole(source: string): ConsoleParse {
 	const parser = new Parser(lexConsole(source), source.length);
 	const statements = parser.parse();
 	return { statements, issues: parser.issues };
+}
+
+/** No assignment, no second statement. */
+export function parseConsoleExpression(source: string): { node: ConsoleNode | null; issues: ConsoleIssue[] } {
+	if (source.length > CONSOLE_SOURCE_MAX) {
+		return {
+			node: null,
+			issues: [
+				{
+					code: "too_big",
+					start: 0,
+					end: source.length,
+					message: `longer than ${CONSOLE_SOURCE_MAX} characters`,
+				},
+			],
+		};
+	}
+	const parser = new Parser(lexConsole(source), source.length);
+	const node = parser.parseOne();
+	return { node, issues: parser.issues };
 }

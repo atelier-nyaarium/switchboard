@@ -36,8 +36,11 @@ export const LiteralValueSchema = z.union([z.string().max(STEP_TEXT_MAX), z.numb
 /** Read at step start. */
 export const StepArgSchema = z
 	.discriminatedUnion("kind", [
+		/** As written; an action's text parameter alone fills its holes. */
 		z.strictObject({ kind: z.literal("literal"), value: LiteralValueSchema }),
 		z.strictObject({ kind: z.literal("expression"), text: z.string().min(1).max(STEP_TEXT_MAX) }),
+		/** Its holes fill at the step's turn. */
+		z.strictObject({ kind: z.literal("text"), text: z.string().min(1).max(STEP_TEXT_MAX) }),
 	])
 	.meta({ id: "StepArg" });
 export type StepArg = z.infer<typeof StepArgSchema>;
@@ -136,6 +139,13 @@ const depthOf = (steps: readonly Tree[]): number =>
 		steps.length > 0 ? 1 : 0,
 	);
 
+/** A body's steps within its bounds; may be empty. */
+export const FunctionStepsSchema = z
+	.array(FunctionStepSchema)
+	.max(FUNCTION_STEPS_MAX)
+	.refine((steps) => countOf(steps) <= FUNCTION_STEPS_TOTAL_MAX, { message: "too many steps" })
+	.refine((steps) => depthOf(steps) <= FUNCTION_DEPTH_MAX, { message: "steps nest too deep" });
+
 export const FunctionSchema = z
 	.strictObject({
 		/** Empty: one automation's own steps. */
@@ -144,14 +154,7 @@ export const FunctionSchema = z
 			.max(FUNCTION_NAME_MAX)
 			.refine((name) => name === "" || name.trim() !== "", { message: "a name of spaces" }),
 		params: z.array(FunctionParamSchema).max(FUNCTION_PARAMS_MAX),
-		steps: walked(
-			z
-				.array(FunctionStepSchema)
-				.min(1)
-				.max(FUNCTION_STEPS_MAX)
-				.refine((steps) => countOf(steps) <= FUNCTION_STEPS_TOTAL_MAX, { message: "too many steps" })
-				.refine((steps) => depthOf(steps) <= FUNCTION_DEPTH_MAX, { message: "steps nest too deep" }),
-		),
+		steps: walked(FunctionStepsSchema.min(1)),
 	})
 	.refine((fn) => new Set(fn.params.map((param) => param.name)).size === fn.params.length, {
 		message: "a value is named twice",

@@ -65,6 +65,13 @@ const deviceParam: ConsoleParam = {
 	completes: "devices",
 };
 const sensorParam: ConsoleParam = { ...deviceParam, completes: "sensors" };
+const readingParam: ConsoleParam = {
+	name: "key",
+	schema: z.string(),
+	type: "Text",
+	description: "Reading key.",
+	completes: "readings",
+};
 const idOf = (completes: NonNullable<ConsoleParam["completes"]>, description: string): ConsoleParam => ({
 	name: "id",
 	schema: z.string(),
@@ -298,19 +305,22 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 					returns: "List<Payload>",
 					call: ([device]) => sensorOf(device as string).answer.payloads,
 				},
+				value: {
+					kind: "method",
+					description: "One reading's value now.",
+					params: [sensorParam, readingParam],
+					returns: "Number",
+					call: ([device, key]) => {
+						const reading = sensorView(device as string).readings.find((entry) => entry.key === key);
+						if (!reading) throw new ConsoleError("not_found", `no reading ${key}`);
+						if (reading.value === null) throw new ConsoleError("not_found", `${key} has no value yet`);
+						return reading.value;
+					},
+				},
 				extremes: {
 					kind: "method",
 					description: "A reading's 24-hour low and high.",
-					params: [
-						sensorParam,
-						{
-							name: "key",
-							schema: z.string(),
-							type: "Text",
-							description: "Reading key.",
-							completes: "readings",
-						},
-					],
+					params: [sensorParam, readingParam],
 					returns: "{low, high}",
 					call: ([device, key]) => {
 						const reading = sensorView(device as string).readings.find((entry) => entry.key === key);
