@@ -53,4 +53,6 @@ cd android || exit 1
 # Gradle reports UP-TO-DATE for a task it skipped and for one whose inputs really had not changed,
 # so say plainly what this run covered rather than leaving the reader to compare timestamps.
 ./gradlew :app:testDebugUnitTest --console=plain "$@" || exit 1
-echo "kotlin-gate: imports ok, generated Kotlin matches its schemas, wire fixtures match, unit tests pass"
+# The emulator source set compiles nowhere else.
+./gradlew :app:compileEmulatorKotlin --console=plain || exit 1
+echo "kotlin-gate: imports ok, generated Kotlin matches its schemas, wire fixtures match, unit tests pass, the emulator build compiles"

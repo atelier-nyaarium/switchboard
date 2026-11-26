@@ -59,6 +59,10 @@ jobs:
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon --console=plain
 
+      # The emulator source set compiles nowhere else.
+      - name: Compile the emulator build
+        run: ./gradlew :app:compileEmulatorKotlin --no-daemon --console=plain
+
       # One code for both APKs; phone-install.sh raises the offset.
       - name: Stamp version code
         env:

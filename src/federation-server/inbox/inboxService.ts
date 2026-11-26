@@ -499,8 +499,14 @@ export class InboxService {
 		return readOpResult(this.registry, domainId, opKey);
 	}
 
-	sweep(now: number = this.now()): void {
+	/** Lapsed holds; writes nothing. */
+	prune(now: number = this.now()): void {
 		this.custody.prune(now);
+	}
+
+	/** `domainId` limits it to one Domain, whose caller prunes. */
+	sweep(now: number = this.now(), domainId?: string): void {
+		if (domainId === undefined) this.custody.prune(now);
 		sweepInbox(
 			this.registry,
 			this.routerIdentity,
@@ -513,6 +519,7 @@ export class InboxService {
 				const address = parseInboxAddress(addressText);
 				return address !== null && this.holdOf(address, seq, now) !== null;
 			},
+			domainId === undefined ? undefined : [domainId],
 		);
 	}
 

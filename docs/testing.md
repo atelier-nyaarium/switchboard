@@ -10,7 +10,7 @@ and two Bun smoke gates.
 | `bun run lint` | Biome and `tsc` |
 | `bun run test` | Vitest under Node, including the harness scenarios and both fixture replays |
 | `bun run check:fixtures` | Regenerating the TS wire fixtures changes no byte. Every committed fixture and manifest entry on both sides parses under the schema |
-| `./scripts/kotlin-gate.sh` | Kotlin import guard, `Protocol.kt` regenerated unchanged, Kotlin fixtures regenerated unchanged, the unit tests |
+| `./scripts/kotlin-gate.sh` | Kotlin import guard, `Protocol.kt` regenerated unchanged, Kotlin fixtures regenerated unchanged, the unit tests, the emulator source set's compile |
 | `bun run check:pinning` | The shipping runtime pins the Router certificate |
 | `bun run check:boot` | The real entry points boot under Bun and answer one console op |
 

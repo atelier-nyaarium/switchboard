@@ -3,7 +3,7 @@ import { oneLine } from "../../shared/system-reminder.js";
 import { HOLE_FAILED, scanHoles } from "../../shared/text-holes.js";
 import { arityIssue, freeBuiltin, valueBuiltin } from "./builtins.js";
 import { evaluateConsole } from "./evaluate.js";
-import type { ConsoleAudience, ConsoleRegistry } from "./registry.js";
+import { type ConsoleAudience, type ConsoleRegistry, resolveName } from "./registry.js";
 import { numberText } from "./render.js";
 
 /** Host audience; slow members barred. */
@@ -27,16 +27,21 @@ type Found = { start: number; end: number; message: string } | null;
 
 function unreadable(node: ConsoleNode, names: ReadonlySet<string>, registry: ConsoleRegistry): Found {
 	const walk = (child: ConsoleNode | null): Found => (child ? unreadable(child, names, registry) : null);
-	/** Entities shadow names. */
-	const entityOf = (target: ConsoleNode) => (target.kind === "ident" ? registry.get(target.name, AUDIENCE) : null);
+	const meaningOf = (name: string) =>
+		resolveName(registry, AUDIENCE, name, (held) => (names.has(held) ? true : undefined));
+	const entityOf = (target: ConsoleNode) => {
+		const meaning = target.kind === "ident" ? meaningOf(target.name) : null;
+		return meaning?.kind === "entity" ? meaning.entity : null;
+	};
 	switch (node.kind) {
 		case "literal":
 			return null;
 		case "ident": {
-			if (registry.get(node.name, AUDIENCE))
-				return { start: node.start, end: node.end, message: `name what to read of ${node.name}` };
-			if (names.has(node.name)) return null;
-			return { start: node.start, end: node.end, message: `no name ${node.name} here` };
+			const meaning = meaningOf(node.name);
+			if (meaning.kind === "held") return null;
+			const message =
+				meaning.kind === "entity" ? `name what to read of ${node.name}` : `no name ${node.name} here`;
+			return { start: node.start, end: node.end, message };
 		}
 		case "member": {
 			const entity = entityOf(node.target);
@@ -151,10 +156,11 @@ export async function fillHoles(
 			filled += part.text;
 			continue;
 		}
-		const name = part.source.trim();
-		const alone = Object.hasOwn(names, name) ? names[name] : undefined;
-		if (part.closed && alone?.shown !== undefined) {
-			filled += alone.shown;
+		const alone = resolveName(registry, AUDIENCE, part.source.trim(), (name) =>
+			Object.hasOwn(names, name) ? names[name] : undefined,
+		);
+		if (part.closed && alone.kind === "held" && alone.held.shown !== undefined) {
+			filled += alone.held.shown;
 			continue;
 		}
 		const answer = part.closed

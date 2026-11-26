@@ -17,6 +17,7 @@ import { hasHoles } from "../../shared/text-holes.js";
 import type { OwnerIssue, OwnerRecord } from "../ownerRecords.js";
 import { clockIssue, isClock } from "./automationClock.js";
 import { type EffectKind, effectIssue, isEffect } from "./automationRunner.js";
+import { holeNames } from "./automationScope.js";
 import type { AutomationsDeps } from "./automations.js";
 import { holeOwnerIssue, holeTexts } from "./automationText.js";
 import { crossingField } from "./crossingBand.js";
@@ -147,7 +148,7 @@ export function createAutomationValidity(
 			if (!param.optional && !Object.hasOwn(step.args, param.name))
 				return { param: param.name, message: `${param.label} is missing` };
 		}
-		const names = [...fn.params.map((param) => param.name), ...TRIGGER_NAMES];
+		const names = holeNames(TRIGGER_NAMES, fn.params);
 		const literal: Record<string, unknown> = { kind };
 		let literalOnly = true;
 		for (const param of params) {

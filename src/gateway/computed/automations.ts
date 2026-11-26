@@ -91,7 +91,7 @@ import {
 	natureOf,
 	runEffect,
 } from "./automationRunner.js";
-import { functionScopeOf } from "./automationScope.js";
+import { holeScope } from "./automationScope.js";
 import { type Checkpoint, FIRED_MAX, own, restore, type State, versionKey } from "./automationState.js";
 import {
 	begun,
@@ -1138,8 +1138,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		const call = body && site !== null ? callAt(body, site) : null;
 		const fn = site === null ? undefined : fire.frames?.[site];
 		const params = fn ? (frameFunction(fn)?.params ?? []) : [];
-		const scope = functionScopeOf(params, call?.values, deps.actions?.switchName);
-		return { ...scope, ...(fire.names ?? {}) };
+		return holeScope(fire.names, params, call?.values, deps.actions?.switchName);
 	};
 
 	/** Read once, at start. */

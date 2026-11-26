@@ -326,7 +326,7 @@ describe("holes in an automation's text", () => {
 	});
 
 	it("reads a name that is also an entity's as the entity, at the save as at the fire", async () => {
-		const shadowed = { sensors: { value: "mine" } };
+		const shadowed = { sensors: { value: "mine", shown: "Mine" } };
 
 		expect(holeIssue("It is {sensors} now", ["sensors"], scope)).toMatchObject({ start: 7, end: 14 });
 		expect(holeIssue("{sensors.list.count()}", ["sensors"], scope)).toBeNull();

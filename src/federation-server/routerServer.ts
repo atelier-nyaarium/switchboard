@@ -600,7 +600,6 @@ export class RouterServer {
 	/** Maintenance tick with optional test time. */
 	public sweep(now?: number): void {
 		try {
-			this.domain.inbox.sweep();
 			this.ownerServices.sweep(now);
 		} catch (error) {
 			console.warn(`[router] sweep failed: ${(error as Error).message}`);

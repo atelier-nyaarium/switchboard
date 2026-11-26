@@ -167,3 +167,21 @@ export function createConsoleRegistry(entities: readonly ConsoleEntity[]) {
 }
 
 export type ConsoleRegistry = ReturnType<typeof createConsoleRegistry>;
+
+export type NameMeaning<T> =
+	| { kind: "entity"; entity: ConsoleEntity }
+	| { kind: "held"; held: T }
+	| { kind: "missing" };
+
+/** What a bare name means. An entity shadows a held name, for the checker, the evaluator and the fill alike. */
+export function resolveName<T>(
+	registry: Pick<ConsoleRegistry, "get">,
+	audience: ConsoleAudience,
+	name: string,
+	held: (name: string) => T | undefined,
+): NameMeaning<T> {
+	const entity = registry.get(name, audience);
+	if (entity) return { kind: "entity", entity };
+	const found = held(name);
+	return found === undefined ? { kind: "missing" } : { kind: "held", held: found };
+}

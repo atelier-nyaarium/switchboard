@@ -9,7 +9,7 @@ import {
 } from "../../shared/schemasAutomation.js";
 import type { FunctionParam } from "../../shared/schemasFunction.js";
 import { oneLine } from "../../shared/system-reminder.js";
-import { functionScopeOf } from "./automationScope.js";
+import { functionScopeOf, holeNames, holeScope } from "./automationScope.js";
 import type { AutomationHoles } from "./automations.js";
 
 type Names = Parameters<AutomationHoles["fill"]>[1];
@@ -56,10 +56,9 @@ export async function previewAutomation(
 		);
 	if (text === undefined) return { ...preview, names: listed };
 	const holes = deps.holes();
-	const found =
-		holes?.issue(text, [...AUTOMATION_TRIGGER_NAMES[trigger.kind], ...params.map((param) => param.name)]) ?? null;
+	const found = holes?.issue(text, holeNames(AUTOMATION_TRIGGER_NAMES[trigger.kind], params)) ?? null;
 	const hole = found ? { ...found, message: oneLine(found.message).slice(0, ISSUE_MAX) } : null;
 	if (!holes || hole) return { ...preview, names: listed, ...(hole ? { hole } : {}) };
-	const filled = await holes.fill(text, { ...paramNames, ...(names ?? {}) });
+	const filled = await holes.fill(text, holeScope(names, params, values, deps.switchName));
 	return { ...preview, names: listed, filled: filled.text.slice(0, FILLED_MAX) };
 }

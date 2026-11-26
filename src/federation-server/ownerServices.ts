@@ -71,7 +71,9 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 	};
 	const linkedDomains = (domainId: string): string[] =>
 		registry.domains().filter((other) => other !== domainId && deps.hasLinkEdge(domainId, other));
-	const sweepers: Array<{ label: string; sweep: (domainId: string, now: number) => void }> = [];
+	const sweepers: Array<{ label: string; sweep: (domainId: string, now: number) => void }> = [
+		{ label: "inbox sweep", sweep: (domainId, now) => inbox.sweep(now, domainId) },
+	];
 	const hooks: OwnerServiceHooks = {
 		ownerOp: (kind, handler) => deps.intake.register(kind, handler),
 		gatewayFrame: (name, mutation, handler) => bridge.registerGatewayFrame(name, mutation, handler),
@@ -350,6 +352,8 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 			// Migration fences hold all writers.
 			const fenced = readRouterMigrationWindow().fenced;
 			const held = (domainId: string) => fenced && !leases.ready(domainId);
+			// In memory: no fence holds it.
+			inbox.prune(now);
 			for (const { label, sweep } of sweepers)
 				perDomain(label, (domainId) => held(domainId) || sweep(domainId, now));
 		},

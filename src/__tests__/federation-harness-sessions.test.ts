@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { INBOX_HOLD_MS } from "../federation-server/inbox/inboxCustody.js";
@@ -451,6 +453,19 @@ describe("sessions, bindings, and console operations", () => {
 			await h.waitFor(() => (h.gateway.faults.routerRegistered() ? undefined : true), "the dropped Router link");
 
 			clockOffset += INBOX_HOLD_MS + 1;
+			// An unreadable migration epoch holds every writer.
+			const fenceDir = fs.mkdtempSync(path.join(os.tmpdir(), "router-fence-"));
+			fs.writeFileSync(path.join(fenceDir, "migration-epoch"), "unreadable");
+			const priorDir = process.env.DATA_DIR;
+			process.env.DATA_DIR = fenceDir;
+			try {
+				h.router.server.sweep();
+			} finally {
+				if (priorDir === undefined) delete process.env.DATA_DIR;
+				else process.env.DATA_DIR = priorDir;
+				fs.rmSync(fenceDir, { recursive: true, force: true });
+			}
+			expect(await opRows(opId)).toEqual([]);
 			h.router.server.sweep();
 			const rows = await h.waitFor(async () => {
 				const found = await opRows(opId);

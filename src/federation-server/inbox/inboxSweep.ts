@@ -148,8 +148,9 @@ export function sweepInbox(
 	refs?: Pick<ReferenceHeldStore, "publish">,
 	notifyAppended?: AppendedListener,
 	held?: HeldRow,
+	domains: readonly string[] = registry.domains(),
 ): void {
-	for (const domainId of registry.domains()) {
+	for (const domainId of domains) {
 		try {
 			sweepDomain(
 				registry,

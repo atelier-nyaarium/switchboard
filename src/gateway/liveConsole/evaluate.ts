@@ -5,7 +5,7 @@ import {
 	parseConsole,
 } from "../../shared/live-console-grammar.js";
 import { ConsoleError, checkArgs, elementOf, freeBuiltin, runBuiltin, runFree, sameValue } from "./builtins.js";
-import type { ConsoleAudience, ConsoleEntity, ConsoleRegistry } from "./registry.js";
+import { type ConsoleAudience, type ConsoleEntity, type ConsoleRegistry, resolveName } from "./registry.js";
 
 export const CONSOLE_STEPS_MAX = 100_000;
 
@@ -86,6 +86,8 @@ export async function evaluateConsole(
 		return { ok: false, issue: { code: "empty", start: 0, end: 0, message: "nothing to read" } };
 	// Saves feed later statements.
 	const variables = new Map<string, ConsoleVariable>(Object.entries(options.variables ?? {}));
+	const isEntity = (name: string): boolean =>
+		resolveName(registry, audience, name, () => undefined).kind === "entity";
 	let steps = 0;
 	let slow = 0;
 	const types = new WeakMap<object, string>();
@@ -122,7 +124,7 @@ export async function evaluateConsole(
 	};
 
 	const free = async (node: ConsoleNode & { kind: "call" }, name: string): Promise<unknown> => {
-		if (registry.get(name, audience)) return fail(node, "is_entity", `${name} is an entity; pick a member`);
+		if (isEntity(name)) return fail(node, "is_entity", `${name} is an entity; pick a member`);
 		const builtin = freeBuiltin(name);
 		if (!builtin) return fail(node.target, "unknown_name", `no function ${name}()`);
 		try {
@@ -226,12 +228,10 @@ export async function evaluateConsole(
 			case "literal":
 				return node.value;
 			case "ident": {
-				// Entities shadow saved names.
-				const entity = registry.get(node.name, audience);
-				if (entity) return new EntityRef(entity);
-				const held = variables.get(node.name);
-				return held
-					? typed(held.value, held.type)
+				const meaning = resolveName(registry, audience, node.name, (name) => variables.get(name));
+				if (meaning.kind === "entity") return new EntityRef(meaning.entity);
+				return meaning.kind === "held"
+					? typed(meaning.held.value, meaning.held.type)
 					: fail(node, "unknown_name", `no entity or variable ${node.name}`);
 			}
 			case "member":
@@ -308,7 +308,7 @@ export async function evaluateConsole(
 					assign.start,
 					assign.end,
 				);
-			if (assign && registry.get(assign.name, audience))
+			if (assign && isEntity(assign.name))
 				throw new Located("name_taken", `${assign.name} is an entity`, assign.start, assign.end);
 			const value = await walk(node);
 			if (assign && value instanceof EntityRef)
