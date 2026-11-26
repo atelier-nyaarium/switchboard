@@ -14,6 +14,8 @@ export const FAILURE_CODES = [
 ] as const;
 export type FailureCode = (typeof FAILURE_CODES)[number];
 
+export const FAILURE_MESSAGE_MAX = 200;
+
 export interface Failure {
 	code: FailureCode;
 	message: string;
@@ -76,9 +78,9 @@ const listAt = (body: readonly TreeStep[], base: Address): readonly TreeStep[] |
 	return list ?? null;
 };
 
-export const stepAt = (body: readonly TreeStep[], address: Address): TreeStep | null => {
+export const stepAt = <T extends TreeStep>(body: readonly T[], address: Address): T | null => {
 	const index = address.at(-1);
-	return typeof index === "number" ? (listAt(body, address.slice(0, -1))?.[index] ?? null) : null;
+	return typeof index === "number" ? ((listAt(body, address.slice(0, -1))?.[index] as T | undefined) ?? null) : null;
 };
 
 const first = (body: readonly TreeStep[], base: Address): Address | null =>

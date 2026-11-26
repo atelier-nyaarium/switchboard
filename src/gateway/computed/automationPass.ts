@@ -22,7 +22,7 @@ import {
 	switchOf,
 	withStep,
 } from "./automationFires.js";
-import { addressIn, type Ended, moved, type TreeStep } from "./automationFrames.js";
+import { addressIn, type Ended, type Failure, moved, stepAt, type TreeStep } from "./automationFrames.js";
 import { NOT_HOME } from "./automationJudge.js";
 import { fireRow, logged, type RowWhere, type RunRow } from "./automationLog.js";
 import { type Dropped, QUEUE_FULL, stepMember, told } from "./automationOutbox.js";
@@ -35,6 +35,7 @@ import {
 	endedOutcome,
 	expired,
 	FRESH_STEP,
+	failedAs,
 	failureOf,
 	heard,
 	isEnded,
@@ -43,6 +44,7 @@ import {
 	recovered,
 	refusedUnsent,
 	type Step,
+	steered,
 	timedOut,
 	unsent,
 } from "./automationSteps.js";
@@ -255,6 +257,15 @@ export function createPass(ports: PassPorts): {
 		return { fires, log, ran, landedSets };
 	};
 
+	/** How an ended step moves its frame. */
+	const howOf = (kind: string, step: Step): Ended => {
+		if (step.verdict !== "done") return { how: kind === "throw" ? "thrown" : "failed", failure: failureOf(step) };
+		if (kind === "if") return { how: "took", side: step.side ?? null };
+		if (kind === "try") return { how: "took", side: "try" };
+		if (kind === "exit") return { how: "exit" };
+		return { how: "done" };
+	};
+
 	/** Moves past an ended step. In a frame the active step leads; the automation's own list is scanned. */
 	const turn = (start: Fire, held: RunRow[], now: number): { fire: Fire; log: RunRow[]; path: string | null } => {
 		let fire = start;
@@ -275,24 +286,40 @@ export function createPass(ports: PassPorts): {
 			}
 			const body = ports.frameBody(fire, site);
 			const address = body ? addressIn(body, below(active, site)) : null;
-			const how: Ended = step.verdict === "done" ? { how: "done" } : { how: "failed", failure: failureOf(step) };
-			const went = body && address ? moved(body, address, how, { failed: frame.failed }) : null;
-			const frames = went ? { ...fire.frames, [site]: { ...frame, ...went.memory } } : fire.frames;
-			if (went && "to" in went.move) {
-				const to = within(site, went.move.to);
+			const written = body && address ? stepAt(body, address) : null;
+			const went =
+				body && address && written
+					? moved(body, address, howOf(written.kind, step), { failed: frame.failed })
+					: null;
+			const moving = went && "to" in went.move ? went.move : null;
+			const caught = moving?.caught
+				? { caught: { ...frame.caught, [within(site, moving.caught.by)]: moving.caught.failure } }
+				: {};
+			const frames = went ? { ...fire.frames, [site]: { ...frame, ...went.memory, ...caught } } : fire.frames;
+			if (moving) {
+				const to = within(site, moving.to);
 				fire = { ...fire, steps: { ...fire.steps, [to]: fire.steps[to] ?? FRESH_STEP }, active: [to], frames };
 				continue;
 			}
 			// The frame ended, and its call with it.
-			const reason = went === null ? FRAME_UNREAD : "failure" in went.move ? CALL_FAILED : null;
+			const failure: Failure | null =
+				went === null
+					? { code: "refused", message: FRAME_UNREAD }
+					: "failure" in went.move
+						? went.move.failure
+						: null;
 			const call = fire.steps[site];
 			if (!call || isEnded(call)) {
 				fire = { ...fire, frames, active: [] };
 				continue;
 			}
-			const ended = reason === null ? heard(call, null, "done", now) : refusedUnsent(call);
+			const ended =
+				failure === null
+					? heard(call, null, "done", now)
+					: failedAs(call, went === null ? "refused" : "call_failed", failure.message);
 			fire = { ...withStep(fire, site, ended), frames, active: [site] };
-			if (reason !== null) log = logged(log, endedRow(fire, site, ended, reason));
+			if (failure !== null)
+				log = logged(log, endedRow(fire, site, ended, went === null ? FRAME_UNREAD : CALL_FAILED));
 		}
 	};
 
@@ -341,6 +368,23 @@ export function createPass(ports: PassPorts): {
 			}
 			const window = ports.windowOf(fire, path);
 			const site = siteIn(fire, path);
+			const tree = site === null ? null : ports.frameBody(fire, site);
+			const address = tree && site !== null ? addressIn(tree, below(path, site)) : null;
+			const kind = tree && address ? stepAt(tree, address)?.kind : undefined;
+			if (kind !== undefined && kind !== "do") {
+				if (kind === "try" || kind === "exit" || kind === "note") {
+					fire = withStep(fire, path, steered(step));
+					continue;
+				}
+				if (kind === "wait" && step.until !== undefined) {
+					if (at.now < step.until) return { fire, log };
+					fire = withStep(fire, path, steered(step));
+					continue;
+				}
+				// A condition, a value, the minutes or a thrown text is read first.
+				at.unread.push({ member: fire.member, path });
+				return { fire, log };
+			}
 			const action = ports.actionOf(fire, path);
 			if (site !== null && !action && ports.writtenStep(fire, path)) {
 				at.unread.push({ member: fire.member, path });

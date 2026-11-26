@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { STEP_PATH_RE } from "../../shared/automation-walk.js";
 import { KEEP_TRYING_MIN_DEFAULT } from "../../shared/schemasAutomation.js";
+import { FAILURE_CODES, FAILURE_MESSAGE_MAX, type Failure, type FailureCode } from "./automationFrames.js";
 import type { RunRow } from "./automationLog.js";
 
 /** What one attempt answers. */
@@ -48,6 +49,14 @@ export const StepSchema = z.strictObject({
 	/** The last word heard. */
 	word: z.enum(STEP_WORDS).optional(),
 	verdict: z.enum(VERDICTS).optional(),
+	/** Why it failed, where the word cannot say. */
+	code: z.enum(FAILURE_CODES).optional(),
+	/** That failure's sentence. */
+	message: z.string().max(FAILURE_MESSAGE_MAX).optional(),
+	/** The side an `if` took. */
+	side: z.enum(["then", "else"]).optional(),
+	/** When a `wait` ends. */
+	until: z.number().int().optional(),
 });
 export type Step = z.infer<typeof StepSchema>;
 
@@ -145,10 +154,23 @@ const WORD_REASONS: Readonly<Record<Exclude<StepWord, "done">, string>> = {
 };
 
 /** What a failed step's frame is told. */
-export const failureOf = (step: Step): { code: Exclude<StepWord, "done">; message: string } => {
+export const failureOf = (step: Step): Failure => {
 	const word = step.word === undefined || step.word === "done" ? "unreachable" : step.word;
-	return { code: word, message: WORD_REASONS[word] };
+	return { code: step.code ?? word, message: step.message ?? WORD_REASONS[word] };
 };
+
+/** Ends failed for a reason no attempt gave. */
+export const failedAs = (step: Step, code: FailureCode, message: string): Step => ({
+	...ending(step, "refused", "failed"),
+	code,
+	message: message.slice(0, FAILURE_MESSAGE_MAX),
+});
+
+/** Ends a step that only steers. */
+export const steered = (step: Step, side?: "then" | "else"): Step => ({
+	...ending(step, "done", "done"),
+	...(side ? { side } : {}),
+});
 
 /** How an ended step logs. */
 export function endedOutcome(word: StepWord | undefined): { outcome: RunRow["outcome"]; reason?: string } {

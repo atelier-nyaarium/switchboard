@@ -7,7 +7,14 @@ import { composeAutomations } from "../gateway/compose/composeAutomations.js";
 import { QUEUE_FULL, QUEUE_MAX_EVENTS } from "../gateway/computed/automationOutbox.js";
 import { CALL_FAILED } from "../gateway/computed/automationPass.js";
 import type { Attempt } from "../gateway/computed/automationRunner.js";
-import { NEWER_SET, STEP_UNFIT, VALUE_UNREAD } from "../gateway/computed/automations.js";
+import {
+	CONDITION_UNREAD,
+	NEWER_SET,
+	NOT_TRUE_OR_FALSE,
+	STEP_UNFIT,
+	THROWN,
+	VALUE_UNREAD,
+} from "../gateway/computed/automations.js";
 import { FUNCTION_GONE, FUNCTION_UNREAD, NO_SWITCH } from "../gateway/computed/automationValidity.js";
 import { evaluateHole, fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
@@ -207,17 +214,6 @@ describe("a run through a function", () => {
 			["run_function", "refused", CALL_FAILED],
 		]);
 		expect(w.where()).toEqual(["0.0", "0.1", "0.2", "0.3", "0"].map((step) => [step, "warm-up"]));
-	});
-
-	it("refuses to save a body that steers, at any depth", () => {
-		const w = world();
-		const steered = w.save(pointing(hourly), [{ kind: "if", when: "true", steps: [turn("on")] }]);
-		const nested = w.save(pointing(hourly), [
-			{ kind: "try", steps: [turn("on")], catch: [{ kind: "note", text: "it failed" }] },
-		]);
-
-		expect([steered.stored, nested.stored]).toEqual([false, false]);
-		expect(w.automations.list()).toEqual([]);
 	});
 
 	it("refuses an unsound body where it is written, read, entered and run", async () => {
@@ -476,6 +472,159 @@ describe("a run and an edit of its function", () => {
 			]);
 		});
 	}
+});
+
+describe("a tree of steps", () => {
+	it("takes the side its condition holds, skips the other, and carries on after either", async () => {
+		const w = world();
+		w.save(pointing(hourly), [
+			{ kind: "if", when: "1 < 2", steps: [turn("on")], else: [turn("off")] },
+			{ kind: "if", when: "1 > 2", steps: [ifttt("no")], else: [ifttt("yes")] },
+			{ kind: "if", when: "false", steps: [ifttt("never")] },
+			{ kind: "note", text: "then tell" },
+			ifttt("after"),
+		]);
+		await w.later(HOUR);
+
+		expect(w.effects).toEqual([`${PLUG}:on`, "ifttt:yes", "ifttt:after"]);
+		expect(w.where()).toEqual([
+			["0.0.0.0", "warm-up"],
+			["0.1.1.0", "warm-up"],
+			["0.4", "warm-up"],
+		]);
+	});
+
+	it("catches a failure with what failed, skips the rest of the try, and fails nothing", async () => {
+		const w = world();
+		w.answer((effect) => (effect.endsWith(":on") ? { word: "refused" } : { word: "done" }));
+		w.save(pointing(hourly), [
+			{ kind: "try", steps: [turn("on"), ifttt("skipped")], catch: [ifttt("caught", "{e.code}: {e}")] },
+			ifttt("after"),
+		]);
+		await w.later(HOUR);
+
+		expect(w.effects).toEqual([`${PLUG}:on`, "ifttt:caught:refused: it was refused", "ifttt:after"]);
+		expect(w.rows()).toEqual([
+			["device_set", "refused", "it was refused"],
+			["ifttt_trigger", "ran", undefined],
+			["ifttt_trigger", "ran", undefined],
+		]);
+	});
+
+	it("throws to its try with its text, and outside one ends the function failed", async () => {
+		const w = world();
+		w.save(pointing(hourly), [
+			{
+				kind: "try",
+				steps: [{ kind: "throw", text: "too warm by {room}" }, ifttt("skipped")],
+				catch: [ifttt("caught", "{e}")],
+			},
+			{ kind: "throw" },
+			ifttt("never"),
+		]);
+		await w.later(HOUR);
+
+		expect(w.effects).toEqual(["ifttt:caught:too warm by Lamp"]);
+		expect(w.rows()).toEqual([
+			["throw", "refused", THROWN],
+			["ifttt_trigger", "ran", undefined],
+			["throw", "refused", THROWN],
+			["run_function", "refused", CALL_FAILED],
+		]);
+	});
+
+	it("exits quietly, the steps after it unreached", async () => {
+		const w = world();
+		w.save(pointing(hourly), [turn("on"), { kind: "if", when: "true", steps: [{ kind: "exit" }] }, turn("off")]);
+		await w.later(HOUR);
+
+		expect(w.effects).toEqual([`${PLUG}:on`]);
+		expect(w.rows()).toEqual([["device_set", "ran", undefined]]);
+	});
+
+	it("keeps a value under a name for the steps and conditions after it", async () => {
+		const w = world();
+		w.save(pointing(hourly), [
+			{ kind: "let", name: "level", value: lit(5) },
+			{ kind: "let", name: "twice", value: expr("level * 2") },
+			{ kind: "if", when: "twice > 9", steps: [ifttt("high", "{twice}")] },
+		]);
+		await w.later(HOUR);
+
+		expect(w.effects).toEqual(["ifttt:high:10"]);
+	});
+
+	it("fails an if whose condition cannot be read or is no true or false, taking neither side", async () => {
+		const w = world();
+		w.save(pointing(hourly), [
+			{ kind: "if", when: "room.missing", steps: [turn("on")], else: [turn("on")] },
+			{ kind: "if", when: "1 + 1", steps: [turn("on")] },
+			turn("off"),
+		]);
+		await w.later(HOUR);
+
+		expect(w.effects).toEqual([`${PLUG}:off`]);
+		expect(w.rows()).toEqual([
+			["if", "refused", CONDITION_UNREAD],
+			["if", "refused", NOT_TRUE_OR_FALSE],
+			["device_set", "ran", undefined],
+			["run_function", "refused", CALL_FAILED],
+		]);
+	});
+
+	it("waits its minutes before the next step, and a restart does not start the wait again", async () => {
+		const w = world();
+		w.save(pointing(hourly), [turn("on"), { kind: "wait", minutes: lit(5) }, turn("off")]);
+		await w.later(HOUR);
+		await w.later(4 * 60_000);
+		const during = [...w.effects];
+		w.restartWith((rows) => rows);
+		await w.later(61_000);
+
+		expect([during, w.effects]).toEqual([[`${PLUG}:on`], [`${PLUG}:on`, `${PLUG}:off`]]);
+	});
+
+	it("keeps a run in a wait through 64 newer fires of its automation", async () => {
+		const w = world();
+		w.save(pointing(event), [turn("on"), { kind: "wait", minutes: lit(30) }, turn("off")]);
+		for (let n = 0; n < 65; n++) {
+			w.automations.fireEvents([{ automation: "warm", key: `k${n}`, names: {} }], w.at());
+			await w.automations.settled();
+		}
+		const during = [...w.effects];
+		await w.later(30 * 60_000);
+
+		expect(during).toEqual([`${PLUG}:on`]);
+		expect(w.effects.slice(0, 2)).toEqual([`${PLUG}:on`, `${PLUG}:off`]);
+	});
+
+	it("refuses at the save a name already taken, a wait out of range, and a condition it cannot read, at any depth", () => {
+		const bodies: AutomationFunctionInput["steps"][] = [
+			[{ kind: "let", name: "room", value: lit(1) }],
+			[{ kind: "wait", minutes: lit(-1) }],
+			[{ kind: "wait", minutes: lit(2_000) }],
+			[{ kind: "if", when: "nobody > 1" }],
+			[{ kind: "try", steps: [{ kind: "if", when: "(", steps: [turn("on")] }], catch: [] }],
+			[{ kind: "if", when: "true", else: [{ kind: "throw", text: "{nobody}" }] }],
+		];
+
+		expect(bodies.map((steps) => world().save(pointing(hourly), steps).stored)).toEqual(bodies.map(() => false));
+	});
+
+	it("refuses a body nested past its depth or holding too many steps", () => {
+		const nest = (depth: number): AutomationFunctionInput["steps"] =>
+			depth === 0 ? [{ kind: "exit" }] : [{ kind: "if", when: "true", steps: nest(depth - 1) }];
+		const wide = (lists: number): AutomationFunctionInput["steps"] =>
+			Array.from({ length: lists }, () => ({
+				kind: "if" as const,
+				when: "true",
+				steps: Array.from({ length: 8 }, () => ({ kind: "exit" as const })),
+			}));
+		const parses = (steps: AutomationFunctionInput["steps"]) =>
+			FunctionSchema.safeParse({ name: "Deep", params: [], steps }).success;
+
+		expect([nest(3), nest(4), wide(3), wide(4)].map(parses)).toEqual([true, false, true, false]);
+	});
 });
 
 describe("a restart", () => {

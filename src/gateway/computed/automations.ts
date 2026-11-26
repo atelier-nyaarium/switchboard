@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { Ambient, TimerHandle } from "../../shared/ambient.js";
 import { functionReads } from "../../shared/automation-fit.js";
 import {
+	below,
 	type FlatEntry,
 	type FollowedEntry,
 	pointerOf,
@@ -48,6 +49,8 @@ import {
 	FUNCTIONS_MAX,
 	FunctionSchema,
 	type FunctionStep,
+	type StepArg,
+	WAIT_MINUTES_MAX,
 } from "../../shared/schemasFunction.js";
 import { hasHoles, unescapedText, unreadText } from "../../shared/text-holes.js";
 import {
@@ -63,6 +66,8 @@ import {
 	admit,
 	type Fire,
 	type FireNames,
+	FRAME_VAR_BYTES_MAX,
+	FRAME_VARS_MAX,
 	type Frame,
 	finished,
 	frameKey,
@@ -74,7 +79,7 @@ import {
 	switchOf,
 	WAITING_EVENTS_MAX,
 } from "./automationFires.js";
-import { entered } from "./automationFrames.js";
+import { addressIn, catchOf, entered, type FailureCode, stepAt as treeAt } from "./automationFrames.js";
 import {
 	AUTOMATION_KIND,
 	type AutomationIntent,
@@ -97,7 +102,7 @@ import {
 } from "./automationRunner.js";
 import { holeScope } from "./automationScope.js";
 import { type Checkpoint, FIRED_MAX, own, restore, type State, versionKey } from "./automationState.js";
-import { FRESH_STEP, isEnded, KEEP_TRYING_MS, refusedUnsent } from "./automationSteps.js";
+import { FRESH_STEP, failedAs, isEnded, KEEP_TRYING_MS, refusedUnsent, type Step, steered } from "./automationSteps.js";
 import { holeSpanOf, holeTextsOf, laneTellWhen, tellPlan } from "./automationText.js";
 import {
 	createAutomationValidity,
@@ -145,6 +150,25 @@ const NO_RUNNER = "this Gateway runs no such action";
 export const SWITCHED_OFF = "it was switched off";
 export { STEP_UNFIT };
 export const VALUE_UNREAD = "a value it takes could not be read";
+export const CONDITION_UNREAD = "its condition could not be read";
+export const NOT_TRUE_OR_FALSE = "its condition is not true or false";
+export const VALUE_TOO_LARGE = "its value is too large to keep";
+export const WAIT_UNREAD = "its minutes could not be read";
+export const THROWN = "it threw";
+
+type JsonValue = z.infer<ReturnType<typeof z.json>>;
+
+/** JSON within the bound, as it will be stored. */
+const keepable = (value: unknown): { value: JsonValue } | null => {
+	let json: string | undefined;
+	try {
+		json = JSON.stringify(value);
+	} catch {
+		return null;
+	}
+	if (json === undefined || json.length > FRAME_VAR_BYTES_MAX) return null;
+	return { value: JSON.parse(json) as JsonValue };
+};
 
 const flatAt = (body: Automation, path: string): FlatEntry | undefined => reached(body).find((at) => at.path === path);
 
@@ -423,9 +447,17 @@ export function createAutomations(deps: AutomationsDeps) {
 		return action && isEffect(action) ? action : null;
 	};
 
-	/** For a step's row. */
+	/** The written step at a frame's path, of any kind. */
+	const treeStep = (fire: Fire, path: string): FunctionStep | null => {
+		const site = siteIn(fire, path);
+		const tree = site === null ? null : frameBody(fire, site);
+		const address = tree && site !== null ? addressIn(tree, below(path, site)) : null;
+		return tree && address ? treeAt(tree, address) : null;
+	};
+
+	/** For a step's row: its action, else its own kind. */
 	const kindAt = (fire: Fire, path: string): string | undefined =>
-		actionOf(fire, path)?.kind ?? writtenStep(fire, path)?.step.action;
+		actionOf(fire, path)?.kind ?? writtenStep(fire, path)?.step.action ?? treeStep(fire, path)?.kind;
 
 	/** Call window, else default. */
 	const windowOf = (fire: Fire, path: string): number => {
@@ -898,15 +930,93 @@ export function createAutomations(deps: AutomationsDeps) {
 	const patched = (member: string, patch: Partial<Fire>): Fire[] =>
 		state.fires.map((held) => (held.member === member ? { ...held, ...patch } : held));
 
-	/** Call values over names. */
+	/** Call values over names, then the frame's variables and a catch's `e`. */
 	const scopeOf = (fire: Fire, at: Pick<WalkStep, "path">): FireNames => {
 		const body = bodyOf(fire);
 		const site = siteIn(fire, at.path);
 		const call = body && site !== null ? callAt(body, site) : null;
-		const fn = site === null ? undefined : fire.frames?.[site];
-		const params = fn ? (frameFunction(fn)?.params ?? []) : [];
-		return holeScope(fire.names, params, call?.values, deps.actions?.switchName);
+		const frame = site === null ? undefined : fire.frames?.[site];
+		const fn = frame ? frameFunction(frame) : null;
+		const scope = holeScope(fire.names, fn?.params ?? [], call?.values, deps.actions?.switchName);
+		if (!frame || !fn || site === null) return scope;
+		const vars = Object.fromEntries(Object.entries(frame.vars ?? {}).map(([name, value]) => [name, { value }]));
+		const address = addressIn(written(fn), below(at.path, site));
+		const by = address ? catchOf(address) : null;
+		const caught = by ? frame.caught?.[within(site, by)] : undefined;
+		return { ...scope, ...vars, ...(caught ? { e: { value: caught, shown: caught.message } } : {}) };
 	};
+
+	/** A condition, a value, the minutes or a thrown text, read once at its turn. */
+	async function readSteering(
+		fire: Fire,
+		ref: StepRef,
+		site: string,
+		written: Exclude<FunctionStep, { kind: "do" }>,
+	): Promise<boolean> {
+		const rows: RunRow[] = [];
+		const names = scopeOf(fire, ref);
+		const argValue = async (arg: StepArg) =>
+			arg.kind === "literal" ? { value: arg.value as unknown } : await evaluated(arg.text, names);
+		const fail = (code: FailureCode, message: string, reason = message) => ({
+			step: (held: Step) => failedAs(held, code, message),
+			reason,
+		});
+		let outcome: { step: (held: Step) => Step; reason?: string; vars?: Record<string, JsonValue> };
+		switch (written.kind) {
+			case "if": {
+				const read = await evaluated(written.when, names);
+				if (read === null) outcome = fail("unread", CONDITION_UNREAD);
+				else if (typeof read.value !== "boolean") outcome = fail("unread", NOT_TRUE_OR_FALSE);
+				else outcome = { step: (held) => steered(held, read.value ? "then" : "else") };
+				break;
+			}
+			case "let": {
+				const read = await argValue(written.value);
+				const kept = read === null ? null : keepable(read.value);
+				if (read === null) outcome = fail("unread", VALUE_UNREAD);
+				else if (kept === null) outcome = fail("refused", VALUE_TOO_LARGE);
+				else outcome = { step: (held) => steered(held), vars: { [written.name]: kept.value } };
+				break;
+			}
+			case "wait": {
+				const minutes = (await argValue(written.minutes))?.value;
+				if (typeof minutes !== "number" || !(minutes >= 0 && minutes <= WAIT_MINUTES_MAX)) {
+					outcome = fail("unread", WAIT_UNREAD);
+				} else {
+					const until = deps.now() + Math.round(minutes * 60_000);
+					outcome = { step: (held) => ({ ...held, until }) };
+				}
+				break;
+			}
+			case "throw": {
+				const said =
+					written.text === undefined ? THROWN : await fillerOf(fire, rows, names)(written.text, "throw");
+				outcome = fail("thrown", said, THROWN);
+				break;
+			}
+			default:
+				return false;
+		}
+		const log = rows.reduce(logged, state.log);
+		const current = state.fires.find((held) => held.member === ref.member);
+		const step = current?.steps[ref.path];
+		const frame = current?.frames?.[site];
+		if (!current || !step || isEnded(step) || step.until !== undefined || !frame) {
+			return rows.length > 0 && commit({ ...state, log });
+		}
+		const overfull =
+			outcome.vars !== undefined && Object.keys({ ...frame.vars, ...outcome.vars }).length > FRAME_VARS_MAX;
+		if (overfull) outcome = fail("refused", VALUE_TOO_LARGE);
+		const next = outcome.step(step);
+		const vars = outcome.vars ? { vars: { ...frame.vars, ...outcome.vars } } : {};
+		const fires = patched(ref.member, {
+			steps: { ...current.steps, [ref.path]: next },
+			frames: { ...current.frames, [site]: { ...frame, ...vars } },
+		});
+		const failed =
+			outcome.reason === undefined ? [] : [automationPass.endedRow(current, ref.path, next, outcome.reason)];
+		return commit({ ...state, fires, log: failed.reduce(logged, log) });
+	}
 
 	/** Read once, at start. */
 	/** Another fire set this switch since; a toggle never outdates a toggle. */
@@ -922,6 +1032,11 @@ export function createAutomations(deps: AutomationsDeps) {
 	};
 
 	async function readStep(fire: Fire, ref: StepRef): Promise<boolean> {
+		const steering = treeStep(fire, ref.path);
+		const frameSite = siteIn(fire, ref.path);
+		if (steering && steering.kind !== "do" && frameSite !== null) {
+			return readSteering(fire, ref, frameSite, steering);
+		}
 		const rows: RunRow[] = [];
 		const at = writtenStep(fire, ref.path);
 		let read: { action: AutomationAction } | { refused: string };

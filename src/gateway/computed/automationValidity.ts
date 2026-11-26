@@ -21,7 +21,12 @@ import {
 	type AutomationTrigger,
 	FUNCTION_STEP_KINDS,
 } from "../../shared/schemasAutomation.js";
-import type { AutomationFunction, FunctionStep, StepArg } from "../../shared/schemasFunction.js";
+import {
+	type AutomationFunction,
+	type FunctionStep,
+	type StepArg,
+	WAIT_MINUTES_MAX,
+} from "../../shared/schemasFunction.js";
 import { hasHoles } from "../../shared/text-holes.js";
 import type { OwnerIssue, OwnerRecord } from "../ownerRecords.js";
 import { clockIssue, isClock } from "./automationClock.js";
@@ -56,6 +61,8 @@ export const STEP_UNFIT = "its values do not fit what it does";
 export const STEP_ISSUE_CODE = "invalid_step";
 const NO_ACTION = "this Gateway runs no such action";
 const UNRUNNABLE = "a step does what this Gateway cannot run";
+export const NAME_TAKEN = "that name is already a value here";
+export const WAIT_RANGE = "a wait is between 0 minutes and a day";
 
 /** Spans as written. */
 export interface StepIssue {
@@ -200,31 +207,78 @@ export function createAutomationValidity(
 		return null;
 	}
 
+	type Checked = Pick<AutomationFunction, "params" | "steps">;
+
+	/** Every name a `let` assigns, at any depth. */
+	const letNames = (steps: readonly FunctionStep[]): string[] =>
+		steps.flatMap((step) => [
+			...(step.kind === "let" ? [step.name] : []),
+			...(step.kind === "if" ? [...letNames(step.steps ?? []), ...letNames(step.else ?? [])] : []),
+			...(step.kind === "try" ? [...letNames(step.steps), ...letNames(step.catch)] : []),
+		]);
+
+	/** What a step of this function may name. `e` reads only inside a catch, which the run decides. */
+	const namesIn = (fn: Checked): string[] => [...holeNames(TRIGGER_NAMES, fn.params), ...letNames(written(fn)), "e"];
+
+	const expressionIssue = (param: string, text: string, names: readonly string[]): StepIssue | null => {
+		const issue = holeIn(`{${text}}`, names, 1);
+		return issue ? { param, ...issue } : null;
+	};
+
 	const STEPS: {
-		[K in FunctionStep["kind"]]: (
-			fn: Pick<AutomationFunction, "params">,
-			step: Extract<FunctionStep, { kind: K }>,
-		) => StepIssue | null;
+		[K in FunctionStep["kind"]]: (fn: Checked, step: Extract<FunctionStep, { kind: K }>) => StepIssue | null;
 	} = {
-		exit: () => ({ message: UNRUNNABLE, unrunnable: true }),
-		if: () => ({ message: UNRUNNABLE, unrunnable: true }),
-		let: () => ({ message: UNRUNNABLE, unrunnable: true }),
-		note: () => ({ message: UNRUNNABLE, unrunnable: true }),
-		throw: () => ({ message: UNRUNNABLE, unrunnable: true }),
-		try: () => ({ message: UNRUNNABLE, unrunnable: true }),
-		wait: () => ({ message: UNRUNNABLE, unrunnable: true }),
+		exit: () => null,
+		note: () => null,
+		try: () => null,
+		if: (fn, step) => expressionIssue("when", step.when, namesIn(fn)),
+		let: (fn, step) => {
+			const taken =
+				step.name === "e" ||
+				TRIGGER_NAMES.includes(step.name) ||
+				fn.params.some((param) => param.name === step.name);
+			if (taken) return { param: "name", message: NAME_TAKEN };
+			return step.value.kind === "expression" ? expressionIssue("value", step.value.text, namesIn(fn)) : null;
+		},
+		wait: (fn, step) => {
+			if (step.minutes.kind === "expression") return expressionIssue("minutes", step.minutes.text, namesIn(fn));
+			const minutes = step.minutes.value;
+			return typeof minutes === "number" && minutes >= 0 && minutes <= WAIT_MINUTES_MAX
+				? null
+				: { param: "minutes", message: WAIT_RANGE };
+		},
+		throw: (fn, step) => {
+			if (step.text === undefined || !hasHoles(step.text)) return null;
+			const issue = holeIn(step.text, namesIn(fn), 0);
+			return issue ? { param: "text", ...issue } : null;
+		},
 		do: (fn, step) => {
 			if (!stepAction(step.action)) return { message: UNRUNNABLE, unrunnable: true };
 			if (step.as !== undefined) return { message: "a step cannot keep its result yet" };
-			return argsIssue(step.action, step.args, holeNames(TRIGGER_NAMES, fn.params));
+			return argsIssue(step.action, step.args, namesIn(fn));
 		},
 	};
 
-	const stepIssue = (fn: Pick<AutomationFunction, "params">, step: FunctionStep): StepIssue | null =>
-		(STEPS[step.kind] as (fn: Pick<AutomationFunction, "params">, step: FunctionStep) => StepIssue | null)(
-			fn,
-			step,
-		);
+	const stepIssue = (fn: Checked, step: FunctionStep): StepIssue | null =>
+		(STEPS[step.kind] as (fn: Checked, step: FunctionStep) => StepIssue | null)(fn, step);
+
+	/** Every step with the keys it is stored under and its top-level index. */
+	const stored = (
+		steps: readonly FunctionStep[],
+		keys: readonly (string | number)[],
+		top?: number,
+	): { step: FunctionStep; keys: (string | number)[]; top: number }[] =>
+		steps.flatMap((step, index) => {
+			const here = [...keys, index];
+			const at = top ?? index;
+			const under = (key: string, list: readonly FunctionStep[] | undefined) =>
+				stored(list ?? [], [...here, key], at);
+			if (step.kind === "if")
+				return [{ step, keys: here, top: at }, ...under("steps", step.steps), ...under("else", step.else)];
+			if (step.kind === "try")
+				return [{ step, keys: here, top: at }, ...under("steps", step.steps), ...under("catch", step.catch)];
+			return [{ step, keys: here, top: at }];
+		});
 
 	/** Fit, then each device value against the switches. */
 	function callIssue(body: Automation, fn: AutomationFunction): CallIssue | null {
@@ -318,12 +372,12 @@ export function createAutomationValidity(
 
 	/** First function-step issue. */
 	function functionIssue(fn: AutomationFunction): OwnerIssue | null {
-		for (const [index, step] of written(fn).entries()) {
+		for (const { step, keys, top } of stored(written(fn), ["steps"])) {
 			const issue = stepIssue(fn, step);
 			if (!issue) continue;
-			if (holed(issue)) return holeOwnerIssue({ action: index, param: issue.param }, issue, "steps");
+			if (holed(issue)) return holeOwnerIssue({ action: top, param: issue.param }, issue, "steps");
 			return {
-				path: ["steps", index, ...(issue.param ? [issue.param] : [])],
+				path: [...keys, ...(issue.param ? [issue.param] : [])],
 				message: issue.message,
 				code: STEP_ISSUE_CODE,
 			};

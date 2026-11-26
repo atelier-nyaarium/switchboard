@@ -3,7 +3,7 @@
 import { written } from "./automation-walk.js";
 import { type ConsoleNode, parseConsole } from "./live-console-grammar.js";
 import type { AutomationTriggerKind, FunctionValue } from "./schemasAutomation.js";
-import type { AutomationFunction, FunctionParam, FunctionParamType } from "./schemasFunction.js";
+import type { AutomationFunction, FunctionParam, FunctionParamType, FunctionStep, StepArg } from "./schemasFunction.js";
 import { scanHoles } from "./text-holes.js";
 
 export const GIVEN_TYPES = ["event", "text", "number", "device", "time"] as const;
@@ -105,15 +105,44 @@ export function functionReads(fn: Pick<AutomationFunction, "steps">): FunctionRe
 	const read = (source: string) => {
 		for (const statement of parseConsole(source).statements) collect(statement.node, into);
 	};
-	for (const step of written(fn)) {
-		if (step.kind !== "do") continue;
-		for (const arg of Object.values(step.args)) {
-			if (arg.kind === "expression") read(arg.text);
-			else if (typeof arg.value === "string") {
-				for (const part of scanHoles(arg.value)) if (part.kind === "hole") read(part.source);
+	const text = (value: string) => {
+		for (const part of scanHoles(value)) if (part.kind === "hole") read(part.source);
+	};
+	const arg = (held: StepArg) => {
+		if (held.kind === "expression") read(held.text);
+		else if (typeof held.value === "string") text(held.value);
+	};
+	const each = (steps: readonly FunctionStep[]): void => {
+		for (const step of steps) {
+			switch (step.kind) {
+				case "do":
+					for (const held of Object.values(step.args)) arg(held);
+					break;
+				case "if":
+					read(step.when);
+					each(step.steps ?? []);
+					each(step.else ?? []);
+					break;
+				case "try":
+					each(step.steps);
+					each(step.catch);
+					break;
+				case "let":
+					if (step.value.kind === "expression") read(step.value.text);
+					break;
+				case "wait":
+					if (step.minutes.kind === "expression") read(step.minutes.text);
+					break;
+				case "throw":
+					if (step.text !== undefined) text(step.text);
+					break;
+				case "exit":
+				case "note":
+					break;
 			}
 		}
-	}
+	};
+	each(written(fn));
 	return { names: [...into.names].sort(), eventFields: [...into.eventFields].sort() };
 }
 

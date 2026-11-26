@@ -10,6 +10,8 @@ export const FUNCTION_STEPS_MAX = 8;
 /** Across every depth. */
 export const FUNCTION_STEPS_TOTAL_MAX = 32;
 export const FUNCTION_DEPTH_MAX = 4;
+/** A day. */
+export const WAIT_MINUTES_MAX = 1_440;
 export const FUNCTION_PARAMS_MAX = 8;
 export const FUNCTION_NAME_MAX = 80;
 export const STEP_TEXT_MAX = 1_000;

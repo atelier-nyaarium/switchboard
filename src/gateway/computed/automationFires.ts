@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { byPath, reached, siteAmong, visit } from "../../shared/automation-walk.js";
 import { type Automation, AutomationActionSchema, TELL_WHEN } from "../../shared/schemasAutomation.js";
-import { FAILURE_CODES } from "./automationFrames.js";
+import { FAILURE_CODES, FAILURE_MESSAGE_MAX } from "./automationFrames.js";
 import { BEHIND, CROWDED, REPLACED, TOO_MANY } from "./automationLog.js";
 import { type AutomationEffect, isEffect, natureOf } from "./automationRunner.js";
 import { claimed, FRESH_STEP, isEnded, type Nature, type Step, StepPathSchema, StepSchema } from "./automationSteps.js";
@@ -38,7 +38,15 @@ const FireBase = {
 	waiting: z.literal(true).optional(),
 };
 
-export const FailureSchema = z.strictObject({ code: z.enum(FAILURE_CODES), message: z.string().max(200) });
+export const FailureSchema = z.strictObject({
+	code: z.enum(FAILURE_CODES),
+	message: z.string().max(FAILURE_MESSAGE_MAX),
+});
+
+/** Variables a run keeps. */
+export const FRAME_VARS_MAX = 16;
+/** One variable's JSON. */
+export const FRAME_VAR_BYTES_MAX = 1_024;
 
 export const FrameSchema = z.strictObject({
 	function: z.string(),
@@ -48,6 +56,10 @@ export const FrameSchema = z.strictObject({
 	resolved: z.record(StepPathSchema, AutomationActionSchema).optional(),
 	/** The first failure nothing caught. */
 	failed: FailureSchema.optional(),
+	/** By its try's path: what `e` reads in that catch. */
+	caught: z.record(StepPathSchema, FailureSchema).optional(),
+	/** By name. */
+	vars: z.record(z.string(), z.json()).optional(),
 });
 export type Frame = z.infer<typeof FrameSchema>;
 
