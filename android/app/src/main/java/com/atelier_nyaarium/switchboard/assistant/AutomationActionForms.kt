@@ -7,22 +7,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Card
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,9 +24,12 @@ import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.ActionParamKind
 
 @Composable
-internal fun ActionsSection(
-	draft: AutomationDraft,
+internal fun ActionFields(
+	key: String,
+	action: ActionDraft,
 	offer: AutomationOffer,
+	plugs: List<PlugChoice>,
+	valueNames: Set<String>,
 	enabled: Boolean,
 	said: AutomationSaid?,
 	/** Null asks nothing. */
@@ -43,99 +37,65 @@ internal fun ActionsSection(
 	asked: Boolean,
 	edit: ((AutomationDraft) -> AutomationDraft) -> Unit,
 ) {
-	val functionParams = (draft.runs as? RunsHead.Points)?.pointing?.params.orEmpty()
-	val valueNames = functionParams.filter { it.param.name.isNotBlank() }.map { it.key }.toSet()
-	val plugs = plugChoices(functionParams, offer)
-	for (step in draft.steps) {
-		val key = step.key
-		val action = (step as? StepDraft.Do)?.action
-		OutlinedCard(Modifier.fillMaxWidth()) {
-			Column(Modifier.padding(start = 12.dp, end = 4.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-				Row(verticalAlignment = Alignment.CenterVertically) {
-					Text(cardLabel(step, offer), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-					IconButton(onClick = hapticClick { edit { it.minusStep(key) } }, enabled = enabled && canRemove(draft, key, offer)) {
-						Icon(Icons.Default.Close, contentDescription = "Remove step")
-					}
-				}
-				Column(Modifier.padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-					val set: (String, String) -> Unit = { param, value -> edit { it.withAction(key) { held -> withValue(held, param, value) } } }
-					when (action) {
-						null -> Text(
-							"This app cannot edit this step yet. It is kept as it is.",
-							style = MaterialTheme.typography.bodySmall,
-							color = MaterialTheme.colorScheme.onSurfaceVariant,
-						)
-						is ActionDraft.Filled -> for (field in actionFields(action, offer)) {
-							val param = field.param
-							val value = field.value
-							if (param == null) {
-								StrayValue(field, enabled) { edit { it.withAction(key) { held -> withoutValue(held, field.name) } } }
-								continue
-							}
-							when (param.paramKind) {
-								ActionParamKind.CHOICE -> ChoiceRow(
-									choices = param.options,
-									picked = param.options.find { it.value == value },
-									labelOf = { it.label },
-									enabledOf = { enabled },
-									onPick = { picked -> set(param.name, picked.value) },
-								)
-								ActionParamKind.SWITCH -> PickMenu(
-									label = param.label,
-									choices = plugs,
-									picked = action.references[param.name]?.let { reference ->
-										plugs.firstOrNull { it.reference?.key == reference.key } ?: PlugChoice(reference.key, "${reference.name} (value)", reference)
-									} ?: plugs.firstOrNull { it.reference == null && it.device == value },
-									labelOf = { it.label },
-									onPick = { picked -> edit { it.withAction(key) { held -> storePlugChoice(held, param.name, picked) } } },
-									enabled = enabled,
-								)
-								ActionParamKind.TEXT -> HoleField(
-									label = param.label,
-									value = value,
-									multiline = param.lines,
-									enabled = enabled,
-									preview = textPreviewOf(value, asked, textRead(previewText(value).takeIf { asked })),
-									refused = refusedHole(said, key, param.name, value),
-									onOpen = { edit { it.copy(text = TextRef(key, param.name)) } },
-								)
-								ActionParamKind.WORD -> OutlinedTextField(
-									value = value,
-									onValueChange = { typed -> set(param.name, typed) },
-									label = { Text(param.label) },
-									singleLine = true,
-									keyboardOptions = EXACT_KEYBOARD,
-									enabled = enabled,
-									modifier = Modifier.fillMaxWidth(),
-								)
-								ActionParamKind.FUNCTION, ActionParamKind.VALUES, null -> Unit
-							}
-							IssueLine(refusedField(said, SaidAt.Card(key, param.name), value))
-						}
-						is ActionDraft.Kept -> Text(
-							"This app cannot edit this action. It is kept as it is.",
-							style = MaterialTheme.typography.bodySmall,
-							color = MaterialTheme.colorScheme.onSurfaceVariant,
-						)
-					}
-					if (action != null && offer.dangerous(action.kind)) {
-						Text(
-							"Asks once when saved.",
-							style = MaterialTheme.typography.bodySmall,
-							color = MaterialTheme.colorScheme.onSurfaceVariant,
-						)
-					}
-					if (action != null) {
-						IssueLine(actionHint(action, offer, valueNames))
-						IssueLine(actionWarning(action, offer))
-					}
-				}
+	val set: (String, String) -> Unit = { param, value -> edit { it.withAction(key) { held -> withValue(held, param, value) } } }
+	when (action) {
+		is ActionDraft.Filled -> for (field in actionFields(action, offer)) {
+			val param = field.param
+			val value = field.value
+			if (param == null) {
+				StrayValue(field, enabled) { edit { it.withAction(key) { held -> withoutValue(held, field.name) } } }
+				continue
 			}
+			when (param.paramKind) {
+				ActionParamKind.CHOICE -> ChoiceRow(
+					choices = param.options,
+					picked = param.options.find { it.value == value },
+					labelOf = { it.label },
+					enabledOf = { enabled },
+					onPick = { picked -> set(param.name, picked.value) },
+				)
+				ActionParamKind.SWITCH -> PickMenu(
+					label = param.label,
+					choices = plugs,
+					picked = action.references[param.name]?.let { reference ->
+						plugs.firstOrNull { it.reference?.key == reference.key } ?: PlugChoice(reference.key, "${reference.name} (value)", reference)
+					} ?: plugs.firstOrNull { it.reference == null && it.device == value },
+					labelOf = { it.label },
+					onPick = { picked -> edit { it.withAction(key) { held -> storePlugChoice(held, param.name, picked) } } },
+					enabled = enabled,
+				)
+				ActionParamKind.TEXT -> HoleField(
+					label = param.label,
+					value = value,
+					multiline = param.lines,
+					enabled = enabled,
+					preview = textPreviewOf(value, asked, textRead(previewText(value).takeIf { asked })),
+					refused = refusedHole(said, key, param.name, value),
+					onOpen = { edit { it.copy(text = TextRef(key, param.name)) } },
+				)
+				ActionParamKind.WORD -> OutlinedTextField(
+					value = value,
+					onValueChange = { typed -> set(param.name, typed) },
+					label = { Text(param.label) },
+					singleLine = true,
+					keyboardOptions = EXACT_KEYBOARD,
+					enabled = enabled,
+					modifier = Modifier.fillMaxWidth(),
+				)
+				ActionParamKind.FUNCTION, ActionParamKind.VALUES, null -> Unit
+			}
+			IssueLine(refusedField(said, SaidAt.Card(key, param.name), value))
 		}
+		is ActionDraft.Kept -> Text(
+			"This app cannot edit this action. It is kept as it is.",
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
 	}
-	AddAction(addableActions(offer, draft.steps), enabled) { kind ->
-		edit { held -> freshAction(kind, offer)?.let(held::plusAction) ?: held }
+	if (offer.dangerous(action.kind)) {
+		Text("Asks once when saved.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 	}
+	IssueLine(actionWarning(action, offer))
 }
 
 /** A value its row no longer names. */
@@ -147,26 +107,6 @@ private fun StrayValue(field: ParamView, enabled: Boolean, onClear: () -> Unit) 
 			Text("No longer offered", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 		}
 		TextButton(onClick = hapticClick(onClear), enabled = enabled) { Text("Clear") }
-	}
-}
-
-@Composable
-private fun AddAction(offered: List<ActionOffer>, enabled: Boolean, onAdd: (String) -> Unit) {
-	if (offered.isEmpty()) return
-	var open by remember { mutableStateOf(false) }
-	Box {
-		TextButton(onClick = hapticClick { open = true }, enabled = enabled) { Text("+ Add action") }
-		DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-			for (action in offered) {
-				DropdownMenuItem(
-					text = { Text(action.label) },
-					onClick = hapticClick {
-						open = false
-						onAdd(action.kind)
-					},
-				)
-			}
-		}
 	}
 }
 

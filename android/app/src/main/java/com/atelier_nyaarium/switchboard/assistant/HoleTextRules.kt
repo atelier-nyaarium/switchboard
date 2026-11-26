@@ -15,9 +15,74 @@ import com.atelier_nyaarium.switchboard.liveconsole.scanHoles
 import com.atelier_nyaarium.switchboard.proto.AutomationPreviewName
 import com.atelier_nyaarium.switchboard.proto.ConsoleDescription
 import com.atelier_nyaarium.switchboard.proto.ConsoleIds
+import com.atelier_nyaarium.switchboard.proto.FunctionStep
 
 /** Text slot by its card's key and parameter. */
 internal data class TextRef(val key: String, val param: String)
+
+/** If condition parameter. */
+internal const val WHEN = "when"
+
+/** Wait minutes parameter. */
+internal const val MINUTES = "minutes"
+
+internal enum class TextMode { HOLES, EXPRESSION }
+
+internal fun conditionAt(draft: AutomationDraft, ref: TextRef): String? =
+	(findStep(draft.steps, ref.key) as? StepDraft.If)?.condition?.takeIf { ref.param == WHEN }
+
+/** Kept names; catch failure. */
+internal fun runNamesHere(steps: List<StepDraft>, key: String): List<NameHere> {
+	val kept = everyStep(steps).mapNotNull { ((it as? StepDraft.Kept)?.step as? FunctionStep.Let)?.name }.distinct()
+	val failure = if (insideCatch(steps, key)) listOf(NameHere("e", "What failed", null)) else emptyList()
+	return kept.map { NameHere(it, "Kept while it runs", null) } + failure
+}
+
+private fun insideCatch(steps: List<StepDraft>, key: String): Boolean =
+	everyStep(steps).filterIsInstance<StepDraft.Try>().any { held -> findStep(held.catch, key) != null }
+
+internal fun textPaint(mode: TextMode, text: String, entities: Set<String>, names: Set<String>): List<PaintSpan> = when (mode) {
+	TextMode.HOLES -> holePaint(text, entities, names)
+	TextMode.EXPRESSION -> consolePaint(text, entities, names)
+}
+
+internal fun textAssist(
+	mode: TextMode,
+	text: String,
+	cursor: Int,
+	description: ConsoleDescription?,
+	ids: ConsoleIds?,
+	names: Map<String, VariableShape?>,
+): ConsoleAssist = when (mode) {
+	TextMode.HOLES -> holeAssist(text, cursor, description, ids, names)
+	TextMode.EXPRESSION -> consoleAssist(text, cursor, description, ids, names, noSlow = true)
+}
+
+internal fun nameInserted(mode: TextMode, text: String, cursor: Int, name: String): Pair<String, Int> = when (mode) {
+	TextMode.HOLES -> withName(text, cursor, name)
+	TextMode.EXPRESSION -> inserted(text, cursor, name)
+}
+
+internal fun entityInserted(mode: TextMode, text: String, cursor: Int, name: String): Pair<String, Int> = when (mode) {
+	TextMode.HOLES -> withEntity(text, cursor, name)
+	TextMode.EXPRESSION -> inserted(text, cursor, "$name.")
+}
+
+internal fun completionPicked(mode: TextMode, text: String, completion: ConsoleCompletion, entities: Set<String>): Pair<String, Int> =
+	when (mode) {
+		TextMode.HOLES -> pickCompletion(text, completion, entities)
+		TextMode.EXPRESSION -> completion.applyTo(text)
+	}
+
+internal fun nameShown(mode: TextMode, name: String): String = when (mode) {
+	TextMode.HOLES -> "{$name}"
+	TextMode.EXPRESSION -> name
+}
+
+private fun inserted(text: String, cursor: Int, insert: String): Pair<String, Int> {
+	val at = cursor.coerceIn(0, text.length)
+	return text.replaceRange(at, at, insert) to at + insert.length
+}
 
 private val ESCAPED = setOf('{', '}', '\\')
 private const val EVENT_NAME = "event"
@@ -161,6 +226,20 @@ internal fun refusedSpan(text: String, preview: TextPreview, refused: Automation
 		refused != null -> refused.start to refused.end
 		else -> return null
 	}
+	return spanOf(text, start, end)
+}
+
+/** Clamped condition span. */
+internal fun conditionSpan(text: String, preview: ConditionPreview, refused: AutomationSaid.Hole?): IntRange? {
+	val (start, end) = when {
+		preview is ConditionPreview.Refused -> preview.start to preview.end
+		refused != null -> refused.start to refused.end
+		else -> return null
+	}
+	return spanOf(text, start, end)
+}
+
+private fun spanOf(text: String, start: Int, end: Int): IntRange {
 	val from = start.coerceIn(0, text.length)
 	val to = end.coerceIn(from, text.length)
 	// Empty span still marks.

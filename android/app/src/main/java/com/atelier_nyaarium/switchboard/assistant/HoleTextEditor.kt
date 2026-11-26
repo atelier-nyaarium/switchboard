@@ -60,12 +60,13 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleIds
 private val TEXT_STYLE = CODE.copy(fontSize = 15.sp, lineHeight = 22.sp)
 
 private class HoleHighlight(
+	private val mode: TextMode,
 	private val entities: Set<String>,
 	private val names: Set<String>,
 	private val issue: IntRange?,
 ) : VisualTransformation {
 	override fun filter(text: AnnotatedString) =
-		TransformedText(paintedCode(text.text, holePaint(text.text, entities, names), issue), OffsetMapping.Identity)
+		TransformedText(paintedCode(text.text, textPaint(mode, text.text, entities, names), issue), OffsetMapping.Identity)
 }
 
 /** Writes through, so Back keeps it. */
@@ -76,22 +77,25 @@ internal fun HoleTextEditor(
 	value: String,
 	max: Int,
 	names: List<NameHere>,
-	preview: TextPreview,
-	refused: AutomationSaid.Hole?,
+	mode: TextMode,
+	/** Current refused span. */
+	issueOf: (String) -> IntRange?,
 	description: ConsoleDescription?,
 	ids: ConsoleIds?,
 	shapes: Map<String, VariableShape?>,
 	enabled: Boolean,
 	onChange: (String) -> Unit,
 	onBack: () -> Unit,
+	/** Gateway preview below. */
+	below: @Composable (String) -> Unit,
 ) {
 	var field by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
 	val entities = remember(description) { description?.entities?.map { it.name }?.toSet().orEmpty() }
 	val named = remember(names) { names.map { it.name }.toSet() }
 	val assist = remember(field.text, field.selection, description, ids, shapes) {
-		holeAssist(field.text, field.selection.start, description, ids, shapes)
+		textAssist(mode, field.text, field.selection.start, description, ids, shapes)
 	}
-	val issue = refusedSpan(field.text, preview, refused)
+	val issue = issueOf(field.text)
 	val focus = remember { FocusRequester() }
 	LaunchedEffect(Unit) { focus.requestFocus() }
 
@@ -128,7 +132,7 @@ internal fun HoleTextEditor(
 					enabled = enabled,
 					textStyle = TEXT_STYLE,
 					cursorBrush = SolidColor(Color(CodePalette.TEXT)),
-					visualTransformation = remember(entities, named, issue) { HoleHighlight(entities, named, issue) },
+					visualTransformation = remember(entities, named, issue) { HoleHighlight(mode, entities, named, issue) },
 					keyboardOptions = EXACT_TEXT_KEYBOARD,
 					modifier =
 						Modifier.fillMaxWidth()
@@ -145,17 +149,18 @@ internal fun HoleTextEditor(
 					textAlign = TextAlign.End,
 					modifier = Modifier.fillMaxWidth(),
 				)
-				TextPreviewBlock(field.text, preview, refused)
+				below(field.text)
 				NamesCard(
 					names = names,
+					mode = mode,
 					description = description,
 					enabled = enabled,
-					onName = { name -> place(withName(field.text, field.selection.start, name)) },
-					onEntity = { name -> place(withEntity(field.text, field.selection.start, name)) },
+					onName = { name -> place(nameInserted(mode, field.text, field.selection.start, name)) },
+					onEntity = { name -> place(entityInserted(mode, field.text, field.selection.start, name)) },
 				)
 			}
 			AssistRows(assist) { completion ->
-				val (text, cursor) = pickCompletion(field.text, completion, entities)
+				val (text, cursor) = completionPicked(mode, field.text, completion, entities)
 				edit(TextFieldValue(text, TextRange(cursor)))
 			}
 		}
@@ -166,6 +171,7 @@ internal fun HoleTextEditor(
 @Composable
 private fun NamesCard(
 	names: List<NameHere>,
+	mode: TextMode,
 	description: ConsoleDescription?,
 	enabled: Boolean,
 	onName: (String) -> Unit,
@@ -178,7 +184,7 @@ private fun NamesCard(
 		Column(Modifier.padding(vertical = 12.dp)) {
 			Text("Names here", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 12.dp))
 			for (name in names) {
-				NameRow("{${name.name}}", name.says, enabled) { onName(name.name) }
+				NameRow(nameShown(mode, name.name), name.says, enabled) { onName(name.name) }
 			}
 			if (entities.isNotEmpty()) {
 				Text(

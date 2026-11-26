@@ -112,6 +112,7 @@ export function composeAutomations(deps: AutomationStageDeps): AutomationStage {
 					},
 					request,
 				),
+			run: (id, callId) => automations.run(id, callId),
 		},
 	};
 }

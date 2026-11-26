@@ -14,6 +14,7 @@ import {
 	GIVEN_TYPES,
 	GIVES_OF_FIELD,
 } from "../src/shared/automation-fit.js";
+import { RUN_FRAMES_MAX, WALK_ENTRIES_MAX } from "../src/shared/automation-walk.js";
 import { CHANNEL_FILES_MAX } from "../src/shared/channel-file.js";
 import {
 	CONSOLE_ANSWER_WAIT_MS,
@@ -178,6 +179,7 @@ import {
 	AUTOMATION_ACTIONS_MAX,
 	AUTOMATION_COOL_DOWN_MAX_SEC,
 	AUTOMATION_INTERVAL_MAX_MIN,
+	AUTOMATION_RUN_REFUSALS,
 	AutomationActionSchema,
 	AutomationConditionSchema,
 	AutomationFunctionRowSchema,
@@ -190,11 +192,13 @@ import {
 	ConsoleAutomationListResultSchema,
 	ConsoleAutomationPreviewResultSchema,
 	ConsoleAutomationPutResultSchema,
+	ConsoleAutomationRunResultSchema,
 	CROSSING_DIRECTIONS,
 	FunctionReadsSchema,
 	KEEP_TRYING_MIN_DEFAULT,
 	KEEP_TRYING_MIN_MAX,
 	KEEP_TRYING_MIN_MIN,
+	RUN_OUTCOMES,
 } from "../src/shared/schemasAutomation.js";
 import {
 	AUTOMATION_SAVE_REFUSALS,
@@ -277,7 +281,9 @@ import {
 	PARAM_NAME_MAX,
 	PARAM_NAME_RE,
 	STEP_ARGS_MAX,
+	STEP_TEXT_MAX,
 	StepArgSchema,
+	WAIT_MINUTES_MAX,
 } from "../src/shared/schemasFunction.js";
 import { RowRecipientSchema, RowStampSchema } from "../src/shared/schemasInbox.js";
 import {
@@ -630,6 +636,7 @@ const ROOTS: z.ZodType[] = [
 	ConsoleAutomationPutResultSchema,
 	ConsoleAutomationDeleteResultSchema,
 	ConsoleAutomationPreviewResultSchema,
+	ConsoleAutomationRunResultSchema,
 	AutomationSaveFunctionSchema,
 	AutomationSaveRefusalSchema,
 	ConsoleAutomationSaveResultSchema,
@@ -1382,6 +1389,10 @@ const wireConstants: ReadonlyArray<readonly [string, string | number]> = [
 	["FUNCTION_PARAM_NAME_PATTERN", PARAM_NAME_RE.source],
 	["FUNCTION_PARAM_NAME_MAX", PARAM_NAME_MAX],
 	["STEP_ARGS_MAX", STEP_ARGS_MAX],
+	["STEP_TEXT_MAX", STEP_TEXT_MAX],
+	["WAIT_MINUTES_MAX", WAIT_MINUTES_MAX],
+	["WALK_ENTRIES_MAX", WALK_ENTRIES_MAX],
+	["RUN_FRAMES_MAX", RUN_FRAMES_MAX],
 	["FUNCTION_NAME_MAX", FUNCTION_NAME_MAX],
 	["ASSISTANT_HOME_SEALED_MAX_BYTES", ASSISTANT_HOME_SEALED_MAX_BYTES],
 ];
@@ -1836,6 +1847,10 @@ ${wireEnumBlock("FunctionParamType", FUNCTION_PARAM_TYPES)}
 ${wireEnumBlock("AutomationSaveRefusalCode", AUTOMATION_SAVE_REFUSALS)}
 
 ${wireEnumBlock("AutomationSaveRecord", SAVE_RECORDS)}
+
+${wireEnumBlock("AutomationRunRefusal", AUTOMATION_RUN_REFUSALS)}
+
+${wireEnumBlock("RunOutcome", RUN_OUTCOMES)}
 
 ${wireEnumBlock("PolicyRefusalCode", POLICY_REFUSAL_CODES)}
 

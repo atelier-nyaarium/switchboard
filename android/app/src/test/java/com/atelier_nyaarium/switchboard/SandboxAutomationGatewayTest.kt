@@ -136,10 +136,10 @@ class SandboxAutomationGatewayTest {
 
 		assertEquals(AutomationListing(ListAnswer.NotServed), gateway.list(SECOND_SANDBOX_GATEWAY))
 		assertEquals(false, gateway.put(SECOND_SANDBOX_GATEWAY, "new", mention(), 0L).stored)
-		assertNull(gateway.preview(SECOND_SANDBOX_GATEWAY, mention().trigger, null))
+		assertNull(gateway.preview(SECOND_SANDBOX_GATEWAY, ConsoleOp.AutomationPreview(trigger = mention().trigger)))
 		assertEquals(ListAnswer.Listed(emptyList<Any>()), gateway.list(EMPTY_GATEWAY).rows)
 		assertEquals(ListAnswer.Unreachable, gateway.list(SANDBOX_NEVER_REGISTERED).rows)
-		assertEquals(1L, gateway.preview("sandbox", mention().trigger, null)?.matched)
+		assertEquals(1L, gateway.preview("sandbox", ConsoleOp.AutomationPreview(trigger = mention().trigger))?.matched)
 		assertEquals(6, trips)
 	}
 
@@ -152,8 +152,8 @@ class SandboxAutomationGatewayTest {
 		val asked = gateway.put("sandbox", "posts", posts, 0L)
 		val agreed = gateway.put("sandbox", "posts", posts, 0L, confirmed = true)
 		val toggled = gateway.put("sandbox", "posts", posts.copy(enabled = false), 1L)
-		val filled = gateway.preview("sandbox", evening, "It is {time}.")
-		val refused = gateway.preview("sandbox", evening, "It is {value}.")
+		val filled = gateway.preview("sandbox", ConsoleOp.AutomationPreview(trigger = evening, text = "It is {time}."))
+		val refused = gateway.preview("sandbox", ConsoleOp.AutomationPreview(trigger = evening, text = "It is {value}."))
 
 		assertEquals(listOf("Send to IFTTT"), asked.confirm)
 		assertEquals(listOf(true, true), listOf(agreed.stored, toggled.stored))
@@ -180,13 +180,15 @@ class SandboxAutomationGatewayTest {
 		val crossing = Automation(enabled = true, trigger = CROSSING, actions = listOf(AutomationAction.TellAssistant("now")))
 		val preview = gateway.preview(
 			"sandbox",
-			AutomationTrigger.Time("18:00", emptyList(), "UTC"),
-			"Good {message}",
-			listOf(FunctionParam("message", "text")),
-			buildJsonObject { put("message", "evening") },
+			ConsoleOp.AutomationPreview(
+				trigger = AutomationTrigger.Time("18:00", emptyList(), "UTC"),
+				text = "Good {message}",
+				params = listOf(FunctionParam("message", "text")),
+				values = buildJsonObject { put("message", "evening") },
+			),
 		)
 		val warmHall = gateway.rows("sandbox").single { it.id == "warm-hall" }
-		val temperature = gateway.preview("sandbox", warmHall.automation.trigger, "It is {value}.")
+		val temperature = gateway.preview("sandbox", ConsoleOp.AutomationPreview(trigger = warmHall.automation.trigger, text = "It is {value}."))
 		val previewValue = temperature?.names?.single { it.name == "value" }?.shown
 
 		assertEquals("Outside thermometer temperature goes above 78.8 °F", sandboxSentence(crossing))

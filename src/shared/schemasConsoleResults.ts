@@ -8,6 +8,7 @@ import {
 	ConsoleAutomationListResultSchema,
 	ConsoleAutomationPreviewResultSchema,
 	ConsoleAutomationPutResultSchema,
+	ConsoleAutomationRunResultSchema,
 } from "./schemasAutomation.js";
 import { ConsoleAutomationCheckResultSchema, ConsoleAutomationSaveResultSchema } from "./schemasAutomationSave.js";
 import { BoardEntrySchema } from "./schemasBoard.js";
@@ -421,6 +422,7 @@ export const ConsoleOpResultSchema = z.union([
 	ConsoleAutomationCheckResultSchema,
 	ConsoleAutomationDeleteResultSchema,
 	ConsoleAutomationPreviewResultSchema,
+	ConsoleAutomationRunResultSchema,
 ]);
 
 ////////////////////////////////

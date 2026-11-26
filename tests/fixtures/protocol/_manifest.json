@@ -159,6 +159,8 @@
 			"expect": "pass"
 		},
 		{ "file": "console-op-automation-preview-condition.json", "schema": "ConsoleOp", "expect": "pass" },
+		{ "file": "console-op-automation-run.json", "schema": "ConsoleOp", "expect": "pass" },
+		{ "file": "automation-run-result-refused.json", "schema": "ConsoleAutomationRunResult", "expect": "pass" },
 		{
 			"file": "automation-trigger-future-kind.json",
 			"schema": "AutomationTrigger",

@@ -2,7 +2,9 @@ package com.atelier_nyaarium.switchboard.assistant
 
 import androidx.compose.foundation.ScrollState
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -12,6 +14,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import com.atelier_nyaarium.switchboard.AutomationDraftKey
 import com.atelier_nyaarium.switchboard.AutomationOps
 import com.atelier_nyaarium.switchboard.ChatRepository
@@ -25,31 +28,22 @@ import com.atelier_nyaarium.switchboard.assistantGateway
 import com.atelier_nyaarium.switchboard.deleteTakesLine
 import com.atelier_nyaarium.switchboard.keptRow
 import com.atelier_nyaarium.switchboard.homeDisplayUnit
-import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
-import com.atelier_nyaarium.switchboard.proto.FunctionParam
+import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.rememberEdit
-import kotlinx.serialization.json.JsonObject
 import kotlinx.coroutines.delay
 
 private const val PREVIEW_DEBOUNCE_MS = 400L
 
-/** Debounced trigger read. */
+/** Debounced preview. */
 @Composable
-internal fun previewRead(
-	ops: AutomationOps,
-	gatewayId: String,
-	trigger: AutomationTrigger?,
-	text: String?,
-	params: List<FunctionParam>? = null,
-	values: JsonObject? = null,
-): PreviewRead {
+internal fun previewRead(ops: AutomationOps, gatewayId: String, ask: ConsoleOp.AutomationPreview?): PreviewRead {
 	var read by remember(gatewayId) { mutableStateOf(PreviewRead()) }
-	LaunchedEffect(gatewayId, trigger, text, params, values) {
+	LaunchedEffect(gatewayId, ask) {
 		read = PreviewRead()
-		val asked = trigger ?: return@LaunchedEffect
+		val asked = ask ?: return@LaunchedEffect
 		delay(PREVIEW_DEBOUNCE_MS)
-		val answer = ops.preview(gatewayId, asked, text, params, values)
+		val answer = ops.preview(gatewayId, asked)
 		read = PreviewRead(answer, failed = answer == null)
 	}
 	return read
@@ -129,7 +123,7 @@ internal fun AutomationEditorPage(
 	val trigger = askedTrigger(draft, fields, sources, offer)
 	val pointing = draft.runsDraft() as? RunsDraft.Pointing
 	val previewScope = functionPreviewScopeOf(draft.runsDraft())
-	val triggerRead = previewRead(ops, gatewayId, trigger, null, previewScope?.params, previewScope?.values)
+	val triggerRead = previewRead(ops, gatewayId, previewAsk(trigger, null, previewScope))
 	var confirmingDelete by remember(key) { mutableStateOf(false) }
 	var asking by remember(key) { mutableStateOf<AutomationSaid.Confirm?>(null) }
 	LaunchedEffect(busy, session.said) { asking = (session.said as? AutomationSaid.Confirm)?.takeUnless { busy } }
@@ -155,30 +149,53 @@ internal fun AutomationEditorPage(
 	val ref = draft.text
 	val textOf = ref?.let { textParam(draft, it, offer) }
 	val shownText = ref?.let { textAt(draft, it, offer) }
-	if (ref != null && textOf != null && shownText != null) {
+	val shownCondition = ref?.let { conditionAt(draft, it) }
+	if (ref != null && (shownCondition != null || (textOf != null && shownText != null))) {
 		val consoles by repo.liveConsoleOps.state.collectAsState()
 		val console = consoles[gatewayId]
 		LaunchedEffect(gatewayId) { repo.command { liveConsoleOps.open(gatewayId) } }
 		val names = namesHere(offer, draft.trigger.kind, triggerRead.answer?.names, pointing?.wireParams().orEmpty(), pointing?.valuesByName().orEmpty())
-		HoleTextEditor(
-			title = textOf.label,
-			value = shownText,
-			max = textOf.max ?: Int.MAX_VALUE,
-			names = names,
-			preview = textPreviewOf(
-				shownText,
-				trigger != null,
-				previewRead(ops, gatewayId, trigger.takeIf { hasHole(shownText) }, previewText(shownText), previewScope?.params, previewScope?.values),
-			),
-			refused = refusedHole(said, ref.key, ref.param, shownText),
-			description = console?.description,
-			ids = console?.ids,
-			shapes = nameShapes(names, fields.fields),
-			enabled = can.edit,
-			onChange = { text -> edit { it.withAction(ref.key) { held -> withValue(held, ref.param, text) } } },
-			onBack = { edit { it.copy(text = null) } },
-		)
-		return
+		if (shownCondition != null) {
+			val here = names + runNamesHere(draft.steps, ref.key)
+			val read = previewRead(ops, gatewayId, conditionAsk(trigger, shownCondition, previewScope, draft.steps))
+			val preview = conditionPreviewOf(shownCondition, trigger != null, read)
+			val refused = refusedHole(said, ref.key, WHEN, shownCondition)
+			HoleTextEditor(
+				title = "Condition",
+				value = shownCondition,
+				max = Protocol.Wire.STEP_TEXT_MAX,
+				names = here,
+				mode = TextMode.EXPRESSION,
+				issueOf = { text -> conditionSpan(text, preview, refused) },
+				description = console?.description,
+				ids = console?.ids,
+				shapes = nameShapes(here, fields.fields),
+				enabled = can.edit,
+				onChange = { text -> edit { it.withStep(ref.key) { held -> (held as? StepDraft.If)?.copy(condition = text) ?: held } } },
+				onBack = { edit { it.copy(text = null) } },
+			) { text -> ConditionPreviewBlock(text, preview, refused) }
+			return
+		}
+		if (textOf != null && shownText != null) {
+			val read = previewRead(ops, gatewayId, previewAsk(trigger.takeIf { hasHole(shownText) }, previewText(shownText), previewScope))
+			val preview = textPreviewOf(shownText, trigger != null, read)
+			val refused = refusedHole(said, ref.key, ref.param, shownText)
+			HoleTextEditor(
+				title = textOf.label,
+				value = shownText,
+				max = textOf.max ?: Int.MAX_VALUE,
+				names = names,
+				mode = TextMode.HOLES,
+				issueOf = { text -> refusedSpan(text, preview, refused) },
+				description = console?.description,
+				ids = console?.ids,
+				shapes = nameShapes(names, fields.fields),
+				enabled = can.edit,
+				onChange = { text -> edit { it.withAction(ref.key) { held -> withValue(held, ref.param, text) } } },
+				onBack = { edit { it.copy(text = null) } },
+			) { text -> TextPreviewBlock(text, preview, refused) }
+			return
+		}
 	}
 
 	EditorScaffold(
@@ -202,16 +219,31 @@ internal fun AutomationEditorPage(
 			}
 		}
 		if (runs?.kept != true) {
-			ActionsSection(
+			CardsSection(
 				draft = draft,
 				offer = offer,
 				enabled = can.edit,
 				said = said,
-				textRead = { text -> previewRead(ops, gatewayId, trigger.takeIf { text != null }, text, previewScope?.params, previewScope?.values) },
+				textRead = { text -> previewRead(ops, gatewayId, previewAsk(trigger.takeIf { text != null }, text, previewScope)) },
+				conditionRead = { condition -> previewRead(ops, gatewayId, conditionAsk(trigger, condition, previewScope, draft.steps)) },
 				asked = trigger != null,
+				lastRun = lastRunShown(draft, session.opened, lookup?.let(::keptRow), offer.functions),
 				edit = edit,
 			)
 		}
+		HorizontalDivider()
+		OutlinedTextField(
+			value = draft.keepTryingMin,
+			onValueChange = { typed -> edit { it.copy(keepTryingMin = typed) } },
+			label = { Text("Keep trying") },
+			placeholder = { Text("${Protocol.Wire.KEEP_TRYING_MIN_DEFAULT}") },
+			suffix = { Text("min") },
+			singleLine = true,
+			enabled = can.edit,
+			keyboardOptions = NUMBER_KEYS,
+			modifier = Modifier.fillMaxWidth(),
+		)
+		IssueLine(settingsIssue(draft))
 		generalLine(said, draft, offer)?.let {
 			val color = if (saidRefuses(said)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
 			Text(it, style = MaterialTheme.typography.bodySmall, color = color)

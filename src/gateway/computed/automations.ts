@@ -38,6 +38,7 @@ import {
 	type AutomationTrigger,
 	type ConsoleAutomationDeleteResult,
 	type ConsoleAutomationPutResult,
+	type ConsoleAutomationRunResult,
 	type EventTrigger,
 	KEEP_TRYING_MIN_DEFAULT,
 	type TellWhen,
@@ -626,6 +627,20 @@ export function createAutomations(deps: AutomationsDeps) {
 		return { ...rest, steps: Object.fromEntries(kept), active: [], light: true };
 	};
 
+	/** Current trigger names; throws what a put would. */
+	const namesNow = (trigger: Exclude<AutomationTrigger, EventTrigger>): FireNames => {
+		const issue = triggerIssue({ trigger });
+		if (issue !== null) throw new Error(issue);
+		if (isClock(trigger)) {
+			const now = deps.now();
+			return { time: { value: now, shown: clockShown(trigger, now) } };
+		}
+		if (trigger.kind === "crossing") return crossingNames(trigger);
+		const label = deps.fields.get(trigger.field)?.body.label ?? trigger.field;
+		const held = deps.fields.value(trigger.field);
+		return { value: { value: held.known ? held.value : null }, field: { value: label } };
+	};
+
 	/** Records a fire for the run; false when nothing will run. */
 	const fire = (
 		work: Work,
@@ -633,11 +648,13 @@ export function createAutomations(deps: AutomationsDeps) {
 		at: { member: string; seq: number; at: number },
 		names: FireNames,
 		fields: Record<string, string>,
+		/** By hand: no cool-down, replaces nothing. */
+		manual = false,
 	): boolean => {
 		const fired = { automation: record.id, seq: at.seq, at: at.at };
 		const { trigger } = record.body;
 		// A crossing's or a value's is its checkpoint's.
-		const cool = trigger.kind === "event" ? (trigger.coolDownSec ?? 0) : 0;
+		const cool = trigger.kind === "event" && !manual ? (trigger.coolDownSec ?? 0) : 0;
 		if (cool > 0 && coolingAt(work.firedAt, record, at.at, cool)) {
 			work.log = logged(work.log, lostRow(fired, COOLING));
 			return false;
@@ -671,7 +688,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		const event = trigger.kind === "event";
 		const verdict = admit(work.fires, recorded, {
 			// Each event carries its own.
-			supersede: !light && !event,
+			supersede: !light && !event && !manual,
 			earlier: (member) => state.fires.some((stored) => stored.member === member),
 			...(event ? { waitingMax: WAITING_EVENTS_MAX } : {}),
 			tells: (held) => tellsOnly(held, held === recorded ? record.body : bodyOf(held)),
@@ -1731,6 +1748,32 @@ export function createAutomations(deps: AutomationsDeps) {
 				pump();
 			else console.warn(`[automations] ${lost} event fires were not recorded and will not run`);
 		},
+		/** Once by hand; a repeated call id answers as the first did. */
+		run(id: string, callId: string): ConsoleAutomationRunResult {
+			const record = records.get(id);
+			if (!record) return { ran: false, refusal: "gone" };
+			if (!record.body.enabled) return { ran: false, refusal: "off" };
+			if (!armed(record)) return { ran: false, refusal: "invalid" };
+			const { trigger } = record.body;
+			if (trigger.kind === "event" && !deps.isHome()) return { ran: false, refusal: "away" };
+			const member = memberOf(record.id, record.incarnation, "manual", callId);
+			if (state.fired.includes(member)) return { ran: true };
+			// An event by hand has no event.
+			const names = trigger.kind === "event" ? {} : namesNow(trigger);
+			const work = workOf();
+			const admitted = fire(work, record, { member, seq: 0, at: deps.now() }, names, fieldsOf(names), true);
+			const next = {
+				...state,
+				fires: work.fires,
+				fired: [...state.fired, member].slice(-FIRED_MAX),
+				log: work.log,
+				firedAt: work.firedAt,
+				order: work.order,
+			};
+			if (!commit(next)) return { ran: false, refusal: "not_admitted" };
+			if (admitted) pump();
+			return admitted ? { ran: true } : { ran: false, refusal: "not_admitted" };
+		},
 		/** Resolves when idle. */
 		async settled(): Promise<void> {
 			while (running || reading) await Promise.all([running?.done, reading]);
@@ -1745,19 +1788,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		},
 		/** Read-time validity; never stored. */
 		invalidOf: (id: string): string | null => records.invalidOf(id),
-		/** Current trigger names; throws what a put would. */
-		namesNow(trigger: Exclude<AutomationTrigger, EventTrigger>): FireNames {
-			const issue = triggerIssue({ trigger });
-			if (issue !== null) throw new Error(issue);
-			if (isClock(trigger)) {
-				const now = deps.now();
-				return { time: { value: now, shown: clockShown(trigger, now) } };
-			}
-			if (trigger.kind === "crossing") return crossingNames(trigger);
-			const label = deps.fields.get(trigger.field)?.body.label ?? trigger.field;
-			const held = deps.fields.value(trigger.field);
-			return { value: { value: held.known ? held.value : null }, field: { value: label } };
-		},
+		namesNow,
 		/** Field commit callback. */
 		drain: (): void => {
 			drain();

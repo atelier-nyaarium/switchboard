@@ -12,6 +12,7 @@ import com.atelier_nyaarium.switchboard.proto.AutomationFunctionRow
 import com.atelier_nyaarium.switchboard.proto.AutomationServes
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.AutomationTriggerName
+import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.FieldTypes
 import com.atelier_nyaarium.switchboard.proto.Protocol
@@ -111,7 +112,12 @@ internal enum class IntervalUnit(val minutes: Long, val label: String) {
 internal sealed interface TriggerDraft {
 	val kind: String
 
-	data class Event(val source: String, val conditions: List<AutomationCondition>) : TriggerDraft {
+	data class Event(
+		val source: String,
+		val conditions: List<AutomationCondition>,
+		/** Blank for none. */
+		val coolDownMin: String = "",
+	) : TriggerDraft {
 		override val kind get() = TRIGGER_EVENT
 	}
 
@@ -190,7 +196,7 @@ internal fun coolDownSecOf(typed: String): Long? {
 
 /** Null for a kind the editor does not draw. */
 internal fun triggerDraftOf(trigger: AutomationTrigger, offer: AutomationOffer, display: String?): TriggerDraft? = when (trigger) {
-	is AutomationTrigger.Event -> TriggerDraft.Event(trigger.source, trigger.conditions)
+	is AutomationTrigger.Event -> TriggerDraft.Event(trigger.source, trigger.conditions, trigger.coolDownSec?.let(::coolDownTyped).orEmpty())
 	is AutomationTrigger.Crossing -> {
 		val number = offer.number(trigger.device, trigger.measure)
 		val decimals = number?.decimals ?: 1
@@ -216,6 +222,7 @@ internal fun triggerIssue(trigger: TriggerDraft, offer: AutomationOffer): String
 	is TriggerDraft.Event -> when {
 		trigger.source.isBlank() -> "Pick a source"
 		trigger.conditions.size > MAX_CONDITIONS -> "Too many conditions"
+		trigger.coolDownMin.isNotBlank() && coolDownSecOf(trigger.coolDownMin) == null -> "The cool-down is 0 to $MAX_COOL_DOWN_MIN minutes"
 		else -> null
 	}
 	is TriggerDraft.Crossing -> when {
@@ -251,6 +258,7 @@ internal fun triggerOf(trigger: TriggerDraft, offer: AutomationOffer, display: S
 		is TriggerDraft.Event -> AutomationTrigger.Event(
 			source = trigger.source,
 			conditions = trigger.conditions.map { it.copy(value = trimRuleValue(it.value)) },
+			coolDownSec = trigger.coolDownMin.takeIf { it.isNotBlank() }?.let { coolDownSecOf(it) ?: return null },
 		)
 		is TriggerDraft.Crossing -> {
 			val typed = parseDecimal(trigger.threshold.trim()) ?: return null
@@ -309,6 +317,23 @@ internal fun previewText(text: String): String? = text.takeIf(::hasHole)
 
 internal data class PreviewRead(val answer: ConsoleAutomationPreviewResult? = null, val failed: Boolean = false)
 
+internal fun previewAsk(
+	trigger: AutomationTrigger?,
+	text: String?,
+	scope: FunctionPreviewScope?,
+	condition: String? = null,
+	runNames: List<String>? = null,
+): ConsoleOp.AutomationPreview? = trigger?.let {
+	ConsoleOp.AutomationPreview(
+		trigger = it,
+		text = text,
+		params = scope?.params,
+		values = scope?.values,
+		condition = condition,
+		runNames = runNames?.takeIf { names -> names.isNotEmpty() },
+	)
+}
+
 internal fun textPreviewOf(text: String, asked: Boolean, read: PreviewRead): TextPreview {
 	val answer = read.answer
 	val hole = answer?.hole
@@ -357,7 +382,12 @@ internal fun saidText(draft: AutomationDraft, at: SaidAt): String = when (at) {
 	is SaidAt.Value -> (draft.runs as? RunsHead.Points)?.pointing?.let { pointing ->
 		pointing.params.firstOrNull { it.param.name == at.param }?.let { pointing.values[it.key] }
 	}.orEmpty()
-	is SaidAt.Card -> ((findStep(draft.steps, at.key) as? StepDraft.Do)?.action as? ActionDraft.Filled)?.values?.get(at.param).orEmpty()
+	is SaidAt.Card -> when (val step = findStep(draft.steps, at.key)) {
+		is StepDraft.Do -> (step.action as? ActionDraft.Filled)?.values?.get(at.param).orEmpty()
+		is StepDraft.If -> step.condition.takeIf { at.param == WHEN }.orEmpty()
+		is StepDraft.Wait -> step.minutes.takeIf { at.param == MINUTES }.orEmpty()
+		is StepDraft.Try, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept, null -> ""
+	}
 }
 
 /** Refusal while text stands. */

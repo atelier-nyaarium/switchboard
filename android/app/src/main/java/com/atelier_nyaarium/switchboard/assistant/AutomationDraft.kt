@@ -18,6 +18,7 @@ import com.atelier_nyaarium.switchboard.proto.AssistantSource
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationCondition
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
+import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationCheckResult
@@ -127,6 +128,8 @@ internal data class AutomationDraft(
 	val newFunctionId: String? = null,
 	/** The function picker is open. */
 	val picking: Boolean = false,
+	/** Blank uses Gateway default. */
+	val keepTryingMin: String = "",
 ) {
 	fun runsDraft(): RunsDraft = runsOf(runs, steps)
 
@@ -164,7 +167,9 @@ internal data class AutomationDraft(
 	fun changed(at: Int, change: (AutomationCondition) -> AutomationCondition): AutomationDraft =
 		onEvent { it.copy(conditions = it.conditions.mapIndexed { index, held -> if (index == at) change(held) else held }) }
 
-	fun withSource(source: String): AutomationDraft = onEvent { TriggerDraft.Event(source, emptyList()) }
+	fun withSource(source: String): AutomationDraft = onEvent { it.copy(source = source, conditions = emptyList()) }
+
+	fun withEventCoolDown(typed: String): AutomationDraft = onEvent { it.copy(coolDownMin = typed) }
 
 	/** A kind swapped away comes back as it was left. */
 	fun swapped(kinds: Set<String>, fresh: () -> TriggerDraft?): AutomationDraft {
@@ -189,8 +194,12 @@ internal data class AutomationDraft(
 	fun withAction(key: String, change: (ActionDraft) -> ActionDraft): AutomationDraft =
 		withStep(key) { step -> if (step is StepDraft.Do) step.copy(action = change(step.action)) else step }
 
-	/** Unchanged where a cap refuses it. */
-	fun plusStep(slot: Slot, step: StepDraft): AutomationDraft = insertedStep(steps, slot, step)?.let { copy(steps = it) } ?: this
+	/** A statement mints the function id. */
+	fun plusStep(slot: Slot, step: StepDraft): AutomationDraft {
+		val placed = insertedStep(steps, slot, step) ?: return this
+		val minted = if (step is StepDraft.Do) newFunctionId else newFunctionId ?: freshFunctionId()
+		return copy(steps = placed, newFunctionId = minted)
+	}
 
 	fun plusAction(action: ActionDraft): AutomationDraft = plusStep(Slot(null, null, steps.size), StepDraft.Do(freshKey(), action))
 
@@ -210,11 +219,27 @@ internal data class AutomationDraft(
 		val actions = steps.map { (it as? StepDraft.Do)?.action ?: return null }
 		if (actions.isEmpty() || actions.any { actionIssue(it, offer) != null }) return null
 		val written = actions.map { actionOf(it, offer) ?: return null }
-		return Automation(label = original?.label, enabled = enabled, trigger = built, actions = written)
+		return automationOf(built, written)
+	}
+
+	/** Null for invalid settings. */
+	fun automationOf(trigger: AutomationTrigger, actions: List<AutomationAction>): Automation? {
+		if (settingsIssue(this) != null) return null
+		return Automation(
+			label = original?.label,
+			enabled = enabled,
+			trigger = trigger,
+			actions = actions,
+			keepTryingMin = keepTryingMin.takeIf { it.isNotBlank() }?.trim()?.toLong(),
+		)
 	}
 
 	fun changedFrom(opened: AutomationDraft): Boolean =
-		trigger != opened.trigger || unkeyed(steps) != unkeyed(opened.steps) || enabled != opened.enabled || runs != opened.runs
+		trigger != opened.trigger ||
+			unkeyed(steps) != unkeyed(opened.steps) ||
+			enabled != opened.enabled ||
+			runs != opened.runs ||
+			keepTryingMin != opened.keepTryingMin
 }
 
 /** A crossing of that device's first number; null when not offered. */
@@ -273,6 +298,7 @@ internal fun automationDraftOf(row: AutomationRow, context: EditContext, display
 		context = context,
 		original = row.automation,
 		display = display,
+		keepTryingMin = row.automation.keepTryingMin?.toString().orEmpty(),
 	)
 	// Functions only where served.
 	val functions = offer.functions ?: return draft
@@ -309,9 +335,17 @@ internal fun functionSaveOf(
 	if (offer.functions == null) return null
 	val built = draft.builtTrigger(offer) ?: return null
 	if (draft.conditions.any { fields.issueOf(it) != null } || draftRunsIssue(draft, fields, offer) != null) return null
-	return saveOpOf(draft.id, draft.revision, draft.runsDraft(), offer, confirmed) { actions ->
-		Automation(label = draft.original?.label, enabled = draft.enabled, trigger = built, actions = actions)
+	return saveOpOf(draft.id, draft.revision, draft.runsDraft(), offer, confirmed, draft.newFunctionId) { actions ->
+		draft.automationOf(built, actions)
 	}
+}
+
+private val KEEP_TRYING = Protocol.Wire.KEEP_TRYING_MIN_MIN..Protocol.Wire.KEEP_TRYING_MIN_MAX
+
+internal fun settingsIssue(draft: AutomationDraft): String? {
+	val typed = draft.keepTryingMin.trim()
+	if (typed.isEmpty()) return null
+	return "Keep trying is ${KEEP_TRYING.first} to ${KEEP_TRYING.last} minutes".takeIf { typed.toIntOrNull() !in KEEP_TRYING }
 }
 
 /** A function id as the editor mints one. */

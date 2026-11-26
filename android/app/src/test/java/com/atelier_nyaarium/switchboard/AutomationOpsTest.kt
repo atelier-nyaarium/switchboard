@@ -31,6 +31,7 @@ import com.atelier_nyaarium.switchboard.assistant.FunctionOffer
 import com.atelier_nyaarium.switchboard.assistant.automationDraftOf
 import com.atelier_nyaarium.switchboard.assistant.offerOf
 import com.atelier_nyaarium.switchboard.assistant.functionPreviewScopeOf
+import com.atelier_nyaarium.switchboard.assistant.previewAsk
 import com.atelier_nyaarium.switchboard.assistant.RunsDraft
 import com.atelier_nyaarium.switchboard.assistant.StepDraft
 import com.atelier_nyaarium.switchboard.assistant.stepOfDraft
@@ -138,9 +139,9 @@ class AutomationOpsTest {
 			return ConsoleAutomationDeleteResult(deleted = true)
 		}
 
-		override suspend fun preview(gatewayId: String, trigger: AutomationTrigger, text: String?, params: List<FunctionParam>?, values: JsonObject?): ConsoleAutomationPreviewResult? {
-			previews += Triple(text, params, values)
-			return ConsoleAutomationPreviewResult(matched = 1L, of = 3L, matches = emptyList(), filled = text)
+		override suspend fun preview(gatewayId: String, ask: ConsoleOp.AutomationPreview): ConsoleAutomationPreviewResult? {
+			previews += Triple(ask.text, ask.params, ask.values)
+			return ConsoleAutomationPreviewResult(matched = 1L, of = 3L, matches = emptyList(), filled = ask.text)
 		}
 
 		val saves = mutableListOf<ConsoleOp.AutomationSave>()
@@ -452,7 +453,7 @@ class AutomationOpsTest {
 		runBlocking { ops.refresh("sakura") }
 
 		assertEquals(AutomationSaved.Stored(null), runBlocking { ops.delete("sakura", "review", 1L, automation()) })
-		assertEquals(1L, runBlocking { ops.preview("sakura", automation().trigger) }?.matched)
+		assertEquals(1L, runBlocking { ops.preview("sakura", ConsoleOp.AutomationPreview(trigger = automation().trigger)) }?.matched)
 	}
 
 	@Test
@@ -469,7 +470,7 @@ class AutomationOpsTest {
 		val fake = FakeGateway()
 		val ops = AutomationOps(admitting("sakura"), Host(fake))
 
-		ops.preview("sakura", pointer.trigger, "We are in {room}.", scope.params, scope.values)
+		ops.preview("sakura", previewAsk(pointer.trigger, "We are in {room}.", scope)!!)
 
 		assertEquals(
 			Triple("We are in {room}.", listOf(FunctionParam("room", "text")), buildJsonObject { put("room", "Bedroom") }),

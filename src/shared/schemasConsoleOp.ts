@@ -398,6 +398,12 @@ export const ConsoleOpSchema = z
 			/** Names a run sets before the step: its variables, and `e` in a catch. */
 			runNames: z.array(z.string().regex(PARAM_NAME_RE)).max(RUN_NAMES_MAX).optional(),
 		}),
+		/** Once by hand; a repeated call id runs nothing again. */
+		z.object({
+			kind: z.literal("automation_run"),
+			automationId: z.string().regex(RULE_ID_RE),
+			callId: z.string().min(1).max(64),
+		}),
 		/** Gateway-local; survives release. */
 		z.object({ kind: z.literal("assistant_safety"), approveEverySend: z.boolean() }),
 		z.object({ kind: z.literal("assistant_temperature_unit"), temperatureUnit: TemperatureUnitSchema }),
@@ -542,6 +548,7 @@ export const VALUE_OP_KINDS = new Set([
 	"automation_check",
 	"automation_delete",
 	"automation_preview",
+	"automation_run",
 	"assistant_watcher_grants",
 	"assistant_rule_put",
 	"assistant_rule_delete",

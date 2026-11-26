@@ -38,7 +38,7 @@ import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.AssistantSource
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 
-private val NUMBER_KEYS = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+internal val NUMBER_KEYS = KeyboardOptions(keyboardType = KeyboardType.Decimal)
 private val COUNT_KEYS = KeyboardOptions(keyboardType = KeyboardType.Number)
 
 /** Mutually exclusive choices. */
@@ -164,6 +164,19 @@ private fun EventForm(
 		TextButton(onClick = hapticClick { edit { it.withCondition(fields) } }, enabled = enabled) {
 			Text("+ Add condition")
 		}
+	}
+	(draft.trigger as? TriggerDraft.Event)?.let { event ->
+		OutlinedTextField(
+			value = event.coolDownMin,
+			onValueChange = { typed -> edit { it.withEventCoolDown(typed) } },
+			label = { Text("Cool-down") },
+			placeholder = { Text("None") },
+			suffix = { Text("min") },
+			singleLine = true,
+			enabled = enabled,
+			keyboardOptions = NUMBER_KEYS,
+			modifier = Modifier.fillMaxWidth(),
+		)
 	}
 	var open by rememberSaveable(draft.id) { mutableStateOf(false) }
 	MatchesFold(read.answer, read.failed, open) { open = !open }

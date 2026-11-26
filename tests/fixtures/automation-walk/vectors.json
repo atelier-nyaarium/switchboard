@@ -105,6 +105,212 @@
 				"actions": [{ "kind": "run_function", "function": "warm-up" }]
 			},
 			"reached": [{ "reach": "unfollowedCall", "path": "0", "kind": "run_function", "reason": "not-expanded" }]
+		},
+		{
+			"name": "a function's sides are reached at every depth, a step before what it holds",
+			"automation": {
+				"enabled": true,
+				"trigger": { "kind": "interval", "everyMin": 5 },
+				"actions": [{ "kind": "run_function", "function": "sides" }]
+			},
+			"functions": {
+				"sides": {
+					"name": "Sides",
+					"params": [],
+					"steps": [
+						{
+							"kind": "if",
+							"when": "value > 30",
+							"steps": [
+								{
+									"kind": "do",
+									"action": "tell_assistant",
+									"args": {
+										"when": {
+											"kind": "literal",
+											"value": "now"
+										}
+									}
+								}
+							],
+							"else": [
+								{
+									"kind": "do",
+									"action": "device_set",
+									"args": {
+										"device": {
+											"kind": "literal",
+											"value": "aa:bb:cc:dd:ee:01"
+										},
+										"verb": {
+											"kind": "literal",
+											"value": "on"
+										}
+									}
+								}
+							]
+						},
+						{
+							"kind": "try",
+							"steps": [
+								{
+									"kind": "wait",
+									"minutes": {
+										"kind": "literal",
+										"value": 5
+									}
+								}
+							],
+							"catch": [
+								{
+									"kind": "note",
+									"text": "failed"
+								}
+							]
+						}
+					]
+				}
+			},
+			"reached": [
+				{ "reach": "step", "path": "0.0", "index": 0, "kind": "if" },
+				{ "reach": "step", "path": "0.0.0.0", "index": 0, "kind": "tell_assistant" },
+				{ "reach": "step", "path": "0.0.1.0", "index": 0, "kind": "device_set" },
+				{ "reach": "step", "path": "0.1", "index": 1, "kind": "try" },
+				{ "reach": "step", "path": "0.1.0.0", "index": 0, "kind": "wait" },
+				{ "reach": "step", "path": "0.1.1.0", "index": 0, "kind": "note" }
+			]
+		},
+		{
+			"name": "a call is followed under its own path",
+			"automation": {
+				"enabled": true,
+				"trigger": { "kind": "interval", "everyMin": 5 },
+				"actions": [{ "kind": "run_function", "function": "outer" }]
+			},
+			"functions": {
+				"outer": {
+					"name": "Outer",
+					"params": [],
+					"steps": [
+						{
+							"kind": "do",
+							"action": "tell_assistant",
+							"args": {
+								"when": {
+									"kind": "literal",
+									"value": "quietly"
+								}
+							}
+						},
+						{
+							"kind": "if",
+							"when": "true",
+							"steps": [
+								{
+									"kind": "call",
+									"function": "inner"
+								}
+							]
+						}
+					]
+				},
+				"inner": {
+					"name": "Inner",
+					"params": [],
+					"steps": [
+						{
+							"kind": "do",
+							"action": "device_set",
+							"args": {
+								"device": {
+									"kind": "literal",
+									"value": "aa:bb:cc:dd:ee:01"
+								},
+								"verb": {
+									"kind": "literal",
+									"value": "toggle"
+								}
+							}
+						}
+					]
+				}
+			},
+			"reached": [
+				{ "reach": "step", "path": "0.0", "index": 0, "kind": "tell_assistant" },
+				{ "reach": "step", "path": "0.1", "index": 1, "kind": "if" },
+				{ "reach": "step", "path": "0.1.0.0", "index": 0, "kind": "call" },
+				{ "reach": "step", "path": "0.1.0.0.0", "index": 0, "kind": "device_set" }
+			]
+		},
+		{
+			"name": "a call back into a function above it stands as a call, loop",
+			"automation": {
+				"enabled": true,
+				"trigger": { "kind": "interval", "everyMin": 5 },
+				"actions": [{ "kind": "run_function", "function": "ping" }]
+			},
+			"functions": {
+				"ping": {
+					"name": "Ping",
+					"params": [],
+					"steps": [
+						{
+							"kind": "call",
+							"function": "pong"
+						}
+					]
+				},
+				"pong": {
+					"name": "Pong",
+					"params": [],
+					"steps": [
+						{
+							"kind": "call",
+							"function": "ping"
+						}
+					]
+				}
+			},
+			"reached": [
+				{ "reach": "step", "path": "0.0", "index": 0, "kind": "call" },
+				{ "reach": "step", "path": "0.0.0", "index": 0, "kind": "call" },
+				{ "reach": "unfollowedCall", "path": "0.0.0", "kind": "run_function", "reason": "loop" }
+			]
+		},
+		{
+			"name": "a call to a function that is not held stands as a call, missing",
+			"automation": {
+				"enabled": true,
+				"trigger": { "kind": "interval", "everyMin": 5 },
+				"actions": [{ "kind": "run_function", "function": "caller" }]
+			},
+			"functions": {
+				"caller": {
+					"name": "Caller",
+					"params": [],
+					"steps": [
+						{
+							"kind": "do",
+							"action": "tell_assistant",
+							"args": {
+								"when": {
+									"kind": "literal",
+									"value": "now"
+								}
+							}
+						},
+						{
+							"kind": "call",
+							"function": "gone"
+						}
+					]
+				}
+			},
+			"reached": [
+				{ "reach": "step", "path": "0.0", "index": 0, "kind": "tell_assistant" },
+				{ "reach": "step", "path": "0.1", "index": 1, "kind": "call" },
+				{ "reach": "unfollowedCall", "path": "0.1", "kind": "run_function", "reason": "missing" }
+			]
 		}
 	]
 }

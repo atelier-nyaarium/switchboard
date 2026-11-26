@@ -121,6 +121,21 @@ internal fun movedStep(steps: List<StepDraft>, key: String, slot: Slot): List<St
 	return insertedStep(removedStep(steps, key), slot, step)
 }
 
+/** Relative sibling slot. */
+internal fun shiftedSlot(steps: List<StepDraft>, key: String, delta: Int): Slot? {
+	val (parent, side, list) = listHolding(steps, key) ?: return null
+	val index = list.indexOfFirst { it.key == key } + delta
+	return Slot(parent, side, index).takeIf { index in list.indices }
+}
+
+private fun listHolding(steps: List<StepDraft>, key: String): Triple<String?, Side?, List<StepDraft>>? {
+	if (steps.any { it.key == key }) return Triple(null, null, steps)
+	for (step in everyStep(steps)) {
+		for ((side, list) in sidesOf(step)) if (list.any { it.key == key }) return Triple(step.key, side, list)
+	}
+	return null
+}
+
 /** Each key's path under its function, as the Gateway spells it. */
 internal fun pathsOf(steps: List<StepDraft>, base: String? = null): Map<String, String> =
 	steps.withIndex().flatMap { (index, step) ->
@@ -193,7 +208,7 @@ internal fun stepOfDraft(draft: StepDraft, offer: AutomationOffer, params: List<
 		is StepDraft.If -> {
 			val then = draft.then.map { stepOfDraft(it, offer, params) ?: return null }
 			val otherwise = draft.otherwise.map { stepOfDraft(it, offer, params) ?: return null }
-			draft.condition.trim().takeIf { it.isNotEmpty() }?.let {
+			draft.condition.takeIf { it.isNotBlank() }?.let {
 				FunctionStep.If(`when` = it, steps = then.takeIf { list -> list.isNotEmpty() }, `else` = otherwise.takeIf { list -> list.isNotEmpty() })
 			}
 		}

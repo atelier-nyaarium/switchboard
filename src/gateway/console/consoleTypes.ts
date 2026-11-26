@@ -22,6 +22,7 @@ import type {
 	ConsoleAutomationListResult,
 	ConsoleAutomationPreviewResult,
 	ConsoleAutomationPutResult,
+	ConsoleAutomationRunResult,
 } from "../../shared/schemasAutomation.js";
 import type { ConsoleAutomationCheckResult, ConsoleAutomationSaveResult } from "../../shared/schemasAutomationSave.js";
 import type { ContentEnvelope } from "../../shared/schemasContentKey.js";
@@ -224,6 +225,8 @@ export interface AutomationConsoleHandlers {
 	preview: (
 		request: Omit<Extract<ConsoleOp, { kind: "automation_preview" }>, "kind">,
 	) => Promise<ConsoleAutomationPreviewResult>;
+	/** Once by hand, under its call id. */
+	run: (automationId: string, callId: string) => ConsoleAutomationRunResult;
 }
 
 export interface PolicyConsoleHandlers {

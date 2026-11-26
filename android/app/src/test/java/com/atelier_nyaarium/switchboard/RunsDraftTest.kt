@@ -64,8 +64,12 @@ class RunsDraftTest {
 	private fun open(actions: List<AutomationAction>) =
 		runsDraftOf("mine", Automation(enabled = true, trigger = CROSSING, actions = actions), listOf(blink), FN_OFFER)
 
-	private fun save(runs: RunsDraft, offer: com.atelier_nyaarium.switchboard.assistant.AutomationOffer = FN_OFFER): ConsoleOp.AutomationSave? =
-		saveOpOf("mine", 2L, runs, offer, confirmed = false) { actions ->
+	private fun save(
+		runs: RunsDraft,
+		offer: com.atelier_nyaarium.switchboard.assistant.AutomationOffer = FN_OFFER,
+		own: String? = "fn-own",
+	): ConsoleOp.AutomationSave? =
+		saveOpOf("mine", 2L, runs, offer, confirmed = false, own) { actions ->
 			Automation(enabled = true, trigger = CROSSING, actions = actions)
 		}
 

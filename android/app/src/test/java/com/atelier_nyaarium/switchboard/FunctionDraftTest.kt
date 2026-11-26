@@ -143,7 +143,10 @@ class FunctionDraftTest {
 		assertEquals(made.id, (retry.function as AutomationSaveFunction.Edit).id)
 		assertEquals(AutomationAction.RunFunction(function = made.id), written(named.automation).single())
 		val cleared = namedDraft.withFunctionName("")
-		assertTrue(cleared.runsDraft() is com.atelier_nyaarium.switchboard.assistant.RunsDraft.Flat)
+		val unnamed = cleared.runsDraft() as com.atelier_nyaarium.switchboard.assistant.RunsDraft.Pointing
+		assertEquals(listOf("", pointing.functionId), listOf(unnamed.name, unnamed.functionId))
+		// Plain actions with no name save flat.
+		assertNull(functionSaveOf(cleared, none, serving.offer, confirmed = false)!!.function)
 		assertEquals(pointing.functionId, (cleared.withFunctionName("Again").runsDraft() as com.atelier_nyaarium.switchboard.assistant.RunsDraft.Pointing).functionId)
 		// A fresh body waits for a step.
 		assertNull(functionSaveOf(draft.freshBody(), none, serving.offer, confirmed = false))
@@ -289,9 +292,14 @@ class FunctionDraftTest {
 		val view = runsView(opened, none, live, listOf(shared, hall))!!
 
 		assertEquals(Triple(2, listOf("Hall above 28 °C"), true), Triple(view.usedBy, view.reach, view.makeUnique))
-		val cleared = opened.withFunctionName("", live.functions)
-		assertNull(functionSaveOf(cleared, none, live, confirmed = false))
-		assertTrue(runsView(cleared, none, live, listOf(shared, hall))!!.issue is RunsIssue.SharedName)
+		// Its own copy of the steps; Hall keeps the function.
+		val own = functionSaveOf(opened.withFunctionName("", live.functions), none, live, confirmed = false)!!
+		assertEquals(listOf(null, 3L), listOf(own.function, own.functionBase))
+		assertTrue(written(own.automation).none { it is AutomationAction.RunFunction })
+		val older = live.copy(functions = live.functions!!.copy(served = live.functions!!.served.copy(unnamed = null)))
+		val cleared = opened.withFunctionName("", older.functions)
+		assertNull(functionSaveOf(cleared, none, older, confirmed = false))
+		assertTrue(runsView(cleared, none, older, listOf(shared, hall))!!.issue is RunsIssue.SharedName)
 	}
 
 	@Test

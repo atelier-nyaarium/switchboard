@@ -327,9 +327,10 @@ function judgeSave(
 				})
 			: refused("the function it runs is gone", { code: "unknown_function", id: pointer.function });
 	}
-	// The screen showed another body.
-	if (!toggle && pointer && !sent && intent.kind === "save" && intent.functionBase !== undefined) {
-		const shown = functionAt(pointer.function);
+	// The screen showed another body, kept or flattened.
+	const shownId = pointer?.function ?? heldPointer?.function;
+	if (!toggle && shownId && !sent && intent.kind === "save" && intent.functionBase !== undefined) {
+		const shown = functionAt(shownId);
 		if (shown && shown.revision !== intent.functionBase) {
 			return refused(`revision ${shown.revision} is stored`, {
 				code: "moved",
@@ -360,6 +361,14 @@ function judgeSave(
 				(pointers(id) > 1 || callers.has(id)),
 		);
 		if (shared) return refused(FUNCTION_PRIVATE, { code: "private", record: "function", id: shared.id });
+		// Unread rows may run it.
+		const unknown = view.unreadAutomations > 0 || view.unreadFunctions > 0;
+		const privatized = [...fnWrites].find(([id, each]) => {
+			const was = functionAt(id);
+			return unnamed(each.body) && was !== undefined && !unnamed(was.body);
+		});
+		if (unknown && privatized)
+			return refused(FUNCTION_PRIVATE, { code: "private", record: "function", id: privatized[0] });
 	}
 	// Fresh reach needs sound functions.
 	const before = held ? reachOf(held.body, functionHeld) : new Set<string>();

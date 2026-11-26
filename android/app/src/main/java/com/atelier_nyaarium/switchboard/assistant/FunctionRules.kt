@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard.assistant
 
-import com.atelier_nyaarium.switchboard.parseDecimal
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
@@ -129,6 +128,9 @@ internal sealed interface RunsIssue {
 	/** The card at `key` cannot be a function's step. */
 	data class NotAStep(val key: String) : RunsIssue
 
+	/** Requires a named function. */
+	data class NeedsName(val key: String) : RunsIssue
+
 	data class Unset(val name: String) : RunsIssue
 
 	data object NameWithValues : RunsIssue
@@ -164,13 +166,23 @@ private fun cardIssue(step: StepDraft, offer: AutomationOffer, params: List<Func
 		refIssue ?: actionIssue(step.action, offer, byKey.keys)
 	}
 	is StepDraft.If -> "Its condition is needed".takeIf { step.condition.isBlank() }
-	is StepDraft.Wait -> "Minutes as a number".takeIf { parseDecimal(step.minutes.trim()) == null }
+	is StepDraft.Wait -> waitIssue(step.minutes)
 	is StepDraft.Try, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept -> null
 }
 
 private fun stepIssue(steps: List<StepDraft>, offer: AutomationOffer, params: List<FunctionValueDraft>? = null): RunsIssue? {
 	if (steps.isEmpty()) return RunsIssue.NoSteps
 	return everyStep(steps).firstNotNullOfOrNull { step -> cardIssue(step, offer, params)?.let { RunsIssue.Step(step.key, it) } }
+}
+
+private fun notPlain(steps: List<StepDraft>): StepDraft? =
+	everyStep(steps).firstOrNull { step -> !(step is StepDraft.Do && step.action is ActionDraft.Filled) }
+
+/** Statements need functions. */
+private fun flatIssue(steps: List<StepDraft>, offer: AutomationOffer): RunsIssue? {
+	if (offer.functions == null || flatActions(steps, offer) != null) return null
+	if (!unnamedServed(offer)) return notPlain(steps)?.let { RunsIssue.NeedsName(it.key) }
+	return unwritable(steps, offer, emptyList())?.let { RunsIssue.NotAStep(it.key) }
 }
 
 /** A card the function cannot hold. */
@@ -205,7 +217,7 @@ internal fun runsIssue(
 ): RunsIssue? =
 	when (runs) {
 		is RunsDraft.Kept -> null
-		is RunsDraft.Flat -> stepIssue(runs.steps, offer)
+		is RunsDraft.Flat -> stepIssue(runs.steps, offer) ?: flatIssue(runs.steps, offer)
 		is RunsDraft.Pointing -> stepIssue(runs.steps, offer, runs.params) ?: pointingIssue(runs, selfId, given, offer)
 	}
 
@@ -218,11 +230,10 @@ private fun pointingIssue(
 	if (runs.name.isBlank()) {
 		val others = othersOf(runs, selfId, offer.functions)
 		if (sharedName(runs, others)) return RunsIssue.SharedName(others.size + 1)
-		if (runs.params.isNotEmpty() || doings(runs.steps).any { (it.action as? ActionDraft.Filled)?.references?.isNotEmpty() == true }) {
-			return RunsIssue.NameWithValues
-		}
-		return everyStep(runs.steps).firstOrNull { step -> !(step is StepDraft.Do && step.action is ActionDraft.Filled) }
-			?.let { RunsIssue.NotAStep(it.key) }
+		val values = runs.params.isNotEmpty() || doings(runs.steps).any { (it.action as? ActionDraft.Filled)?.references?.isNotEmpty() == true }
+		if (values && !unnamedServed(offer)) return RunsIssue.NameWithValues
+		if (!unnamedServed(offer)) return notPlain(runs.steps)?.let { RunsIssue.NotAStep(it.key) }
+		return unwritable(runs.steps, offer, runs.params)?.let { RunsIssue.NotAStep(it.key) }
 	}
 	nameIssue(runs.name)?.let { return it }
 	val wireParams = runs.wireParams()
@@ -258,18 +269,21 @@ internal data class RunsView(
 	/** Its function's invalid line. */
 	val invalid: String? = null,
 	val moved: Boolean = false,
+	/** Named, or unnamed where held. */
+	val valuesAllowed: Boolean = false,
 ) {
 	/** No empty header. */
 	val reachHeader: Boolean get() = reach.isNotEmpty()
 }
 
 internal fun canAddValue(view: RunsView): Boolean =
-	!view.kept && view.name.isNotBlank() && view.values.count { it.param != null } < Protocol.Wire.FUNCTION_PARAMS_MAX
+	!view.kept && view.valuesAllowed && view.values.count { it.param != null } < Protocol.Wire.FUNCTION_PARAMS_MAX
 
 /** Cards draw own. */
 private fun blockIssue(issue: RunsIssue?): RunsIssue? = when (issue) {
 	null, RunsIssue.NoSteps, is RunsIssue.Step -> null
 	is RunsIssue.NotAStep,
+	is RunsIssue.NeedsName,
 	is RunsIssue.Unset,
 	RunsIssue.NameWithValues,
 	is RunsIssue.BadParam,
@@ -310,13 +324,14 @@ internal fun runsView(
 						key = value.index?.let { runs.params.getOrNull(it)?.key },
 					)
 				},
-				reach = if (shared && row != null) reachLine(row, draft.id, rows) else emptyList(),
+				reach = if (shared && row != null) reachLine(row, draft.id, rows, functions.rows) else emptyList(),
 				unique = runs.mode == PointMode.UNIQUE,
 				makeUnique = shared,
 				kept = false,
 				issue = issue,
 				invalid = row?.invalid,
 				moved = movedFor(said, runs),
+				valuesAllowed = runs.name.isNotBlank() || unnamedServed(offer),
 			)
 		}
 	}
@@ -329,18 +344,24 @@ internal sealed interface FunctionLine {
 
 	/** Its function is not listed. */
 	data object Unlisted : FunctionLine
+
+	/** Unnamed automation function. */
+	data class Own(val does: String) : FunctionLine
 }
 
 /** Null for an automation with its own steps. */
-internal fun functionLine(row: AutomationRow, functions: List<AutomationFunctionRow>?): FunctionLine? {
+internal fun functionLine(row: AutomationRow, functions: List<AutomationFunctionRow>?, offer: AutomationOffer): FunctionLine? {
 	val pointer = pointerOf(row.automation) ?: return null
 	val held = functions?.firstOrNull { it.id == pointer } ?: return FunctionLine.Unlisted
+	if (held.function.name.isBlank()) {
+		return FunctionLine.Own(written(held.function).joinToString(" · ") { cardLabel(treeOf(it, offer), offer) })
+	}
 	return FunctionLine.Named(held.function.name, usersCount(held))
 }
 
 /** Null where functions are not served or it runs its own steps. */
 internal fun rowFunction(row: AutomationRow, served: Served): FunctionLine? = when (served) {
-	is Served.Known -> served.offer.functions?.let { functionLine(row, it.rows) }
+	is Served.Known -> served.offer.functions?.let { functionLine(row, it.rows, served.offer) }
 	is Served.Unknown -> null
 }
 
@@ -348,13 +369,19 @@ internal fun rowFunction(row: AutomationRow, served: Served): FunctionLine? = wh
 internal fun usersCount(function: AutomationFunctionRow): Int? = function.users.size.takeIf { it > 1 }
 
 /** Who else an edit reaches, by their sentences. */
-internal fun reachLine(function: AutomationFunctionRow, selfId: String, rows: List<AutomationRow>): List<String> =
-	function.users.filter { it != selfId }.mapNotNull { id -> rows.firstOrNull { it.id == id }?.sentence }
+internal fun reachLine(
+	function: AutomationFunctionRow,
+	selfId: String,
+	rows: List<AutomationRow>,
+	functions: List<AutomationFunctionRow> = emptyList(),
+): List<String> =
+	function.users.filter { it != selfId }.mapNotNull { id -> rows.firstOrNull { it.id == id }?.sentence } +
+		function.callers.orEmpty().map { id -> "Called by ${functions.firstOrNull { it.id == id }?.function?.name?.ifBlank { null } ?: id}" }
 
 /** The function a delete takes with it, by name. */
 internal fun automationDeleteTakes(row: AutomationRow, functions: List<AutomationFunctionRow>?): String? {
 	val pointer = pointerOf(row.automation) ?: return null
-	return functions?.firstOrNull { it.id == pointer }?.takeIf { it.users == listOf(row.id) }?.function?.name
+	return functions?.firstOrNull { it.id == pointer }?.takeIf { it.users == listOf(row.id) && it.callers.isNullOrEmpty() }?.function?.name
 }
 
 internal data class PickerRow(
@@ -370,6 +397,7 @@ internal data class PickerRow(
 /** What fits, current first. */
 internal fun pickerChoices(given: TriggerGiven, functions: List<AutomationFunctionRow>, measure: String?, current: String? = null): List<PickerRow> =
 	functions
+		.filter { row -> row.function.name.isNotBlank() }
 		.filter { row ->
 			val fit = fitOf(given, row.function.params, row.reads, emptyMap())
 			!fit.hidden && fit.requires.isEmpty() && fit.wrong.isEmpty()

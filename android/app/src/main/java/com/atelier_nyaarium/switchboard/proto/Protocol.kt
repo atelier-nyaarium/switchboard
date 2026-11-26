@@ -171,6 +171,10 @@ object Protocol {
 		const val FUNCTION_PARAM_NAME_PATTERN: String = "^[a-z][a-z0-9_]{0,31}\$"
 		const val FUNCTION_PARAM_NAME_MAX: Int = 32
 		const val STEP_ARGS_MAX: Int = 4
+		const val STEP_TEXT_MAX: Int = 1000
+		const val WAIT_MINUTES_MAX: Int = 1440
+		const val WALK_ENTRIES_MAX: Int = 256
+		const val RUN_FRAMES_MAX: Int = 16
 		const val FUNCTION_NAME_MAX: Int = 80
 		const val ASSISTANT_HOME_SEALED_MAX_BYTES: Int = 65536
 
@@ -238,6 +242,21 @@ object Protocol {
 		enum class AutomationSaveRecord(val wire: String) {
 			AUTOMATION("automation"),
 			FUNCTION("function"),
+		}
+
+		enum class AutomationRunRefusal(val wire: String) {
+			GONE("gone"),
+			OFF("off"),
+			INVALID("invalid"),
+			AWAY("away"),
+			NOT_ADMITTED("not_admitted"),
+		}
+
+		enum class RunOutcome(val wire: String) {
+			RAN("ran"),
+			REFUSED("refused"),
+			UNCERTAIN("uncertain"),
+			SUPPRESSED("suppressed"),
 		}
 
 		enum class PolicyRefusalCode(val wire: String) {
@@ -361,6 +380,7 @@ object Protocol {
 			const val AUTOMATION_CHECK: String = "automation_check"
 			const val AUTOMATION_DELETE: String = "automation_delete"
 			const val AUTOMATION_PREVIEW: String = "automation_preview"
+			const val AUTOMATION_RUN: String = "automation_run"
 			const val ASSISTANT_SAFETY: String = "assistant_safety"
 			const val ASSISTANT_TEMPERATURE_UNIT: String = "assistant_temperature_unit"
 			const val ASSISTANT_WATCHER_GRANTS: String = "assistant_watcher_grants"
@@ -1563,6 +1583,13 @@ sealed class ConsoleOp {
 		val condition: String? = null,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val runNames: List<String>? = null,
+	) : ConsoleOp()
+
+	@Serializable
+	@SerialName("automation_run")
+	data class AutomationRun(
+		val automationId: String,
+		val callId: String,
 	) : ConsoleOp()
 
 	@Serializable
@@ -3043,6 +3070,13 @@ data class ConsoleAutomationPreviewResult(
 	val hole: AutomationPreviewHole? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val condition: AutomationPreviewCondition? = null,
+)
+
+@Serializable
+data class ConsoleAutomationRunResult(
+	val ran: Boolean,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val refusal: String? = null,
 )
 
 @Serializable

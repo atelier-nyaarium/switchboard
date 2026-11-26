@@ -1,7 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.Automation
-import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationCheckResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationListResult
@@ -9,9 +8,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
-import com.atelier_nyaarium.switchboard.proto.FunctionParam
 import com.atelier_nyaarium.switchboard.proto.Protocol
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 
 /** `serves` rides the same answer as the rows. */
@@ -72,14 +69,8 @@ internal suspend fun ConsoleClient.automationDelete(
 		Protocol.Wire.ConsoleOpKind.AUTOMATION_DELETE,
 	)
 
-internal suspend fun ConsoleClient.automationPreview(
-	gatewayId: String,
-	trigger: AutomationTrigger,
-	text: String?,
-	params: List<FunctionParam>?,
-	values: JsonObject?,
-): ConsoleAutomationPreviewResult? =
-	when (val answer = sendValueAnswer(gatewayId, ConsoleOp.AutomationPreview(trigger = trigger, text = text, params = params, values = values))) {
+internal suspend fun ConsoleClient.automationPreview(gatewayId: String, ask: ConsoleOp.AutomationPreview): ConsoleAutomationPreviewResult? =
+	when (val answer = sendValueAnswer(gatewayId, ask)) {
 		is ConsoleClient.ValueAnswer.Answered ->
 			runIsolated { wireJson.decodeFromJsonElement<ConsoleAutomationPreviewResult>(answer.result) }.getOrNull()
 		is ConsoleClient.ValueAnswer.Refused, is ConsoleClient.ValueAnswer.Undelivered, ConsoleClient.ValueAnswer.Unreachable -> null

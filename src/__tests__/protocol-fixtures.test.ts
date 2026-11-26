@@ -24,6 +24,7 @@ import {
 	ConsoleAutomationListResultSchema,
 	ConsoleAutomationPreviewResultSchema,
 	ConsoleAutomationPutResultSchema,
+	ConsoleAutomationRunResultSchema,
 } from "../shared/schemasAutomation.js";
 import {
 	ConsoleAutomationCheckResultSchema,
@@ -87,6 +88,7 @@ const SCHEMAS: Record<string, z.ZodType> = {
 	ConsoleAutomationCheckResult: ConsoleAutomationCheckResultSchema,
 	AssistantHomeCarried: AssistantHomeCarriedSchema,
 	ConsoleAutomationPreviewResult: ConsoleAutomationPreviewResultSchema,
+	ConsoleAutomationRunResult: ConsoleAutomationRunResultSchema,
 	WorkspaceSaveSpanAnswer: SaveSpanAnswerSchema,
 	WorkspaceFileMutationAnswer: FileMutationAnswerSchema,
 	WorkspaceFileStateAnswer: FileStateAnswerSchema,

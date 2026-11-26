@@ -662,6 +662,59 @@ describe("the stored log", () => {
 	});
 });
 
+describe("a run by hand", () => {
+	const message = (text: string) =>
+		({ kind: "do", action: "ifttt_trigger", args: { event: lit("by-hand"), value1: lit(text) } }) as const;
+
+	it("runs once per call id with the names its trigger gives now, and is the last run", async () => {
+		const w = world();
+		w.save(pointing(hourly), [message("at {time}")]);
+
+		const first = w.console.run("warm", "call-1");
+		await w.automations.settled();
+		// A lost answer, asked again.
+		const again = w.console.run("warm", "call-1");
+		await w.automations.settled();
+		w.console.run("warm", "call-2");
+		await w.automations.settled();
+
+		expect([first, again]).toEqual([{ ran: true }, { ran: true }]);
+		expect(w.effects).toHaveLength(2);
+		expect(w.effects[0]).toMatch(/^ifttt:by-hand:at \d/);
+		expect(w.automations.listing().automations.find((row) => row.id === "warm")?.lastRun).toMatchObject({
+			running: false,
+			steps: [
+				{ path: "0", outcome: "ran" },
+				{ path: "0.0", outcome: "ran" },
+			],
+		});
+	});
+
+	it("is refused off, away from the home for an event, and for an automation that is gone", () => {
+		const w = world();
+		w.save({ ...pointing(hourly), enabled: false }, [turn("on")]);
+		const off = w.console.run("warm", "a");
+		w.save(pointing(event), [turn("on")], { automation: 1, function: 1 });
+
+		expect([off, w.console.run("gone", "b")]).toEqual([
+			{ ran: false, refusal: "off" },
+			{ ran: false, refusal: "gone" },
+		]);
+		expect(w.console.run("warm", "c")).toEqual({ ran: true });
+	});
+
+	it("ignores an event's cool-down and leaves a waiting fire in place", async () => {
+		const w = world();
+		w.save(pointing(event, { coolDownSec: 3_600 }), [turn("on")]);
+		w.automations.fireEvents([{ automation: "warm", key: "first", names: {} }], 1_000_000);
+		await w.automations.settled();
+
+		expect(w.console.run("warm", "now")).toEqual({ ran: true });
+		await w.automations.settled();
+		expect(w.effects).toEqual([`${PLUG}:on`, `${PLUG}:on`]);
+	});
+});
+
 describe("the last run", () => {
 	const last = (w: ReturnType<typeof world>) =>
 		w.automations.listing().automations.find((row) => row.id === "warm")?.lastRun;

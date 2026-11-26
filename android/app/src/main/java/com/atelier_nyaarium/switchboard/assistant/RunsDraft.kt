@@ -214,7 +214,6 @@ internal data class FunctionPreviewScope(val params: List<FunctionParam>, val va
 
 internal fun functionPreviewScopeOf(runs: RunsDraft): FunctionPreviewScope? {
 	val pointing = runs as? RunsDraft.Pointing ?: return null
-	if (pointing.name.isBlank()) return null
 	val values = pointing.params.mapNotNull { row ->
 		pointing.values[row.key]?.let { functionValueOf(row.param, it) }?.let { row.param.name to it }
 	}.toMap()
@@ -226,35 +225,50 @@ private fun bodyOf(name: String, params: List<FunctionValueDraft>, steps: List<S
 	return AutomationFunction(name = name.trim(), params = params.map { it.param }, steps = built)
 }
 
-/** The save op; null when the draft cannot be written. */
+/** Plain actions under cap. */
+internal fun flatActions(steps: List<StepDraft>, offer: AutomationOffer): List<AutomationAction>? {
+	if (steps.isEmpty() || steps.size > MAX_ACTIONS) return null
+	return steps.map { stepAction(it, offer) ?: return null }
+}
+
+internal fun unnamedServed(offer: AutomationOffer): Boolean = offer.functions?.served?.unnamed == true
+
+/** Flat actions; unnamed fallback. */
 internal fun saveOpOf(
 	automationId: String,
 	automationBase: Long,
 	runs: RunsDraft,
 	offer: AutomationOffer,
 	confirmed: Boolean,
+	ownFunctionId: String?,
 	automationOf: (List<AutomationAction>) -> Automation?,
 ): ConsoleOp.AutomationSave? {
-	fun op(actions: List<AutomationAction>, function: AutomationSaveFunction?): ConsoleOp.AutomationSave? {
+	fun op(actions: List<AutomationAction>, function: AutomationSaveFunction?, functionBase: Long? = null): ConsoleOp.AutomationSave? {
 		val automation = automationOf(actions) ?: return null
 		return ConsoleOp.AutomationSave(
 			automationId = automationId,
 			automation = automation,
 			automationBase = automationBase,
 			function = function,
-			functionBase = (runs as? RunsDraft.Pointing)
-				?.takeIf { function == null && it.mode == PointMode.SHARED && bodyOf(it.name, it.params, it.steps, offer) == it.original }
-				?.base,
+			functionBase = functionBase,
 			confirmed = confirmed.takeIf { it },
 		)
 	}
 	return when (runs) {
 		is RunsDraft.Kept -> op(listOf(runs.action), null)
-		is RunsDraft.Flat -> op(runs.steps.map { stepAction(it, offer) ?: return null }, null)
+		is RunsDraft.Flat -> {
+			flatActions(runs.steps, offer)?.let { return op(it, null) }
+			val id = ownFunctionId?.takeIf { unnamedServed(offer) } ?: return null
+			val body = bodyOf("", emptyList(), runs.steps, offer) ?: return null
+			op(listOf(AutomationAction.RunFunction(function = id)), AutomationSaveFunction.Edit(id = id, body = body, base = 0L))
+		}
 		is RunsDraft.Pointing -> {
 			if (runs.name.isBlank()) {
-				if (sharedName(runs, othersOf(runs, automationId, offer.functions)) || runs.params.isNotEmpty()) return null
-				return op(runs.steps.map { stepAction(it, offer) ?: return null }, null)
+				if (sharedName(runs, othersOf(runs, automationId, offer.functions))) return null
+				// The revision it read guards the flatten.
+				val read = runs.base.takeIf { runs.original != null }
+				if (runs.params.isEmpty()) flatActions(runs.steps, offer)?.let { return op(it, null, read) }
+				if (!unnamedServed(offer)) return null
 			}
 			val values = runs.params.mapNotNull { row -> runs.values[row.key]?.let { functionValueOf(row.param, it) }?.let { row.param.name to it } }
 			val pointer = runs.held.copy(function = runs.functionId, values = JsonObject(values.toMap()).takeIf { values.isNotEmpty() })
@@ -264,7 +278,7 @@ internal fun saveOpOf(
 				PointMode.UNIQUE -> AutomationSaveFunction.Copy(from = runs.functionId, fromBase = runs.base, body = body)
 				PointMode.NEW -> AutomationSaveFunction.Edit(id = runs.functionId, body = body, base = 0L)
 			}
-			op(listOf(pointer), function)
+			op(listOf(pointer), function, runs.base.takeIf { function == null && runs.mode == PointMode.SHARED })
 		}
 	}
 }
@@ -279,12 +293,9 @@ internal fun AutomationDraft.withFunctionName(name: String, functions: FunctionO
 	is RunsHead.Points -> {
 		val pointing = head.pointing.copy(steps = steps)
 		if (name.isNotBlank()) return copy(runs = RunsHead.Points(pointing.copy(name = name)))
-		val others = othersOf(pointing, id, functions)
-		val hasRefs = doings(pointing.steps).any { (it.action as? ActionDraft.Filled)?.references?.isNotEmpty() == true }
-		if (sharedName(pointing, others)) return copy(runs = RunsHead.Points(pointing.copy(name = "")))
-		if (pointing.params.isNotEmpty() || hasRefs) return copy(runs = RunsHead.Points(pointing.copy(name = "")))
-		if (pointing.steps.any { stepAction(it, context.offer) == null }) return copy(runs = RunsHead.Points(pointing.copy(name = "")))
-		withRuns(RunsDraft.Flat(pointing.steps)).copy(newFunctionId = pointing.functionId.takeIf { pointing.mode == PointMode.NEW } ?: newFunctionId)
+		// Others keep the name; this one copies.
+		val copies = sharedName(pointing, othersOf(pointing, id, functions)) && functions?.served?.unnamed == true
+		copy(runs = RunsHead.Points(pointing.copy(name = "", mode = if (copies) PointMode.UNIQUE else pointing.mode)))
 	}
 	is RunsHead.Kept -> this
 }
@@ -342,7 +353,8 @@ internal fun AutomationDraft.madeUnique(offer: AutomationOffer): AutomationDraft
 	is RunsHead.Points -> {
 		val listed = offer.functions?.rows.orEmpty().map { it.function.name }
 		val base = head.pointing.name.ifBlank { head.pointing.original?.name.orEmpty() }
-		copy(runs = RunsHead.Points(head.pointing.copy(mode = PointMode.UNIQUE, name = uniqueFunctionName(base, listed))))
+		val name = if (base.isBlank()) "" else uniqueFunctionName(base, listed)
+		copy(runs = RunsHead.Points(head.pointing.copy(mode = PointMode.UNIQUE, name = name)))
 	}
 	is RunsHead.Own, is RunsHead.Kept -> this
 }
@@ -355,11 +367,15 @@ internal fun AutomationDraft.pointedTo(row: AutomationFunctionRow, offer: Automa
 }
 
 /** A fresh empty body, a function once named. */
-internal fun AutomationDraft.freshBody(): AutomationDraft = withRuns(RunsDraft.Flat(emptyList())).copy(picking = false)
+internal fun AutomationDraft.freshBody(): AutomationDraft =
+	withRuns(RunsDraft.Flat(emptyList())).copy(picking = false, newFunctionId = null)
 
 /** Other users first. */
-internal fun othersOf(runs: RunsDraft.Pointing, selfId: String, functions: FunctionOffer?): List<String> =
-	functions?.row(runs.functionId)?.users?.filter { it != selfId }.orEmpty()
+/** Other automations, then calling functions. */
+internal fun othersOf(runs: RunsDraft.Pointing, selfId: String, functions: FunctionOffer?): List<String> {
+	val row = functions?.row(runs.functionId) ?: return emptyList()
+	return row.users.filter { it != selfId } + row.callers.orEmpty()
+}
 
 /** Its name names a body others run. */
 internal fun sharedName(runs: RunsDraft.Pointing, others: List<String>): Boolean = runs.mode == PointMode.SHARED && others.isNotEmpty()

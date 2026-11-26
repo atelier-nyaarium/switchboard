@@ -40,6 +40,10 @@ import com.atelier_nyaarium.switchboard.proto.AutomationCondition
 import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
 import com.atelier_nyaarium.switchboard.proto.AutomationNumberOffer
 import com.atelier_nyaarium.switchboard.proto.AutomationSwitchOffer
+import com.atelier_nyaarium.switchboard.proto.AutomationConditionIssue
+import com.atelier_nyaarium.switchboard.proto.AutomationPreviewCondition
+import com.atelier_nyaarium.switchboard.proto.AutomationLastRun
+import com.atelier_nyaarium.switchboard.proto.AutomationLastStep
 import com.atelier_nyaarium.switchboard.proto.AutomationPreviewHole
 import com.atelier_nyaarium.switchboard.proto.AutomationPreviewMatch
 import com.atelier_nyaarium.switchboard.proto.AutomationPreviewName
@@ -132,6 +136,8 @@ internal val SANDBOX_SERVES = AutomationServes(
 		max = Protocol.Wire.FUNCTIONS_MAX.toLong(),
 		steps = listOf("tell_assistant", "device_set", "ifttt_trigger"),
 		paramTypes = listOf("device", "text", "number"),
+		statements = listOf("do", "if", "try", "exit", "throw", "let", "wait", "note", "call"),
+		unnamed = true,
 	),
 	numbers = listOf(
 		AutomationNumberOffer(SANDBOX_SENSOR, "temperature", "Outside thermometer temperature", "C", 1L),
@@ -303,6 +309,21 @@ internal class SandboxAutomationGateway(
 					step("tell_assistant", "when" to StepArg.Literal(JsonPrimitive("now")), "message" to StepArg.Literal(JsonPrimitive("{message}"))),
 				),
 			)),
+			"fn-humid" to (1L to AutomationFunction(
+				name = "",
+				params = emptyList(),
+				steps = listOf(
+					FunctionStep.If(
+						`when` = "value > 60",
+						steps = listOf(step("device_set", "device" to StepArg.Literal(JsonPrimitive(SANDBOX_SWITCH)), "verb" to StepArg.Literal(JsonPrimitive("on")))),
+						`else` = listOf(step("tell_assistant", "when" to StepArg.Literal(JsonPrimitive("quietly")), "message" to StepArg.Literal(JsonPrimitive("Dry enough.")))),
+					),
+					FunctionStep.Try(
+						steps = listOf(FunctionStep.Wait(StepArg.Literal(JsonPrimitive(5)))),
+						catch = listOf(step("tell_assistant", "when" to StepArg.Literal(JsonPrimitive("now")), "message" to StepArg.Literal(JsonPrimitive("The lamp did not answer.")))),
+					),
+				),
+			)),
 			SANDBOX_MOVING_FUNCTION to (1L to AutomationFunction(
 				name = "Night lamp",
 				params = emptyList(),
@@ -345,6 +366,20 @@ internal class SandboxAutomationGateway(
 				pointing("blink-evening", AutomationTrigger.Time("19:00", (1L..7L).toList(), "America/Los_Angeles"), "blink", mapOf("lamp" to SANDBOX_SWITCH, "message" to "Good night")),
 				pointing("blink-morning", AutomationTrigger.Time("07:00", (1L..7L).toList(), "America/Los_Angeles"), "blink", mapOf("lamp" to SANDBOX_SWITCH, "message" to "Good morning")),
 				pointing("lamp-off", AutomationTrigger.Time("23:00", (1L..7L).toList(), "America/Los_Angeles"), SANDBOX_MOVING_FUNCTION),
+				pointing("humid", AutomationTrigger.Crossing(SANDBOX_SENSOR, "humidity", "above", 60.0, 2.0, 600L), "fn-humid").copy(
+					lastRun = AutomationLastRun(
+						at = now() - 2 * HOUR_MS,
+						revision = 1L,
+						steps = listOf(
+							AutomationLastStep("0", "run_function", outcome = "ran"),
+							AutomationLastStep("0.0", "if", outcome = "ran", side = "else", function = "fn-humid"),
+							AutomationLastStep("0.0.1.0", "tell_assistant", outcome = "ran", function = "fn-humid"),
+							AutomationLastStep("0.1", "try", outcome = "ran", function = "fn-humid"),
+							AutomationLastStep("0.1.0.0", "wait", outcome = "ran", function = "fn-humid"),
+						),
+						running = false,
+					),
+				),
 			)
 		}
 	}
@@ -653,13 +688,11 @@ internal class SandboxAutomationGateway(
 	}
 
 	/** Matches titles by each value; a text fills only a hole that is one name. */
-	override suspend fun preview(
-		gatewayId: String,
-		trigger: AutomationTrigger,
-		text: String?,
-		params: List<FunctionParam>?,
-		values: JsonObject?,
-	): ConsoleAutomationPreviewResult? {
+	override suspend fun preview(gatewayId: String, ask: ConsoleOp.AutomationPreview): ConsoleAutomationPreviewResult? {
+		val trigger = ask.trigger
+		val text = ask.text
+		val params = ask.params
+		val values = ask.values
 		pause()
 		if (gatewayId == SANDBOX_NEVER_REGISTERED || gatewayId == SECOND_SANDBOX_GATEWAY) return null
 		val names = namesOf(trigger) + params.orEmpty().map { param ->
@@ -695,6 +728,23 @@ internal class SandboxAutomationGateway(
 			names = names,
 			filled = filled,
 			hole = hole,
+			condition = ask.condition?.let { sandboxCondition(it, names) },
 		)
 	}
+}
+
+private val SANDBOX_COMPARE = Regex("""^(\w+)\s*(>|<)\s*(-?\d+(?:\.\d+)?)$""")
+
+/** Booleans and numeric comparisons. */
+private fun sandboxCondition(condition: String, names: List<AutomationPreviewName>): AutomationPreviewCondition {
+	val typed = condition.trim()
+	if (typed == "true" || typed == "false") return AutomationPreviewCondition(holds = typed == "true")
+	val compare = SANDBOX_COMPARE.matchEntire(typed)
+	val shown = compare?.let { match -> names.find { it.name == match.groupValues[1] }?.shown?.takeWhile { it == '-' || it == '.' || it.isDigit() }?.toDoubleOrNull() }
+	if (compare != null && shown != null) {
+		val against = compare.groupValues[3].toDouble()
+		return AutomationPreviewCondition(holds = if (compare.groupValues[2] == ">") shown > against else shown < against)
+	}
+	if (names.any { typed.contains(it.name) }) return AutomationPreviewCondition(unread = "it cannot be read now")
+	return AutomationPreviewCondition(issue = AutomationConditionIssue(0L, typed.length.toLong(), "no name $typed here"))
 }

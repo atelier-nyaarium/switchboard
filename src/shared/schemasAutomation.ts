@@ -612,6 +612,17 @@ export const ConsoleAutomationDeleteResultSchema = z
 	.object({ deleted: z.boolean(), reason: z.string().optional() })
 	.meta({ id: "ConsoleAutomationDeleteResult" });
 
+/** Why a run by hand did not start. */
+export const AUTOMATION_RUN_REFUSALS = ["gone", "off", "invalid", "away", "not_admitted"] as const;
+
+export const ConsoleAutomationRunResultSchema = z
+	.object({
+		ran: z.boolean(),
+		refusal: z.enum(AUTOMATION_RUN_REFUSALS).meta({ id: "AutomationRunRefusal" }).optional(),
+	})
+	.meta({ id: "ConsoleAutomationRunResult" });
+export type ConsoleAutomationRunResult = z.infer<typeof ConsoleAutomationRunResultSchema>;
+
 export const AUTOMATION_PREVIEW_EVENTS = 50;
 export const AUTOMATION_PREVIEW_SHOWN = 10;
 

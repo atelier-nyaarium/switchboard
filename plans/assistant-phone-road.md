@@ -2295,6 +2295,10 @@ Written on the Fable tier before the phone work (Question 90). The build is Opus
 - **Both settings** (Question 82) sit on the draft: "Keep trying for" for every automation, "Cool down" on the trigger form, an event's included.
 - **JVM tests:** tree edits keep every other key and refuse at each cap; `cardsDraw` over a body with both sides, a catch and a kept card; the path vectors; the byte-equal case; the save's choice of flat or function.
 
+Built on 2026-11-26 (Opus block) as written, with these changes. Cards draw every depth, not one: an If or a Try in a side indents under it, so `cardsStanding` is not used to lock a body. The byte-equal gate is a JVM test over the shared `function-tree-future-kind.json`, since the Gateway's schema refuses an unknown kind and the phone-encoded corpus is parsed by it. A card moves up or down its own list (`shiftedSlot`); moving into or out of a side waits for the script. The sandbox serves statements and unnamed functions and holds one unnamed tree with a last run, so the emulator shows both. Walked in the emulator: nested sides, "False right now", the last run per card, the add menu with statements, the condition page with bare names, and the list row of an unnamed function.
+
+Sol's architecture read found six, each fixed with a test that fails without it: a flatten sent no function revision, so an edit made elsewhere was lost (the save names the function it held, and the judge checks it with no pointer left); values were still refused on an unnamed function, against Question 91's second rule; "who else runs it" read automations and not calling functions, on the phone's copy, reach line and delete line, and the Gateway made a function unnamed while unread rows left its users unknown; a fresh body kept the old minted id; a last run could be drawn over cards an editor opened at an older revision; and a trimmed condition put the Gateway's offsets in the wrong place. Not taken: binding a check's `reads` to the exact op, since the last answer is closer to the draft than the stored row's and the next check replaces it.
+
 ## Question 91 - What is a tree with no name stored as?
 
 An automation's own steps are stored flat, with no function record, and a flat list cannot hold an If. A function record's name must be at least one character. Question 75 said nothing asks for a name.
@@ -2369,6 +2373,18 @@ Built on 2026-11-26 as written, with these additions the code asked for:
 - **The list** answers `callers` on a function's row, and `moves` and `reads` follow calls. A function no automation reaches is unlisted and swept after a week, with what it called once nothing reaches that either.
 - **A move** carries every function its automations reach (`carriedFunctionsOf`, both runtimes, shared vectors), maps each carried body's calls to where the callee landed, binds a call whose function did not come to no staying function, and keeps a move in place's callees as held.
 - **The phone compiles and carries, nothing more:** the `call` branches, the `loop` refusal's line, and the carry selector's twin. Its walk follows no call and no card draws one.
+
+### How Calls are to be built on the phone, and the Run button (slice 6, Opus block)
+
+Written before the code. Each line is a ruling until the code says otherwise.
+
+- **A call is a card:** `StepDraft.Call(key, function, values)`, each value a `Typed` literal as the callee's value type reads it, or a `Read` expression in the caller's scope. The card offers a name in scope (the trigger's, the caller's values, kept values, `e` in a catch) as a `Read`; any other stored expression is shown as written and can be cleared, never edited in place.
+- **The call picker** lists named functions only, leaves out any whose calls reach the function being edited (a loop), and shows each one's values as the pointer picker does. "New" makes a named function with no steps, written with base 0.
+- **A callee is edited from inside the automation's edit:** the Call card opens its page, a stack of function ids on the draft (`inside`), drawing the callee's cards with `CardsSection`, its name read-only and who else runs it. Its edits sit on the draft (`callees`, by id, with the base and body it was read at) and every key is unique across the draft, so a text page, a said-at and a refusal find their card wherever it sits. A refusal naming a called function by `id` maps its `step` path under that function's cards.
+- **The save sends `called`:** every callee whose body differs from what it was read at, with its base; an unchanged callee is not sent. A callee nothing reaches any more is dropped from the draft before the op is built, so the Gateway's "the automation does not run it" is never earned by the phone.
+- **No last run on a callee's page:** a callee reached from two sites has two paths. The Call card itself shows how its call ended.
+- **The walk's twin follows calls** as the TypeScript one does: through `if` and `try` sides and into callees, under the call's path, with `loop`, `missing` and `budget`, and the walk vectors gain cases for each. The phone reads reach through it, never its own descent.
+- **The Run button** fires an automation once by hand: `automation_run { automationId, callId }`, deduped by the call id, admitted as a fire of its own (`manual`), its names read from what the trigger would give now (a crossing's reading, a clock's time), and a name it cannot give reads unread, as a hole that cannot be filled does. It is refused for a disabled automation and away from the home for an event automation, and logs as any run, so the last run shows it. The button sits in the editor's menu and is offered only when the draft is unchanged.
 
 ### Bug Classes
 

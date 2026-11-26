@@ -29,8 +29,6 @@ import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationFunctionRow
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationServes
-import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
-import com.atelier_nyaarium.switchboard.proto.FunctionParam
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationCheckResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
@@ -40,7 +38,6 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.serialization.json.JsonObject
 
 /** A Gateway's rows, and the kinds it says it holds. */
 internal data class AutomationListing(
@@ -71,14 +68,7 @@ internal interface AutomationGateway {
 
 	suspend fun check(gatewayId: String, op: ConsoleOp.AutomationCheck): ConsoleAutomationCheckResult?
 
-	/** `text` is a message whose holes to fill. */
-	suspend fun preview(
-		gatewayId: String,
-		trigger: AutomationTrigger,
-		text: String?,
-		params: List<FunctionParam>? = null,
-		values: JsonObject? = null,
-	): ConsoleAutomationPreviewResult?
+	suspend fun preview(gatewayId: String, ask: ConsoleOp.AutomationPreview): ConsoleAutomationPreviewResult?
 }
 
 internal interface AutomationHost {
@@ -352,16 +342,10 @@ internal class AutomationOps(
 		AutomationSaved.Unreachable -> GATEWAY_UNREACHABLE
 	}
 
-	suspend fun preview(
-		gatewayId: String,
-		trigger: AutomationTrigger,
-		text: String? = null,
-		params: List<FunctionParam>? = null,
-		values: JsonObject? = null,
-	): ConsoleAutomationPreviewResult? {
+	suspend fun preview(gatewayId: String, ask: ConsoleOp.AutomationPreview): ConsoleAutomationPreviewResult? {
 		val client = host.gateway ?: return null
 		if (gatewayId.isBlank()) return null
-		return attempt { client.preview(gatewayId, trigger, text, params, values) }
+		return attempt { client.preview(gatewayId, ask) }
 	}
 
 	suspend fun check(gatewayId: String, save: ConsoleOp.AutomationSave): ConsoleAutomationCheckResult? {

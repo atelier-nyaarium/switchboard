@@ -117,6 +117,61 @@ const refusalOf = (saved: ReturnType<ReturnType<typeof open>["save"]>) => {
 	return refusal;
 };
 
+describe("a save that changes who owns a function", () => {
+	const record = <T>(id: string, kind: string, revision: number, body: T): OwnerRecord<T> => ({
+		id,
+		kind,
+		revision,
+		incarnation: id,
+		body,
+	});
+	const pointer = pointing(hourly, "fn");
+	const view = (patch: Partial<AutomationJudgeView> = {}): AutomationJudgeView => ({
+		held: [record("warm", "automation", 1, AutomationSchema.parse(pointer))],
+		functions: [record("fn", "function", 2, FunctionSchema.parse({ ...fn([tell]), name: "Shared" }))],
+		unreadAutomations: 0,
+		unreadFunctions: 0,
+		isHome: true,
+		assess: () => [],
+		copyIdOf: () => "copy-0",
+		carryIdOf: () => "carry-0",
+		unreadAt: () => false,
+		unreadFunctionAt: () => false,
+		...patch,
+	});
+	const codeOf = (intent: AutomationIntent, held: AutomationJudgeView) => {
+		const verdict = judgeAutomationWrite(intent, held);
+		return verdict.kind === "refused" ? verdict.refusal.code : "written";
+	};
+	const flat = { ...pointer, actions: [{ kind: "tell_assistant" as const, when: "now" as const }] };
+
+	it("flattens only the function revision the screen showed", () => {
+		const flatten = (functionBase: number): AutomationIntent => ({
+			kind: "save",
+			id: "warm",
+			body: flat,
+			base: 1,
+			functionBase,
+			confirmed: true,
+		});
+
+		expect([codeOf(flatten(1), view()), codeOf(flatten(2), view())]).toEqual(["moved", "written"]);
+	});
+
+	it("makes no function unnamed while an unread row may run it", () => {
+		const clear: AutomationIntent = {
+			kind: "save",
+			id: "warm",
+			body: pointer,
+			base: 1,
+			function: { as: "edit", id: "fn", base: 2, body: { ...fn([tell]), name: "" } },
+			confirmed: true,
+		};
+
+		expect([codeOf(clear, view()), codeOf(clear, view({ unreadAutomations: 1 }))]).toEqual(["written", "private"]);
+	});
+});
+
 describe("save refusal lines", () => {
 	it("gives every judge refusal a bounded sentence", () => {
 		const record = <T>(id: string, kind: string, body: T): OwnerRecord<T> => ({

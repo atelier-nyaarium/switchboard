@@ -49,6 +49,7 @@ import com.atelier_nyaarium.switchboard.proto.Protocol
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import com.atelier_nyaarium.switchboard.assistant.AutomationOffer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -147,9 +148,9 @@ class FunctionRulesTest {
 	}
 
 	@Test
-	fun addValueRequiresANamedWritableFunctionBelowItsCap() {
+	fun addValueNeedsAFunctionThatHoldsValuesBelowItsCap() {
 		val empty = RunsView("", true, null, emptyList(), emptyList(), unique = false, makeUnique = false, kept = false, issue = null)
-		val named = empty.copy(name = "Notify")
+		val named = empty.copy(name = "Notify", valuesAllowed = true)
 		val full = named.copy(values = (1..Protocol.Wire.FUNCTION_PARAMS_MAX).map { index ->
 			ValueRow("v$index", TypeWord.Declared("text"), ValueSource.Unset, FunctionParam("v$index", "text"))
 		})
@@ -187,20 +188,23 @@ class FunctionRulesTest {
 	}
 
 	@Test
-	fun declaredNamesAreValidatedAndClearedValuesStayBlocked() {
+	fun declaredNamesAreValidatedAndClearedValuesStayWhereUnnamedIsHeld() {
 		val sole = functionRow("solo", "Solo", listOf("mine"), steps = listOf(plugStep("on")))
 		val base = pointedAt(RunsDraft.Flat(emptyList()), "mine", sole, FN_OFFER)
-		fun issue(params: List<FunctionParam>, name: String = "Solo") =
+		val older = FN_OFFER.copy(functions = FN_OFFER.functions!!.copy(served = FN_OFFER.functions!!.served.copy(unnamed = null)))
+		fun issue(params: List<FunctionParam>, name: String = "Solo", offer: AutomationOffer = FN_OFFER) =
 			runsIssue(base.copy(name = name, params = params.mapIndexed { index, param ->
 				base.params.getOrNull(index)?.copy(param = param) ?: FunctionValueDraft("value-$index", param)
-			}), "mine", given, FN_OFFER)
+			}), "mine", given, offer)
 
 		assertEquals(RunsIssue.BadParam("", ParamIssue.EMPTY), issue(listOf(FunctionParam("", "text"))))
 		assertEquals(RunsIssue.BadParam("Lamp", ParamIssue.INVALID), issue(listOf(FunctionParam("Lamp", "text"))))
 		assertEquals(RunsIssue.BadParam("lamp", ParamIssue.DUPLICATE), issue(listOf(FunctionParam("lamp", "text"), FunctionParam("lamp", "number"))))
 		assertNull(issue(listOf(FunctionParam("device", "text"))))
 		assertEquals(RunsIssue.TooManyParams, issue((1..9).map { FunctionParam("v$it", "text") }))
-		assertEquals(RunsIssue.NameWithValues, issue(listOf(FunctionParam("lamp", "device")), name = ""))
+		// Values stay on an unnamed function only where the Gateway holds one.
+		assertNull(issue(listOf(FunctionParam("lamp", "device")), name = ""))
+		assertEquals(RunsIssue.NameWithValues, issue(listOf(FunctionParam("lamp", "device")), name = "", offer = older))
 	}
 
 	@Test
@@ -217,10 +221,14 @@ class FunctionRulesTest {
 	fun theListNamesEachRowsFunctionAndCountsOnlyAShared() {
 		val functions = listOf(tooWarm, frost)
 
-		assertEquals(FunctionLine.Named("Too warm", 2), functionLine(rows[0], functions))
-		assertEquals(FunctionLine.Named("Frost warning", null), functionLine(rows[2], functions))
-		assertNull(functionLine(rows[3], functions))
-		assertEquals(FunctionLine.Unlisted, functionLine(rows[4], functions))
+		val own = functionRow("fn-own", "", listOf("mine"), steps = listOf(FunctionStep.If(`when` = "true", steps = listOf(plugStep("on"))), plugStep("off")))
+		val pointing = automationRow("own", "Every day at 06:00", listOf(AutomationAction.RunFunction(function = "fn-own")))
+
+		assertEquals(FunctionLine.Named("Too warm", 2), functionLine(rows[0], functions, FN_OFFER))
+		assertEquals(FunctionLine.Named("Frost warning", null), functionLine(rows[2], functions, FN_OFFER))
+		assertNull(functionLine(rows[3], functions, FN_OFFER))
+		assertEquals(FunctionLine.Unlisted, functionLine(rows[4], functions, FN_OFFER))
+		assertEquals(FunctionLine.Own("If · Switch a plug"), functionLine(pointing, functions + own, FN_OFFER))
 		assertEquals(listOf("Downstairs thermometer above 26 °C"), reachLine(tooWarm, "mine", rows))
 		assertEquals("Frost warning", automationDeleteTakes(rows[2], functions))
 		assertNull(automationDeleteTakes(rows[0], functions))

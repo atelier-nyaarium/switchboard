@@ -556,6 +556,9 @@ export function createConsoleDispatcher({
 			case "automation_preview":
 				return requireAutomations().preview(op);
 
+			case "automation_run":
+				return requireAutomations().run(op.automationId, op.callId);
+
 			case "assistant_safety":
 				return requireAssistant().setSafety(op.approveEverySend);
 

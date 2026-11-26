@@ -87,6 +87,7 @@ private fun AutomationRowView(
 				null -> Text(doesText(row.automation, served), style = MaterialTheme.typography.bodySmall, color = dim)
 				is FunctionLine.Named -> FunctionName(function.name, function.count)
 				FunctionLine.Unlisted -> Text(FUNCTION_UNLISTED, style = MaterialTheme.typography.bodySmall, color = dim)
+				is FunctionLine.Own -> Text(function.does, style = MaterialTheme.typography.bodySmall, color = dim)
 			}
 			Text(
 				row.invalid ?: ranText(row, ::agoText, ::untilText),
