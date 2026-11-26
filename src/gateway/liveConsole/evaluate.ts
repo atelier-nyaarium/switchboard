@@ -6,6 +6,7 @@ import {
 } from "../../shared/live-console-grammar.js";
 import { ConsoleError, checkArgs, elementOf, freeBuiltin, runBuiltin, runFree, sameValue } from "./builtins.js";
 import { type ConsoleAudience, type ConsoleEntity, type ConsoleRegistry, resolveName } from "./registry.js";
+import { shownText } from "./shown.js";
 
 /** What an action answers anywhere but a script's own statement. */
 export const DOING_REFUSED = "an action is a statement of its own";
@@ -30,7 +31,10 @@ export type ConsoleResult = { ok: true; results: ConsoleStatementResult[] } | { 
 export interface ConsoleVariable {
 	value: unknown;
 	type?: string;
+	shown?: string;
 }
+
+export type ConsoleNodeResult = { ok: true; value: unknown; type?: string } | { ok: false; issue: ConsoleIssue };
 
 export interface ConsoleEvalOptions {
 	stepsMax?: number;
@@ -75,18 +79,8 @@ const settle = async (value: unknown): Promise<unknown> => {
 	return held === undefined ? null : structuredClone(held);
 };
 
-export async function evaluateConsole(
-	source: string,
-	registry: ConsoleRegistry,
-	audience: ConsoleAudience,
-	options: ConsoleEvalOptions = {},
-): Promise<ConsoleResult> {
+function reader(registry: ConsoleRegistry, audience: ConsoleAudience, options: ConsoleEvalOptions) {
 	const stepsMax = options.stepsMax ?? CONSOLE_STEPS_MAX;
-	const parsed = parseConsole(source);
-	const first = parsed.issues[0];
-	if (first) return { ok: false, issue: first };
-	if (parsed.statements.length === 0)
-		return { ok: false, issue: { code: "empty", start: 0, end: 0, message: "nothing to read" } };
 	// Saves feed later statements.
 	const variables = new Map<string, ConsoleVariable>(Object.entries(options.variables ?? {}));
 	const isEntity = (name: string): boolean =>
@@ -104,7 +98,7 @@ export async function evaluateConsole(
 		if (steps > stepsMax) throw new ConsoleError("too_big", `ran past ${stepsMax} steps`);
 	};
 
-	const fail = (node: ConsoleNode, code: string, message: string): never => {
+	const fail = (node: { start: number; end: number }, code: string, message: string): never => {
 		throw new Located(code, message, node.start, node.end);
 	};
 
@@ -232,6 +226,29 @@ export async function evaluateConsole(
 		switch (node.kind) {
 			case "literal":
 				return node.value;
+			case "template": {
+				let text = "";
+				for (const piece of node.pieces) {
+					if (piece.kind !== "hole") {
+						text += piece.value;
+						continue;
+					}
+					const inner = piece.node;
+					if (!inner || piece.broken) return fail(piece, "incomplete", "a hole here cannot be read");
+					const named =
+						inner.kind === "ident"
+							? resolveName(registry, audience, inner.name, (name) => variables.get(name))
+							: null;
+					const shown = named?.kind === "held" ? named.held.shown : undefined;
+					if (shown !== undefined) {
+						text += shown;
+						continue;
+					}
+					const value = scalar(inner, await walk(inner));
+					text += shownText(value) ?? fail(inner, "wrong_type", `${kindOf(value)} has no short form`);
+				}
+				return text;
+			}
 			case "ident": {
 				const meaning = resolveName(registry, audience, node.name, (name) => variables.get(name));
 				if (meaning.kind === "entity") return new EntityRef(meaning.entity);
@@ -314,6 +331,48 @@ export async function evaluateConsole(
 		}
 	};
 
+	return { walk, typeOf, isEntity, variables, fail };
+}
+
+function issueOf(error: unknown, length: number): ConsoleIssue {
+	if (error instanceof Located) {
+		return { code: error.code, start: error.start, end: error.end, message: error.message };
+	}
+	if (error instanceof ConsoleError) return { code: error.code, start: 0, end: length, message: error.message };
+	const message = error instanceof Error ? error.message : String(error);
+	return { code: "failed", start: 0, end: length, message: `the read failed: ${message}` };
+}
+
+export async function evaluateNode(
+	node: ConsoleNode,
+	length: number,
+	registry: ConsoleRegistry,
+	audience: ConsoleAudience,
+	options: ConsoleEvalOptions = {},
+): Promise<ConsoleNodeResult> {
+	const { walk, typeOf, fail } = reader(registry, audience, options);
+	try {
+		const value = await walk(node);
+		if (value instanceof EntityRef) fail(node, "is_entity", `${value.entity.name} is an entity; pick a member`);
+		const type = typeOf(value);
+		return { ok: true, value, ...(type ? { type } : {}) };
+	} catch (error) {
+		return { ok: false, issue: issueOf(error, length) };
+	}
+}
+
+export async function evaluateConsole(
+	source: string,
+	registry: ConsoleRegistry,
+	audience: ConsoleAudience,
+	options: ConsoleEvalOptions = {},
+): Promise<ConsoleResult> {
+	const parsed = parseConsole(source);
+	const first = parsed.issues[0];
+	if (first) return { ok: false, issue: first };
+	if (parsed.statements.length === 0)
+		return { ok: false, issue: { code: "empty", start: 0, end: 0, message: "nothing to read" } };
+	const { walk, typeOf, isEntity, variables, fail } = reader(registry, audience, options);
 	try {
 		const results: ConsoleStatementResult[] = [];
 		for (const { node, assign, start, end } of parsed.statements) {
@@ -341,19 +400,6 @@ export async function evaluateConsole(
 		}
 		return { ok: true, results };
 	} catch (error) {
-		if (error instanceof Located) {
-			return {
-				ok: false,
-				issue: { code: error.code, start: error.start, end: error.end, message: error.message },
-			};
-		}
-		if (error instanceof ConsoleError) {
-			return { ok: false, issue: { code: error.code, start: 0, end: source.length, message: error.message } };
-		}
-		const message = error instanceof Error ? error.message : String(error);
-		return {
-			ok: false,
-			issue: { code: "failed", start: 0, end: source.length, message: `the read failed: ${message}` },
-		};
+		return { ok: false, issue: issueOf(error, source.length) };
 	}
 }

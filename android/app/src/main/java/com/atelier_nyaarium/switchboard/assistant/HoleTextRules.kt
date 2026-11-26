@@ -1,17 +1,19 @@
 package com.atelier_nyaarium.switchboard.assistant
 
-import com.atelier_nyaarium.switchboard.CodeToken
 import com.atelier_nyaarium.switchboard.liveconsole.ConsoleAssist
 import com.atelier_nyaarium.switchboard.liveconsole.ConsoleCompletion
+import com.atelier_nyaarium.switchboard.liveconsole.ConsoleStringPart
+import com.atelier_nyaarium.switchboard.liveconsole.ConsoleToken
 import com.atelier_nyaarium.switchboard.liveconsole.ConsoleTokenKind
-import com.atelier_nyaarium.switchboard.liveconsole.HolePart
 import com.atelier_nyaarium.switchboard.liveconsole.PaintSpan
 import com.atelier_nyaarium.switchboard.liveconsole.VariableShape
 import com.atelier_nyaarium.switchboard.liveconsole.applyTo
 import com.atelier_nyaarium.switchboard.liveconsole.consoleAssist
 import com.atelier_nyaarium.switchboard.liveconsole.consolePaint
-import com.atelier_nyaarium.switchboard.liveconsole.lexConsole
-import com.atelier_nyaarium.switchboard.liveconsole.scanHoles
+import com.atelier_nyaarium.switchboard.liveconsole.consoleTextAssist
+import com.atelier_nyaarium.switchboard.liveconsole.consoleTextPaint
+import com.atelier_nyaarium.switchboard.liveconsole.holeIn
+import com.atelier_nyaarium.switchboard.liveconsole.lexConsoleText
 import com.atelier_nyaarium.switchboard.proto.AutomationPreviewName
 import com.atelier_nyaarium.switchboard.proto.ConsoleDescription
 import com.atelier_nyaarium.switchboard.proto.ConsoleIds
@@ -84,7 +86,6 @@ private fun inserted(text: String, cursor: Int, insert: String): Pair<String, In
 	return text.replaceRange(at, at, insert) to at + insert.length
 }
 
-private val ESCAPED = setOf('{', '}', '\\')
 private const val EVENT_NAME = "event"
 private val EVENT_OWN = listOf("id", "title", "url")
 
@@ -100,37 +101,11 @@ internal fun textAt(draft: AutomationDraft, ref: TextRef, offer: AutomationOffer
 	return textParam(draft, ref, offer)?.let { action.values[it.name].orEmpty() }
 }
 
-/** Unclosed hole runs to the end. */
-internal fun holeAt(text: String, cursor: Int): HolePart.Hole? =
-	scanHoles(text).filterIsInstance<HolePart.Hole>().firstOrNull { hole ->
-		cursor > hole.start && if (hole.closed) cursor < hole.end else cursor <= hole.end
-	}
+internal fun holeAt(text: String, cursor: Int): ConsoleStringPart.Hole? = holeIn(lexConsoleText(text), cursor)
 
 /** Offsets in the whole text. */
 internal fun holePaint(text: String, entities: Set<String>, names: Set<String>): List<PaintSpan> =
-	scanHoles(text).flatMap { part ->
-		when (part) {
-			is HolePart.Text -> escapes(text, part.start, part.end)
-			is HolePart.Hole -> {
-				val inner = part.start + 1
-				val close = if (part.closed) listOf(PaintSpan(part.end - 1, part.end, CodeToken.PUNCTUATION)) else emptyList()
-				val painted = consolePaint(part.source, entities, names).map { PaintSpan(it.start + inner, it.end + inner, it.token) }
-				listOf(PaintSpan(part.start, inner, CodeToken.PUNCTUATION)) + painted + close
-			}
-		}
-	}
-
-/** The scanner's own pairs. */
-private fun escapes(text: String, from: Int, to: Int): List<PaintSpan> {
-	val spans = mutableListOf<PaintSpan>()
-	var at = from
-	while (at < to - 1) {
-		val pair = text[at] == '\\' && text[at + 1] in ESCAPED
-		if (pair) spans += PaintSpan(at, at + 2, CodeToken.ESCAPE)
-		at += if (pair) 2 else 1
-	}
-	return spans
-}
+	consoleTextPaint(text, entities, names)
 
 /** A name a text may use; `shown` once the preview answers. */
 internal data class NameHere(val name: String, val description: String, val shown: String?) {
@@ -167,53 +142,54 @@ internal fun holeAssist(
 	description: ConsoleDescription?,
 	ids: ConsoleIds?,
 	names: Map<String, VariableShape?>,
-): ConsoleAssist {
-	val hole = holeAt(text, cursor) ?: return ConsoleAssist(null, emptyList())
-	val inner = hole.start + 1
-	val assist = consoleAssist(hole.source, cursor - inner, description, ids, names, noSlow = true)
-	return assist.copy(completions = assist.completions.map { it.copy(start = it.start + inner, end = it.end + inner) })
-}
+): ConsoleAssist = consoleTextAssist(text, cursor, description, ids, names, noSlow = true)
 
 /** Closes a finished hole. */
 internal fun pickCompletion(text: String, completion: ConsoleCompletion, entities: Set<String>): Pair<String, Int> {
 	val (next, cursor) = completion.applyTo(text)
-	val hole = holeAt(text, completion.start) ?: return next to cursor
+	val hole = holeIn(lexConsoleText(text), completion.start) ?: return next to cursor
+	val member = hole.tokens.lastOrNull { it.end <= completion.start }?.let { it.kind == ConsoleTokenKind.PUNCT && it.text == "." } == true
+	val written = holeIn(lexConsoleText(next), cursor)?.tokens.orEmpty().filter { it.end <= cursor }
 	val finishes = !hole.closed &&
 		completion.end == hole.end &&
 		!completion.insert.endsWith("(") &&
 		completion.insert !in entities &&
-		text.substring(hole.start + 1, completion.start).trimEnd().lastOrNull() != '.' &&
-		openCalls(next.substring(hole.start + 1, cursor)) == 0
+		!member &&
+		openCalls(written) == 0
 	return if (finishes) "${next.substring(0, cursor)}}${next.substring(cursor)}" to cursor + 1 else next to cursor
 }
 
-/** Open parenthesis count. */
-private fun openCalls(source: String): Int = lexConsole(source).sumOf { token ->
+private fun openCalls(tokens: List<ConsoleToken>): Int = tokens.sumOf { token ->
 	when {
 		token.kind != ConsoleTokenKind.PUNCT -> 0
-		token.text == "(" -> 1
-		token.text == ")" -> -1
+		token.text == "(" || token.text == "[" || token.text == "{" -> 1
+		token.text == ")" || token.text == "]" || token.text == "}" -> -1
 		else -> 0
 	}
 }
 
-/** A space where `\{` would escape the brace. */
+/** Never between an escape's characters. */
+private fun insertPoint(text: String, cursor: Int): Int {
+	val at = cursor.coerceIn(0, text.length)
+	val escape = lexConsoleText(text).firstOrNull { it is ConsoleStringPart.Escape && it.start < at && at < it.end }
+	return escape?.end ?: at
+}
+
 internal fun holeGap(text: String, at: Int): String {
-	var run = 0
-	while (at - run > 0 && text[at - run - 1] == '\\') run++
-	return if (run % 2 == 1) " " else ""
+	val opened = lexConsoleText(text.replaceRange(at, at, "{}")).any { it is ConsoleStringPart.Hole && it.start == at }
+	return if (opened) "" else " "
 }
 
 /** Bare inside a hole, else its own hole. */
 internal fun withName(text: String, cursor: Int, name: String): Pair<String, Int> {
-	val at = cursor.coerceIn(0, text.length)
+	val at = insertPoint(text, cursor)
 	val insert = if (holeAt(text, at) != null) name else "${holeGap(text, at)}{$name}"
 	return text.replaceRange(at, at, insert) to at + insert.length
 }
 
 /** Cursor lands where a member goes. */
 internal fun withEntity(text: String, cursor: Int, name: String): Pair<String, Int> {
-	val at = cursor.coerceIn(0, text.length)
+	val at = insertPoint(text, cursor)
 	val inside = holeAt(text, at) != null
 	val insert = if (inside) "$name." else "${holeGap(text, at)}{$name.}"
 	return text.replaceRange(at, at, insert) to at + insert.length - if (inside) 0 else 1

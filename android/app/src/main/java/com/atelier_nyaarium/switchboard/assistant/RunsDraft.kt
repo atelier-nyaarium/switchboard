@@ -1,5 +1,7 @@
 package com.atelier_nyaarium.switchboard.assistant
 
+import com.atelier_nyaarium.switchboard.liveconsole.ConsoleTokenKind
+import com.atelier_nyaarium.switchboard.liveconsole.lexConsole
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationFunction
@@ -115,12 +117,11 @@ internal fun stepDraftOf(step: FunctionStep, offer: AutomationOffer, params: Lis
 				values[name] = text
 			}
 			is StepArg.Expression -> {
-				val value = params.firstOrNull { it.param.name == arg.text } ?: return kept
+				val named = lexConsole(arg.text).singleOrNull()?.takeIf { it.kind == ConsoleTokenKind.IDENT }?.text
+				val value = params.firstOrNull { it.param.name == named } ?: return kept
 				if (row.param(name)?.kind != PARAM_SWITCH || value.param.type != FunctionParamType.DEVICE.wire) return kept
 				references[name] = FunctionValueReference(value.key, value.param.name)
 			}
-			// An action's literal is its text.
-			is StepArg.Text -> return kept
 		}
 	}
 	return ActionDraft.Filled(row.kind, row.params.associate { it.name to values[it.name].orEmpty() }, references)

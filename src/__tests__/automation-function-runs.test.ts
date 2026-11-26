@@ -40,7 +40,8 @@ const event: AutomationTrigger = { kind: "event", source: "github", conditions: 
 const lit = (value: string | number) => ({ kind: "literal" as const, value });
 const expr = (text: string) => ({ kind: "expression" as const, text });
 /** A text whose holes fill. */
-const filled = (text: string) => ({ kind: "text" as const, text });
+/** A quoted string with a hole: an expression. */
+const filled = (body: string) => ({ kind: "expression" as const, text: `"${body}"` });
 const turn = (verb: string, device: StepArg = expr("room")) =>
 	({ kind: "do", action: "device_set", args: { device, verb: lit(verb) } }) as const;
 const ifttt = (name: string, value1?: string) =>
@@ -950,7 +951,7 @@ describe("a tree of steps", () => {
 		expect(w.effects).toEqual(["ifttt:high:10"]);
 	});
 
-	it("fills a kept text's holes at its turn, keeps a literal as written, and refuses at the save a hole it cannot read", async () => {
+	it("fills a kept string's holes at its turn, keeps a literal as written, and refuses at the save a hole it cannot read", async () => {
 		const w = world();
 		w.save(pointing(hourly), [
 			{ kind: "let", name: "level", value: lit(5) },
@@ -971,7 +972,7 @@ describe("a tree of steps", () => {
 		expect(w.effects).toEqual(["ifttt:said:Level 5, braces {kept} / as {written} \\\\ here"]);
 		expect(unread).toMatchObject({
 			stored: false,
-			refusal: { code: "hole", step: "0", param: "value", start: 4, end: 11 },
+			refusal: { code: "hole", step: "0", param: "value", start: 5, end: 12 },
 		});
 		expect(written).toMatchObject({ stored: true });
 	});

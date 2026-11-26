@@ -157,6 +157,7 @@ object Protocol {
 		const val CONSOLE_VARIABLES_BYTES: Int = 256000
 		const val CONSOLE_INSTANT_FLOOR: Long = 1000000000000L
 		const val CONSOLE_INSTANT_CEILING: Long = 8640000000000000L
+		const val CONSOLE_STRING_NEST_MAX: Int = 8
 		const val AUTOMATION_ACTIONS_MAX: Int = 8
 		const val AUTOMATION_INTERVAL_MAX_MIN: Int = 10080
 		const val AUTOMATION_COOL_DOWN_MAX_SEC: Int = 86400
@@ -2905,12 +2906,6 @@ sealed class StepArg {
 	@Serializable
 	@SerialName("expression")
 	data class Expression(
-		val text: String,
-	) : StepArg()
-
-	@Serializable
-	@SerialName("text")
-	data class Text(
 		val text: String,
 	) : StepArg()
 }

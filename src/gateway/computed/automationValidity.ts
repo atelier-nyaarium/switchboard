@@ -15,7 +15,7 @@ import {
 	type WalkEntry,
 	widthOf,
 } from "../../shared/automation-walk.js";
-import { CONSOLE_WORD_OPS } from "../../shared/live-console-grammar.js";
+import { CONSOLE_WORD_OPS, parseConsoleExpression } from "../../shared/live-console-grammar.js";
 import {
 	AUTOMATION_ACTIONS,
 	AUTOMATION_TRIGGER_NAMES,
@@ -35,7 +35,7 @@ import {
 	unnamed,
 	WAIT_MINUTES_MAX,
 } from "../../shared/schemasFunction.js";
-import { SCRIPT_RESERVED } from "../../shared/script-scan.js";
+import { SCRIPT_RESERVED } from "../../shared/script-grammar.js";
 import { hasHoles } from "../../shared/text-holes.js";
 import type { OwnerIssue, OwnerRecord } from "../ownerRecords.js";
 import { clockIssue, isClock } from "./automationClock.js";
@@ -71,6 +71,11 @@ export const FUNCTION_UNFIT = "it does not fit the function it runs";
 export const NO_SWITCH = "no such switch on this Gateway";
 /** A step's values fail its action. */
 export const STEP_UNFIT = "its values do not fit what it does";
+
+const writesText = (source: string): boolean => {
+	const { node } = parseConsoleExpression(source);
+	return node?.kind === "template" || (node?.kind === "literal" && typeof node.value === "string");
+};
 const NO_ACTION = "this Gateway runs no such action";
 const UNRUNNABLE = "a step does what this Gateway cannot run";
 export const NAME_TAKEN = "that name is already a value here";
@@ -220,8 +225,6 @@ export function createAutomationValidity(
 				if (issue) return { param: param.name, ...issue };
 				continue;
 			}
-			// An action's own literal is its text.
-			if (arg.kind === "text") return { param: param.name, message: STEP_UNFIT };
 			const { value } = arg;
 			literal[param.name] = value;
 			if (names !== null && typeof value === "string" && hasHoles(value)) {
@@ -263,10 +266,8 @@ export function createAutomationValidity(
 	};
 
 	/** A literal is as written. */
-	const valueIssue = (param: string, arg: StepArg, names: readonly string[]): StepIssue | null => {
-		if (arg.kind === "expression") return expressionIssue(param, arg.text, names);
-		return arg.kind === "text" ? textIssue(param, arg.text, names) : null;
-	};
+	const valueIssue = (param: string, arg: StepArg, names: readonly string[]): StepIssue | null =>
+		arg.kind === "expression" ? expressionIssue(param, arg.text, names) : null;
 
 	const STEPS: {
 		[K in FunctionStep["kind"]]: (
@@ -356,8 +357,8 @@ export function createAutomationValidity(
 		for (const [name, arg] of Object.entries(step.values ?? {})) {
 			if (!callee.params.some((param) => param.name === name)) return false;
 			const declared = callee.params.find((param) => param.name === name);
-			// A filled text is a text; what it names is read at entry.
-			if (arg.kind === "text" && declared?.type === "number") return false;
+			// A string is a text, whatever its holes read.
+			if (arg.kind === "expression" && declared?.type === "number" && writesText(arg.text)) return false;
 			if (arg.kind !== "literal") unjudged.add(name);
 			else if (typeof arg.value === "boolean") return false;
 			else literal[name] = arg.value;

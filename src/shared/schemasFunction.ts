@@ -40,9 +40,8 @@ export const StepArgSchema = z
 	.discriminatedUnion("kind", [
 		/** As written; an action's text parameter alone fills its holes. */
 		z.strictObject({ kind: z.literal("literal"), value: LiteralValueSchema }),
+		/** A quoted string with a hole is one. */
 		z.strictObject({ kind: z.literal("expression"), text: z.string().min(1).max(STEP_TEXT_MAX) }),
-		/** Its holes fill at the step's turn. */
-		z.strictObject({ kind: z.literal("text"), text: z.string().min(1).max(STEP_TEXT_MAX) }),
 	])
 	.meta({ id: "StepArg" });
 export type StepArg = z.infer<typeof StepArgSchema>;

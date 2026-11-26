@@ -1,10 +1,9 @@
 // Whether a trigger and an automation's values fill what a function takes.
 
 import { stepsOf } from "./automation-walk.js";
-import { type ConsoleNode, parseConsole } from "./live-console-grammar.js";
+import { type ConsoleNode, parseConsole, parseConsoleText } from "./live-console-grammar.js";
 import type { AutomationTriggerKind, FunctionValue } from "./schemasAutomation.js";
 import type { AutomationFunction, FunctionParam, FunctionParamType, FunctionStep, StepArg } from "./schemasFunction.js";
-import { scanHoles } from "./text-holes.js";
 
 export const GIVEN_TYPES = ["event", "text", "number", "device", "time"] as const;
 export type GivenType = (typeof GIVEN_TYPES)[number];
@@ -82,6 +81,8 @@ const childrenOf = (node: ConsoleNode): (ConsoleNode | null)[] => {
 			return node.items;
 		case "dict":
 			return node.entries.map((entry) => entry.value);
+		case "template":
+			return node.pieces.map((piece) => (piece.kind === "hole" ? piece.node : null));
 		case "ident":
 		case "literal":
 			return [];
@@ -126,7 +127,7 @@ export function eventWords(read: { texts: readonly string[]; expressions: readon
 	const source = (text: string) => {
 		for (const statement of parseConsole(text).statements) eventWord(statement.node, into);
 	};
-	for (const text of read.texts) for (const part of scanHoles(text)) if (part.kind === "hole") source(part.source);
+	for (const text of read.texts) eventWord(parseConsoleText(text).node, into);
 	for (const text of read.expressions) source(text);
 	return [...into];
 }
@@ -136,13 +137,10 @@ export function functionReads(fn: Pick<AutomationFunction, "steps">): FunctionRe
 	const read = (source: string) => {
 		for (const statement of parseConsole(source).statements) collect(statement.node, into);
 	};
-	const text = (value: string) => {
-		for (const part of scanHoles(value)) if (part.kind === "hole") read(part.source);
-	};
+	const text = (value: string) => collect(parseConsoleText(value).node, into);
 	/** A literal is as written. */
 	const value = (held: StepArg) => {
 		if (held.kind === "expression") read(held.text);
-		else if (held.kind === "text") text(held.text);
 	};
 	/** An action's literal string may be a text. */
 	const arg = (held: StepArg) => {

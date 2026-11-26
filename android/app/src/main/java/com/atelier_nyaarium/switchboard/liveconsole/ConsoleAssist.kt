@@ -18,8 +18,6 @@ private const val COMPLETIONS_MAX = 12
 private const val NO_RECEIVER = "none"
 private val EXPRESSION_OPENERS = setOf("(", "[", "{", ",", ":")
 
-private fun quoted(text: String) = "\"" + text.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
-
 private fun openCall(tokens: List<ConsoleToken>): OpenCall? {
 	data class Frame(val open: Char, val at: Int)
 	val stack = ArrayDeque<Frame>()
@@ -127,12 +125,19 @@ private enum class SlotKind { NAME, STRING, EMPTY, NONE }
 private data class Slot(val kind: SlotKind, val start: Int, val end: Int, val typed: String)
 
 private fun slotOf(source: String, token: ConsoleToken, cursor: Int): Slot? {
-	if (token.kind == ConsoleTokenKind.IDENT || token.kind == ConsoleTokenKind.KEYWORD) {
+	// A word operator may be a name half typed.
+	val word = token.kind == ConsoleTokenKind.OP && token.text.first().isLetter()
+	if (token.kind == ConsoleTokenKind.IDENT || token.kind == ConsoleTokenKind.KEYWORD || word) {
 		return Slot(SlotKind.NAME, token.start, token.end, source.substring(token.start, cursor))
 	}
 	if (token.kind != ConsoleTokenKind.STRING) return null
-	// Decode typed strings with the lexer.
-	val typed = lexConsole(source.substring(token.start, cursor)).firstOrNull()?.value.orEmpty()
+	val typed = token.parts.orEmpty().filter { it.start < cursor }.joinToString("") { part ->
+		when (part) {
+			is ConsoleStringPart.Text -> part.value.take(cursor - part.start)
+			is ConsoleStringPart.Escape -> if (part.end <= cursor) part.value else "\\"
+			is ConsoleStringPart.Hole -> source.substring(part.start, minOf(part.end, cursor))
+		}
+	}
 	return when {
 		// Open strings consume the remainder.
 		token.closed != true -> Slot(SlotKind.STRING, token.start, cursor, typed)
@@ -140,6 +145,11 @@ private fun slotOf(source: String, token: ConsoleToken, cursor: Int): Slot? {
 		else -> null
 	}
 }
+
+internal fun holeIn(parts: List<ConsoleStringPart>, cursor: Int): ConsoleStringPart.Hole? =
+	parts.filterIsInstance<ConsoleStringPart.Hole>().firstOrNull { part ->
+		cursor > part.start && if (part.closed) cursor < part.end else cursor <= part.end
+	}
 
 /** The token the cursor touches, either side. */
 private fun slotAt(source: String, tokens: List<ConsoleToken>, cursor: Int): Slot {
@@ -190,7 +200,33 @@ fun consoleAssist(
 	noSlow: Boolean = false,
 ): ConsoleAssist {
 	if (description == null) return ConsoleAssist(null, emptyList())
-	val all = lexConsole(source)
+	return assistOver(source, lexConsole(source), cursor, description, ids, variables, noSlow)
+}
+
+fun consoleTextAssist(
+	text: String,
+	cursor: Int,
+	description: ConsoleDescription?,
+	ids: ConsoleIds?,
+	variables: Map<String, VariableShape?>,
+	noSlow: Boolean = false,
+): ConsoleAssist {
+	val hole = holeIn(lexConsoleText(text), cursor)
+	if (description == null || hole == null) return ConsoleAssist(null, emptyList())
+	return assistOver(text, hole.tokens, cursor, description, ids, variables, noSlow)
+}
+
+private fun assistOver(
+	source: String,
+	all: List<ConsoleToken>,
+	cursor: Int,
+	description: ConsoleDescription,
+	ids: ConsoleIds?,
+	variables: Map<String, VariableShape?>,
+	noSlow: Boolean,
+): ConsoleAssist {
+	val hole = all.firstNotNullOfOrNull { holeIn(it.parts.orEmpty(), cursor) }
+	if (hole != null) return assistOver(source, hole.tokens, cursor, description, ids, variables, noSlow)
 	val slot = slotAt(source, all, cursor)
 	val before = all.filter { it.start < slot.start }
 	// Complete only the statement under the cursor.
@@ -208,9 +244,9 @@ fun consoleAssist(
 			slot.kind == SlotKind.STRING ->
 				arguments()
 					.filter { it.value.startsWith(slot.typed, ignoreCase = true) || it.label.startsWith(slot.typed, ignoreCase = true) }
-					.map { it.label to quoted(it.value) }
+					.map { it.label to quoteConsoleString(it.value) }
 			slot.typed.isEmpty() && (isPunct(prior, "(") || isPunct(prior, ",")) && arguments().isNotEmpty() ->
-				arguments().map { it.label to quoted(it.value) }
+				arguments().map { it.label to quoteConsoleString(it.value) }
 			else -> {
 				val names =
 					if (isPunct(prior, ".")) {

@@ -1,5 +1,6 @@
 import { canonicalJson } from "../../shared/canonical-json.js";
 import { roundTo } from "../../shared/field-types.js";
+import { elementOf } from "../../shared/script-types.js";
 
 export class ConsoleError extends Error {
 	constructor(
@@ -34,7 +35,8 @@ const any = () => true;
 const number = (value: unknown) => typeof value === "number";
 const places = (value: unknown) => Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 6;
 const same = (receiver: string | undefined) => receiver;
-export const elementOf = (type: string | undefined) => type?.match(/^List<(.+)>$/)?.[1];
+
+export { elementOf };
 
 export const sameValue = (left: unknown, right: unknown): boolean =>
 	left === right || canonicalJson(left ?? null) === canonicalJson(right ?? null);

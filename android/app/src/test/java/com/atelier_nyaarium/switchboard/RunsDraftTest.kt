@@ -141,6 +141,15 @@ class RunsDraftTest {
 		)))
 		assertTrue(stepDraftOf(unknown, FN_OFFER, params) is ActionDraft.Kept)
 		assertTrue(stepDraftOf(expression.copy(`as` = "result"), FN_OFFER, params) is ActionDraft.Kept)
+		// The name is read as a token: spacing around it is nothing, anything more is another expression.
+		val written = { text: String ->
+			expression.copy(args = JsonObject(mapOf(
+				"device" to buildJsonObject { put("kind", "expression"); put("text", text) },
+				"verb" to literal("toggle"),
+			)))
+		}
+		assertEquals(drawn.references, (stepDraftOf(written(" lamp\n"), FN_OFFER, params) as ActionDraft.Filled).references)
+		assertTrue(stepDraftOf(written("lamp + lamp"), FN_OFFER, params) is ActionDraft.Kept)
 		val edited = withReference(ActionDraft.Filled("device_set", mapOf("device" to SANDBOX_SWITCH, "verb" to "toggle")), "device", FunctionValueReference("lamp-row", "lamp"))
 		assertEquals(expression, stepOf(edited, FN_OFFER, params))
 	}

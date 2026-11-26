@@ -397,6 +397,11 @@ describe("holes in an automation's text", () => {
 		expect(at("It is {a = 1} now")).toBe("{a = 1}");
 		expect(at("It is {value; device} now")).toBe("{value; device}");
 		expect(at("It is {temperature} now")).toBe("temperature");
+		// The first in the text, whichever kind it is.
+		expect(at("It is {temperature} and {value +} now")).toBe("temperature");
+		expect(at("It is {value +} and {temperature} now")).toBe("");
+		// A hole that does not parse is not judged for what it names.
+		expect(holeIssue("It is {temperature +} now", ["value"], scope)).toMatchObject({ start: 20, end: 20 });
 		expect(at("It is {shout(value)} now")).toBe("shout");
 		expect(at("It is {radio.listen()} now")).toBe("radio.listen()");
 		expect(at("It is {} now")).toBe("{}");
@@ -433,6 +438,76 @@ describe("holes in an automation's text", () => {
 			text: "{?} {?} {?} {?}",
 			failed: 4,
 		});
+	});
+});
+
+describe("a string with holes", () => {
+	const value = async (source: string) => {
+		const answer = await run(source);
+		return answer.ok && "value" in answer ? answer.value : answer;
+	};
+	const issueOf = async (source: string) => {
+		const answer = await evaluateConsole(source, registry, "host");
+		return answer.ok ? null : [answer.issue.code, source.slice(answer.issue.start, answer.issue.end)];
+	};
+
+	it("reads each hole as an expression where it stands, its own strings unescaped and nested", async () => {
+		expect(await value('"x{1 + 2}y"')).toBe("x3y");
+		expect(await value('"{sensors.read("Freezer").name} is {if(true, "on", \'off\')}"')).toBe("Freezer is on");
+		expect(await value('"a{"b{1 + 1}c"}d"')).toBe("ab2cd");
+		expect(await value('"{ {k: "v"}.k }" + \'{[1, 2].count()}\'')).toBe("v2");
+		expect(await value('"a{1}" == "a1"')).toBe(true);
+	});
+
+	it("reads the braces and the backslash escaped in any string, and keeps a backslash before anything else", async () => {
+		expect(await value('"\\{kept\\} \\\\ \\q \\n|\\t|\\r|\\"|\\\'"')).toBe("{kept} \\ \\q \n|\t|\r|\"|'");
+		expect(await value("'a } b'")).toBe("a } b");
+	});
+
+	it("fails the whole string where a hole fails, and refuses one it cannot print", async () => {
+		expect(await issueOf('"is {nowhere} now"')).toEqual(["unknown_name", "nowhere"]);
+		expect(await issueOf('"is {sensors.list} now"')).toEqual(["wrong_type", "sensors.list"]);
+		expect(await issueOf('"is {sensors} now"')).toEqual(["is_entity", "sensors"]);
+	});
+
+	it("refuses a hole that is empty, open or holds two expressions, and a key that holds one, each with its span", () => {
+		const at = (source: string) => {
+			const [issue] = parseConsole(source).issues;
+			return issue && source.slice(issue.start, issue.end);
+		};
+
+		expect(at('"a {} b"')).toBe("{}");
+		expect(at('"a {1; 2} b"')).toBe("{1; 2}");
+		expect(at('"a {x = 1} b"')).toBe("{x = 1}");
+		expect(at('"a {1 2} b"')).toBe("2");
+		expect(parseConsole('"a {1 + } b"').issues[0]).toMatchObject({ start: 8, end: 8 });
+		expect(at('"a {b')).toBe('"a {b');
+		expect(at('{"k{1}": 2}')).toBe('"k{1}"');
+		expect(at('{"k\\{1\\}": 2}')).toBeUndefined();
+	});
+
+	it("ends a quoted string at its line, and raises one issue for one open bracket", () => {
+		expect(parseConsole('"abc\n1 + 1').issues[0]).toMatchObject({ start: 0, end: 4 });
+		expect(parseConsole("round(1 +").issues).toHaveLength(1);
+		expect(parseConsole("[1, (2").issues).toHaveLength(1);
+	});
+
+	it("holds a parenthesized expression's span to its brackets, and marks it grouped", () => {
+		const { node } = parseConsoleExpression("(1 + 2) * (3)");
+		if (node?.kind !== "binary") throw new Error("it is a product");
+
+		expect([node.start, node.end, node.grouped]).toEqual([0, 13, undefined]);
+		expect([node.left.start, node.left.end, node.left.grouped]).toEqual([0, 7, true]);
+		expect([node.right.start, node.right.end, node.right.grouped]).toEqual([10, 13, true]);
+	});
+
+	it("refuses nesting past its depth, brackets or strings, without running out of stack", () => {
+		const deep = `${"(".repeat(900)}1${")".repeat(900)}`;
+		const nested = Array.from({ length: 12 }, (_, at) => (at % 2 === 0 ? '"{' : "'{")).join("");
+
+		expect(parseConsole(deep).issues[0]).toMatchObject({ code: "too_big" });
+		expect(parseConsole(`${"(".repeat(40)}1${")".repeat(40)}`).issues).toEqual([]);
+		expect(parseConsole(nested).issues.length).toBeGreaterThan(0);
 	});
 });
 

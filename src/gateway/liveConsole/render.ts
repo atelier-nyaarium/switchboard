@@ -7,6 +7,7 @@ import {
 import { neutralizeMarkup, oneLine } from "../../shared/system-reminder.js";
 import { EntityRef } from "./evaluate.js";
 import { describeEntity, entityText } from "./registry.js";
+import { numberText } from "./shown.js";
 
 export const CONSOLE_TEXT_BYTES = 16 * 1024;
 export const CONSOLE_TEXT_BYTES_MAX = 64_000;
@@ -50,11 +51,6 @@ function ageText(at: number, now: number): string {
 					: `${Math.round(ago / 86_400)} days`;
 	const when = new Date(at).toISOString().replace("T", " ").slice(0, 19);
 	return `${now >= at ? `${span} ago` : `in ${span}`} (${when}Z)`;
-}
-
-export function numberText(value: number): string {
-	if (!Number.isFinite(value)) return String(value);
-	return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(6)));
 }
 
 function scalarText(value: unknown, key: string | undefined, now: number): string {

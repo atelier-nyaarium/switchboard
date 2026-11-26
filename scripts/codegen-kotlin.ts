@@ -54,6 +54,7 @@ import {
 	UNITS,
 } from "../src/shared/field-types.js";
 import { unescapedBrace } from "../src/shared/icu-pattern.js";
+import { CONSOLE_STRING_NEST_MAX } from "../src/shared/live-console-grammar.js";
 import {
 	BLOB_CHUNK_BYTES,
 	FEDERATION_PROTOCOL_FLOOR,
@@ -1385,6 +1386,7 @@ const wireConstants: ReadonlyArray<readonly [string, string | number]> = [
 	["CONSOLE_VARIABLES_BYTES", CONSOLE_VARIABLES_BYTES],
 	["CONSOLE_INSTANT_FLOOR", CONSOLE_INSTANT_FLOOR],
 	["CONSOLE_INSTANT_CEILING", CONSOLE_INSTANT_CEILING],
+	["CONSOLE_STRING_NEST_MAX", CONSOLE_STRING_NEST_MAX],
 	["AUTOMATION_ACTIONS_MAX", AUTOMATION_ACTIONS_MAX],
 	["AUTOMATION_INTERVAL_MAX_MIN", AUTOMATION_INTERVAL_MAX_MIN],
 	["AUTOMATION_COOL_DOWN_MAX_SEC", AUTOMATION_COOL_DOWN_MAX_SEC],

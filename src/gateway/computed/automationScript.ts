@@ -1,5 +1,17 @@
 import type { TriggerGiven } from "../../shared/automation-fit.js";
-import { type ConsoleToken, lexConsole, parseConsoleExpression } from "../../shared/live-console-grammar.js";
+import {
+	type ConsoleNode,
+	type ConsoleStringPiece,
+	type ConsoleTemplatePiece,
+	isConsoleVariableName,
+	parseConsoleExpression,
+	parseConsoleText,
+	piecesOf,
+	quoteConsoleString,
+	quoteConsoleText,
+	trimConsole,
+	writeConsoleRun,
+} from "../../shared/live-console-grammar.js";
 import {
 	AUTOMATION_ACTIONS,
 	type AutomationActionKind,
@@ -19,9 +31,14 @@ import {
 	type StepArg,
 } from "../../shared/schemasFunction.js";
 import type { ConsoleDescription } from "../../shared/schemasLiveConsole.js";
-import { opensStatement, SCRIPT_SOURCE_MAX, type ScriptPiece, scanScript } from "../../shared/script-scan.js";
+import {
+	opensStatement,
+	parseScriptSource,
+	SCRIPT_SOURCE_MAX,
+	type ScriptIf,
+	type ScriptNode,
+} from "../../shared/script-grammar.js";
 import { GIVEN_SCRIPT_TYPES, PARAM_SCRIPT_TYPES, typeOfNode } from "../../shared/script-types.js";
-import { scanHoles } from "../../shared/text-holes.js";
 import { doingAction } from "../liveConsole/doing.js";
 
 export interface ScriptTables {
@@ -81,96 +98,48 @@ export const SCRIPT_TOO_LONG = `it is longer than ${SCRIPT_SOURCE_MAX} character
 ////////////////////////////////
 //  Text and number encoding
 
-/** A run's lone backslash doubled; `\{`, `\}` and `\\` kept. */
-function canonicalRun(run: string): string {
-	let out = "";
-	for (let at = 0; at < run.length; at++) {
-		const c = run[at] as string;
-		if (c !== "\\") {
-			out += c;
-			continue;
-		}
-		const next = run[at + 1];
-		if (next === "{" || next === "}" || next === "\\") {
-			out += c + next;
-			at++;
-		} else out += "\\\\";
-	}
-	return out;
+/** A line break between tokens is a space. */
+const oneLine = (source: string): string => source.replace(/[\r\n]/g, " ");
+
+export function canonicalExpression(source: string): string {
+	const written = trimConsole(source);
+	return parseConsoleExpression(written).issues.length > 0 ? written : oneLine(written);
 }
 
-/** A text's parts as written: a hole is an expression, never touched. */
-const partsOf = (text: string) =>
-	scanHoles(text).map((part) => ({ hole: part.kind === "hole", raw: text.slice(part.start, part.end) }));
-
-/** A plain string as a text that fills nothing. */
-const unfilled = (value: string): string => value.replace(/[\\{}]/g, (c) => `\\${c}`);
-
-const QUOTED: Readonly<Record<string, string>> = { '"': '\\"', "\n": "\\n", "\t": "\\t", "\r": "\\r" };
-
-/** Inside a hole a backslash is written twice, so its expression reads back as it was. */
-function printText(text: string): string {
-	const body = partsOf(text).map((part) =>
-		part.hole
-			? part.raw.replace(/[\\"\n\t\r]/g, (c) => QUOTED[c] ?? "\\\\")
-			: canonicalRun(part.raw).replace(/["\n\t\r]/g, (c) => QUOTED[c] as string),
-	);
-	return `"${body.join("")}"`;
-}
-
-/** A string that is no text: a name, an id, a choice. */
-const printPlain = (value: string): string => `"${value.replace(/[\\"\n\t]/g, (c) => QUOTED[c] ?? `\\${c}`)}"`;
-
-const UNQUOTED: Readonly<Record<string, string>> = { n: "\n", t: "\t", r: "\r", '"': '"', "'": "'" };
+const quoteText = (text: string): string =>
+	quoteConsoleText(text, parseConsoleText(text).issues.length > 0 ? (hole) => hole : oneLine);
 
 /** Each character's own span in the script. */
 type Chars = (readonly [number, number])[];
 
-/** A closed string token's text, and where each of its characters came from. Mirrors `scanHoles`. */
-function readText(raw: string, offset: number): { text: string; chars: Chars } {
-	const body = raw.slice(1, -1);
+function charsOf(pieces: readonly ConsoleStringPiece[]): Chars {
+	const chars: Chars = [];
+	for (const piece of pieces) {
+		for (let at = 0; at < piece.value.length; at++) {
+			chars.push(piece.kind === "escape" ? [piece.start, piece.end] : [piece.start + at, piece.start + at + 1]);
+		}
+	}
+	return chars;
+}
+
+function bodyOf(pieces: readonly ConsoleTemplatePiece[], source: string): { text: string; chars: Chars } {
 	let text = "";
 	const chars: Chars = [];
-	/** Open braces of the hole being read; a quote hides braces. */
-	let depth = 0;
-	let quote: string | null = null;
-	let escaped = false;
-	const feed = (c: string): void => {
-		if (quote !== null) {
-			if (escaped) escaped = false;
-			else if (c === "\\") escaped = true;
-			else if (c === quote) quote = null;
-			return;
-		}
-		if (c === '"' || c === "'") quote = c;
-		else if (c === "{") depth++;
-		else if (c === "}") depth--;
+	const put = (written: string, start: number, end: number) => {
+		text += written;
+		for (let n = 0; n < written.length; n++) chars.push([start, end]);
 	};
-	const put = (piece: string, at: number, width: number) => {
-		text += piece;
-		for (let n = 0; n < piece.length; n++) chars.push([offset + 1 + at, offset + 1 + at + width]);
-		if (depth > 0) for (const c of piece) feed(c);
-	};
-	for (let at = 0; at < body.length; at++) {
-		const c = body[at] as string;
-		const next = body[at + 1];
-		const plain = next === undefined ? undefined : UNQUOTED[next];
-		if (c !== "\\") {
-			const opens = depth === 0 && c === "{";
-			put(c, at, 1);
-			if (opens) depth = 1;
-			continue;
+	for (const piece of pieces) {
+		if (piece.kind === "escape") put(writeConsoleRun(piece.value), piece.start, piece.end);
+		else {
+			// Holes keep their written form.
+			const hole = piece.kind === "hole";
+			const run = hole ? oneLine(source.slice(piece.start, piece.end)) : piece.value;
+			for (let at = 0; at < run.length; at++) {
+				const c = run[at] as string;
+				put(hole ? c : writeConsoleRun(c), piece.start + at, piece.start + at + 1);
+			}
 		}
-		if (depth > 0) {
-			// In a hole `\\\\` is one backslash; any other pair is as written.
-			if (next === undefined) put(c, at, 1);
-			else put(plain ?? (next === "\\" ? c : c + next), at, 2);
-		} else if (next === undefined) put("\\\\", at, 1);
-		else if (plain !== undefined) put(plain, at, 2);
-		else if (next === "{" || next === "}" || next === "\\") put(c + next, at, 2);
-		// An unknown escape is a backslash and its letter.
-		else put(`\\\\${next}`, at, 2);
-		if (next !== undefined) at++;
 	}
 	return { text, chars };
 }
@@ -188,24 +157,6 @@ export function printNumber(value: number): string {
 	if (point <= 0) return `${sign}0.${"0".repeat(-point)}${digits}`;
 	if (point >= digits.length) return sign + digits + "0".repeat(point - digits.length);
 	return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`;
-}
-
-/** Line breaks out of an expression, a space for each character; a string keeps its own as `\n`. */
-export function canonicalExpression(source: string): string {
-	const strings = lexConsole(source).filter((token) => token.kind === "string");
-	let out = "";
-	let at = 0;
-	const plain = (to: number) => {
-		out += source.slice(at, to).replace(/[\r\n]/g, " ");
-		at = to;
-	};
-	for (const token of strings) {
-		plain(token.start);
-		out += source.slice(token.start, token.end).replace(/\n/g, "\\n");
-		at = token.end;
-	}
-	plain(source.length);
-	return out.trim();
 }
 
 ////////////////////////////////
@@ -230,37 +181,26 @@ function idFor(written: string, held: readonly { id: string; name: string }[]): 
 	return named[0]?.id ?? written;
 }
 
-/** How a string reads where it sits. */
 type Position =
-	/** An action's text: its literal fills. */
 	| { reads: "text" }
-	/** As written; `held` names an id. */
 	| { reads: "plain"; held?: readonly { id: string; name: string }[]; what?: string }
-	/** A kept or given value: a literal as written, a text filled. */
 	| { reads: "value" };
 
 const VALUE: Position = { reads: "value" };
-
-/** A name the expression grammar reads as a name. */
-const bare = (name: string): boolean => {
-	const tokens = lexConsole(name);
-	return tokens.length === 1 && tokens[0]?.kind === "ident";
-};
 
 const plugs = (tables: ScriptTables): Position => ({ reads: "plain", held: tables.switches, what: "plug" });
 
 const positionOf = (param: AutomationActionParam, tables: ScriptTables): Position =>
 	param.kind === "text" ? { reads: "text" } : param.kind === "switch" ? plugs(tables) : { reads: "plain" };
 
-/** A text holds a hole or an escape. */
-const fills = (text: string): boolean => /[{}\\]/.test(text);
+const negative = (node: ConsoleNode): node is ConsoleNode & { kind: "unary" } =>
+	node.kind === "unary" &&
+	node.op === "-" &&
+	node.operand.kind === "literal" &&
+	typeof node.operand.value === "number" &&
+	!node.operand.grouped;
 
-/** An expression a bare literal would be read for. */
-const literalLike = (tokens: readonly ConsoleToken[]): boolean => {
-	const [first, second] = tokens;
-	if (tokens.length === 2) return first?.kind === "op" && first.text === "-" && second?.kind === "number";
-	return tokens.length === 1 && (first?.kind === "string" || first?.kind === "number" || first?.kind === "keyword");
-};
+const constant = (node: ConsoleNode): boolean => !node.grouped && (node.kind === "literal" || negative(node));
 
 /** Prints steps as script; `readOnly` when parsing it back would lose a step. */
 export interface ScriptPrint extends ScriptRead {
@@ -276,20 +216,17 @@ export function printScript(steps: readonly FunctionStep[], tables: ScriptTables
 	const value = (arg: StepArg, at: Position, absent = false): string => {
 		if (arg.kind === "expression") {
 			const source = canonicalExpression(arg.text);
-			const tokens = lexConsole(source);
-			const bareNull = tokens.length === 1 && tokens[0]?.kind === "keyword" && tokens[0].text === "null";
+			const { node } = parseConsoleExpression(source);
+			const bareNull = node?.kind === "literal" && node.value === null && !node.grouped;
+			// Bare, a string with a hole is a text or refused.
+			const template = node?.kind === "template" && !node.grouped && at.reads !== "value";
 			// Parentheses keep it an expression.
-			return literalLike(tokens) && (!bareNull || absent) ? `(${source})` : source;
-		}
-		if (arg.kind === "text") {
-			// Only a kept or given value holds one.
-			unwritable ||= at.reads !== "value";
-			return printText(arg.text);
+			return node && (template || (constant(node) && (!bareNull || absent))) ? `(${source})` : source;
 		}
 		if (typeof arg.value === "number") return printNumber(arg.value);
 		if (typeof arg.value === "boolean") return String(arg.value);
-		if (at.reads === "plain") return printPlain(at.held ? nameFor(arg.value, at.held) : arg.value);
-		return printText(at.reads === "text" ? arg.value : unfilled(arg.value));
+		if (at.reads === "text") return quoteText(arg.value);
+		return quoteConsoleString(at.reads === "plain" && at.held ? nameFor(arg.value, at.held) : arg.value);
 	};
 
 	const doing = (step: Extract<FunctionStep, { kind: "do" }>): string | null => {
@@ -315,11 +252,11 @@ export function printScript(steps: readonly FunctionStep[], tables: ScriptTables
 		].filter((name, at, all) => all.indexOf(name) === at && Object.hasOwn(step.values ?? {}, name));
 		const entries = order.map((name) => {
 			const device = callee?.params.find((param) => param.name === name)?.type === "device";
-			const key = bare(name) ? name : printPlain(name);
+			const key = isConsoleVariableName(name) ? name : quoteConsoleString(name);
 			return `${key}: ${value(step.values?.[name] as StepArg, device ? plugs(tables) : VALUE)}`;
 		});
 		const values = entries.length > 0 ? `, {${entries.join(", ")}}` : "";
-		return `${CALL.entity}.${CALL.method}(${printPlain(nameFor(step.function, tables.functions))}${values})`;
+		return `${CALL.entity}.${CALL.method}(${quoteConsoleString(nameFor(step.function, tables.functions))}${values})`;
 	};
 
 	/** Lines a step spans; `skip` past what belongs to the step before. */
@@ -344,7 +281,7 @@ export function printScript(steps: readonly FunctionStep[], tables: ScriptTables
 					break;
 				case "let":
 					// A stored name the language took since.
-					unwritable ||= opensStatement(step.name) || !bare(step.name);
+					unwritable ||= opensStatement(step.name) || !isConsoleVariableName(step.name);
 					lines.push(`${indent}${step.name} = ${value(step.value, VALUE)}`);
 					bound.push({ name: step.name, from: first, to: null, value: step.value });
 					break;
@@ -352,7 +289,7 @@ export function printScript(steps: readonly FunctionStep[], tables: ScriptTables
 					lines.push(`${indent}exit`);
 					break;
 				case "throw":
-					lines.push(`${indent}throw${step.text === undefined ? "" : ` ${printText(step.text)}`}`);
+					lines.push(`${indent}throw${step.text === undefined ? "" : ` ${quoteText(step.text)}`}`);
 					break;
 				case "wait":
 					lines.push(`${indent}wait(${value(step.minutes, VALUE)})`);
@@ -445,40 +382,6 @@ class Refused extends Error {
 	}
 }
 
-const isPunct = (token: ConsoleToken | undefined, text: string) => token?.kind === "punct" && token.text === text;
-const OPENERS = new Set(["(", "[", "{"]);
-const CLOSERS = new Set([")", "]", "}"]);
-
-function closing(tokens: readonly ConsoleToken[], open: number): number {
-	let depth = 0;
-	for (let at = open; at < tokens.length; at++) {
-		const token = tokens[at] as ConsoleToken;
-		if (token.kind !== "punct") continue;
-		if (OPENERS.has(token.text)) depth++;
-		else if (CLOSERS.has(token.text) && --depth === 0) return at;
-	}
-	return -1;
-}
-
-/** A trailing comma is allowed. */
-function splitTop(tokens: readonly ConsoleToken[], from: number, to: number): [number, number][] {
-	const ranges: [number, number][] = [];
-	let depth = 0;
-	let start = from;
-	for (let at = from; at < to; at++) {
-		const token = tokens[at] as ConsoleToken;
-		if (token.kind !== "punct") continue;
-		if (OPENERS.has(token.text)) depth++;
-		else if (CLOSERS.has(token.text)) depth--;
-		else if (token.text === "," && depth === 0) {
-			ranges.push([start, at]);
-			start = at + 1;
-		}
-	}
-	if (start < to) ranges.push([start, to]);
-	return ranges;
-}
-
 function overBounds(steps: readonly FunctionStep[]): { step: string; message: string } | null {
 	let total = 0;
 	const walk = (list: readonly FunctionStep[], prefix: string, depth: number): ReturnType<typeof overBounds> => {
@@ -511,174 +414,92 @@ function overBounds(steps: readonly FunctionStep[]): { step: string; message: st
 export function parseScript(source: string, tables: ScriptTables): ScriptParse {
 	const bindings: ScriptBinding[] = [];
 	const statements: ScriptStatement[] = [];
-	if (source.length > SCRIPT_SOURCE_MAX) {
-		const message = `longer than ${SCRIPT_SOURCE_MAX} characters`;
-		return { issues: [{ start: 0, end: source.length, message }], bindings, statements };
-	}
-	const pieces = scanScript(source);
-	const issues: ScriptIssue[] = [];
+	const tree = parseScriptSource(source);
+	// A span of none still marks a character.
+	const issues: ScriptIssue[] = tree.issues.map(({ start, end, message }) => ({
+		start,
+		end: Math.max(end, start + 1),
+		message,
+	}));
 	const places: ScriptPlace[] = [];
-	let at = 0;
 	const tooLong = `longer than ${STEP_TEXT_MAX} characters`;
 
 	const fail = (start: number, end: number, message: string): never => {
 		throw new Refused({ start, end, message });
 	};
-	const textOf = (piece: ScriptPiece) => source.slice(piece.start, piece.end);
-	const sameLine = (before: ScriptPiece, after: ScriptPiece) => !source.slice(before.end, after.start).includes("\n");
-	const next = (kind: ScriptPiece["kind"]): ScriptPiece | undefined =>
-		pieces[at]?.kind === kind ? pieces[at] : undefined;
-	const expect = (kind: "open" | "close", after: ScriptPiece, what: string): ScriptPiece => {
-		const piece = next(kind);
-		if (!piece) fail(after.start, after.end, what);
-		at++;
-		return piece as ScriptPiece;
+
+	const quoted = (node: ConsoleNode): boolean =>
+		!node.grouped && (node.kind === "template" || (node.kind === "literal" && typeof node.value === "string"));
+
+	const text = (node: ConsoleNode, place: { step: string; param: string }): string => {
+		const read = bodyOf(piecesOf(node) ?? [], source);
+		if (read.text.length > STEP_TEXT_MAX) fail(node.start, node.end, tooLong);
+		places.push({ ...place, start: node.start, end: node.end, chars: read.chars });
+		return read.text;
 	};
 
-	/** A statement's code, refusing a comment cut into it. */
-	const codeAfter = (lead: ScriptPiece): ScriptPiece | null => {
-		const piece = next("code");
-		if (!piece || !sameLine(lead, piece)) return null;
-		at++;
-		const comment = pieces[at];
-		if (comment?.kind === "comment" && pieces[at + 1]?.joins) {
-			fail(comment.start, comment.end, "a comment here would be lost; put it on its own line");
-		}
-		return piece;
+	const expression = (node: ConsoleNode, place: { step: string; param: string }): string => {
+		const written = oneLine(source.slice(node.start, node.end));
+		if (written.length > STEP_TEXT_MAX) fail(node.start, node.end, tooLong);
+		places.push({ ...place, start: node.start, end: node.end });
+		return written;
 	};
 
-	const lift = (
-		tokens: readonly ConsoleToken[],
-		from: number,
-		to: number,
-		offset: number,
-		code: string,
-		place: { step: string; param: string },
-		at: Position,
-	): StepArg => {
-		const first = tokens[from] as ConsoleToken;
-		const last = tokens[to - 1] as ConsoleToken;
-		const start = offset + first.start;
-		const end = offset + last.end;
-		if (to - from === 1 && first.kind === "string") {
-			if (!first.closed) fail(start, end, "missing closing quote");
-			const read = at.reads === "plain" ? { text: first.value ?? "" } : readText(first.text, start);
-			if (read.text.length > STEP_TEXT_MAX) fail(start, end, tooLong);
-			places.push({ ...place, start, end, ...("chars" in read ? { chars: read.chars } : {}) });
-			if (at.reads === "value" && fills(read.text)) return { kind: "text", text: read.text };
-			if (at.reads !== "plain" || !at.held) return { kind: "literal", value: read.text };
-			const id = idFor(read.text, at.held);
-			if (id === null) fail(start, end, `two ${at.what}s are named ${read.text}; write its id`);
-			return { kind: "literal", value: id as string };
+	const lift = (node: ConsoleNode, place: { step: string; param: string }, at: Position): StepArg => {
+		const { start, end } = node;
+		if (quoted(node) && at.reads === "text") return { kind: "literal", value: text(node, place) };
+		if (node.kind === "template" && !node.grouped && at.reads === "plain") {
+			fail(start, end, "only a text takes a hole");
 		}
-		places.push({ ...place, start, end });
-		const number = (value: number): StepArg =>
-			Number.isFinite(value) ? { kind: "literal", value } : fail(start, end, "a number too large");
-		if (to - from === 1 && first.kind === "number") return number(Number(first.text));
-		if (to - from === 1 && first.kind === "keyword" && first.text !== "null") {
-			return { kind: "literal", value: first.text === "true" };
+		if (!constant(node) || (node.kind === "literal" && node.value === null)) {
+			return { kind: "expression", text: expression(node, place) };
 		}
-		if (to - from === 2 && first.kind === "op" && first.text === "-" && last.kind === "number") {
-			return number(-Number(last.text));
-		}
-		const text = code.slice(first.start, last.end);
-		const parsed = parseConsoleExpression(text);
-		const [issue] = parsed.issues;
-		if (issue) fail(start + issue.start, start + Math.max(issue.end, issue.start + 1), issue.message);
-		const written = canonicalExpression(text);
-		if (written.length > STEP_TEXT_MAX) fail(start, end, tooLong);
-		return { kind: "expression", text: written };
+		const pieces = node.kind === "literal" ? node.pieces : undefined;
+		places.push({ ...place, start, end, ...(pieces ? { chars: charsOf(pieces) } : {}) });
+		if (negative(node)) return { kind: "literal", value: -(node.operand as { value: number }).value };
+		const value = (node as ConsoleNode & { kind: "literal" }).value as string | number | boolean;
+		if (typeof value !== "string") return { kind: "literal", value };
+		if (value.length > STEP_TEXT_MAX) fail(start, end, tooLong);
+		if (at.reads !== "plain" || !at.held) return { kind: "literal", value };
+		const id = idFor(value, at.held);
+		if (id === null) fail(start, end, `two ${at.what}s are named ${value}; write its id`);
+		return { kind: "literal", value: id as string };
 	};
 
-	const inParens = (piece: ScriptPiece, what: string): { tokens: ConsoleToken[]; code: string } => {
-		const code = textOf(piece);
-		const tokens = lexConsole(code);
-		if (!isPunct(tokens[0], "(") || closing(tokens, 0) !== tokens.length - 1) {
-			fail(piece.start, piece.end, what);
-		}
-		if (tokens.length === 2) fail(piece.start, piece.end, what);
-		return { tokens, code };
+	const called = (node: ConsoleNode): AutomationActionKind | null => {
+		if (node.kind !== "call" || node.grouped || !node.closed) return null;
+		const { target } = node;
+		if (target.kind !== "member" || target.target.kind !== "ident") return null;
+		return doingAction(target.target.name, target.name);
 	};
 
-	const doing = (
-		action: AutomationActionKind,
-		tokens: readonly ConsoleToken[],
-		piece: ScriptPiece,
-		code: string,
-		path: string,
-	): FunctionStep => {
-		const row = AUTOMATION_ACTIONS[action];
-		const ranges = splitTop(tokens, 4, tokens.length - 1);
-		if (ranges.length > row.params.length) {
-			fail(
-				piece.start,
-				piece.end,
-				`${row.call.entity}.${row.call.method} takes at most ${row.params.length} values`,
-			);
-		}
-		const absent = ([from, to]: [number, number]) =>
-			to - from === 1 && tokens[from]?.kind === "keyword" && tokens[from]?.text === "null";
-		if (action !== "run_function") {
-			const args: Record<string, StepArg> = {};
-			for (const [index, range] of ranges.entries()) {
-				const param = row.params[index] as AutomationActionParam;
-				if (absent(range)) continue;
-				const place = { step: path, param: param.name };
-				args[param.name] = lift(
-					tokens,
-					range[0],
-					range[1],
-					piece.start,
-					code,
-					place,
-					positionOf(param, tables),
-				);
-			}
-			return { kind: "do", action, args };
-		}
-		const [target, record] = ranges;
-		const name = target ? (tokens[target[0]] as ConsoleToken) : undefined;
-		if (!target || !name || target[1] - target[0] !== 1 || name.kind !== "string" || !name.closed) {
-			return fail(piece.start, piece.end, "name the function to run, in quotes");
-		}
-		const written = name.value ?? "";
+	const absent = (node: ConsoleNode): boolean => node.kind === "literal" && node.value === null && !node.grouped;
+
+	const calling = (args: readonly ConsoleNode[], whole: ScriptNode, path: string): FunctionStep => {
+		const [target, record] = args;
+		const named = target && quoted(target) && target.kind === "literal";
+		if (!target || !named) return fail(whole.start, whole.end, "name the function to run, in quotes");
+		const written = target.value as string;
 		const id = idFor(written, tables.functions);
-		if (id === null)
-			fail(piece.start + name.start, piece.start + name.end, `two functions are named ${written}; write its id`);
+		if (id === null) fail(target.start, target.end, `two functions are named ${written}; write its id`);
 		const callee = tables.functions.find((entry) => entry.id === id);
-		if (!callee) fail(piece.start + name.start, piece.start + name.end, `no function is named ${written}`);
+		if (!callee) fail(target.start, target.end, `no function is named ${written}`);
 		const values: Record<string, StepArg> = {};
 		if (record && !absent(record)) {
-			const [from, to] = record;
-			if (!isPunct(tokens[from], "{") || closing(tokens, from) !== to - 1) {
-				fail(
-					piece.start + (tokens[from] as ConsoleToken).start,
-					piece.end,
-					"its values are written {name: value}",
-				);
+			if (record.kind !== "dict" || record.grouped || !record.closed) {
+				return fail(record.start, whole.end, "its values are written {name: value}");
 			}
-			for (const [start, end] of splitTop(tokens, from + 1, to - 1)) {
-				const key = tokens[start] as ConsoleToken;
-				const keyed = (key.kind === "ident" || key.kind === "string") && isPunct(tokens[start + 1], ":");
-				const param = key.kind === "string" ? (key.value ?? "") : key.text;
-				if (!keyed || !PARAM_NAME_RE.test(param) || end - start < 3) {
-					fail(
-						piece.start + key.start,
-						piece.start + (tokens[end - 1] as ConsoleToken).end,
-						"write a value as name: value",
-					);
-				}
-				if (Object.hasOwn(values, param)) {
-					fail(piece.start + key.start, piece.start + key.end, `${param} is given twice`);
-				}
+			for (const entry of record.entries) {
+				const param = entry.key;
+				if (!PARAM_NAME_RE.test(param)) fail(entry.start, entry.value.end, "write a value as name: value");
+				if (Object.hasOwn(values, param)) fail(entry.start, entry.end, `${param} is given twice`);
 				if (Object.keys(values).length >= FUNCTION_PARAMS_MAX) {
-					fail(piece.start + key.start, piece.start + key.end, `more than ${FUNCTION_PARAMS_MAX} values`);
+					fail(entry.start, entry.end, `more than ${FUNCTION_PARAMS_MAX} values`);
 				}
 				const declared = callee?.params.find((held) => held.name === param);
-				if (callee && !declared) fail(piece.start + key.start, piece.start + key.end, `it takes no ${param}`);
-				const device = declared?.type === "device";
-				const at = device ? plugs(tables) : VALUE;
-				values[param] = lift(tokens, start + 2, end, piece.start, code, { step: path, param }, at);
+				if (callee && !declared) fail(entry.start, entry.end, `it takes no ${param}`);
+				const at = declared?.type === "device" ? plugs(tables) : VALUE;
+				values[param] = lift(entry.value, { step: path, param }, at);
 			}
 		}
 		// Declared order, then the rest by name.
@@ -689,78 +510,36 @@ export function parseScript(source: string, tables: ScriptTables): ScriptParse {
 		return { kind: "call", function: id as string, ...(Object.keys(sorted).length > 0 ? { values: sorted } : {}) };
 	};
 
-	const plain = (piece: ScriptPiece, path: string): FunctionStep => {
-		at++;
-		const comment = pieces[at];
-		if (comment?.kind === "comment" && pieces[at + 1]?.joins) {
-			fail(comment.start, comment.end, "a comment here would be lost; put it on its own line");
+	const doing = (node: ScriptNode & { kind: "run" }, path: string): FunctionStep => {
+		const action = called(node.node);
+		if (!action || node.node.kind !== "call") {
+			return fail(node.start, node.end, "it does nothing: keep it under a name, or call an action");
 		}
-		const code = textOf(piece);
-		const tokens = lexConsole(code);
-		const [first, second, third, fourth] = tokens;
-		const called = (from: number): AutomationActionKind | null => {
-			const [entity, dot, method, paren] = tokens.slice(from, from + 4);
-			if (entity?.kind !== "ident" || !isPunct(dot, ".") || method?.kind !== "ident" || !isPunct(paren, "(")) {
-				return null;
-			}
-			return closing(tokens, from + 3) === tokens.length - 1 ? doingAction(entity.text, method.text) : null;
-		};
-		if (first?.kind === "ident" && second?.kind === "op" && second.text === "=") {
-			if (!PARAM_NAME_RE.test(first.text)) {
-				fail(piece.start + first.start, piece.start + first.end, "a name is lowercase letters, digits and _");
-			}
-			if (tokens.length === 2) fail(piece.start, piece.end, "a value is missing");
-			if (called(2)) fail(piece.start, piece.end, "this action gives nothing to keep");
-			places.push({ step: path, param: "name", start: piece.start + first.start, end: piece.start + first.end });
-			const value = lift(tokens, 2, tokens.length, piece.start, code, { step: path, param: "value" }, VALUE);
-			bindings.push({ name: first.text, start: piece.end, end: source.length, value });
-			return { kind: "let", name: first.text, value };
+		const row = AUTOMATION_ACTIONS[action];
+		const { args } = node.node;
+		if (args.length > row.params.length) {
+			const name = `${row.call.entity}.${row.call.method}`;
+			fail(node.start, node.end, `${name} takes at most ${row.params.length} values`);
 		}
-		const action = first && third && fourth ? called(0) : null;
-		if (!action) return fail(piece.start, piece.end, "it does nothing: keep it under a name, or call an action");
-		return doing(action, tokens, piece, code, path);
+		if (action === "run_function") return calling(args, node, path);
+		const read: Record<string, StepArg> = {};
+		for (const [index, arg] of args.entries()) {
+			const param = row.params[index] as AutomationActionParam;
+			if (absent(arg)) continue;
+			read[param.name] = lift(arg, { step: path, param: param.name }, positionOf(param, tables));
+		}
+		return { kind: "do", action, args: read };
 	};
 
-	const condition = (word: ScriptPiece, path: string): string => {
-		const piece = codeAfter(word) ?? fail(word.start, word.end, "a condition is missing: if (condition) {");
-		const { tokens, code } = inParens(piece, "write the condition in ( )");
-		const first = tokens[1] as ConsoleToken;
-		const last = tokens[tokens.length - 2] as ConsoleToken;
-		const text = code.slice(first.start, last.end);
-		const [issue] = parseConsoleExpression(text).issues;
-		const start = piece.start + first.start;
-		if (issue) fail(start + issue.start, start + Math.max(issue.end, issue.start + 1), issue.message);
-		const written = canonicalExpression(text);
-		if (written.length > STEP_TEXT_MAX) fail(start, piece.start + last.end, tooLong);
-		places.push({ step: path, param: "when", start, end: piece.start + last.end });
-		return written;
-	};
-
-	const braced = (after: ScriptPiece, path: string, side: number, binds?: string): FunctionStep[] => {
-		const open = expect("open", after, "a { is missing");
-		const steps = block(`${path}.${side}`);
-		const close = pieces[at];
-		const closed = close?.kind === "close";
-		if (binds) bindings.push({ name: binds, start: open.start, end: closed ? close.end : source.length });
-		if (!closed) fail(after.start, after.end, "its } is missing");
-		at++;
-		return steps;
-	};
-
-	const branch = (word: ScriptPiece, path: string): FunctionStep => {
-		const when = condition(word, path);
-		const steps = braced(word, path, 0);
-		const other = next("word");
+	const branch = (node: ScriptIf, path: string): FunctionStep => {
+		const when = expression(node.when, { step: path, param: "when" });
+		const steps = block(node.then.steps, `${path}.0`);
 		let otherwise: FunctionStep[] = [];
-		if (other && textOf(other) === "else") {
-			at++;
-			const again = next("word");
-			if (again && textOf(again) === "if") {
-				at++;
-				otherwise = [branch(again, `${path}.1.0`)];
-				statements.push({ step: `${path}.1.0`, start: again.start, end: (pieces[at - 1] as ScriptPiece).end });
-			} else otherwise = braced(other, path, 1);
-		}
+		if (node.otherwise && "kind" in node.otherwise) {
+			const at = `${path}.1.0`;
+			otherwise = [branch(node.otherwise, at)];
+			statements.push({ step: at, start: node.otherwise.start, end: node.otherwise.end });
+		} else if (node.otherwise) otherwise = block(node.otherwise.steps, `${path}.1`);
 		return {
 			kind: "if",
 			when,
@@ -769,152 +548,74 @@ export function parseScript(source: string, tables: ScriptTables): ScriptParse {
 		};
 	};
 
-	const worded = (word: ScriptPiece, path: string): FunctionStep => {
-		at++;
-		const name = textOf(word);
-		switch (name) {
-			case "if":
-				return branch(word, path);
-			case "try": {
-				const steps = braced(word, path, 0);
-				const caught = next("word");
-				if (!caught || textOf(caught) !== "catch")
-					return fail(word.start, word.end, "a try needs its catch (e) { }");
-				at++;
-				const binding = codeAfter(caught);
-				if (!binding || textOf(binding).replace(/\s/g, "") !== "(e)") {
-					fail(caught.start, binding?.end ?? caught.end, "write catch (e)");
+	const step = (node: ScriptNode, path: string): FunctionStep => {
+		switch (node.kind) {
+			case "note":
+				if (node.text.length > STEP_TEXT_MAX) fail(node.start, node.end, tooLong);
+				return { kind: "note", text: node.text };
+			case "let": {
+				const { name } = node;
+				if (!PARAM_NAME_RE.test(name.text)) {
+					fail(name.start, name.end, "a name is lowercase letters, digits and _");
 				}
-				return { kind: "try", steps, catch: braced(caught, path, 1, "e") };
+				if (called(node.value)) fail(node.start, node.end, "this action gives nothing to keep");
+				places.push({ step: path, param: "name", start: name.start, end: name.end });
+				const value = lift(node.value, { step: path, param: "value" }, VALUE);
+				bindings.push({ name: name.text, start: node.end, end: source.length, value });
+				return { kind: "let", name: name.text, value };
+			}
+			case "run":
+				return doing(node, path);
+			case "if":
+				return branch(node, path);
+			case "try": {
+				const steps = block(node.body.steps, `${path}.0`);
+				bindings.push({ name: "e", start: node.handler.start, end: node.handler.end });
+				return { kind: "try", steps, catch: block(node.handler.steps, `${path}.1`) };
 			}
 			case "parallel":
-				return { kind: "parallel", steps: braced(word, path, 0) };
-			case "exit": {
-				const extra = codeAfter(word);
-				if (extra) fail(extra.start, extra.end, "exit stands alone");
+				return { kind: "parallel", steps: block(node.body.steps, `${path}.0`) };
+			case "exit":
 				return { kind: "exit" };
-			}
 			case "throw": {
-				const said = codeAfter(word);
-				if (!said) return { kind: "throw" };
-				const tokens = lexConsole(textOf(said));
-				const [only] = tokens;
-				if (tokens.length !== 1 || only?.kind !== "string" || !only.closed) {
-					return fail(said.start, said.end, "throw takes a text in quotes");
-				}
-				const read = readText(only.text, said.start + only.start);
-				if (read.text.length > STEP_TEXT_MAX) fail(said.start, said.end, tooLong);
-				places.push({ step: path, param: "text", start: said.start, end: said.end, chars: read.chars });
-				return { kind: "throw", text: read.text };
+				if (!node.text) return { kind: "throw" };
+				if (!quoted(node.text)) fail(node.text.start, node.text.end, "throw takes a text in quotes");
+				return { kind: "throw", text: text(node.text, { step: path, param: "text" }) };
 			}
-			case "wait": {
-				const piece = codeAfter(word) ?? fail(word.start, word.end, "write wait(minutes)");
-				const { tokens, code } = inParens(piece, "write wait(minutes)");
-				const place = { step: path, param: "minutes" };
-				return { kind: "wait", minutes: lift(tokens, 1, tokens.length - 1, piece.start, code, place, VALUE) };
-			}
-			case "else":
-				return fail(word.start, word.end, "an else follows an if's }");
-			case "catch":
-				return fail(word.start, word.end, "a catch follows a try's }");
-			default:
-				return fail(word.start, word.end, `${name} is not in the language yet`);
+			case "wait":
+				return { kind: "wait", minutes: lift(node.minutes, { step: path, param: "minutes" }, VALUE) };
 		}
 	};
 
-	const noted = (comment: ScriptPiece): string => {
-		const line = textOf(comment).slice(2);
-		return line.startsWith(" ") ? line.slice(1) : line;
-	};
-
-	/** Comment lines that follow one another are one note. */
-	const note = (path: string): FunctionStep => {
-		const first = pieces[at] as ScriptPiece;
-		const lines: string[] = [];
-		let last = first;
-		while (pieces[at]?.kind === "comment") {
-			const piece = pieces[at] as ScriptPiece;
-			const between = source.slice(last.end, piece.start);
-			if (piece !== first && (between.split("\n").length !== 2 || between.trim() !== "")) break;
-			lines.push(noted(piece));
-			last = piece;
-			at++;
-		}
-		const text = lines.join("\n");
-		if (text.length > STEP_TEXT_MAX) fail(first.start, last.end, tooLong);
-		statements.push({ step: path, start: first.start, end: last.end });
-		return { kind: "note", text };
-	};
-
-	function block(prefix: string): FunctionStep[] {
+	function block(nodes: readonly ScriptNode[], prefix: string): FunctionStep[] {
 		const steps: FunctionStep[] = [];
-		const path = () => (prefix === "" ? String(steps.length) : `${prefix}.${steps.length}`);
-		while (at < pieces.length) {
-			const piece = pieces[at] as ScriptPiece;
-			if (piece.kind === "close") break;
-			const began = at;
+		for (const node of nodes) {
+			const path = prefix === "" ? String(steps.length) : `${prefix}.${steps.length}`;
 			try {
-				if (piece.kind === "comment") {
-					steps.push(note(path()));
-					continue;
-				}
-				if (piece.kind === "open") fail(piece.start, piece.end, "a { opens nothing here");
-				const own = path();
-				const placed = places.length;
-				const step = piece.kind === "word" ? worded(piece, own) : plain(piece, own);
-				const last = pieces[at - 1] as ScriptPiece;
-				const trailing = pieces[at];
-				const simple = step.kind !== "if" && step.kind !== "try" && step.kind !== "parallel";
-				// A comment after a statement is a note before it.
-				if (simple && trailing?.kind === "comment" && sameLine(last, trailing)) {
-					at++;
-					statements.push({ step: own, start: trailing.start, end: trailing.end });
-					steps.push({ kind: "note", text: noted(trailing) });
-					// Its places move with it.
-					for (const place of places.slice(placed)) place.step = path() + place.step.slice(own.length);
-				}
-				statements.push({ step: path(), start: piece.start, end: last.end });
-				steps.push(step);
+				const read = step(node, path);
+				statements.push({ step: path, start: node.start, end: node.end });
+				steps.push(read);
 			} catch (error) {
 				if (!(error instanceof Refused)) throw error;
-				if (issues.length < ISSUES_MAX) issues.push(error.issue);
-				// Carry on at the next line, past a block the refused line opened.
-				const line = source.indexOf("\n", error.issue.start);
-				const resume = line < 0 ? source.length : line;
-				let depth = 0;
-				while (at < pieces.length && ((pieces[at] as ScriptPiece).start < resume || depth > 0)) {
-					const kind = (pieces[at] as ScriptPiece).kind;
-					if (kind === "open") depth++;
-					else if (kind === "close" && depth > 0) depth--;
-					else if (kind === "close") break;
-					at++;
-				}
-				// The rest of a statement a comment cut.
-				while (pieces[at]?.joins) at++;
-				if (at === began) at++;
+				issues.push(error.issue);
 			}
 		}
 		return steps;
 	}
 
-	const steps = block("");
-	while (at < pieces.length) {
-		const stray = pieces[at] as ScriptPiece;
-		if (issues.length < ISSUES_MAX) {
-			issues.push({ start: stray.start, end: stray.end, message: "a } closes nothing here" });
-		}
-		at++;
-		block("");
+	const steps = block(tree.steps, "");
+	if (issues.length > 0) {
+		issues.sort((left, right) => left.start - right.start);
+		return { issues: issues.slice(0, ISSUES_MAX), bindings, statements: [] };
 	}
-	if (issues.length > 0) return { issues, bindings, statements: [] };
-	const refused = (step: string, message: string): ScriptParse => {
-		const where = statements.find((held) => held.step === step);
+	const refused = (at: string, message: string): ScriptParse => {
+		const where = statements.find((held) => held.step === at);
 		const issue = { start: where?.start ?? 0, end: where?.end ?? source.length, message };
 		return { issues: [issue], bindings, statements: [] };
 	};
 	const over = overBounds(steps);
 	if (over) return refused(over.step, over.message);
-	const bad = steps.findIndex((step) => !FunctionStepSchema.safeParse(step).success);
+	const bad = steps.findIndex((held) => !FunctionStepSchema.safeParse(held).success);
 	if (bad >= 0) return refused(String(bad), "a step here cannot be kept");
 	statements.sort((left, right) => left.start - right.start);
 	bindings.sort((left, right) => left.start - right.start);

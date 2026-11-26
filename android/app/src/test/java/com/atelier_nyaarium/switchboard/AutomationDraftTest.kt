@@ -79,7 +79,6 @@ import com.atelier_nyaarium.switchboard.assistant.triggerIssue
 import com.atelier_nyaarium.switchboard.assistant.triggerOf
 import com.atelier_nyaarium.switchboard.assistant.unopenedLine
 import com.atelier_nyaarium.switchboard.assistant.usesText
-import com.atelier_nyaarium.switchboard.assistant.withHole
 import com.atelier_nyaarium.switchboard.assistant.withValue
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldOption
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
@@ -788,7 +787,6 @@ class AutomationPartsTest {
 		)
 		assertEquals("{valu}: no name valu here", holeLine(text, "no name valu here", 6, 12))
 		assertEquals("missing }", holeLine(text, "missing }", 40, 50))
-		assertEquals(listOf("{value}", "It is {value}", "It is {value}"), listOf("", "It is", "It is ").map { withHole(it, "value") })
 		val refused = AutomationSaid.Hole("key-1", "value2", 0, 4, "no", "{x} here")
 		assertEquals(
 			listOf(refused, null, null, null),

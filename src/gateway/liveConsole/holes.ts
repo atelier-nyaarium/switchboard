@@ -1,10 +1,8 @@
-import { type ConsoleNode, parseConsole } from "../../shared/live-console-grammar.js";
-import { oneLine } from "../../shared/system-reminder.js";
-import { HOLE_FAILED, scanHoles } from "../../shared/text-holes.js";
+import { type ConsoleNode, parseConsole, parseConsoleText, piecesOf } from "../../shared/live-console-grammar.js";
+import { HOLE_FAILED } from "../../shared/text-holes.js";
 import { arityIssue, freeBuiltin, valueBuiltin } from "./builtins.js";
-import { DOING_REFUSED, evaluateConsole } from "./evaluate.js";
+import { type ConsoleVariable, DOING_REFUSED, evaluateConsole, evaluateNode } from "./evaluate.js";
 import { type ConsoleAudience, type ConsoleRegistry, resolveName } from "./registry.js";
-import { numberText } from "./render.js";
 
 /** Host audience; slow members barred. */
 const AUDIENCE: ConsoleAudience = "host";
@@ -36,6 +34,13 @@ function unreadable(node: ConsoleNode, names: ReadonlySet<string>, registry: Con
 	switch (node.kind) {
 		case "literal":
 			return null;
+		case "template":
+			// A broken hole is the parser's to report.
+			return (
+				node.pieces
+					.map((piece) => (piece.kind === "hole" && !piece.broken ? walk(piece.node) : null))
+					.find((issue) => issue !== null) ?? null
+			);
 		case "ident": {
 			const meaning = meaningOf(node.name);
 			if (meaning.kind === "held") return null;
@@ -105,21 +110,11 @@ function sourceIssue(source: string, scope: ReadonlySet<string>, registry: Conso
 }
 
 export function holeIssue(text: string, names: readonly string[], registry: ConsoleRegistry): HoleIssue | null {
-	const scope = new Set(names);
-	for (const part of scanHoles(text)) {
-		if (part.kind !== "hole") continue;
-		const whole = { start: part.start, end: part.end };
-		if (!part.closed) return { ...whole, message: "missing }" };
-		const inner = part.start + 1;
-		const found = sourceIssue(part.source, scope, registry);
-		if (!found) continue;
-		if (found.at === "span") return { start: inner + found.start, end: inner + found.end, message: found.message };
-		return {
-			...whole,
-			message: found.why === "empty" ? "a hole needs an expression" : "a hole holds one expression",
-		};
-	}
-	return null;
+	const { node, issues } = parseConsoleText(text);
+	const [syntax] = issues;
+	const meaning = unreadable(node, new Set(names), registry);
+	const first = syntax && (!meaning || syntax.start <= meaning.start) ? syntax : meaning;
+	return first ? { start: first.start, end: first.end, message: first.message } : null;
 }
 
 /** A bare expression, no braces. */
@@ -145,25 +140,18 @@ export const holesOver = (registry: ConsoleRegistry) => ({
 
 export type ConsoleHoles = ReturnType<typeof holesOver>;
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null && !Array.isArray(value);
-
-/** One line; null for what has no short form. */
-function holeText(value: unknown): string | null {
-	if (value === null || value === undefined) return "none";
-	if (typeof value === "string") return oneLine(value);
-	if (typeof value === "number") return numberText(value);
-	if (typeof value === "boolean") return value ? "yes" : "no";
-	return isRecord(value) && typeof value.shown === "string" ? value.shown : null;
-}
-
 export interface FilledText {
 	text: string;
 	failed: number;
 }
 
-const variablesOf = (names: Readonly<Record<string, HoleName>>) =>
-	Object.fromEntries(Object.entries(names).map(([name, held]) => [name, { value: held.value }]));
+const variablesOf = (names: Readonly<Record<string, HoleName>>): Record<string, ConsoleVariable> =>
+	Object.fromEntries(
+		Object.entries(names).map(([name, held]) => [
+			name,
+			{ value: held.value, ...(held.shown === undefined ? {} : { shown: held.shown }) },
+		]),
+	);
 
 /** Null when it fails. */
 export async function evaluateHole(
@@ -186,30 +174,24 @@ export async function fillHoles(
 	names: Readonly<Record<string, HoleName>>,
 	registry: ConsoleRegistry,
 ): Promise<FilledText> {
-	const variables = variablesOf(names);
+	const options = { variables: variablesOf(names), stepsMax: HOLE_STEPS_MAX, noSlow: true };
 	let filled = "";
 	let failed = 0;
-	for (const part of scanHoles(text)) {
-		if (part.kind === "text") {
-			filled += part.text;
+	for (const piece of piecesOf(parseConsoleText(text).node) ?? []) {
+		if (piece.kind !== "hole") {
+			filled += piece.value;
 			continue;
 		}
-		const alone = resolveName(registry, AUDIENCE, part.source.trim(), (name) =>
-			Object.hasOwn(names, name) ? names[name] : undefined,
-		);
-		if (part.closed && alone.kind === "held" && alone.held.shown !== undefined) {
-			filled += alone.held.shown;
-			continue;
-		}
-		const answer = part.closed
-			? await evaluateConsole(part.source, registry, AUDIENCE, {
-					variables,
-					stepsMax: HOLE_STEPS_MAX,
-					noSlow: true,
-				})
-			: null;
-		const [only, more] = answer?.ok ? answer.results : [];
-		const printed = only && !more && !only.assigned ? holeText(only.value) : null;
+		// Each hole is read alone, so one that fails marks itself.
+		const alone: ConsoleNode = {
+			kind: "template",
+			pieces: [piece],
+			closed: true,
+			start: piece.start,
+			end: piece.end,
+		};
+		const answer = piece.broken ? null : await evaluateNode(alone, text.length, registry, AUDIENCE, options);
+		const printed = answer?.ok && typeof answer.value === "string" ? answer.value : null;
 		if (printed === null) failed += 1;
 		filled += printed ?? HOLE_FAILED;
 	}

@@ -61,7 +61,8 @@ export function membersOf(type: string, scope: TypeScope): Readonly<Record<strin
 }
 
 const COMPARES: ReadonlySet<string> = new Set(["==", "!=", "<", ">", "<=", ">=", "and", "or"]);
-const ITEM_OF = /^List<(.+)>$/;
+/** What a `List<Item>` label holds. */
+export const elementOf = (type: string | undefined): string | undefined => type?.match(/^List<(.+)>$/)?.[1];
 const known = (label: string | undefined): string =>
 	label === undefined || label === "" || label === "Any" ? "Unknown" : label.slice(0, SCRIPT_TYPE_MAX);
 
@@ -77,6 +78,8 @@ export function typeOfNode(node: ConsoleNode | null, scope: TypeScope): string {
 			if (typeof node.value === "string") return "Text";
 			if (typeof node.value === "number") return "Number";
 			return typeof node.value === "boolean" ? "Truth" : "Unknown";
+		case "template":
+			return "Text";
 		case "ident":
 			return known(scope.names.get(node.name));
 		case "member": {
@@ -104,7 +107,7 @@ export function typeOfNode(node: ConsoleNode | null, scope: TypeScope): string {
 			return known(builtin?.returns);
 		}
 		case "index":
-			return known(ITEM_OF.exec(typeOfNode(node.target, scope))?.[1]);
+			return known(elementOf(typeOfNode(node.target, scope)));
 		case "unary":
 			return node.op === "!" ? "Truth" : "Number";
 		case "binary": {

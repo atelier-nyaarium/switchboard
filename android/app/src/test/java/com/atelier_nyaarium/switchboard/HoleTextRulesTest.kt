@@ -20,10 +20,10 @@ import com.atelier_nyaarium.switchboard.assistant.textParam
 import com.atelier_nyaarium.switchboard.assistant.withEntity
 import com.atelier_nyaarium.switchboard.assistant.withName
 import com.atelier_nyaarium.switchboard.liveconsole.ConsoleCompletion
-import com.atelier_nyaarium.switchboard.liveconsole.HolePart
+import com.atelier_nyaarium.switchboard.liveconsole.ConsoleStringPart
 import com.atelier_nyaarium.switchboard.liveconsole.applyTo
 import com.atelier_nyaarium.switchboard.liveconsole.consoleAssist
-import com.atelier_nyaarium.switchboard.liveconsole.scanHoles
+import com.atelier_nyaarium.switchboard.liveconsole.lexConsoleText
 import com.atelier_nyaarium.switchboard.proto.AutomationPreviewName
 import com.atelier_nyaarium.switchboard.proto.FunctionParam
 import com.atelier_nyaarium.switchboard.proto.ConsoleDescription
@@ -71,6 +71,9 @@ class HoleTextRulesTest {
 		assertEquals("{sensors" to 8, pick("{sens", "sensors", 1, 5))
 		assertEquals("{source and more" to 7, pick("{sou and more", "source", 1, 4))
 		assertEquals("{round(value) + source}" to 23, pick("{round(value) + sou", "source", 16, 19))
+		// Any bracket still open keeps the hole open.
+		assertEquals("{readings[source" to 16, pick("{readings[sou", "source", 10, 13))
+		assertEquals("{readings[source]}" to 18, pick("{readings[source", "]", 16, 16))
 	}
 
 	@Test
@@ -106,7 +109,9 @@ class HoleTextRulesTest {
 
 	@Test
 	fun theCursorIsInAHoleOnlyBetweenItsBracesAndAnOpenOneRunsToTheEnd() {
-		val inside = { cursor: Int -> holeAt(text, cursor)?.source }
+		val inside = { cursor: Int ->
+			holeAt(text, cursor)?.let { text.substring(it.start + 1, if (it.closed) it.end - 1 else it.end) }
+		}
 
 		assertEquals(listOf(null, "value", "value", null), listOf(6, 7, 12, 13).map(inside))
 		assertEquals(listOf(null, "device", "device"), listOf(17, 18, text.length).map(inside))
@@ -119,10 +124,13 @@ class HoleTextRulesTest {
 		assertEquals("Now {sensors.}" to 13, withEntity("Now ", 4, "sensors"))
 		assertEquals("{sensors.}" to 9, withEntity("{}", 1, "sensors"))
 		// Odd backslash escapes the brace.
-		val holes = { text: String -> scanHoles(text).count { it is HolePart.Hole } }
+		val holes = { text: String -> lexConsoleText(text).count { it is ConsoleStringPart.Hole && it.closed } }
 		val inserted = listOf(withName("C:\\", 3, "time"), withEntity("C:\\", 3, "sensors"), withName("a\\\\", 3, "time"))
 		assertEquals(listOf(1, 1, 1), inserted.map { holes(it.first) })
 		assertEquals("a\\\\{time}" to 9, inserted[2])
+		// Between an escape's two characters, it goes after the escape and leaves it whole.
+		assertEquals("a \\{{x}b" to 7, withName("a \\{b", 3, "x"))
+		assertEquals(listOf(1, 1), listOf(withName("a \\{b", 3, "x"), withName("a \\\\b", 3, "x")).map { holes(it.first) })
 	}
 
 	@Test

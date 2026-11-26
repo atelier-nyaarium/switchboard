@@ -3,8 +3,8 @@ package com.atelier_nyaarium.switchboard.assistant
 import com.atelier_nyaarium.switchboard.displayedUnit
 import com.atelier_nyaarium.switchboard.formatDecimal
 import com.atelier_nyaarium.switchboard.fromDisplay
-import com.atelier_nyaarium.switchboard.liveconsole.HolePart
-import com.atelier_nyaarium.switchboard.liveconsole.scanHoles
+import com.atelier_nyaarium.switchboard.liveconsole.ConsoleStringPart
+import com.atelier_nyaarium.switchboard.liveconsole.lexConsoleText
 import com.atelier_nyaarium.switchboard.parseDecimal
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationCondition
@@ -310,7 +310,7 @@ internal sealed interface TextPreview {
 	data class Refused(val line: String, val start: Int, val end: Int) : TextPreview
 }
 
-internal fun hasHole(text: String): Boolean = scanHoles(text).any { it is HolePart.Hole }
+internal fun hasHole(text: String): Boolean = lexConsoleText(text).any { it is ConsoleStringPart.Hole }
 
 /** The text a preview asks about; null when it holds no hole. */
 internal fun previewText(text: String): String? = text.takeIf(::hasHole)
@@ -346,11 +346,6 @@ internal fun textPreviewOf(text: String, asked: Boolean, read: PreviewRead): Tex
 		filled != null -> TextPreview.Filled(filled)
 		else -> TextPreview.Unread
 	}
-}
-
-internal fun withHole(text: String, name: String): String {
-	val gap = if (text.isEmpty() || text.last().isWhitespace()) "" else " "
-	return "$text$gap{$name}"
 }
 
 /** A refused span quoted before its reason. */

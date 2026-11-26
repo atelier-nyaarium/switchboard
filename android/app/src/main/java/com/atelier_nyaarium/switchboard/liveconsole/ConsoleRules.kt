@@ -37,9 +37,41 @@ internal fun consoleGateways(roster: GatewayRegistry, chosen: String): List<Stri
 
 internal data class PaintSpan(val start: Int, val end: Int, val token: CodeToken)
 
-internal fun consolePaint(source: String, entities: Set<String>, variables: Set<String>): List<PaintSpan> {
-	val tokens = lexConsole(source)
-	return tokens.mapIndexed { at, token ->
+internal fun consolePaint(source: String, entities: Set<String>, variables: Set<String>): List<PaintSpan> =
+	paintTokens(lexConsole(source), entities, variables)
+
+internal fun consoleTextPaint(text: String, entities: Set<String>, variables: Set<String>): List<PaintSpan> =
+	paintParts(lexConsoleText(text), null, entities, variables)
+
+private fun paintParts(
+	parts: List<ConsoleStringPart>,
+	run: CodeToken?,
+	entities: Set<String>,
+	variables: Set<String>,
+): List<PaintSpan> =
+	parts.flatMap { part ->
+		when (part) {
+			is ConsoleStringPart.Text -> listOfNotNull(run?.let { PaintSpan(part.start, part.end, it) })
+			is ConsoleStringPart.Escape -> listOf(PaintSpan(part.start, part.end, CodeToken.ESCAPE))
+			is ConsoleStringPart.Hole ->
+				buildList {
+					add(PaintSpan(part.start, part.start + 1, CodeToken.PUNCTUATION))
+					addAll(paintTokens(part.tokens, entities, variables))
+					if (part.closed) add(PaintSpan(part.end - 1, part.end, CodeToken.PUNCTUATION))
+				}
+		}
+	}
+
+private fun paintTokens(tokens: List<ConsoleToken>, entities: Set<String>, variables: Set<String>): List<PaintSpan> =
+	tokens.flatMapIndexed { at, token ->
+		val parts = token.parts
+		if (parts != null && parts.any { it !is ConsoleStringPart.Text }) {
+			return@flatMapIndexed buildList {
+				add(PaintSpan(token.start, token.start + 1, CodeToken.STRING))
+				addAll(paintParts(parts, CodeToken.STRING, entities, variables))
+				if (token.closed == true) add(PaintSpan(token.end - 1, token.end, CodeToken.STRING))
+			}
+		}
 		val afterDot = tokens.getOrNull(at - 1)?.let { it.kind == ConsoleTokenKind.PUNCT && it.text == "." } == true
 		val called = tokens.getOrNull(at + 1)?.let { it.kind == ConsoleTokenKind.PUNCT && it.text == "(" } == true
 		val paint =
@@ -59,16 +91,17 @@ internal fun consolePaint(source: String, entities: Set<String>, variables: Set<
 				ConsoleTokenKind.OP -> CodeToken.OPERATOR
 				ConsoleTokenKind.PUNCT -> CodeToken.PUNCTUATION
 				ConsoleTokenKind.ERROR -> CodeToken.DELETION
+				ConsoleTokenKind.COMMENT -> CodeToken.COMMENT
+				ConsoleTokenKind.NEWLINE -> CodeToken.CODE
 			}
-		PaintSpan(token.start, token.end, paint)
+		listOf(PaintSpan(token.start, token.end, paint))
 	}
-}
 
 data class ConsoleVariable(val value: JsonElement, val type: String?)
 
 /** Send candidates; Gateway resolves references. */
 fun variablesFor(expr: String, held: Map<String, ConsoleVariable>): JsonObject? {
-	val named = lexConsole(expr).filter { it.kind == ConsoleTokenKind.IDENT }.map { it.text }.toSet()
+	val named = everyToken(lexConsole(expr)).filter { it.kind == ConsoleTokenKind.IDENT }.map { it.text }.toSet()
 	val sent = held.filterKeys { it in named }
 	if (sent.isEmpty()) return null
 	return buildJsonObject {

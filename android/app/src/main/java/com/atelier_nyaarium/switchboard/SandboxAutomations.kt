@@ -32,8 +32,12 @@ import com.atelier_nyaarium.switchboard.assistant.reachOver
 import com.atelier_nyaarium.switchboard.assistant.written
 import com.atelier_nyaarium.switchboard.assistant.testLabel
 import com.atelier_nyaarium.switchboard.proto.Automation
-import com.atelier_nyaarium.switchboard.liveconsole.HolePart
-import com.atelier_nyaarium.switchboard.liveconsole.scanHoles
+import com.atelier_nyaarium.switchboard.liveconsole.ConsoleStringPart
+import com.atelier_nyaarium.switchboard.liveconsole.ConsoleToken
+import com.atelier_nyaarium.switchboard.liveconsole.ConsoleTokenKind
+import com.atelier_nyaarium.switchboard.liveconsole.everyToken
+import com.atelier_nyaarium.switchboard.liveconsole.lexConsole
+import com.atelier_nyaarium.switchboard.liveconsole.lexConsoleText
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationActionOffer
 import com.atelier_nyaarium.switchboard.proto.AutomationActionOption
@@ -157,34 +161,49 @@ private const val IFTTT = "ifttt_trigger"
 
 private fun fahrenheit(celsius: Double): String = String.format(Locale.ROOT, "%.1f", celsius * 9 / 5 + 32)
 
-/** Root, then member. */
-private val NAME_READ = Regex("[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)?")
-
 private fun literalOf(arg: JsonElement): JsonElement? =
 	(runIsolated { wireJson.decodeFromJsonElement(StepArg.serializer(), arg) }.getOrNull() as? StepArg.Literal)?.value
+
+private fun isDot(token: ConsoleToken?): Boolean = token?.kind == ConsoleTokenKind.PUNCT && token.text == "."
+
+private fun namesRead(tokens: List<ConsoleToken>, names: MutableSet<String>, fields: MutableSet<String>) {
+	for ((at, token) in tokens.withIndex()) {
+		holesRead(token.parts.orEmpty(), names, fields)
+		if (token.kind != ConsoleTokenKind.IDENT || isDot(tokens.getOrNull(at - 1))) continue
+		names += token.text
+		val member = tokens.getOrNull(at + 2)?.takeIf { isDot(tokens.getOrNull(at + 1)) && it.kind == ConsoleTokenKind.IDENT }
+		if (token.text == "event" && member != null) fields += member.text
+	}
+}
+
+private fun holesOf(text: String): List<ConsoleStringPart.Hole> =
+	lexConsoleText(text).filterIsInstance<ConsoleStringPart.Hole>()
+
+private fun ConsoleStringPart.Hole.name(): String? =
+	tokens.singleOrNull()?.takeIf { it.kind == ConsoleTokenKind.IDENT }?.text
+
+private fun ConsoleStringPart.Hole.root(): String? =
+	tokens.firstOrNull()?.takeIf { it.kind == ConsoleTokenKind.IDENT }?.text
+
+private fun ConsoleStringPart.Hole.written(text: String): String =
+	text.substring(start + 1, if (closed) end - 1 else end).trim()
+
+private fun holesRead(parts: List<ConsoleStringPart>, names: MutableSet<String>, fields: MutableSet<String>) {
+	for (part in parts) if (part is ConsoleStringPart.Hole) namesRead(part.tokens, names, fields)
+}
 
 /** Names its steps read. */
 internal fun sandboxReads(function: AutomationFunction): FunctionReads {
 	val names = sortedSetOf<String>()
 	val fields = sortedSetOf<String>()
-	fun read(source: String) {
-		for (match in NAME_READ.findAll(source)) {
-			// Member, not root.
-			if (match.range.first > 0 && source[match.range.first - 1] == '.') continue
-			val root = match.value.substringBefore('.')
-			names += root
-			if (root == "event" && '.' in match.value) fields += match.value.substringAfter('.')
-		}
-	}
 	for (step in written(function)) {
 		val args = (step as? FunctionStep.Do)?.args ?: continue
 		for (arg in args.values) {
 			when (val held = runIsolated { wireJson.decodeFromJsonElement(StepArg.serializer(), arg) }.getOrNull()) {
-				is StepArg.Expression -> read(held.text)
+				is StepArg.Expression -> namesRead(lexConsole(held.text), names, fields)
 				is StepArg.Literal -> (held.value as? JsonPrimitive)?.takeIf { it.isString }?.content?.let { text ->
-					scanHoles(text).filterIsInstance<HolePart.Hole>().forEach { read(it.source) }
+					holesRead(lexConsoleText(text), names, fields)
 				}
-				is StepArg.Text -> scanHoles(held.text).filterIsInstance<HolePart.Hole>().forEach { read(it.source) }
 				null -> Unit
 			}
 		}
@@ -600,8 +619,7 @@ internal class SandboxAutomationGateway(
 			val args = (step as? FunctionStep.Do)?.args ?: return@forEachIndexed
 			for ((param, arg) in args) {
 				val text = (literalOf(arg) as? JsonPrimitive)?.takeIf { it.isString }?.content ?: continue
-				val hole = scanHoles(text).filterIsInstance<HolePart.Hole>()
-					.firstOrNull { !it.closed || it.source.trim().substringBefore('.') !in names } ?: continue
+				val hole = holesOf(text).firstOrNull { !it.closed || it.root() !in names } ?: continue
 				return AutomationHoleSpan(at.toLong(), param, hole.start.toLong(), hole.end.toLong())
 			}
 		}
@@ -699,8 +717,8 @@ internal class SandboxAutomationGateway(
 		written(automation).forEachIndexed { at, action ->
 			for ((param, held) in wireJson.encodeToJsonElement(AutomationAction.serializer(), action).jsonObject) {
 				val text = (held as? JsonPrimitive)?.takeIf { it.isString && param != "kind" }?.content ?: continue
-				val hole = scanHoles(text).filterIsInstance<HolePart.Hole>().firstOrNull { !it.closed || it.source.trim() !in names } ?: continue
-				return AutomationHoleSpan(at.toLong(), param, hole.start.toLong(), hole.end.toLong()) to "no name ${hole.source.trim()} here"
+				val hole = holesOf(text).firstOrNull { !it.closed || it.name() !in names } ?: continue
+				return AutomationHoleSpan(at.toLong(), param, hole.start.toLong(), hole.end.toLong()) to "no name ${hole.written(text)} here"
 			}
 		}
 		return null
@@ -719,16 +737,19 @@ internal class SandboxAutomationGateway(
 			val shown = if (param.type == "device") SANDBOX_SERVES.switches.find { it.device == value }?.name ?: value else value
 			AutomationPreviewName(param.name, shown)
 		}
-		val parts = text?.let(::scanHoles).orEmpty()
-		val unread = parts.filterIsInstance<HolePart.Hole>().firstOrNull { hole ->
-			!hole.closed || names.none { it.name == hole.source.trim() }
+		val parts = text?.let(::lexConsoleText).orEmpty()
+		val unread = parts.filterIsInstance<ConsoleStringPart.Hole>().firstOrNull { hole ->
+			!hole.closed || names.none { it.name == hole.name() }
 		}
-		val hole = unread?.let { AutomationPreviewHole(it.start.toLong(), it.end.toLong(), "no name ${it.source.trim()} here") }
+		val hole = unread?.let {
+			AutomationPreviewHole(it.start.toLong(), it.end.toLong(), "no name ${it.written(text.orEmpty())} here")
+		}
 		val filled = text?.takeIf { hole == null }?.let {
 			parts.joinToString("") { part ->
 				when (part) {
-					is HolePart.Text -> part.text
-					is HolePart.Hole -> names.first { it.name == part.source.trim() }.shown
+					is ConsoleStringPart.Text -> part.value
+					is ConsoleStringPart.Escape -> part.value
+					is ConsoleStringPart.Hole -> names.first { it.name == part.name() }.shown
 				}
 			}
 		}
@@ -752,18 +773,37 @@ internal class SandboxAutomationGateway(
 	}
 }
 
-private val SANDBOX_COMPARE = Regex("""^(\w+)\s*(>|<)\s*(-?\d+(?:\.\d+)?)$""")
+private data class SandboxCompare(val name: String, val operator: String, val number: Double)
+
+private fun sandboxCompare(source: String): SandboxCompare? {
+	val tokens = lexConsole(source)
+	val name = tokens.getOrNull(0)?.takeIf { it.kind == ConsoleTokenKind.IDENT } ?: return null
+	val operator = tokens.getOrNull(1)?.takeIf { it.kind == ConsoleTokenKind.OP && (it.text == ">" || it.text == "<") } ?: return null
+	val rest = tokens.drop(2)
+	val negative = rest.size == 2 && rest[0].kind == ConsoleTokenKind.OP && rest[0].text == "-"
+	if (rest.size != if (negative) 2 else 1) return null
+	val number = rest.last().takeIf { it.kind == ConsoleTokenKind.NUMBER }?.text?.toDoubleOrNull() ?: return null
+	return SandboxCompare(name.text, operator.text, if (negative) -number else number)
+}
 
 /** Booleans and numeric comparisons. */
 private fun sandboxCondition(condition: String, names: List<AutomationPreviewName>): AutomationPreviewCondition {
-	val typed = condition.trim()
-	if (typed == "true" || typed == "false") return AutomationPreviewCondition(holds = typed == "true")
-	val compare = SANDBOX_COMPARE.matchEntire(typed)
-	val shown = compare?.let { match -> names.find { it.name == match.groupValues[1] }?.shown?.takeWhile { it == '-' || it == '.' || it.isDigit() }?.toDoubleOrNull() }
+	val tokens = lexConsole(condition)
+	val constant = tokens.singleOrNull()?.takeIf { it.kind == ConsoleTokenKind.KEYWORD && it.text != "null" }
+	if (constant != null) return AutomationPreviewCondition(holds = constant.text == "true")
+	val compare = sandboxCompare(condition)
+	val shown = compare?.let { match -> names.find { it.name == match.name }?.shown?.takeWhile { it == '-' || it == '.' || it.isDigit() }?.toDoubleOrNull() }
 	if (compare != null && shown != null) {
-		val against = compare.groupValues[3].toDouble()
-		return AutomationPreviewCondition(holds = if (compare.groupValues[2] == ">") shown > against else shown < against)
+		return AutomationPreviewCondition(holds = if (compare.operator == ">") shown > compare.number else shown < compare.number)
 	}
-	if (names.any { typed.contains(it.name) }) return AutomationPreviewCondition(unread = "it cannot be read now")
-	return AutomationPreviewCondition(issue = AutomationConditionIssue(0L, typed.length.toLong(), "no name $typed here"))
+	val read = everyToken(tokens).filter { it.kind == ConsoleTokenKind.IDENT }
+	if (read.any { token -> names.any { it.name == token.text } }) {
+		return AutomationPreviewCondition(unread = "it cannot be read now")
+	}
+	val unknown = read.firstOrNull()
+	val start = unknown?.start ?: 0
+	val end = unknown?.end ?: condition.length
+	return AutomationPreviewCondition(
+		issue = AutomationConditionIssue(start.toLong(), end.toLong(), "no name ${unknown?.text ?: condition.trim()} here"),
+	)
 }

@@ -16,6 +16,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleIds
 import com.atelier_nyaarium.switchboard.proto.ConsoleMemberDescription
 import com.atelier_nyaarium.switchboard.proto.ConsoleParamDescription
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -209,6 +210,39 @@ class ConsoleAssistTest {
 		val source = "sensors.read(\"Cold\\\\"
 		val offered = consoleAssist(source, source.length, description, escaped, emptyMap()).completions
 		assertEquals("sensors.read(\"Cold\\\\Box\"", offered.single().applyTo(source).first)
+	}
+
+	@Test
+	fun aStringHoleUsesCodeHintsAndCompletions() {
+		val source = "sensors.read(\"prefix {sensors.re"
+		val offered = at(source).completions
+		assertEquals(listOf("read"), offered.map { it.label })
+		// The name under the cursor is what a pick replaces.
+		assertEquals(source.lastIndexOf("re"), offered.single().start)
+		assertEquals("sensors.read(\"prefix {sensors.read(", offered.single().applyTo(source).first)
+
+		val call = "sensors.read(\"prefix {sensors.read("
+		assertEquals("sensors.read", at(call).hint?.name)
+		assertEquals(listOf("Freezer", "Fridge"), at(call).completions.map { it.label })
+	}
+
+	@Test
+	fun aWordOperatorJustTypedIsANameHalfTypedAndNothingIsGluedOntoIt() {
+		val held = mapOf("android" to null, "outside" to null)
+
+		assertEquals(emptyList<String>(), labels("outside and"))
+		assertEquals(listOf("android"), labels("and", held))
+		assertEquals("android", at("and", held).completions.single().applyTo("and").first)
+		assertTrue("outside" in labels("outside and ", held))
+	}
+
+	@Test
+	fun aStringRunKeepsStringCompletionsBesideAHole() {
+		val source = "sensors.read(\"Fr{event}\")"
+		val cursor = source.indexOf('{')
+		val offered = at(source, cursor = cursor).completions
+		assertEquals(listOf("Freezer", "Fridge"), offered.map { it.label })
+		assertEquals("sensors.read(\"Freezer\")", offered.first().applyTo(source).first)
 	}
 
 	@Test

@@ -1153,10 +1153,9 @@ export function createAutomations(deps: AutomationsDeps) {
 	): Promise<boolean> {
 		const rows: LogRow[] = [];
 		const names = scopeOf(fire, ref);
-		const text = fillerOf(fire, ref.path, rows, names);
 		const argValue = async (arg: StepArg) => {
 			if (arg.kind === "expression") return evaluated(arg.text, names);
-			return { value: arg.kind === "text" ? await text(arg.text) : (arg.value as unknown) };
+			return { value: arg.value as unknown };
 		};
 		const fail = (code: FailureCode, message: string, reason = message) => ({
 			step: (held: Step) => failedAs(held, code, message),
@@ -1236,14 +1235,12 @@ export function createAutomations(deps: AutomationsDeps) {
 		fire: Fire,
 		path: string,
 		step: Extract<FunctionStep, { kind: "call" }>,
-		rows: LogRow[],
 	): Promise<{ action: AutomationAction } | { refused: string }> {
 		const names = scopeOf(fire, { path });
-		const text = fillerOf(fire, path, rows, names);
 		const values: Record<string, unknown> = {};
 		for (const [name, arg] of Object.entries(step.values ?? {})) {
 			if (arg.kind !== "expression") {
-				values[name] = arg.kind === "text" ? await text(arg.text) : arg.value;
+				values[name] = arg.value;
 				continue;
 			}
 			const read = await evaluated(arg.text, names);
@@ -1265,7 +1262,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		const rows: LogRow[] = [];
 		const at = writtenStep(fire, ref.path);
 		let read: { action: AutomationAction } | { refused: string };
-		if (written?.kind === "call") read = await calledOf(fire, ref.path, written, rows);
+		if (written?.kind === "call") read = await calledOf(fire, ref.path, written);
 		else if (!at) read = { refused: FRAME_UNREAD };
 		else read = await valuesOf(fire, at, rows);
 		const log = rows.reduce(logged, state.log);
@@ -1310,7 +1307,7 @@ export function createAutomations(deps: AutomationsDeps) {
 				raw[name] = value.value;
 				continue;
 			}
-			const written = arg.kind === "text" ? arg.text : arg.value;
+			const written = arg.value;
 			if (typeof written !== "string") {
 				raw[name] = written;
 				continue;

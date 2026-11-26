@@ -1,6 +1,8 @@
 export const CONSOLE_SOURCE_MAX = 2_000;
 export const CONSOLE_NODES_MAX = 256;
 export const CONSOLE_STATEMENTS_MAX = 16;
+export const CONSOLE_DEPTH_MAX = 64;
+export const CONSOLE_STRING_NEST_MAX = 8;
 
 const KEYWORDS = new Set(["true", "false", "null"]);
 /** Operators spelled as words. */
@@ -20,7 +22,30 @@ export interface ConsoleIssue {
 	message: string;
 }
 
-export type ConsoleTokenKind = "ident" | "number" | "string" | "keyword" | "punct" | "op" | "error";
+/** Only a script lexes `comment` and `newline`. */
+export type ConsoleTokenKind =
+	| "ident"
+	| "number"
+	| "string"
+	| "keyword"
+	| "punct"
+	| "op"
+	| "error"
+	| "comment"
+	| "newline";
+
+interface Span {
+	start: number;
+	end: number;
+}
+
+export type ConsoleStringPart = Span &
+	(
+		| { kind: "text"; value: string }
+		| { kind: "escape"; value: string }
+		/** An open hole runs to the end. */
+		| { kind: "hole"; tokens: ConsoleToken[]; closed: boolean }
+	);
 
 export interface ConsoleToken {
 	kind: ConsoleTokenKind;
@@ -29,6 +54,7 @@ export interface ConsoleToken {
 	end: number;
 	closed?: boolean;
 	value?: string;
+	parts?: ConsoleStringPart[];
 }
 
 const PUNCT = new Set([".", "(", ")", "[", "]", "{", "}", ",", ":", ";"]);
@@ -37,84 +63,175 @@ const ONE_CHAR_OPS = new Set(["!", "+", "-", "*", "/", "=", "<", ">"]);
 
 export const CONSOLE_BINARY_OPS = ["or", "and", "==", "!=", "<", ">", "<=", ">=", "+", "-", "*", "/"] as const;
 export type ConsoleBinaryOp = (typeof CONSOLE_BINARY_OPS)[number];
-const ESCAPES: Record<string, string> = { n: "\n", t: "\t", "\\": "\\", '"': '"', "'": "'" };
+const BODY_ESCAPES: Readonly<Record<string, string>> = { "{": "{", "}": "}", "\\": "\\" };
+const QUOTED_ESCAPES: Readonly<Record<string, string>> = { n: "\n", t: "\t", r: "\r", '"': '"', "'": "'" };
 
 const isDigit = (c: string) => c >= "0" && c <= "9";
 const isIdentStart = (c: string) => (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c === "_";
 const isIdentPart = (c: string) => isIdentStart(c) || isDigit(c);
 const isSpace = (c: string) => c === " " || c === "\t" || c === "\n" || c === "\r";
 
-/** Minus is always separate. */
-export function lexConsole(source: string): ConsoleToken[] {
-	const tokens: ConsoleToken[] = [];
-	let at = 0;
-	while (at < source.length) {
-		const c = source[at] as string;
-		if (isSpace(c)) {
-			at++;
-			continue;
-		}
-		const start = at;
-		if (isIdentStart(c)) {
-			while (at < source.length && isIdentPart(source[at] as string)) at++;
-			const text = source.slice(start, at);
-			const kind = KEYWORDS.has(text) ? "keyword" : WORD_OPS.has(text) ? "op" : "ident";
-			tokens.push({ kind, text, start, end: at });
-			continue;
-		}
-		if (isDigit(c)) {
-			while (at < source.length && isDigit(source[at] as string)) at++;
-			if (source[at] === "." && isDigit(source[at + 1] ?? "")) {
-				at++;
-				while (at < source.length && isDigit(source[at] as string)) at++;
+class Lexer {
+	private at = 0;
+
+	constructor(
+		private readonly source: string,
+		private readonly script: boolean,
+	) {}
+
+	/** `bound`: inside a quoted string, ends at the line. */
+	code(nest: number, bound: boolean): { tokens: ConsoleToken[]; closed: boolean } {
+		const { source } = this;
+		const lines = this.script && nest === 0;
+		const tokens: ConsoleToken[] = [];
+		let depth = 0;
+		while (this.at < source.length) {
+			const c = source[this.at] as string;
+			if (bound && (c === "\n" || c === "\r")) return { tokens, closed: false };
+			if (c === "\n" && lines) {
+				tokens.push({ kind: "newline", text: c, start: this.at, end: this.at + 1 });
+				this.at++;
+				continue;
 			}
-			tokens.push({ kind: "number", text: source.slice(start, at), start, end: at });
-			continue;
-		}
-		if (c === '"' || c === "'") {
-			at++;
-			let value = "";
-			let closed = false;
-			while (at < source.length) {
-				const ch = source[at] as string;
-				if (ch === c) {
-					at++;
-					closed = true;
-					break;
-				}
-				if (ch === "\\" && at + 1 < source.length) {
-					const next = source[at + 1] as string;
-					value += ESCAPES[next] ?? next;
-					at += 2;
-					continue;
-				}
-				value += ch;
-				at++;
+			if (isSpace(c)) {
+				this.at++;
+				continue;
 			}
-			tokens.push({ kind: "string", text: source.slice(start, at), start, end: at, closed, value });
-			continue;
+			const start = this.at;
+			if (lines && c === "/" && source[start + 1] === "/") {
+				const line = source.indexOf("\n", start);
+				let end = line < 0 ? source.length : line;
+				if (source[end - 1] === "\r") end--;
+				tokens.push({ kind: "comment", text: source.slice(start, end), start, end });
+				this.at = end;
+				continue;
+			}
+			if (isIdentStart(c)) {
+				while (this.at < source.length && isIdentPart(source[this.at] as string)) this.at++;
+				const text = source.slice(start, this.at);
+				const kind = KEYWORDS.has(text) ? "keyword" : WORD_OPS.has(text) ? "op" : "ident";
+				tokens.push({ kind, text, start, end: this.at });
+				continue;
+			}
+			if (isDigit(c)) {
+				while (this.at < source.length && isDigit(source[this.at] as string)) this.at++;
+				if (source[this.at] === "." && isDigit(source[this.at + 1] ?? "")) {
+					this.at++;
+					while (this.at < source.length && isDigit(source[this.at] as string)) this.at++;
+				}
+				tokens.push({ kind: "number", text: source.slice(start, this.at), start, end: this.at });
+				continue;
+			}
+			if (c === '"' || c === "'") {
+				this.at++;
+				const { parts, closed } = this.body(c, nest);
+				const constant = parts.every((part) => part.kind !== "hole");
+				tokens.push({
+					kind: "string",
+					text: source.slice(start, this.at),
+					start,
+					end: this.at,
+					closed,
+					...(constant ? { value: parts.map((part) => part.value).join("") } : {}),
+					parts,
+				});
+				continue;
+			}
+			if (nest > 0 && c === "}" && depth === 0) {
+				this.at++;
+				return { tokens, closed: true };
+			}
+			const two = source.slice(start, start + 2);
+			if (TWO_CHAR_OPS.has(two)) {
+				this.at += 2;
+				tokens.push({ kind: "op", text: two, start, end: this.at });
+				continue;
+			}
+			this.at++;
+			if (c === "{") depth++;
+			if (c === "}") depth--;
+			const kind: ConsoleTokenKind = PUNCT.has(c) ? "punct" : ONE_CHAR_OPS.has(c) ? "op" : "error";
+			tokens.push({ kind, text: c, start, end: this.at });
 		}
-		const two = source.slice(at, at + 2);
-		if (TWO_CHAR_OPS.has(two)) {
-			at += 2;
-			tokens.push({ kind: "op", text: two, start, end: at });
-			continue;
-		}
-		at++;
-		const kind: ConsoleTokenKind = PUNCT.has(c) ? "punct" : ONE_CHAR_OPS.has(c) ? "op" : "error";
-		tokens.push({ kind, text: c, start, end: at });
+		return { tokens, closed: nest === 0 };
 	}
-	return tokens;
+
+	body(quote: string | null, nest: number): { parts: ConsoleStringPart[]; closed: boolean } {
+		const { source } = this;
+		const parts: ConsoleStringPart[] = [];
+		let run = -1;
+		const flush = () => {
+			if (run >= 0) parts.push({ kind: "text", value: source.slice(run, this.at), start: run, end: this.at });
+			run = -1;
+		};
+		while (this.at < source.length) {
+			const c = source[this.at] as string;
+			if (c === quote) {
+				flush();
+				this.at++;
+				return { parts, closed: true };
+			}
+			// A quoted string ends at its line.
+			if (quote !== null && (c === "\n" || c === "\r")) break;
+			const next = source[this.at + 1];
+			// Other backslashes are text.
+			const escaped =
+				c === "\\" && next !== undefined
+					? (BODY_ESCAPES[next] ?? (quote === null ? undefined : QUOTED_ESCAPES[next]))
+					: undefined;
+			if (escaped !== undefined) {
+				flush();
+				parts.push({ kind: "escape", value: escaped, start: this.at, end: this.at + 2 });
+				this.at += 2;
+				continue;
+			}
+			if (c !== "{") {
+				if (run < 0) run = this.at;
+				this.at++;
+				continue;
+			}
+			flush();
+			const start = this.at;
+			this.at++;
+			if (nest >= CONSOLE_STRING_NEST_MAX) {
+				const brace: ConsoleToken = { kind: "error", text: c, start, end: start + 1 };
+				parts.push({ kind: "hole", tokens: [brace], closed: false, start, end: source.length });
+				this.at = source.length;
+				return { parts, closed: false };
+			}
+			const { tokens, closed } = this.code(nest + 1, quote !== null);
+			parts.push({ kind: "hole", tokens, closed, start, end: this.at });
+		}
+		flush();
+		return { parts, closed: quote === null };
+	}
 }
 
-interface Span {
-	start: number;
-	end: number;
+/** Minus is always separate. */
+export const lexConsole = (source: string): ConsoleToken[] => new Lexer(source, false).code(0, false).tokens;
+
+export const lexScript = (source: string): ConsoleToken[] => new Lexer(source, true).code(0, false).tokens;
+
+export function trimConsole(source: string): string {
+	const tokens = lexConsole(source);
+	const [first] = tokens;
+	const last = tokens.at(-1);
+	return first && last ? source.slice(first.start, last.end) : "";
 }
 
-export type ConsoleNode = Span &
-	(
-		| { kind: "literal"; value: string | number | boolean | null }
+export const lexConsoleText = (text: string): ConsoleStringPart[] => new Lexer(text, false).body(null, 0).parts;
+
+export type ConsoleStringPiece = Span & ({ kind: "text"; value: string } | { kind: "escape"; value: string });
+
+export type ConsoleTemplatePiece =
+	| ConsoleStringPiece
+	| (Span & { kind: "hole"; node: ConsoleNode | null; closed: boolean; broken: boolean });
+
+export type ConsoleNode = Span & {
+	grouped?: true;
+} & (
+		| { kind: "literal"; value: string | number | boolean | null; pieces?: ConsoleStringPiece[] }
+		| { kind: "template"; pieces: ConsoleTemplatePiece[]; closed: boolean }
 		| { kind: "ident"; name: string }
 		| { kind: "member"; target: ConsoleNode; name: string; closed: boolean }
 		| { kind: "call"; target: ConsoleNode; args: ConsoleNode[]; closed: boolean }
@@ -122,7 +239,7 @@ export type ConsoleNode = Span &
 		| { kind: "unary"; op: "-" | "!"; operand: ConsoleNode }
 		| { kind: "binary"; op: ConsoleBinaryOp; left: ConsoleNode; right: ConsoleNode }
 		| { kind: "list"; items: ConsoleNode[]; closed: boolean }
-		| { kind: "dict"; entries: { key: string; value: ConsoleNode }[]; closed: boolean }
+		| { kind: "dict"; entries: (Span & { key: string; value: ConsoleNode })[]; closed: boolean }
 	);
 
 export interface ConsoleStatement extends Span {
@@ -141,39 +258,65 @@ export interface ConsoleParse {
 /** A word operator; still a name after `.` and as a key. */
 const wordOp = (token: ConsoleToken): boolean => token.kind === "op" && WORD_OPS.has(token.text);
 
-class Parser {
-	private at = 0;
+export const COMMENT_LOST = "a comment here would be lost; put it on its own line";
+
+export class ConsoleParser {
+	protected at = 0;
 	private nodes = 0;
+	private depth = 0;
+	/** Open brackets; line breaks are space. */
+	private nest = 0;
+	protected faults = 0;
+	/** Faults inside a faulted bracket stay silent. */
+	private muted = 0;
 	readonly issues: ConsoleIssue[] = [];
 
 	constructor(
-		private readonly tokens: ConsoleToken[],
-		private readonly length: number,
+		protected tokens: readonly ConsoleToken[],
+		protected length: number,
+		private readonly nodesMax: number = CONSOLE_NODES_MAX,
 	) {}
 
-	private peek(offset = 0): ConsoleToken | undefined {
+	private skipLines(): void {
+		if (this.nest === 0) return;
+		while (true) {
+			const token = this.tokens[this.at];
+			if (token?.kind === "comment") this.issue("unexpected", token.start, token.end, COMMENT_LOST);
+			else if (token?.kind !== "newline") return;
+			this.at++;
+		}
+	}
+
+	protected peek(offset = 0): ConsoleToken | undefined {
+		this.skipLines();
 		return this.tokens[this.at + offset];
 	}
 
-	private is(text: string): boolean {
+	protected is(text: string): boolean {
 		const token = this.peek();
 		return token !== undefined && (token.kind === "punct" || token.kind === "op") && token.text === text;
 	}
 
-	private take(): ConsoleToken | undefined {
+	protected take(): ConsoleToken | undefined {
+		this.skipLines();
 		return this.tokens[this.at++];
 	}
 
-	private issue(code: string, start: number, end: number, message: string): void {
-		if (this.issues.length < 8) this.issues.push({ code, start, end, message });
+	protected issue(code: string, start: number, end: number, message: string): void {
+		this.faults++;
+		if (this.muted === 0 && this.issues.length < 8) this.issues.push({ code, start, end, message });
 	}
 
 	private node<N extends ConsoleNode>(node: N): N {
 		this.nodes++;
-		if (this.nodes === CONSOLE_NODES_MAX + 1) {
-			this.issue("too_big", node.start, node.end, `more than ${CONSOLE_NODES_MAX} nodes`);
+		if (this.nodes === this.nodesMax + 1) {
+			this.issue("too_big", node.start, node.end, `more than ${this.nodesMax} nodes`);
 		}
 		return node;
+	}
+
+	protected fresh(): void {
+		this.nodes = 0;
 	}
 
 	private end(): number {
@@ -199,9 +342,7 @@ class Parser {
 				this.at += 2;
 			}
 			const node = this.expression();
-			// Include the closing bracket.
-			const end = Math.max(node.end, this.tokens[this.at - 1]?.end ?? node.end);
-			statements.push({ node, start: first.start, end, ...(assign ? { assign } : {}) });
+			statements.push({ node, start: first.start, end: node.end, ...(assign ? { assign } : {}) });
 			const rest = this.peek();
 			if (rest && !this.is(";")) {
 				const saving = rest.text === "=";
@@ -217,8 +358,14 @@ class Parser {
 		return statements;
 	}
 
-	private expression(): ConsoleNode {
+	protected expression(): ConsoleNode {
 		return this.binary(0);
+	}
+
+	protected enclosed(close: string, start: number): ConsoleNode | null {
+		const opened = this.open();
+		const node = this.expression();
+		return this.closeWith(close, start, opened) ? node : null;
 	}
 
 	/** One expression and nothing after it. */
@@ -227,6 +374,10 @@ class Parser {
 		const rest = this.peek();
 		if (rest) this.issue("unexpected", rest.start, rest.end, `unexpected ${rest.text}`);
 		return node;
+	}
+
+	parseText(parts: readonly ConsoleStringPart[]): ConsoleNode {
+		return this.string(parts, 0, this.length, true);
 	}
 
 	/** Loosest first. */
@@ -240,7 +391,7 @@ class Parser {
 	];
 
 	private binary(level: number): ConsoleNode {
-		const ops = Parser.LEVELS[level];
+		const ops = ConsoleParser.LEVELS[level];
 		if (!ops) return this.unary();
 		let left = this.binary(level + 1);
 		while (ops.some((op) => this.is(op))) {
@@ -252,18 +403,28 @@ class Parser {
 	}
 
 	private unary(): ConsoleNode {
-		if (this.is("-") || this.is("!")) {
-			const token = this.take() as ConsoleToken;
-			const operand = this.unary();
-			return this.node({
-				kind: "unary",
-				op: token.text as "-" | "!",
-				operand,
-				start: token.start,
-				end: operand.end,
-			});
+		if (this.depth >= CONSOLE_DEPTH_MAX) {
+			const at = this.end();
+			this.issue("too_big", at, at, `nested more than ${CONSOLE_DEPTH_MAX} deep`);
+			return { kind: "literal", value: null, start: at, end: at };
 		}
-		return this.postfix(this.primary());
+		this.depth++;
+		try {
+			if (this.is("-") || this.is("!")) {
+				const token = this.take() as ConsoleToken;
+				const operand = this.unary();
+				return this.node({
+					kind: "unary",
+					op: token.text as "-" | "!",
+					operand,
+					start: token.start,
+					end: operand.end,
+				});
+			}
+			return this.postfix(this.primary());
+		} finally {
+			this.depth--;
+		}
 	}
 
 	private postfix(base: ConsoleNode): ConsoleNode {
@@ -302,8 +463,9 @@ class Parser {
 					this.issue("not_callable", paren.start, paren.end, "only a name can be called");
 				}
 				this.take();
+				const opened = this.open();
 				const args = this.items(")");
-				const closed = this.closeWith(")", node.start);
+				const closed = this.closeWith(")", node.start, opened);
 				node = this.node({
 					kind: "call",
 					target: node,
@@ -316,8 +478,9 @@ class Parser {
 			}
 			if (this.is("[")) {
 				this.take();
+				const opened = this.open();
 				const index = this.is("]") || !this.peek() ? null : this.expression();
-				const closed = this.closeWith("]", node.start);
+				const closed = this.closeWith("]", node.start, opened);
 				if (index === null) this.issue("incomplete", node.start, this.end(), "an index must fill []");
 				node = this.node({
 					kind: "index",
@@ -337,13 +500,17 @@ class Parser {
 		return closed ? (this.tokens[this.at - 1]?.end ?? this.length) : this.length;
 	}
 
-	private closeWith(text: string, start: number): boolean {
-		if (this.is(text)) {
-			this.take();
-			return true;
-		}
-		this.issue("incomplete", start, this.end(), `missing ${text}`);
-		return false;
+	private open(): number {
+		this.nest++;
+		return this.faults;
+	}
+
+	private closeWith(text: string, start: number, opened: number): boolean {
+		const closed = this.is(text);
+		if (closed) this.take();
+		else if (this.faults === opened) this.issue("incomplete", start, this.end(), `missing ${text}`);
+		this.nest--;
+		return closed;
 	}
 
 	/** Trailing commas are allowed. */
@@ -357,11 +524,49 @@ class Parser {
 		return items;
 	}
 
+	private hole(part: ConsoleStringPart & { kind: "hole" }): ConsoleTemplatePiece {
+		const { start, end, closed } = part;
+		const outer = { tokens: this.tokens, at: this.at, length: this.length, nest: this.nest, nodes: this.nodes };
+		const faults = this.faults;
+		this.tokens = part.tokens;
+		this.at = 0;
+		this.length = closed ? end - 1 : end;
+		this.nest = 0;
+		this.nodes = 0;
+		let node: ConsoleNode | null = null;
+		if (!closed) this.issue("incomplete", start, end, "missing }");
+		if (!closed) this.muted++;
+		if (end - start > CONSOLE_SOURCE_MAX) {
+			this.issue("too_big", start, end, `longer than ${CONSOLE_SOURCE_MAX} characters`);
+		} else if (part.tokens.length === 0) {
+			if (closed) this.issue("empty", start, end, "a hole needs an expression");
+		} else {
+			node = this.expression();
+			const rest = this.peek();
+			if (rest && (rest.text === ";" || rest.text === "=")) {
+				this.issue("unexpected", start, end, "a hole holds one expression");
+			} else if (rest) this.issue("unexpected", rest.start, rest.end, `unexpected ${rest.text}`);
+		}
+		if (!closed) this.muted--;
+		Object.assign(this, outer);
+		return { kind: "hole", node, closed, broken: this.faults !== faults, start, end };
+	}
+
+	private string(parts: readonly ConsoleStringPart[], start: number, end: number, closed: boolean): ConsoleNode {
+		const pieces: ConsoleTemplatePiece[] = parts.map((part) => (part.kind === "hole" ? this.hole(part) : part));
+		const constant = pieces.filter((piece) => piece.kind !== "hole");
+		if (constant.length < pieces.length) return this.node({ kind: "template", pieces, closed, start, end });
+		const value = constant.map((piece) => piece.value).join("");
+		return this.node({ kind: "literal", value, pieces: constant, start, end });
+	}
+
 	private primary(): ConsoleNode {
 		const token = this.take();
-		if (!token) {
-			this.issue("incomplete", this.length, this.length, "an expression is missing");
-			return this.node({ kind: "literal", value: null, start: this.length, end: this.length });
+		if (!token || token.kind === "newline") {
+			if (token) this.at--;
+			const at = token?.start ?? this.length;
+			this.issue("incomplete", at, at, "an expression is missing");
+			return this.node({ kind: "literal", value: null, start: at, end: at });
 		}
 		switch (token.kind) {
 			case "number": {
@@ -374,9 +579,14 @@ class Parser {
 					end: token.end,
 				});
 			}
-			case "string":
-				if (!token.closed) this.issue("incomplete", token.start, token.end, "missing closing quote");
-				return this.node({ kind: "literal", value: token.value ?? "", start: token.start, end: token.end });
+			case "string": {
+				if (token.closed) return this.string(token.parts ?? [], token.start, token.end, true);
+				this.issue("incomplete", token.start, token.end, "missing closing quote");
+				this.muted++;
+				const open = this.string(token.parts ?? [], token.start, token.end, false);
+				this.muted--;
+				return open;
+			}
 			case "keyword":
 				return this.node({
 					kind: "literal",
@@ -386,34 +596,51 @@ class Parser {
 				});
 			case "ident":
 				return this.node({ kind: "ident", name: token.text, start: token.start, end: token.end });
+			case "comment":
+				this.issue("unexpected", token.start, token.end, COMMENT_LOST);
+				return this.node({ kind: "literal", value: null, start: token.start, end: token.end });
 			case "error":
 				this.issue("unexpected", token.start, token.end, `unexpected ${token.text}`);
 				return this.node({ kind: "literal", value: null, start: token.start, end: token.end });
 		}
 		if (token.text === "(") {
+			const opened = this.open();
 			const inner = this.expression();
-			this.closeWith(")", token.start);
-			return inner;
+			const closed = this.closeWith(")", token.start, opened);
+			return { ...inner, grouped: true, start: token.start, end: this.closedEnd(closed) };
 		}
 		if (token.text === "[") {
+			const opened = this.open();
 			const items = this.items("]");
-			const closed = this.closeWith("]", token.start);
+			const closed = this.closeWith("]", token.start, opened);
 			return this.node({ kind: "list", items, closed, start: token.start, end: this.closedEnd(closed) });
 		}
 		if (token.text === "{") {
-			const entries: { key: string; value: ConsoleNode }[] = [];
+			const opened = this.open();
+			const entries: (Span & { key: string; value: ConsoleNode })[] = [];
 			while (this.peek() && !this.is("}")) {
 				const key = this.take() as ConsoleToken;
-				if (key.kind !== "ident" && key.kind !== "string" && !wordOp(key)) {
-					this.issue("unexpected", key.start, key.end, "a key must be a name or a string");
+				const named = key.kind === "ident" || wordOp(key) || (key.kind === "string" && key.value !== undefined);
+				if (!named) {
+					this.issue("unexpected", key.start, key.end, "a key must be a name or a plain string");
 					break;
 				}
-				if (!this.closeWith(":", key.start)) break;
-				entries.push({ key: key.kind === "string" ? (key.value ?? "") : key.text, value: this.expression() });
+				if (!this.is(":")) {
+					this.issue("incomplete", key.start, this.end(), "missing :");
+					break;
+				}
+				this.take();
+				const value = this.expression();
+				entries.push({
+					key: key.kind === "string" ? (key.value ?? "") : key.text,
+					value,
+					start: key.start,
+					end: key.end,
+				});
 				if (!this.is(",")) break;
 				this.take();
 			}
-			const closed = this.closeWith("}", token.start);
+			const closed = this.closeWith("}", token.start, opened);
 			return this.node({ kind: "dict", entries, closed, start: token.start, end: this.closedEnd(closed) });
 		}
 		const saving = token.text === "=";
@@ -427,41 +654,56 @@ class Parser {
 	}
 }
 
+const tooLong = (length: number): ConsoleIssue => ({
+	code: "too_big",
+	start: 0,
+	end: length,
+	message: `longer than ${CONSOLE_SOURCE_MAX} characters`,
+});
+
 export function parseConsole(source: string): ConsoleParse {
-	if (source.length > CONSOLE_SOURCE_MAX) {
-		return {
-			statements: [],
-			issues: [
-				{
-					code: "too_big",
-					start: 0,
-					end: source.length,
-					message: `longer than ${CONSOLE_SOURCE_MAX} characters`,
-				},
-			],
-		};
-	}
-	const parser = new Parser(lexConsole(source), source.length);
+	if (source.length > CONSOLE_SOURCE_MAX) return { statements: [], issues: [tooLong(source.length)] };
+	const parser = new ConsoleParser(lexConsole(source), source.length);
 	const statements = parser.parse();
 	return { statements, issues: parser.issues };
 }
 
 /** No assignment, no second statement. */
 export function parseConsoleExpression(source: string): { node: ConsoleNode | null; issues: ConsoleIssue[] } {
-	if (source.length > CONSOLE_SOURCE_MAX) {
-		return {
-			node: null,
-			issues: [
-				{
-					code: "too_big",
-					start: 0,
-					end: source.length,
-					message: `longer than ${CONSOLE_SOURCE_MAX} characters`,
-				},
-			],
-		};
-	}
-	const parser = new Parser(lexConsole(source), source.length);
+	if (source.length > CONSOLE_SOURCE_MAX) return { node: null, issues: [tooLong(source.length)] };
+	const parser = new ConsoleParser(lexConsole(source), source.length);
 	const node = parser.parseOne();
 	return { node, issues: parser.issues };
 }
+
+export function parseConsoleText(text: string): { node: ConsoleNode; issues: ConsoleIssue[] } {
+	const parser = new ConsoleParser([], text.length);
+	const node = parser.parseText(lexConsoleText(text));
+	return { node, issues: parser.issues };
+}
+
+const written = (table: Readonly<Record<string, string>>): Record<string, string> =>
+	Object.fromEntries(Object.entries(table).map(([letter, character]) => [character, `\\${letter}`]));
+const BODY_WRITTEN = written(BODY_ESCAPES);
+/** Single quotes need no escape. */
+const { "'": _single, ...QUOTED_WRITTEN } = { ...written(QUOTED_ESCAPES), ...BODY_WRITTEN };
+
+const escapedBy = (run: string, table: Readonly<Record<string, string>>): string => {
+	let out = "";
+	for (const character of run) out += table[character] ?? character;
+	return out;
+};
+
+export const writeConsoleRun = (run: string): string => escapedBy(run, BODY_WRITTEN);
+
+export const quoteConsoleString = (value: string): string => `"${escapedBy(value, QUOTED_WRITTEN)}"`;
+
+export function quoteConsoleText(text: string, hole: (source: string) => string = (source) => source): string {
+	const body = lexConsoleText(text).map((part) =>
+		part.kind === "hole" ? hole(text.slice(part.start, part.end)) : escapedBy(part.value, QUOTED_WRITTEN),
+	);
+	return `"${body.join("")}"`;
+}
+
+export const piecesOf = (node: ConsoleNode): readonly ConsoleTemplatePiece[] | null =>
+	node.kind === "template" ? node.pieces : node.kind === "literal" ? (node.pieces ?? null) : null;

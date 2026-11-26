@@ -161,7 +161,7 @@
 		{ "file": "console-op-automation-preview-condition.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "console-op-automation-run.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "automation-run-result-refused.json", "schema": "ConsoleAutomationRunResult", "expect": "pass" },
-		{ "file": "function-step-let-text.json", "schema": "FunctionStep", "expect": "pass" },
+		{ "file": "function-step-let-string.json", "schema": "FunctionStep", "expect": "pass" },
 		{
 			"file": "function-step-future-value.json",
 			"schema": "FunctionStep",

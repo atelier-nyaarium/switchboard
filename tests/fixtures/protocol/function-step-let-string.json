@@ -1,0 +1,8 @@
+{
+	"kind": "let",
+	"name": "label",
+	"value": {
+		"kind": "expression",
+		"text": "\"Room {device}\""
+	}
+}
