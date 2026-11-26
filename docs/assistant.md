@@ -102,6 +102,17 @@ Router's record names. That Gateway feeds it events. The session decides what to
       without asking?" before it sends again. Delete sits in the top bar's menu and asks first, as
       every record page's removal does (`RemoveMenu`). Back on a changed draft asks "Leave and
       discard changes?" with Discard and Stay.
+    - **Whether a draft would save is asked while editing:** where the Gateway serves functions,
+      the editor sends the op a save would send to `automation_check` once typing settles
+      (`checkRead`, `AutomationOps.check`). A refusal is drawn where a refused save's would be and
+      disables Save until the draft changes; a check still out, or one that could not be reached,
+      blocks nothing, and the save is judged again when sent. The phone holds no rule of its own
+      that gates a save.
+    - **A function that changed elsewhere** shows a line and Reload in the Runs block and disables
+      Save. Reload reads the Gateway's function again (`AutomationOps.reloadFunction`,
+      `reloadedFunction`): its steps and revision replace the draft's, the automation's own
+      settings stay, a typed value carries to the value of the same name and type, and a line says
+      when step edits were dropped. `docs/fields.md` (The save op) holds the Gateway's side.
     - **`AutomationOps`** follows `PolicyOps`: the list per Gateway, nothing durable on the phone, a
       fenced toggle per row, and the editor's edit session (`EditorSessions`), so Back loses no result. An event
       automation's put and delete hold the lock a move holds (`AssistantOps.carriedWrite`) and are

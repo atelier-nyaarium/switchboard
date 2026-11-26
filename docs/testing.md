@@ -285,6 +285,15 @@ restoration and every colour are proven by an emulator walk, and the decisions b
 pulled out into the `Facet*Rules` files, `CodePaint` and `WorkspaceNav`, where a JVM test can call
 them.
 
+**The owner-presence prompt can be walked here with a device PIN.** With no screen lock the app is
+let through unasked, which is one case. Set a PIN on the emulator
+(`adb -s emulator-5554 shell locksettings set-pin 1234`, and `clear --old 1234` when done) and the
+system shows its own PIN screen for the app lock, an approval and a reveal: `input text 1234` then
+`input keyevent 66` passes it, Back cancels it (twice when the keyboard is up). The prompt's window
+is secure, so a screenshot of it is black; read its title from the node dump. What this cannot
+reach: a fingerprint, the overlay's prompt over another app, and the "Problem reading biometrics."
+line, since too many wrong PINs makes the system lock the device, which the app reads as a cancel.
+
 ## Wire vocabulary
 
 `src/shared/wire-vocabulary.ts` declares the Router paths, the console header and Bearer prefix,
