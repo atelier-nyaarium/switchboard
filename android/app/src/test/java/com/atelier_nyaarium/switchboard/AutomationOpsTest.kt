@@ -508,6 +508,26 @@ class AutomationOpsTest {
 	}
 
 	@Test
+	fun backClosesThePickerAndMovesTheMirrorsKeyBeforeItAsksToLeave() {
+		val ops = AutomationOps(admitting("sakura"), Host(FakeGateway()))
+		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
+		ops.edits.show(key)
+		val shown = ops.edits.open(key, automationDraftOf(automationRow(), HERE)!!)!!
+		ops.edits.edit(key, shown) { it.withAction(0) { toldDraft("now", "Hi") }.copy(picking = true) }
+		val openKey = ops.edits.page(ops.edits.state.value.held.getValue(key).draft)
+
+		val first = ops.edits.askLeave()
+		val held = ops.edits.state.value.held.getValue(key).draft
+		val second = ops.edits.askLeave()
+
+		assertEquals(listOf(false, false), listOf(first, second))
+		assertFalse(held.picking)
+		assertEquals(listOf<Any>(toldDraft("now", "Hi")), held.actions)
+		assertTrue(openKey != null && ops.edits.page(held) == null)
+		assertEquals(key, ops.edits.state.value.leaving?.key)
+	}
+
+	@Test
 	fun aChangedAutomationDraftAsksBeforeLeaving() {
 		val ops = AutomationOps(admitting("sakura"), Host(FakeGateway()))
 		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))

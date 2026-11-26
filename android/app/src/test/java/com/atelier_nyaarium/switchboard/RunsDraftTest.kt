@@ -1,7 +1,15 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.assistant.ActionDraft
+import com.atelier_nyaarium.switchboard.assistant.EditContext
 import com.atelier_nyaarium.switchboard.assistant.PointMode
+import com.atelier_nyaarium.switchboard.assistant.SourceFields
+import com.atelier_nyaarium.switchboard.assistant.automationDraftOf
+import com.atelier_nyaarium.switchboard.assistant.functionSaveOf
+import com.atelier_nyaarium.switchboard.assistant.offerOf
+import com.atelier_nyaarium.switchboard.proto.AutomationSwitchOffer
+import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationListResult
+import kotlinx.serialization.json.jsonPrimitive
 import com.atelier_nyaarium.switchboard.assistant.RunsDraft
 import com.atelier_nyaarium.switchboard.assistant.runsDraftOf
 import com.atelier_nyaarium.switchboard.assistant.saveOpOf
@@ -122,5 +130,17 @@ class RunsDraftTest {
 		val op = save(runs)!!
 		assertNull(op.function)
 		assertEquals(listOf<AutomationAction>(lost), written(op.automation))
+	}
+
+	@Test
+	fun aListedFunctionOpenedAndSavedUntouchedSendsNoFunction() {
+		val text = javaClass.classLoader!!.getResourceAsStream("protocol/automation-list-result-functions.json")!!.bufferedReader().use { it.readText() }
+		val listed = wireJson.decodeFromString(ConsoleAutomationListResult.serializer(), text)
+		val row = listed.automations.single()
+		val room = (written(row.automation).single() as AutomationAction.RunFunction).values!!.getValue("room").jsonPrimitive.content
+		val offer = offerOf(SANDBOX_SERVES.copy(switches = listOf(AutomationSwitchOffer(room, "Room"))), away = false, functions = listed.functions)
+		val draft = automationDraftOf(row, EditContext(offer, emptyList()))!!
+
+		assertNull(functionSaveOf(draft, SourceFields(emptyList()), offer, confirmed = false) { "fn" }!!.function)
 	}
 }

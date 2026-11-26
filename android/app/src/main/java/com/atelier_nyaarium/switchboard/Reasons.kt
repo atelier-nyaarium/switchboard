@@ -324,10 +324,44 @@ internal fun policyRefusalMarks(refusal: com.atelier_nyaarium.switchboard.proto.
 
 // Functions.
 
+private const val SAVE_REFUSED = "The Gateway could not save it."
+
+/** By what it names. */
+private fun invalidLine(refusal: AutomationSaveRefusal?): String {
+	val path = refusal?.path ?: return when {
+		// The phone minted it.
+		refusal?.id != null -> "Its id is taken. Try again."
+		else -> refusal?.line ?: SAVE_REFUSED
+	}
+	val parts = path.split(".")
+	val step = parts.getOrNull(1)?.toIntOrNull()?.plus(1)
+	return when {
+		parts.size == 2 && parts[0] == "values" -> "That plug is not on this Gateway."
+		parts.size == 3 && parts[0] == "steps" && step != null -> refusal?.line ?: "Step $step holds a value it cannot use."
+		parts.size == 2 && parts[0] == "steps" && step != null -> "Step $step cannot run here."
+		parts.size > 1 && (parts[0] == "steps" || parts[0] == "actions") && step != null -> "Step $step cannot be saved."
+		path == "name" && refusal?.record == Protocol.Wire.AutomationSaveRecord.FUNCTION.wire -> "That function name cannot be saved."
+		else -> SAVE_REFUSED
+	}
+}
+
+/** Only itself: its trigger. */
+private fun unfitLine(refusal: AutomationSaveRefusal?, selfId: String?): String {
+	val named = refusal?.automations.orEmpty()
+	val others = named.filter { it != selfId }
+	return when {
+		others.isEmpty() && named.isNotEmpty() -> "This trigger cannot run it."
+		others.size <= 1 -> "Another automation would stop fitting it."
+		else -> "${others.size} automations would stop fitting it."
+	}
+}
+
 /** A refused `automation_save`; `code` null for one this build does not know. */
 internal fun automationSaveLine(
 	code: Protocol.Wire.AutomationSaveRefusalCode?,
 	refusal: AutomationSaveRefusal?,
+	/** The automation being saved. */
+	selfId: String? = null,
 ): String {
 	val function = refusal?.record == Protocol.Wire.AutomationSaveRecord.FUNCTION.wire
 	return when (code) {
@@ -345,12 +379,9 @@ internal fun automationSaveLine(
 				else -> "This Gateway holds $max automations and functions already."
 			}
 		}
-		Protocol.Wire.AutomationSaveRefusalCode.INVALID -> "The Gateway could not save it."
+		Protocol.Wire.AutomationSaveRefusalCode.INVALID -> invalidLine(refusal)
 		Protocol.Wire.AutomationSaveRefusalCode.HOLE -> "That text cannot be filled here."
-		Protocol.Wire.AutomationSaveRefusalCode.UNFIT -> when (val count = refusal?.automations?.size ?: 0) {
-			0, 1 -> "Another automation would stop fitting it."
-			else -> "$count automations would stop fitting it."
-		}
+		Protocol.Wire.AutomationSaveRefusalCode.UNFIT -> unfitLine(refusal, selfId)
 		Protocol.Wire.AutomationSaveRefusalCode.UNKNOWN_FUNCTION -> "That function no longer exists."
 		Protocol.Wire.AutomationSaveRefusalCode.MIXED -> "A function runs alone."
 		Protocol.Wire.AutomationSaveRefusalCode.NEWER_APP -> "Edit this in the newer app."
@@ -397,9 +428,10 @@ internal fun runsIssueLine(issue: RunsIssue): String = when (issue) {
 	is RunsIssue.Unfit -> when {
 		issue.fit.hidden -> "It reads another source's event."
 		issue.fit.requires.isNotEmpty() -> "Requires ${issue.fit.requires.joinToString(", ")}."
-		else -> issue.fit.wrong.joinToString(" ") { "This trigger gives ${it.name} as ${it.gets.wire}." }
+		else -> issue.fit.wrong.joinToString(" ") { "This trigger gives ${it.name} as ${typeWordText(TypeWord.Given(it.gets)).lowercase()}." }
 	}
 	is RunsIssue.SharedName -> "Used by ${issue.users}. Make unique first."
+	is RunsIssue.NameTooLong -> "A function name holds at most ${issue.max} characters."
 }
 
 internal fun usedByLine(count: Int): String = "Used by $count"
@@ -415,7 +447,8 @@ internal fun deleteTakesLine(function: String): String = "This also deletes its 
 /** A destination that cannot take the carried functions. */
 internal fun carryRefusalLine(refusal: CarryRefusal): String = when (refusal) {
 	CarryRefusal.NoFunctions -> "That Gateway cannot hold functions."
-	is CarryRefusal.StepNotServed -> "That Gateway cannot run ${refusal.kind} in a function."
+	is CarryRefusal.StepNotServed ->
+		refusal.label?.let { "That Gateway cannot run \"$it\" in a function." } ?: "That Gateway cannot run one of its steps in a function."
 	CarryRefusal.Reading -> "Still reading that Gateway. Try again in a moment."
 	CarryRefusal.TooLarge -> "The assistant's settings are too large to move."
 	CarryRefusal.Unreachable -> "That Gateway could not be read. Try again once it answers."

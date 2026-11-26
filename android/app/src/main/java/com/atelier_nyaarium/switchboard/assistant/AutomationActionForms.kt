@@ -98,6 +98,7 @@ internal fun ActionsSection(
 								)
 								ActionParamKind.FUNCTION, ActionParamKind.VALUES, null -> Unit
 							}
+							IssueLine(refusedField(said, SaidAt.Card(index, param.name), value))
 						}
 						is ActionDraft.Kept -> Text(
 							"This app cannot edit this action. It is kept as it is.",

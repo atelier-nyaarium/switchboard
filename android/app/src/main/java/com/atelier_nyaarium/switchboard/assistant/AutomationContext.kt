@@ -2,6 +2,8 @@ package com.atelier_nyaarium.switchboard.assistant
 
 import com.atelier_nyaarium.switchboard.AssistantHome
 import com.atelier_nyaarium.switchboard.AssistantRead
+import com.atelier_nyaarium.switchboard.AutomationListing
+import com.atelier_nyaarium.switchboard.ListAnswer
 import com.atelier_nyaarium.switchboard.EditStanding
 import com.atelier_nyaarium.switchboard.GatewayList
 import com.atelier_nyaarium.switchboard.GatewayRegistry
@@ -147,6 +149,20 @@ internal fun functionsServed(registry: GatewayRegistry, home: AssistantHome, gat
 			is ListEmpty.NotServed -> FunctionsServed.None
 		}
 	}
+
+/** A kind's label there. */
+internal fun actionLabelOn(registry: GatewayRegistry, home: AssistantHome, gatewayId: String): (String) -> String? =
+	when (val served = automationContext(registry, home, gatewayId).served) {
+		is Served.Known -> { kind -> served.offer.actions.find { it.kind == kind }?.label }
+		is Served.Unknown -> { _ -> null }
+	}
+
+/** A fresh listing's word. */
+internal fun functionsServedBy(listing: AutomationListing?): FunctionsServed = when (listing?.rows) {
+	is ListAnswer.Listed -> listing.serves?.functions?.let(FunctionsServed::Serves) ?: FunctionsServed.None
+	ListAnswer.NotServed -> FunctionsServed.None
+	ListAnswer.Unreachable, null -> FunctionsServed.Unreachable
+}
 
 /** Unknown names kinds raw. */
 internal fun doesText(automation: Automation, served: Served): String = when (served) {

@@ -4,8 +4,12 @@ import com.atelier_nyaarium.switchboard.assistant.field
 import com.atelier_nyaarium.switchboard.assistant.fieldLabel
 import com.atelier_nyaarium.switchboard.assistant.label
 import com.atelier_nyaarium.switchboard.assistant.carriedFunctionsOf
+import com.atelier_nyaarium.switchboard.assistant.FunctionsServed
+import com.atelier_nyaarium.switchboard.assistant.actionLabelOn
+import com.atelier_nyaarium.switchboard.assistant.carriesFunctions
 import com.atelier_nyaarium.switchboard.assistant.carryRefusal
 import com.atelier_nyaarium.switchboard.assistant.functionsServed
+import com.atelier_nyaarium.switchboard.assistant.functionsServedBy
 import com.atelier_nyaarium.switchboard.assistant.reached
 import com.atelier_nyaarium.switchboard.assistant.sealedRefusal
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
@@ -495,10 +499,23 @@ internal class AssistantOps(
 			abandoning == home -> null
 			else -> return@owned failed(ticket, homeRefusalText(UNROUTABLE, home))
 		}
-		val held = state.value
-		carryRefusal(carried?.functions.orEmpty(), functionsServed(held.gateways, held.assistantHome, target))
-			?.let { return@owned failed(ticket, carryRefusalLine(it)) }
+		if (carriesFunctions(carried)) {
+			val labels: (String) -> String? = home?.let { actionLabelOn(state.value.gateways, state.value.assistantHome, it) } ?: { _ -> null }
+			carryRefusal(carried, servedAt(target), labels)?.let { return@owned failed(ticket, carryRefusalLine(it)) }
+		}
 		put(ticket, base, target, AssistantHomeSealed(workdirPath = workdir, carried = carried))
+	}
+
+	/** Registry, else read now. */
+	private suspend fun servedAt(target: String): FunctionsServed {
+		val held = state.value
+		return when (val known = functionsServed(held.gateways, held.assistantHome, target)) {
+			is FunctionsServed.Serves, FunctionsServed.None -> known
+			FunctionsServed.Reading, FunctionsServed.Unreachable -> {
+				val client = host.gateway ?: return known
+				functionsServedBy(attempt { client.automationListing(target) })
+			}
+		}
 	}
 
 	/** Removal needs no key. */

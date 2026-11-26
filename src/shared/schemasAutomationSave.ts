@@ -46,6 +46,7 @@ export const AUTOMATION_SAVE_REFUSALS = [
 export type AutomationSaveRefusalCode = (typeof AUTOMATION_SAVE_REFUSALS)[number];
 
 export const SAVE_RECORDS = ["automation", "function"] as const;
+export const SAVE_LINE_MAX = 400;
 
 export const AutomationSaveRefusalSchema = z
 	.object({
@@ -61,6 +62,8 @@ export const AutomationSaveRefusalSchema = z
 		automations: z.array(z.string()).max(AUTOMATIONS_MAX).optional(),
 		labels: z.array(z.string().max(80)).max(32).optional(),
 		id: z.string().optional(),
+		/** Shown as written, as a row's `invalid`; never decided from. */
+		line: z.string().max(SAVE_LINE_MAX).optional(),
 	})
 	.meta({ id: "AutomationSaveRefusal" });
 export type AutomationSaveRefusal = z.infer<typeof AutomationSaveRefusalSchema>;

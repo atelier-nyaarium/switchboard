@@ -10,15 +10,14 @@ import com.atelier_nyaarium.switchboard.proto.FunctionParam
 import com.atelier_nyaarium.switchboard.proto.FunctionStep
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.FunctionParamType
 import com.atelier_nyaarium.switchboard.proto.StepArg
+import com.atelier_nyaarium.switchboard.parseDecimal
 import com.atelier_nyaarium.switchboard.runIsolated
 import com.atelier_nyaarium.switchboard.wireJson
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.longOrNull
 
 /** How a pointer's function is written on save. */
 internal enum class PointMode {
@@ -165,7 +164,8 @@ internal fun pointedAt(runs: RunsDraft, automationId: String, row: AutomationFun
 
 /** Typed text as the value the Gateway reads. */
 internal fun functionValueOf(param: FunctionParam, text: String): JsonPrimitive? = when (param.type) {
-	FunctionParamType.NUMBER.wire -> JsonPrimitive(text.trim()).let { it.longOrNull?.let(::JsonPrimitive) ?: it.doubleOrNull?.let(::JsonPrimitive) }
+	// Finite only.
+	FunctionParamType.NUMBER.wire -> parseDecimal(text.trim())?.let { decimal -> JsonPrimitive(text.trim().toLongOrNull() ?: decimal) }
 	else -> text.takeIf { it.isNotBlank() }?.let(::JsonPrimitive)
 }
 
@@ -206,7 +206,7 @@ internal fun saveOpOf(
 		is RunsDraft.Pointing -> {
 			if (runs.name.isBlank()) {
 				// Its own steps again.
-				if (sharedName(runs)) return null
+				if (sharedName(runs, othersOf(runs, automationId, offer.functions))) return null
 				return op(runs.steps.map { stepAction(it, offer) ?: return null }, null)
 			}
 			val values = runs.params.mapNotNull { param -> runs.values[param.name]?.let { functionValueOf(param, it) }?.let { param.name to it } }
@@ -240,15 +240,26 @@ internal fun AutomationDraft.madeUnique(): AutomationDraft = when (val head = ru
 	is RunsHead.Own, is RunsHead.Kept -> this
 }
 
-/** Points at a listed function; the one left loses a use. */
-internal fun AutomationDraft.pointedTo(row: AutomationFunctionRow, offer: AutomationOffer): AutomationDraft =
-	withRuns(pointedAt(runsDraft(), id, row, offer)).copy(picking = false)
+/** Only closes. */
+internal fun AutomationDraft.pointedTo(row: AutomationFunctionRow, offer: AutomationOffer): AutomationDraft {
+	val current = (runs as? RunsHead.Points)?.pointing?.functionId
+	if (current == row.id) return copy(picking = false)
+	return withRuns(pointedAt(runsDraft(), id, row, offer)).copy(picking = false)
+}
 
 /** A fresh empty body, a function once named. */
 internal fun AutomationDraft.freshBody(): AutomationDraft = withRuns(RunsDraft.Flat(emptyList())).copy(picking = false)
 
+/** Other users first. */
+internal fun othersOf(runs: RunsDraft.Pointing, selfId: String, functions: FunctionOffer?): List<String> =
+	functions?.row(runs.functionId)?.users?.filter { it != selfId } ?: runs.others
+
 /** Its name names a body others run. */
-internal fun sharedName(runs: RunsDraft.Pointing): Boolean = runs.mode == PointMode.SHARED && runs.others.isNotEmpty()
+internal fun sharedName(runs: RunsDraft.Pointing, others: List<String>): Boolean = runs.mode == PointMode.SHARED && others.isNotEmpty()
+
+/** Steps as stored. */
+internal fun stepsUnedited(runs: RunsDraft.Pointing, row: AutomationFunctionRow, offer: AutomationOffer): Boolean =
+	runs.steps.map { stepOf(it, offer) } == written(row.function)
 
 /** A step back as an automation's action. */
 private fun stepAction(draft: ActionDraft, offer: AutomationOffer): AutomationAction? = when (draft) {

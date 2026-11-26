@@ -3,7 +3,12 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationCondition
+import com.atelier_nyaarium.switchboard.proto.AutomationFunction
+import com.atelier_nyaarium.switchboard.proto.AutomationSaveFunction
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
+import com.atelier_nyaarium.switchboard.proto.ConsoleOp
+import com.atelier_nyaarium.switchboard.proto.FunctionStep
+import kotlinx.serialization.json.JsonObject
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -85,6 +90,37 @@ class SandboxAutomationGatewayTest {
 		assertEquals(listOf(true, true), listOf(agreed.stored, toggled.stored))
 		assertEquals("It is 18:00.", filled?.filled)
 		assertEquals(listOf(6L, 13L), listOf(refused?.hole?.start, refused?.hole?.end))
+	}
+
+	@Test
+	fun functionRowsCarryWhatTheirStepsReadAndOneGatewayHoldsNone() = runBlocking {
+		val gateway = gateway()
+		val rows = gateway.list("sandbox").functions.orEmpty().associateBy { it.id }
+		val idle = gateway.list(EMPTY_GATEWAY)
+
+		assertEquals(listOf("value"), rows.getValue("too-warm").reads.names)
+		assertEquals(listOf("lamp"), rows.getValue("blink").reads.names)
+		assertEquals(false, rows.getValue("too-warm").moves)
+		// Today's road.
+		assertEquals(listOf(null, null), listOf(idle.serves?.functions, idle.functions))
+	}
+
+	@Test
+	fun aSaveIsRefusedForAMissingFunctionAHoleAFitOrADangerInsideAFunction() = runBlocking {
+		val gateway = gateway()
+		val warm = gateway.rows("sandbox").single { it.id == "warm-room" }
+		suspend fun save(automation: Automation, function: AutomationSaveFunction? = null) =
+			gateway.save("sandbox", ConsoleOp.AutomationSave(automationId = warm.id, automation = automation, automationBase = warm.revision, function = function)).refusal
+		fun body(action: String, vararg args: Pair<String, String>) =
+			AutomationFunction("Too warm", emptyList(), listOf(FunctionStep.Do(action = action, args = JsonObject(args.associate { (name, text) -> name to literal(text) }))))
+
+		assertEquals("unknown_function", save(warm.automation.copy(actions = listOf(AutomationAction.RunFunction(function = "gone"))))?.code)
+		val hole = save(warm.automation, AutomationSaveFunction.Edit("too-warm", body("tell_assistant", "when" to "now", "message" to "It is {nope}."), 2L))
+		assertEquals(listOf("hole", "function", "0", "message"), listOf(hole?.code, hole?.record, hole?.path, hole?.param))
+		val clocked = warm.automation.copy(trigger = AutomationTrigger.Time("18:00", listOf(1L), "UTC"))
+		assertEquals(listOf("warm-room"), save(clocked)?.automations)
+		val ifttt = save(warm.automation, AutomationSaveFunction.Edit("too-warm", body("ifttt_trigger", "event" to "door"), 2L))
+		assertEquals(listOf("Send to IFTTT"), ifttt?.labels)
 	}
 
 	@Test

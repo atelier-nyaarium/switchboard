@@ -263,6 +263,7 @@ import {
 	KasaSettingPutSchema,
 } from "../src/shared/schemasDevices.js";
 import {
+	FUNCTION_NAME_MAX,
 	FUNCTION_PARAM_TYPES,
 	FUNCTION_PARAMS_MAX,
 	FUNCTION_STEPS_MAX,
@@ -1371,6 +1372,7 @@ const wireConstants: ReadonlyArray<readonly [string, string | number]> = [
 	["FUNCTION_STEPS_MAX", FUNCTION_STEPS_MAX],
 	["FUNCTION_PARAMS_MAX", FUNCTION_PARAMS_MAX],
 	["STEP_ARGS_MAX", STEP_ARGS_MAX],
+	["FUNCTION_NAME_MAX", FUNCTION_NAME_MAX],
 	["ASSISTANT_HOME_SEALED_MAX_BYTES", ASSISTANT_HOME_SEALED_MAX_BYTES],
 ];
 const KOTLIN_INT_MAX = 2_147_483_647;

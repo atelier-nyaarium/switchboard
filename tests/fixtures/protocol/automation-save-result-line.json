@@ -1,0 +1,4 @@
+{
+	"stored": false,
+	"refusal": { "code": "invalid", "record": "automation", "line": "no such switch on this Gateway" }
+}

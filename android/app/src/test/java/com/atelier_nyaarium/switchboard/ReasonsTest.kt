@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.assistant.CarryRefusal
 import com.atelier_nyaarium.switchboard.proto.AutomationSaveRefusal
 import com.atelier_nyaarium.switchboard.proto.PolicyRefusal
 import com.atelier_nyaarium.switchboard.proto.Protocol
@@ -77,6 +78,32 @@ class ReasonsTest {
 		val lines = listOf(line(null, null), line("function", 32), line("automation", 32), line(null, 64))
 		assertEquals(lines.size, lines.toSet().size)
 		assertTrue(line(null, 64).contains("64"))
+	}
+
+	@Test
+	fun aSaveRefusalReadsTheFactsItCarries() {
+		fun unfit(vararg names: String) = automationSaveLine(
+			Protocol.Wire.AutomationSaveRefusalCode.UNFIT,
+			AutomationSaveRefusal(code = "unfit", automations = names.toList()),
+			"mine",
+		)
+		assertTrue(unfit("mine") != unfit("hall"))
+		assertEquals(unfit("hall"), unfit("mine", "hall"))
+		assertTrue(unfit("mine", "hall", "room").contains("2"))
+
+		fun invalid(path: String? = null, record: String? = null, id: String? = null, line: String? = null) = automationSaveLine(
+			Protocol.Wire.AutomationSaveRefusalCode.INVALID,
+			AutomationSaveRefusal(code = "invalid", record = record, path = path, id = id, line = line),
+		)
+		val generic = invalid(path = "revision")
+		val each = listOf(invalid(path = "values.lamp"), invalid(path = "steps.1"), invalid(record = "automation", id = "mine"), invalid(path = "name", record = "function"), generic)
+		assertEquals(each.size, each.toSet().size)
+		assertEquals(listOf(generic, generic), listOf(invalid(path = "id"), invalid(path = "label")))
+		assertEquals("no rule fits", invalid(path = "steps.0.device", record = "function", line = "no rule fits"))
+		assertEquals("no rule fits", invalid(record = "automation", line = "no rule fits"))
+
+		assertTrue(carryRefusalLine(CarryRefusal.StepNotServed("tell_assistant", "Tell the assistant")).contains("Tell the assistant"))
+		assertTrue(!carryRefusalLine(CarryRefusal.StepNotServed("tell_assistant")).contains("tell_assistant"))
 	}
 
 	/** The owner's review list, from the mapping itself: `build/reports/error-prose.md`. */

@@ -9,6 +9,7 @@ import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationSaveRefusal
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
 import com.atelier_nyaarium.switchboard.proto.FunctionParam
+import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationSaveRecord
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationSaveRefusalCode
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.FunctionParamType
@@ -39,7 +40,13 @@ internal sealed interface ValueSource {
 	data object Unset : ValueSource
 }
 
-internal data class ValueRow(val param: FunctionParam, val type: TypeWord, val source: ValueSource)
+internal data class ValueRow(
+	val param: FunctionParam,
+	val type: TypeWord,
+	val source: ValueSource,
+	/** A save's refusal here. */
+	val refused: String? = null,
+)
 
 private val NO_READS = FunctionReads(emptyList(), emptyList())
 
@@ -93,31 +100,46 @@ internal sealed interface RunsIssue {
 
 	/** Its name was cleared while others run it. */
 	data class SharedName(val users: Int) : RunsIssue
+
+	data class NameTooLong(val max: Int) : RunsIssue
 }
+
+private fun nameIssue(name: String): RunsIssue? =
+	RunsIssue.NameTooLong(Protocol.Wire.FUNCTION_NAME_MAX).takeIf { name.trim().length > Protocol.Wire.FUNCTION_NAME_MAX }
 
 private fun stepIssue(steps: List<ActionDraft>, offer: AutomationOffer): RunsIssue? {
 	if (steps.isEmpty()) return RunsIssue.NoSteps
 	return steps.withIndex().firstNotNullOfOrNull { (at, step) -> actionIssue(step, offer)?.let { RunsIssue.Step(at, it) } }
 }
 
-/** `servedSteps`: the kinds a function's step may name; `reads` from its row. */
-internal fun runsIssue(runs: RunsDraft, given: TriggerGiven, offer: AutomationOffer, servedSteps: List<String>, reads: FunctionReads?): RunsIssue? =
+/** Null when edited. */
+internal fun runsIssue(
+	runs: RunsDraft,
+	selfId: String,
+	given: TriggerGiven,
+	offer: AutomationOffer,
+	servedSteps: List<String>,
+	reads: FunctionReads?,
+): RunsIssue? =
 	when (runs) {
 		is RunsDraft.Kept -> null
 		is RunsDraft.Flat -> stepIssue(runs.actions, offer) ?: if (runs.name.isBlank()) {
 			null
 		} else {
-			runs.actions.withIndex().firstOrNull { (_, action) -> action.kind !in servedSteps || stepOf(action, offer) == null }
+			nameIssue(runs.name) ?: runs.actions.withIndex()
+				.firstOrNull { (_, action) -> action.kind !in servedSteps || stepOf(action, offer) == null }
 				?.let { RunsIssue.NotAStep(it.index) }
 		}
-		is RunsDraft.Pointing -> stepIssue(runs.steps, offer) ?: pointingIssue(runs, given, offer, reads)
+		is RunsDraft.Pointing -> stepIssue(runs.steps, offer) ?: pointingIssue(runs, selfId, given, offer, reads)
 	}
 
-private fun pointingIssue(runs: RunsDraft.Pointing, given: TriggerGiven, offer: AutomationOffer, reads: FunctionReads?): RunsIssue? {
+private fun pointingIssue(runs: RunsDraft.Pointing, selfId: String, given: TriggerGiven, offer: AutomationOffer, reads: FunctionReads?): RunsIssue? {
 	if (runs.name.isBlank()) {
-		if (sharedName(runs)) return RunsIssue.SharedName(runs.others.size + 1)
+		val others = othersOf(runs, selfId, offer.functions)
+		if (sharedName(runs, others)) return RunsIssue.SharedName(others.size + 1)
 		return runs.steps.withIndex().firstOrNull { (_, step) -> step is ActionDraft.Kept }?.let { RunsIssue.NotAStep(it.index) }
 	}
+	nameIssue(runs.name)?.let { return it }
 	for (row in valueRows(runs.params, given, runs.values, measure = null)) {
 		when (val source = row.source) {
 			ValueSource.FromTrigger -> Unit
@@ -143,28 +165,56 @@ internal data class RunsView(
 	val makeUnique: Boolean,
 	val kept: Boolean,
 	val issue: RunsIssue?,
-)
+	/** Its function's invalid line. */
+	val invalid: String? = null,
+) {
+	/** No empty header. */
+	val reachHeader: Boolean get() = reach.isNotEmpty()
+}
+
+/** Cards draw own. */
+private fun blockIssue(issue: RunsIssue?): RunsIssue? = when (issue) {
+	null, RunsIssue.NoSteps, is RunsIssue.Step -> null
+	is RunsIssue.NotAStep,
+	is RunsIssue.Unset,
+	is RunsIssue.BadValue,
+	is RunsIssue.Unfit,
+	is RunsIssue.SharedName,
+	is RunsIssue.NameTooLong,
+	-> issue
+}
 
 /** Null where functions are not served. */
-internal fun runsView(draft: AutomationDraft, fields: SourceFields, offer: AutomationOffer, rows: List<AutomationRow>): RunsView? {
+internal fun runsView(
+	draft: AutomationDraft,
+	fields: SourceFields,
+	offer: AutomationOffer,
+	rows: List<AutomationRow>,
+	said: AutomationSaid? = null,
+): RunsView? {
 	val functions = offer.functions ?: return null
-	val issue = draftRunsIssue(draft, fields, offer)
+	val issue = blockIssue(draftRunsIssue(draft, fields, offer))
 	return when (val runs = draft.runsDraft()) {
 		is RunsDraft.Flat -> RunsView(runs.name, true, null, emptyList(), emptyList(), unique = false, makeUnique = false, kept = false, issue = issue)
 		is RunsDraft.Kept -> RunsView("", false, null, emptyList(), emptyList(), unique = false, makeUnique = false, kept = true, issue = null)
 		is RunsDraft.Pointing -> {
-			val shared = sharedName(runs)
+			val others = othersOf(runs, draft.id, functions)
+			val shared = sharedName(runs, others)
 			val row = functions.row(runs.functionId)
 			RunsView(
 				name = runs.name,
 				nameEditable = true,
-				usedBy = if (shared) runs.others.size + 1 else null,
-				values = valueRows(runs.params, givenOf(draft, fields), runs.values, measureOf(draft)),
+				usedBy = if (shared) others.size + 1 else null,
+				values = valueRows(runs.params, givenOf(draft, fields), runs.values, measureOf(draft)).map { row ->
+					val at = SaidAt.Value(row.param.name)
+					row.copy(refused = refusedField(said, at, saidText(draft, at)))
+				},
 				reach = if (shared && row != null) reachLine(row, draft.id, rows) else emptyList(),
 				unique = runs.mode == PointMode.UNIQUE,
 				makeUnique = shared,
 				kept = false,
 				issue = issue,
+				invalid = row?.invalid,
 			)
 		}
 	}
@@ -205,22 +255,38 @@ internal fun automationDeleteTakes(row: AutomationRow, functions: List<Automatio
 	return functions?.firstOrNull { it.id == pointer }?.takeIf { it.users == listOf(row.id) }?.function?.name
 }
 
-internal data class PickerRow(val function: AutomationFunctionRow, val signature: List<Pair<String, TypeWord>>, val count: Int)
+internal data class PickerRow(
+	val function: AutomationFunctionRow,
+	val signature: List<Pair<String, TypeWord>>,
+	val count: Int,
+	/** The one pointed at. */
+	val current: Boolean = false,
+	/** Its invalid line. */
+	val invalid: String? = null,
+)
 
-/** What this trigger could run: no other source's event, nothing it lacks. */
-internal fun pickerChoices(given: TriggerGiven, functions: List<AutomationFunctionRow>, measure: String?): List<PickerRow> =
+/** What fits, current first. */
+internal fun pickerChoices(given: TriggerGiven, functions: List<AutomationFunctionRow>, measure: String?, current: String? = null): List<PickerRow> =
 	functions
 		.filter { row ->
 			val fit = fitOf(given, row.function.params, row.reads, emptyMap())
 			!fit.hidden && fit.requires.isEmpty() && fit.wrong.isEmpty()
 		}
-		.sortedWith(compareByDescending<AutomationFunctionRow> { it.users.size }.thenBy { it.function.name.lowercase() }.thenBy { it.id })
+		.sortedWith(
+			compareBy<AutomationFunctionRow> { it.id != current }
+				.thenByDescending { it.users.size }
+				.thenBy { it.function.name.lowercase() }
+				.thenBy { it.id },
+		)
 		.map { row ->
 			val signature = row.function.params.map { param ->
 				param.name to (given.names.firstOrNull { it.name == param.name }?.let { givenWord(param.name, it.type, measure) } ?: TypeWord.Declared(param.type))
 			}
-			PickerRow(row, signature, row.users.size)
+			PickerRow(row, signature, row.users.size, current = row.id == current, invalid = row.invalid)
 		}
+
+/** Stored sentence, trigger unchanged. */
+internal fun pickerSubtitle(trigger: TriggerDraft, opened: TriggerDraft, sentence: String?): String? = sentence.takeIf { trigger == opened }
 
 /** How a save came back. */
 internal sealed interface SaveAnswer {
@@ -244,6 +310,21 @@ internal fun holeSpanOf(hole: SaveAnswer.Hole): AutomationHoleSpan? {
 	val at = hole.path?.toLongOrNull() ?: return null
 	return AutomationHoleSpan(action = at, param = hole.param ?: return null, start = hole.start ?: return null, end = hole.end ?: return null)
 }
+
+/** A row or field it names. */
+internal fun refusedAtOf(refusal: AutomationSaveRefusal): SaidAt? {
+	if (refusal.code != AutomationSaveRefusalCode.INVALID.wire) return null
+	val parts = refusal.path?.split(".") ?: return null
+	return when {
+		parts.size == 2 && parts[0] == VALUES -> SaidAt.Value(parts[1])
+		parts.size == 3 && parts[0] == STEPS -> parts[1].toIntOrNull()?.let { SaidAt.Card(it, parts[2]) }
+		else -> null
+	}
+}
+
+private const val VALUES = "values"
+
+private const val STEPS = "steps"
 
 /** Only the automation's own move offers its row. */
 internal fun movedAutomation(refused: SaveAnswer.Refused): Boolean =

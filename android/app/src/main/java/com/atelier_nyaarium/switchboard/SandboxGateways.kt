@@ -396,6 +396,8 @@ internal class SandboxAssistantGateway : AssistantGateway {
 
 	override suspend fun automations(gatewayId: String) = sandboxAutomations.list(gatewayId).rows
 
+	override suspend fun automationListing(gatewayId: String) = sandboxAutomations.list(gatewayId)
+
 	private fun stateOf(gatewayId: String) = ConsoleAssistantStateResult(
 		workdir = workdir.takeIf { gatewayId == home },
 		team = "host.assistant".takeIf { gatewayId == home },

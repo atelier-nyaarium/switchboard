@@ -282,8 +282,11 @@ internal fun measureOf(draft: AutomationDraft): String? = (draft.trigger as? Tri
 internal fun draftRunsIssue(draft: AutomationDraft, fields: SourceFields, offer: AutomationOffer): RunsIssue? {
 	val functions = offer.functions ?: return null
 	val runs = draft.runsDraft()
-	val reads = (runs as? RunsDraft.Pointing)?.let { functions.row(it.functionId)?.reads }
-	return runsIssue(runs, givenOf(draft, fields), offer, functions.served.steps, reads)
+	// Edited steps: Gateway judges.
+	val reads = (runs as? RunsDraft.Pointing)?.let { pointing ->
+		functions.row(pointing.functionId)?.takeIf { stepsUnedited(pointing, it, offer) }?.reads
+	}
+	return runsIssue(runs, draft.id, givenOf(draft, fields), offer, functions.served.steps, reads)
 }
 
 /** The save op; null when unservable or unwritable. */
@@ -423,6 +426,23 @@ internal sealed interface AutomationSaid {
 		/** As it was sent. */
 		val text: String,
 	) : AutomationSaid
+
+	/** Under its row or field. */
+	data class Field(
+		val at: SaidAt,
+		override val line: String,
+		/** As it was sent. */
+		val text: String,
+	) : AutomationSaid
+}
+
+/** Where a refusal lands. */
+internal sealed interface SaidAt {
+	/** A function value's row. */
+	data class Value(val param: String) : SaidAt
+
+	/** A card's field. */
+	data class Card(val action: Int, val param: String) : SaidAt
 }
 
 internal sealed interface AutomationOutcome {
@@ -445,8 +465,10 @@ internal fun outcomeOf(
 		is AutomationSaved.Refused -> {
 			val held = saved.heldRow?.takeIf { it.id == draft.id && it.revision != draft.revision && editable(it, context.offer) }
 			val hole = saved.hole
+			val at = saved.at
 			when {
 				saved.confirm.isNotEmpty() -> AutomationOutcome.Said(AutomationSaid.Confirm(saved.confirm))
+				at != null -> AutomationOutcome.Said(AutomationSaid.Field(at, saved.reason, saidText(draft, at)))
 				hole != null -> AutomationOutcome.Said(
 					AutomationSaid.Hole(
 						hole.action.toInt(),

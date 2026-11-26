@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard.assistant
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -63,10 +64,11 @@ internal fun RunsBlock(view: RunsView, offer: AutomationOffer, enabled: Boolean,
 			)
 		}
 		view.usedBy?.let { Text(usedByLine(it), style = MaterialTheme.typography.labelMedium, color = dim) }
-		IconButton(onClick = hapticClick { edit { it.copy(picking = true) } }, enabled = enabled && !view.kept) {
+		IconButton(onClick = hapticClick { edit { it.copy(picking = true) } }, enabled = enabled) {
 			Icon(Icons.Default.ArrowDropDown, contentDescription = "Run another function")
 		}
 	}
+	view.invalid?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
 	for (row in view.values) ValueRowView(row, offer, enabled, edit)
 	if (view.makeUnique || view.unique) {
 		OutlinedCard(Modifier.fillMaxWidth()) {
@@ -74,7 +76,7 @@ internal fun RunsBlock(view: RunsView, offer: AutomationOffer, enabled: Boolean,
 				if (view.unique) {
 					Text(UNIQUE_LINE, style = MaterialTheme.typography.bodySmall, color = dim)
 				} else {
-					Text(REACHES_HEADER, style = MaterialTheme.typography.bodySmall, color = dim)
+					if (view.reachHeader) Text(REACHES_HEADER, style = MaterialTheme.typography.bodySmall, color = dim)
 					for (sentence in view.reach) Text(sentence, style = MaterialTheme.typography.bodyMedium)
 					TextButton(onClick = hapticClick { edit { it.madeUnique() } }, enabled = enabled) { Text("Make unique") }
 				}
@@ -117,6 +119,7 @@ private fun ValueRowView(row: ValueRow, offer: AutomationOffer, enabled: Boolean
 			}
 		}
 	}
+	IssueLine(row.refused)
 }
 
 /** "Run a function": a fresh body, then what fits. */
@@ -124,7 +127,6 @@ private fun ValueRowView(row: ValueRow, offer: AutomationOffer, enabled: Boolean
 internal fun FunctionPicker(
 	subtitle: String?,
 	choices: List<PickerRow>,
-	current: String?,
 	onBack: () -> Unit,
 	onFresh: () -> Unit,
 	onPick: (PickerRow) -> Unit,
@@ -134,8 +136,9 @@ internal fun FunctionPicker(
 		TextButton(onClick = hapticClick(onFresh)) { Text("+ New function") }
 		HorizontalDivider()
 		for (choice in choices) {
+			val highlight = if (choice.current) Modifier.background(MaterialTheme.colorScheme.secondaryContainer) else Modifier
 			Row(
-				Modifier.fillMaxWidth().clickable(onClick = hapticClick { onPick(choice) }).padding(vertical = 8.dp),
+				Modifier.fillMaxWidth().then(highlight).clickable(onClick = hapticClick { onPick(choice) }).padding(vertical = 8.dp),
 				verticalAlignment = Alignment.CenterVertically,
 				horizontalArrangement = Arrangement.spacedBy(8.dp),
 			) {
@@ -148,11 +151,12 @@ internal fun FunctionPicker(
 						fontFamily = FontFamily.Monospace,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
+					choice.invalid?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
 				}
 				Text(
 					"${choice.count}",
 					style = MaterialTheme.typography.labelMedium,
-					color = if (choice.function.id == current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+					color = if (choice.current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
 				)
 			}
 		}

@@ -8,8 +8,12 @@ import com.atelier_nyaarium.switchboard.assistant.sealedRefusal
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import java.util.Base64
+import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarried
+import com.atelier_nyaarium.switchboard.proto.Automation
+import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationFunction
 import com.atelier_nyaarium.switchboard.proto.AutomationFunctionServes
+import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.CarriedAutomation
 import com.atelier_nyaarium.switchboard.proto.CarriedFunction
 import com.atelier_nyaarium.switchboard.proto.FunctionStep
@@ -49,13 +53,21 @@ class FunctionCarryTest {
 		val later = CarriedFunction("later", AutomationFunction("Later", emptyList(), listOf(FunctionStep.Unknown("wait", JsonObject(emptyMap())))))
 		val serves = AutomationFunctionServes(max = 32L, steps = listOf("tell_assistant", "device_set"), paramTypes = listOf("device", "text", "number"))
 
-		assertNull(carryRefusal(emptyList(), FunctionsServed.None))
-		assertEquals(CarryRefusal.NoFunctions, carryRefusal(listOf(chime), FunctionsServed.None))
+		fun carrying(functions: List<CarriedFunction>, automations: List<CarriedAutomation>? = null) =
+			AssistantHomeCarried(approveEverySend = false, watchers = emptyList(), automations = automations, functions = functions)
+
+		assertNull(carryRefusal(carrying(emptyList()), FunctionsServed.None))
+		assertNull(carryRefusal(null, FunctionsServed.Reading))
+		assertEquals(CarryRefusal.NoFunctions, carryRefusal(carrying(listOf(chime)), FunctionsServed.None))
 		// Unread is never none.
-		assertEquals(CarryRefusal.Reading, carryRefusal(listOf(chime), FunctionsServed.Reading))
-		assertEquals(CarryRefusal.Unreachable, carryRefusal(listOf(chime), FunctionsServed.Unreachable))
-		assertNull(carryRefusal(listOf(chime), FunctionsServed.Serves(serves)))
-		assertEquals(CarryRefusal.StepNotServed("wait"), carryRefusal(listOf(chime, later), FunctionsServed.Serves(serves)))
+		assertEquals(CarryRefusal.Reading, carryRefusal(carrying(listOf(chime)), FunctionsServed.Reading))
+		assertEquals(CarryRefusal.Unreachable, carryRefusal(carrying(listOf(chime)), FunctionsServed.Unreachable))
+		assertNull(carryRefusal(carrying(listOf(chime)), FunctionsServed.Serves(serves)))
+		assertEquals(CarryRefusal.StepNotServed("wait"), carryRefusal(carrying(listOf(chime, later)), FunctionsServed.Serves(serves)))
+		// Its function left behind.
+		val pointing = CarriedAutomation("wake", Automation(enabled = true, trigger = AutomationTrigger.Event("github", emptyList()), actions = listOf(AutomationAction.RunFunction(function = "unread"))))
+		assertEquals(CarryRefusal.NoFunctions, carryRefusal(carrying(emptyList(), listOf(pointing)), FunctionsServed.None))
+		assertNull(carryRefusal(carrying(emptyList(), listOf(pointing)), FunctionsServed.Serves(serves)))
 	}
 
 	@Test

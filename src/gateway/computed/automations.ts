@@ -27,7 +27,11 @@ import {
 	KEEP_TRYING_MIN_DEFAULT,
 	type TellWhen,
 } from "../../shared/schemasAutomation.js";
-import type { AutomationSaveRefusal, ConsoleAutomationSaveResult } from "../../shared/schemasAutomationSave.js";
+import {
+	type AutomationSaveRefusal,
+	type ConsoleAutomationSaveResult,
+	SAVE_LINE_MAX,
+} from "../../shared/schemasAutomationSave.js";
 import { type AutomationFunction, FUNCTIONS_MAX, FunctionSchema } from "../../shared/schemasFunction.js";
 import { hasHoles, unescapedText, unreadText } from "../../shared/text-holes.js";
 import {
@@ -107,7 +111,13 @@ import {
 	unsent,
 } from "./automationSteps.js";
 import { holeSpanOf, holeTextsOf, isTell, laneTellWhen, tellPlan } from "./automationText.js";
-import { createAutomationValidity, FUNCTION_GONE, FUNCTION_UNREAD, STEP_UNFIT } from "./automationValidity.js";
+import {
+	createAutomationValidity,
+	FUNCTION_GONE,
+	FUNCTION_UNREAD,
+	STEP_ISSUE_CODE,
+	STEP_UNFIT,
+} from "./automationValidity.js";
 import { createAutomationWords, fieldsOf, type WatchedReading } from "./automationWords.js";
 import type { ComputedFields, DerivedField } from "./computedFields.js";
 import { crossingField, crossingFieldId } from "./crossingBand.js";
@@ -1424,9 +1434,12 @@ export function createAutomations(deps: AutomationsDeps) {
 						start: hole.start,
 						end: hole.end,
 					};
-				return refusal.issue
-					? { code: "invalid", record, path: refusal.issue.path.join(".") }
-					: { code: "invalid", record };
+				const { issue } = refusal;
+				if (!issue) return { code: "invalid", record, line: refusal.reason.slice(0, SAVE_LINE_MAX) };
+				const path = issue.path.join(".");
+				return issue.code === STEP_ISSUE_CODE
+					? { code: "invalid", record, path, line: issue.message.slice(0, SAVE_LINE_MAX) }
+					: { code: "invalid", record, path };
 			}
 			case "moved":
 				return refusal.record

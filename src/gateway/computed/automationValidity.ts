@@ -43,7 +43,7 @@ export const FUNCTION_UNFIT = "it does not fit the function it runs";
 export const NO_SWITCH = "no such switch on this Gateway";
 /** A step's values fail its action. */
 export const STEP_UNFIT = "its values do not fit what it does";
-const STEP_ISSUE_CODE = "invalid_step";
+export const STEP_ISSUE_CODE = "invalid_step";
 
 /** Spans as written. */
 export interface StepIssue {

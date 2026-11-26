@@ -16,7 +16,7 @@ import {
 import type { AutomationSaveRefusal } from "../../shared/schemasAutomationSave.js";
 import { type AutomationFunction, FunctionSchema } from "../../shared/schemasFunction.js";
 import type { OwnerRecord, OwnerWrite } from "../ownerRecords.js";
-import type { CallIssue } from "./automationValidity.js";
+import { type CallIssue, NO_SWITCH } from "./automationValidity.js";
 
 type RunFunction = Extract<AutomationAction, { kind: "run_function" }>;
 
@@ -257,10 +257,11 @@ function judgeSave(
 		};
 		const own = issueOf(next, true);
 		if (own?.kind === "switch") {
-			return refused("no such switch on this Gateway", {
+			return refused(NO_SWITCH, {
 				code: "invalid",
 				record: "automation",
 				path: `values.${own.param}`,
+				line: NO_SWITCH,
 			});
 		}
 		const unfit = users.filter(({ id, body }) => issueOf(body, id === intent.id) !== null);

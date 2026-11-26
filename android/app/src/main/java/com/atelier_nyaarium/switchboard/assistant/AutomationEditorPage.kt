@@ -74,7 +74,7 @@ internal fun AutomationEditorPage(
 	} ?: return
 	val session = open.session
 	// Rebase or Back replaces typing.
-	val typed = remember(key, open.opening, session.draft.revision, session.draft.text) {
+	val typed = remember(key, open.opening, session.draft.revision, ops.edits.page(session.draft)) {
 		MirroredDraft(session.draft) { next -> ops.edits.edit(key, open.opening) { next } }
 	}
 	var draft by typed
@@ -100,9 +100,8 @@ internal fun AutomationEditorPage(
 	if (draft.picking && functions != null) {
 		val pointed = (draft.runs as? RunsHead.Points)?.pointing?.functionId
 		FunctionPicker(
-			subtitle = lookup?.let(::keptRow)?.sentence,
-			choices = pickerChoices(givenOf(draft, fields), functions.rows, measureOf(draft)),
-			current = pointed,
+			subtitle = pickerSubtitle(draft.trigger, session.opened.trigger, lookup?.let(::keptRow)?.sentence),
+			choices = pickerChoices(givenOf(draft, fields), functions.rows, measureOf(draft), current = pointed),
 			onBack = { edit { it.copy(picking = false) } },
 			onFresh = { edit { it.freshBody() } },
 			onPick = { choice -> edit { it.pointedTo(choice.function, offer) } },
@@ -110,7 +109,7 @@ internal fun AutomationEditorPage(
 		return
 	}
 	val rows = automationGroups(state.gateways, state.assistantHome).firstOrNull { it.gatewayId == gatewayId }?.rows.orEmpty()
-	val runs = runsView(draft, fields, offer, rows)
+	val runs = runsView(draft, fields, offer, rows, session.said)
 
 	val ref = draft.text
 	val textOf = ref?.let { textParam(draft, it, offer) }

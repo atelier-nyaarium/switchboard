@@ -371,10 +371,15 @@ describe("an automation that runs a function", () => {
 
 			expect(refused).toEqual([
 				{ code: "hole", record: "function", path: "0", param: "device", start: 0, end: 6 },
-				{ code: "invalid", record: "function", path: "steps.0.colour" },
-				{ code: "invalid", record: "function", path: "steps.0.verb" },
-				{ code: "invalid", record: "function", path: "steps.0.device" },
-				{ code: "invalid", record: "automation", path: "values.room" },
+				{ code: "invalid", record: "function", path: "steps.0.colour", line: "it takes no colour" },
+				{
+					code: "invalid",
+					record: "function",
+					path: "steps.0.verb",
+					line: "sideways is not one of its values",
+				},
+				{ code: "invalid", record: "function", path: "steps.0.device", line: NO_SWITCH },
+				{ code: "invalid", record: "automation", path: "values.room", line: NO_SWITCH },
 			]);
 		});
 
@@ -410,6 +415,33 @@ describe("an automation that runs a function", () => {
 			unplug();
 
 			expect([before, automations.invalidOf("warm")]).toEqual([null, NO_SWITCH]);
+		});
+
+		it("refuses a save naming a gone switch with the line its row shows, flat and through a function", () => {
+			const { save, automations, unplug } = open();
+			const flat: AutomationInput = {
+				enabled: true,
+				trigger: hourly,
+				actions: [{ kind: "device_set", device: PLUG, verb: "on" }],
+			};
+			save("flat", flat, 0);
+			save("warm", pointing(hourly, "warm-up", { room: PLUG }), 0, {
+				as: "edit",
+				id: "warm-up",
+				body: fn([on], room),
+				base: 0,
+			});
+			unplug();
+			const refused = [
+				save("flat", { ...flat, label: "Lamp on" }, 1),
+				save("warm", { ...pointing(hourly, "warm-up", { room: PLUG }), label: "Warm" }, 1),
+			].map(refusalOf);
+
+			expect(refused).toEqual([
+				{ code: "invalid", record: "automation", line: automations.invalidOf("flat") },
+				{ code: "invalid", record: "automation", path: "values.room", line: automations.invalidOf("warm") },
+			]);
+			expect(automations.invalidOf("flat")).toBe(NO_SWITCH);
 		});
 
 		it("lets a function read an event's link and id, as the fire gives them", () => {

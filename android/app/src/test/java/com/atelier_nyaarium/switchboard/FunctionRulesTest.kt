@@ -109,6 +109,7 @@ class FunctionRulesTest {
 		assertNull(valueIssue(FunctionParam("lamp", "device"), SANDBOX_SWITCH, FN_OFFER))
 		assertEquals(ValueIssue.NOT_A_NUMBER, valueIssue(FunctionParam("times", "number"), "two", FN_OFFER))
 		assertNull(valueIssue(FunctionParam("times", "number"), "3", FN_OFFER))
+		assertEquals(listOf(ValueIssue.NOT_A_NUMBER, ValueIssue.NOT_A_NUMBER), listOf("NaN", "Infinity").map { valueIssue(FunctionParam("times", "number"), it, FN_OFFER) })
 	}
 
 	@Test
@@ -116,7 +117,7 @@ class FunctionRulesTest {
 		val blink = functionRow("blink", "Blink", listOf("mine"), params = listOf(FunctionParam("lamp", "device"), FunctionParam("times", "number")))
 		val pointing = pointedAt(RunsDraft.Flat(emptyList()), "mine", blink, FN_OFFER)
 		val steps = listOf("tell_assistant", "device_set", "ifttt_trigger")
-		fun issue(runs: RunsDraft) = runsIssue(runs, given, FN_OFFER, steps, blink.reads)
+		fun issue(runs: RunsDraft) = runsIssue(runs, "mine", given, FN_OFFER, steps, blink.reads)
 
 		assertEquals(RunsIssue.NoSteps, issue(RunsDraft.Flat(emptyList())))
 		assertNull(issue(RunsDraft.Flat(listOf(ActionDraft.Filled("device_set", mapOf("device" to SANDBOX_SWITCH, "verb" to "on"))))))
@@ -133,7 +134,7 @@ class FunctionRulesTest {
 		// Another source's event cannot run here.
 		val github = functionRow("wake", "Wake me", listOf("x"), reads = FunctionReads(listOf("event"), listOf("reason")))
 		val onEvent = triggerGiven("event", eventFields = listOf("subject"))
-		assertTrue(runsIssue(pointedAt(RunsDraft.Flat(emptyList()), "x", github, FN_OFFER), onEvent, FN_OFFER, steps, github.reads) is RunsIssue.Unfit)
+		assertTrue(runsIssue(pointedAt(RunsDraft.Flat(emptyList()), "x", github, FN_OFFER), "x", onEvent, FN_OFFER, steps, github.reads) is RunsIssue.Unfit)
 	}
 
 	@Test
@@ -163,6 +164,9 @@ class FunctionRulesTest {
 		assertEquals(listOf("off", "blink", "notify"), picked.map { it.function.id })
 		assertEquals(listOf("room" to TypeWord.Declared("text"), "value" to TypeWord.Measure("temperature")), picked[2].signature)
 		assertEquals(3, picked[0].count)
+		// Current first, invalid marked.
+		val current = pickerChoices(given, listOf(off, blink.copy(invalid = "x")), measure = null, current = "blink")
+		assertEquals(listOf(Triple("blink", true, "x"), Triple("off", false, null)), current.map { Triple(it.function.id, it.current, it.invalid) })
 	}
 
 	@Test

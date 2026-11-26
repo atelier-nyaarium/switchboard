@@ -167,6 +167,7 @@ object Protocol {
 		const val FUNCTION_STEPS_MAX: Int = 8
 		const val FUNCTION_PARAMS_MAX: Int = 8
 		const val STEP_ARGS_MAX: Int = 4
+		const val FUNCTION_NAME_MAX: Int = 80
 		const val ASSISTANT_HOME_SEALED_MAX_BYTES: Int = 65536
 
 		val CONSOLE_INSTANT_KEYS: Set<String> = setOf("at", "heardAt", "lastAt", "firedAt", "readAt", "lastSuccessAt", "nextPollAt")
@@ -2977,6 +2978,8 @@ data class AutomationSaveRefusal(
 	val labels: List<String>? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val id: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val line: String? = null,
 )
 
 @Serializable

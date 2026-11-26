@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard.assistant
 
+import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarried
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.CarriedAutomation
 import com.atelier_nyaarium.switchboard.proto.CarriedFunction
@@ -19,7 +20,8 @@ internal fun carriedFunctionsOf(automations: List<CarriedAutomation>, listed: Li
 internal sealed interface CarryRefusal {
 	data object NoFunctions : CarryRefusal
 
-	data class StepNotServed(val kind: String) : CarryRefusal
+	/** Null when unknown. */
+	data class StepNotServed(val kind: String, val label: String? = null) : CarryRefusal
 
 	/** Its list has not arrived. */
 	data object Reading : CarryRefusal
@@ -40,9 +42,20 @@ private fun decodedBytes(base64: String): Long {
 internal fun sealedRefusal(envelope: ContentEnvelope): CarryRefusal? =
 	CarryRefusal.TooLarge.takeIf { decodedBytes(envelope.ciphertext) > Protocol.Wire.ASSISTANT_HOME_SEALED_MAX_BYTES }
 
+/** Functions, or a pointer. */
+internal fun carriesFunctions(carried: AssistantHomeCarried?): Boolean =
+	!carried?.functions.isNullOrEmpty() ||
+		carried?.automations.orEmpty().any { held -> reached(held.automation).any { it.action is AutomationAction.RunFunction } }
+
 /** Null when the destination holds every carried step kind. */
-internal fun carryRefusal(functions: List<CarriedFunction>, served: FunctionsServed): CarryRefusal? {
-	if (functions.isEmpty()) return null
+internal fun carryRefusal(
+	carried: AssistantHomeCarried?,
+	served: FunctionsServed,
+	/** Kind's label, when known. */
+	labelOf: (String) -> String? = { null },
+): CarryRefusal? {
+	if (!carriesFunctions(carried)) return null
+	val functions = carried?.functions.orEmpty()
 	val held = when (served) {
 		is FunctionsServed.Serves -> served.served
 		FunctionsServed.None -> return CarryRefusal.NoFunctions
@@ -55,5 +68,5 @@ internal fun carryRefusal(functions: List<CarriedFunction>, served: FunctionsSer
 			is FunctionStep.Unknown -> step.kind
 		}
 	}
-	return kinds.firstOrNull { it !in held.steps }?.let(CarryRefusal::StepNotServed)
+	return kinds.firstOrNull { it !in held.steps }?.let { CarryRefusal.StepNotServed(it, labelOf(it)) }
 }

@@ -92,14 +92,23 @@ internal class MirroredDraft<D : Any>(initial: D, private val mirror: (D) -> Uni
 	}
 }
 
+/** Pages Back closes first. */
+internal class InnerPages<D : Any>(
+	/** Mirror key. */
+	val open: (D) -> Any?,
+	val close: (D) -> D,
+) {
+	fun closed(draft: D): D? = if (open(draft) != null) close(draft) else null
+}
+
 /** Sole owner of edits and shown key. */
 internal class EditorSessions<K : Any, D : Any, S : Any>(
 	/** Whether Back asks: the draft against what was opened. */
 	private val changed: (D, D) -> Boolean = { draft, opened -> draft != opened },
 	/** A send that stayed with no page to show why. */
 	private val unattended: (EditSession<D, S>) -> Unit = {},
-	/** Closes a draft's own page first. */
-	private val inner: (D) -> D? = { null },
+	/** Closed by Back first. */
+	private val inner: InnerPages<D>? = null,
 	/** A said clears once the draft changes. */
 	private val clears: (S) -> Boolean = { false },
 ) {
@@ -112,6 +121,9 @@ internal class EditorSessions<K : Any, D : Any, S : Any>(
 	fun clear() {
 		written.value = EditState()
 	}
+
+	/** Mirror key. */
+	fun page(draft: D): Any? = inner?.open?.invoke(draft)
 
 	private fun EditSession<D, S>.keeps(): Boolean = busy || changed(draft, opened)
 
@@ -171,7 +183,7 @@ internal class EditorSessions<K : Any, D : Any, S : Any>(
 		written.update { now ->
 			val key = now.shown
 			val session = key?.let { now.held[it] }
-			val closed = session?.takeUnless { it.busy }?.let { inner(it.draft) }
+			val closed = session?.takeUnless { it.busy }?.let { inner?.closed(it.draft) }
 			if (key != null && session != null && closed != null) {
 				left = false
 				return@update now.copy(held = now.held + (key to session.copy(draft = closed)))

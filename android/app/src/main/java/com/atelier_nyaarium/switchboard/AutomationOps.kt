@@ -7,8 +7,10 @@ import com.atelier_nyaarium.switchboard.assistant.AutomationSaid
 import com.atelier_nyaarium.switchboard.assistant.AutomationSlot
 import com.atelier_nyaarium.switchboard.assistant.EditContext
 import com.atelier_nyaarium.switchboard.assistant.fieldsOf
+import com.atelier_nyaarium.switchboard.assistant.SaidAt
 import com.atelier_nyaarium.switchboard.assistant.SaveAnswer
 import com.atelier_nyaarium.switchboard.assistant.fittingAutomation
+import com.atelier_nyaarium.switchboard.assistant.refusedAtOf
 import com.atelier_nyaarium.switchboard.assistant.freshFunctionId
 import com.atelier_nyaarium.switchboard.assistant.functionSaveOf
 import com.atelier_nyaarium.switchboard.assistant.holeSpanOf
@@ -97,6 +99,7 @@ internal sealed interface AutomationSaved {
 		val heldRow: AutomationRow? = null,
 		val confirm: List<String> = emptyList(),
 		val hole: AutomationHoleSpan? = null,
+		val at: SaidAt? = null,
 	) : AutomationSaved
 
 	data object Unreachable : AutomationSaved
@@ -109,6 +112,12 @@ internal fun keptRow(held: Lookup<AutomationRow>): AutomationRow? = when (held) 
 }
 
 internal data class AutomationDraftKey(val gatewayId: String, val slot: AutomationSlot)
+
+/** Hole text and picker. */
+internal val AUTOMATION_PAGES = InnerPages<AutomationDraft>(
+	open = { draft -> (draft.text to draft.picking).takeIf { draft.text != null || draft.picking } },
+	close = { draft -> draft.copy(text = null, picking = false) },
+)
 
 /** Nothing held on the phone; a change re-reads. */
 internal class AutomationOps(
@@ -123,7 +132,7 @@ internal class AutomationOps(
 	val edits = EditorSessions<AutomationDraftKey, AutomationDraft, AutomationSaid>(
 		changed = { draft, opened -> draft.changedFrom(opened) },
 		unattended = { left -> tell(leftLine("", "Automation", left.said?.line.orEmpty())) },
-		inner = { draft -> draft.takeIf { it.text != null || it.picking }?.copy(text = null, picking = false) },
+		inner = AUTOMATION_PAGES,
 		clears = { said -> said is AutomationSaid.Confirm },
 	)
 
@@ -185,8 +194,9 @@ internal class AutomationOps(
 				hole = holeSpanOf(read),
 			)
 			is SaveAnswer.Refused -> AutomationSaved.Refused(
-				automationSaveLine(read.code, read.refusal),
+				automationSaveLine(read.code, read.refusal, id),
 				heldRow = keptRow(state.value.gateways.automationOn(gatewayId, id)).takeIf { movedAutomation(read) },
+				at = refusedAtOf(read.refusal),
 			)
 		}
 

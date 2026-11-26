@@ -352,10 +352,28 @@ internal fun confirmBody(labels: List<String>): String {
 internal fun refusedHole(said: AutomationSaid?, action: Int, param: String, text: String): AutomationSaid.Hole? =
 	(said as? AutomationSaid.Hole)?.takeIf { it.action == action && it.param == param && it.text == text }
 
-/** The editor's own line: any reason, and a hole no field draws. */
+/** Refused text. */
+internal fun saidText(draft: AutomationDraft, at: SaidAt): String = when (at) {
+	is SaidAt.Value -> (draft.runs as? RunsHead.Points)?.pointing?.values?.get(at.param).orEmpty()
+	is SaidAt.Card -> (draft.actions.getOrNull(at.action) as? ActionDraft.Filled)?.values?.get(at.param).orEmpty()
+}
+
+/** Refusal while text stands. */
+internal fun refusedField(said: AutomationSaid?, at: SaidAt, text: String): String? =
+	(said as? AutomationSaid.Field)?.takeIf { it.at == at && it.text == text }?.line
+
+private fun drawsField(draft: AutomationDraft, at: SaidAt, offer: AutomationOffer): Boolean = when (at) {
+	is SaidAt.Value -> offer.functions != null &&
+		(draft.runs as? RunsHead.Points)?.pointing?.params?.any { it.name == at.param } == true
+	is SaidAt.Card -> draft.runs !is RunsHead.Kept &&
+		(draft.actions.getOrNull(at.action) as? ActionDraft.Filled)?.let { card -> actionFields(card, offer).any { it.param?.name == at.param } } == true
+}
+
+/** What no field draws. */
 internal fun generalLine(said: AutomationSaid?, draft: AutomationDraft, offer: AutomationOffer): String? = when (said) {
 	null -> null
 	is AutomationSaid.Hole ->
 		holeLine(said.text, said.line, said.start, said.end).takeIf { textParam(draft, TextRef(said.action, said.param), offer) == null }
-	else -> said.line
+	is AutomationSaid.Field -> said.line.takeUnless { drawsField(draft, said.at, offer) }
+	is AutomationSaid.Line, is AutomationSaid.Confirm -> said.line
 }

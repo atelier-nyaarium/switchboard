@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.assistant.CarryRefusal
 import com.atelier_nyaarium.switchboard.assistant.safetyLines
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldValue
@@ -159,7 +160,14 @@ class AssistantOpsTest {
 		val states = mutableMapOf<String, ConsoleAssistantStateResult>()
 		var approveEverySend: Boolean? = null
 		val listed = mutableMapOf<String, ListAnswer<AutomationRow>>()
+		val listings = mutableMapOf<String, AutomationListing>()
+		val listingReads = mutableListOf<String>()
 		var gate: CompletableDeferred<Unit>? = null
+
+		override suspend fun automationListing(gatewayId: String): AutomationListing {
+			listingReads += gatewayId
+			return listings[gatewayId]?.takeUnless { gatewayId in deaf } ?: AutomationListing(automations(gatewayId))
+		}
 
 		private fun stateOf(gatewayId: String) = states[gatewayId] ?: ConsoleAssistantStateResult(
 			workdir = "~/notes".takeIf { gatewayId == home },
@@ -273,6 +281,28 @@ class AssistantOpsTest {
 		assertEquals(listOf("sakura" to "AssistantState"), fake.calls)
 		// Stale home answer.
 		assertEquals(AssistantRead.Reading, state.value.gateways.assistantRead("sakura"))
+	}
+
+	@Test
+	fun aMoveCarryingFunctionsReadsAnUnreadTargetItself() = runBlocking {
+		val blink = functionRow("blink", "Blink", listOf("wake"))
+		val wake = AutomationRow("wake", 1L, Automation(enabled = true, trigger = AutomationTrigger.Event("github", emptyList()), actions = listOf(AutomationAction.RunFunction(function = "blink"))), "GitHub")
+		val fake = FakeGateway(home = "sakura").apply {
+			listings["sakura"] = AutomationListing(ListAnswer.Listed(listOf(wake)), SANDBOX_SERVES, functions = listOf(blink))
+			listings["mikan"] = AutomationListing(ListAnswer.Listed(emptyList()), SANDBOX_SERVES, functions = emptyList())
+			listings["yuzu"] = AutomationListing(ListAnswer.Listed(emptyList()), SANDBOX_SERVES.copy(functions = null), functions = null)
+		}
+		val router = FakeHomeRouter(placedAt(7L, "sakura"))
+		val (ops, _) = stateWithHome(fake, router, listOf("sakura", "mikan", "yuzu"))
+
+		assertNull(ops.moveAssistant("mikan", "~/new"))
+		assertEquals(1, fake.listingReads.count { it == "mikan" })
+		assertEquals(listOf("blink"), router.seals.single().sealed.carried?.functions?.map { it.id })
+
+		val (refusing, _) = stateWithHome(fake, FakeHomeRouter(placedAt(7L, "sakura")), listOf("sakura", "yuzu"))
+		assertEquals(carryRefusalLine(CarryRefusal.NoFunctions), refusing.moveAssistant("yuzu", "~/new"))
+		fake.deaf += "yuzu"
+		assertEquals(carryRefusalLine(CarryRefusal.Unreachable), refusing.moveAssistant("yuzu", "~/new"))
 	}
 
 	@Test

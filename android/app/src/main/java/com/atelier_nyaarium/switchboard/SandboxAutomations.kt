@@ -1,7 +1,15 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.assistant.Reach
+import com.atelier_nyaarium.switchboard.assistant.Reached
+import com.atelier_nyaarium.switchboard.assistant.ReachedStep
 import com.atelier_nyaarium.switchboard.assistant.SourceFields
+import com.atelier_nyaarium.switchboard.assistant.TRIGGER_EVENT
+import com.atelier_nyaarium.switchboard.assistant.fitOf
+import com.atelier_nyaarium.switchboard.assistant.movesWithHome
 import com.atelier_nyaarium.switchboard.assistant.pointerOf
+import com.atelier_nyaarium.switchboard.assistant.triggerGiven
+import kotlinx.serialization.json.JsonElement
 import com.atelier_nyaarium.switchboard.proto.AutomationFunction
 import com.atelier_nyaarium.switchboard.proto.AutomationFunctionRow
 import com.atelier_nyaarium.switchboard.proto.AutomationFunctionServes
@@ -127,6 +135,44 @@ internal val SANDBOX_SERVES = AutomationServes(
 /** One shelf for both hosts. */
 internal val sandboxAutomations by lazy { SandboxAutomationGateway() }
 
+private const val KIND = "kind"
+
+private const val IFTTT = "ifttt_trigger"
+
+/** Root, then member. */
+private val NAME_READ = Regex("[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)?")
+
+private fun literalOf(arg: JsonElement): JsonElement? =
+	(runIsolated { wireJson.decodeFromJsonElement(StepArg.serializer(), arg) }.getOrNull() as? StepArg.Literal)?.value
+
+/** Names its steps read. */
+internal fun sandboxReads(function: AutomationFunction): FunctionReads {
+	val names = sortedSetOf<String>()
+	val fields = sortedSetOf<String>()
+	fun read(source: String) {
+		for (match in NAME_READ.findAll(source)) {
+			// Member, not root.
+			if (match.range.first > 0 && source[match.range.first - 1] == '.') continue
+			val root = match.value.substringBefore('.')
+			names += root
+			if (root == "event" && '.' in match.value) fields += match.value.substringAfter('.')
+		}
+	}
+	for (step in written(function)) {
+		val args = (step as? FunctionStep.Do)?.args ?: continue
+		for (arg in args.values) {
+			when (val held = runIsolated { wireJson.decodeFromJsonElement(StepArg.serializer(), arg) }.getOrNull()) {
+				is StepArg.Expression -> read(held.text)
+				is StepArg.Literal -> (held.value as? JsonPrimitive)?.takeIf { it.isString }?.content?.let { text ->
+					scanHoles(text).filterIsInstance<HolePart.Hole>().forEach { read(it.source) }
+				}
+				null -> Unit
+			}
+		}
+	}
+	return FunctionReads(names.toList(), fields.toList())
+}
+
 private fun inSentence(label: String): String = label.replaceFirstChar { it.lowercase() }
 
 private val SANDBOX_DAYS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -247,9 +293,16 @@ internal class SandboxAutomationGateway(
 
 	/** A function with no users is unlisted. */
 	private fun functionRows(gatewayId: String): List<AutomationFunctionRow> = functions(gatewayId).mapNotNull { (id, held) ->
-		val users = shelf(gatewayId).filter { pointerOf(it.automation) == id }.map { it.id }
+		val users = shelf(gatewayId).filter { pointerOf(it.automation) == id }
 		users.takeIf { it.isNotEmpty() }?.let {
-			AutomationFunctionRow(id, held.first, held.second, it, moves = false, reads = FunctionReads(emptyList(), emptyList()))
+			AutomationFunctionRow(
+				id,
+				held.first,
+				held.second,
+				it.map(AutomationRow::id),
+				moves = it.any { row -> movesWithHome(row.automation) },
+				reads = sandboxReads(held.second),
+			)
 		}
 	}
 
@@ -277,6 +330,7 @@ internal class SandboxAutomationGateway(
 		return when (gatewayId) {
 			SANDBOX_NEVER_REGISTERED -> AutomationListing(ListAnswer.Unreachable)
 			SECOND_SANDBOX_GATEWAY -> AutomationListing(ListAnswer.NotServed)
+			EMPTY_GATEWAY -> AutomationListing(ListAnswer.Listed(shelf(gatewayId)), SANDBOX_SERVES.copy(functions = null))
 			else -> AutomationListing(ListAnswer.Listed(shelf(gatewayId)), SANDBOX_SERVES, functions = functionRows(gatewayId))
 		}
 	}
@@ -284,8 +338,9 @@ internal class SandboxAutomationGateway(
 	/** Lands the automation and its function together, or neither. */
 	override suspend fun save(gatewayId: String, op: ConsoleOp.AutomationSave): ConsoleAutomationSaveResult {
 		pause()
+		fun refusing(refusal: AutomationSaveRefusal) = ConsoleAutomationSaveResult(stored = false, refusal = refusal)
 		fun refused(code: String, record: String? = null, revision: Long? = null) =
-			ConsoleAutomationSaveResult(stored = false, refusal = AutomationSaveRefusal(code = code, record = record, revision = revision))
+			refusing(AutomationSaveRefusal(code = code, record = record, revision = revision))
 		val held = shelf(gatewayId).find { it.id == op.automationId }
 		val revision = held?.revision ?: 0L
 		if (revision != op.automationBase) return refused("moved", "automation", revision)
@@ -308,9 +363,22 @@ internal class SandboxAutomationGateway(
 				automation = automation.copy(actions = listOf(pointer.copy(function = id)))
 			}
 		}
-		val asks = unconfirmed(automation, held)
+		val stored: (String) -> AutomationFunction? = { id -> bodies[id]?.second }
+		val after: (String) -> AutomationFunction? = { id -> landed?.takeIf { it.first == id }?.second?.second ?: stored(id) }
+		val pointer = pointerOf(automation)
+		val function = pointer?.let(after)
+		if (pointer != null && function == null) return refusing(AutomationSaveRefusal(code = "unknown_function", id = pointer))
+		unreadHole(automation)?.let { (span, _) -> return refusing(holeRefusal("automation", span)) }
+		landed?.let { (_, body) -> unreadStepHole(body.second)?.let { return refusing(holeRefusal("function", it)) } }
+		if (pointer != null && function != null) {
+			val users = listOf(op.automationId to automation) +
+				shelf(gatewayId).filter { it.id != op.automationId && pointerOf(it.automation) == pointer }.map { it.id to it.automation }
+			val unfit = users.filterNot { (_, body) -> fitsFunction(body, function) }.map { it.first }
+			if (unfit.isNotEmpty()) return refusing(AutomationSaveRefusal(code = "unfit", automations = unfit))
+		}
+		val asks = unconfirmed(automation, held, after, stored)
 		if (asks.isNotEmpty() && op.confirmed != true) {
-			return ConsoleAutomationSaveResult(stored = false, refusal = AutomationSaveRefusal(code = "confirm", labels = asks))
+			return refusing(AutomationSaveRefusal(code = "confirm", labels = asks))
 		}
 		landed?.let { (id, body) -> bodies[id] = body }
 		val row = AutomationRow(op.automationId, revision + 1, automation, sandboxSentence(automation), lastRanAt = held?.lastRanAt)
@@ -321,11 +389,59 @@ internal class SandboxAutomationGateway(
 		return ConsoleAutomationSaveResult(stored = true, automation = row, function = functionRows(gatewayId).firstOrNull { it.id == pointerOf(automation) })
 	}
 
-	/** An IFTTT action the held row lacks asks first. */
-	private fun unconfirmed(automation: Automation, held: AutomationRow?): List<String> {
-		val known = held?.automation?.let(::reached).orEmpty().map { it.action }.filterIsInstance<AutomationAction.IftttTrigger>().toSet()
-		val asks = reached(automation).map { it.action }.filterIsInstance<AutomationAction.IftttTrigger>().any { it !in known }
+	/** IFTTT reach asks. */
+	private fun unconfirmed(
+		automation: Automation,
+		held: AutomationRow?,
+		functionOf: (String) -> AutomationFunction?,
+		heldFunctionOf: (String) -> AutomationFunction?,
+	): List<String> {
+		val known = held?.automation?.let { reached(it, heldFunctionOf) }.orEmpty().mapNotNull(::dangerKey).toSet()
+		val asks = reached(automation, functionOf).mapNotNull(::dangerKey).any { it !in known }
 		return if (asks) listOf("Send to IFTTT") else emptyList()
+	}
+
+	/** Keys as flat form. */
+	private fun dangerKey(reach: Reach): String? {
+		if (reach.kind != IFTTT) return null
+		val args = when (reach) {
+			is Reached -> wireJson.encodeToJsonElement(AutomationAction.serializer(), reach.action).jsonObject.filterKeys { it != KIND }
+			is ReachedStep -> (reach.step as? FunctionStep.Do)?.args?.mapValues { (_, arg) -> literalOf(arg) ?: arg }.orEmpty()
+		}
+		return args.toSortedMap().toString()
+	}
+
+	private fun holeRefusal(record: String, span: AutomationHoleSpan) = AutomationSaveRefusal(
+		code = "hole",
+		record = record,
+		path = span.action.toString(),
+		param = span.param,
+		start = span.start,
+		end = span.end,
+	)
+
+	/** A hole nothing names. */
+	private fun unreadStepHole(function: AutomationFunction): AutomationHoleSpan? {
+		val names = SANDBOX_SERVES.triggers.flatMap { it.names }.map { it.name }.toSet() + function.params.map { it.name }
+		written(function).forEachIndexed { at, step ->
+			val args = (step as? FunctionStep.Do)?.args ?: return@forEachIndexed
+			for ((param, arg) in args) {
+				val text = (literalOf(arg) as? JsonPrimitive)?.takeIf { it.isString }?.content ?: continue
+				val hole = scanHoles(text).filterIsInstance<HolePart.Hole>()
+					.firstOrNull { !it.closed || it.source.trim().substringBefore('.') !in names } ?: continue
+				return AutomationHoleSpan(at.toLong(), param, hole.start.toLong(), hole.end.toLong())
+			}
+		}
+		return null
+	}
+
+	/** Trigger fills function. */
+	private fun fitsFunction(automation: Automation, function: AutomationFunction): Boolean {
+		val pointer = written(automation).singleOrNull() as? AutomationAction.RunFunction ?: return true
+		val kind = (wireJson.encodeToJsonElement(AutomationTrigger.serializer(), automation.trigger).jsonObject[KIND] as? JsonPrimitive)?.content.orEmpty()
+		val events = SourceFields(SANDBOX_FIELD_SPECS).fields.takeIf { kind == TRIGGER_EVENT }
+		val values = pointer.values.orEmpty().mapNotNull { (name, value) -> (value as? JsonPrimitive)?.let { name to it } }.toMap()
+		return fitOf(triggerGiven(kind, eventFields = events), function.params, sandboxReads(function), values).fits
 	}
 
 	override suspend fun put(
@@ -340,7 +456,8 @@ internal class SandboxAutomationGateway(
 		val held = shelf(gatewayId).find { it.id == automationId }
 		val revision = held?.revision ?: 0L
 		if (revision != baseRevision) return ConsoleAutomationPutResult(false, revision, held, "revision $revision is stored")
-		val asks = unconfirmed(automation, held)
+		val stored: (String) -> AutomationFunction? = { id -> functions(gatewayId)[id]?.second }
+		val asks = unconfirmed(automation, held, stored, stored)
 		if (asks.isNotEmpty() && !confirmed) {
 			return ConsoleAutomationPutResult(false, revision, held, "confirm what it does without asking", confirm = asks)
 		}

@@ -72,7 +72,7 @@ const DELETED = new RegExp(
 );
 
 // R5: what a Gateway serves, read anywhere but its context.
-const SERVES = /(\bval\s+)?\bautomationServes\b(\s*=(?!=))?/g;
+const SERVES = /(\bval\s+)?\b(?:automationServes|automationFunctions)\b(\s*=(?!=))?/g;
 
 function kotlinFiles(dir: string, acc: string[] = []): string[] {
 	for (const entry of fs.readdirSync(dir)) {
@@ -208,7 +208,7 @@ function deletedIn(source: string): number {
 	return [...code(source).matchAll(DELETED)].length;
 }
 
-/** Reads, writes and declarations of `automationServes`. */
+/** `automationServes` and `automationFunctions` sites. */
 function servesIn(source: string): { reads: number; writes: number; declared: number } {
 	const all = [...code(source).matchAll(SERVES)];
 	const declared = all.filter((hit) => hit[1] !== undefined).length;
@@ -325,5 +325,11 @@ describe("A Gateway's answer", () => {
 			declared: 1,
 		});
 		expect(servesIn("if (it.automationServes == null) legacy")).toEqual({ reads: 1, writes: 0, declared: 0 });
+		expect(servesIn("entry?.automationFunctions?.size")).toEqual({ reads: 1, writes: 0, declared: 0 });
+		expect(servesIn("val automationFunctions: List<AutomationFunctionRow>? = null,")).toEqual({
+			reads: 0,
+			writes: 0,
+			declared: 1,
+		});
 	});
 });
