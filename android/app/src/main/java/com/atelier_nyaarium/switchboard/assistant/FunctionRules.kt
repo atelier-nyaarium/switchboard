@@ -153,7 +153,7 @@ private fun nameIssue(name: String): RunsIssue? =
 	RunsIssue.NameTooLong(Protocol.Wire.FUNCTION_NAME_MAX).takeIf { name.trim().length > Protocol.Wire.FUNCTION_NAME_MAX }
 
 /** What a card itself lacks; values are read only in a function. */
-private fun cardIssue(step: StepDraft, offer: AutomationOffer, params: List<FunctionValueDraft>?): String? = when (step) {
+private fun cardIssue(step: StepDraft, offer: AutomationOffer, params: List<FunctionValueDraft>?, calleeParams: CalleeParams): String? = when (step) {
 	is StepDraft.Do -> {
 		val byKey = params.orEmpty().associateBy { it.key }
 		val refIssue = (step.action as? ActionDraft.Filled)?.references?.values?.firstNotNullOfOrNull { reference ->
@@ -169,24 +169,29 @@ private fun cardIssue(step: StepDraft, offer: AutomationOffer, params: List<Func
 	}
 	is StepDraft.If -> "Its condition is needed".takeIf { step.condition.isBlank() }
 	is StepDraft.Wait -> waitIssue(step.minutes)
-	is StepDraft.Call -> callIssue(step, offer)
+	is StepDraft.Call -> callIssue(step, calleeParams)
 	is StepDraft.Try, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept -> null
 }
 
-private fun callIssue(step: StepDraft.Call, offer: AutomationOffer): String? {
+private fun callIssue(step: StepDraft.Call, calleeParams: CalleeParams): String? {
 	if (step.function.isBlank()) return "Pick a function"
-	val declared = offer.functions?.row(step.function)?.function?.params
+	val declared = calleeParams(step.function)
 	strayCallValues(step, declared).firstOrNull()?.let { return "Clear $it" }
-	val params = declared.orEmpty().associateBy { it.name }
+	return callValueIssue(step, calleeParams)
+}
+
+/** A typed value its type cannot read. */
+internal fun callValueIssue(step: StepDraft.Call, calleeParams: CalleeParams): String? {
+	val params = calleeParams(step.function).orEmpty().associateBy { it.name }
 	return step.values.entries.firstNotNullOfOrNull { (name, value) ->
 		val param = params[name] ?: return@firstNotNullOfOrNull null
 		"$name is a number".takeIf { value is CallValue.Typed && value.text.isNotBlank() && functionValueOf(param, value.text) == null }
 	}
 }
 
-private fun stepIssue(steps: List<StepDraft>, offer: AutomationOffer, params: List<FunctionValueDraft>? = null): RunsIssue? {
+private fun stepIssue(steps: List<StepDraft>, offer: AutomationOffer, params: List<FunctionValueDraft>?, calleeParams: CalleeParams): RunsIssue? {
 	if (steps.isEmpty()) return RunsIssue.NoSteps
-	return everyStep(steps).firstNotNullOfOrNull { step -> cardIssue(step, offer, params)?.let { RunsIssue.Step(step.key, it) } }
+	return everyStep(steps).firstNotNullOfOrNull { step -> cardIssue(step, offer, params, calleeParams)?.let { RunsIssue.Step(step.key, it) } }
 }
 
 private fun notPlain(steps: List<StepDraft>): StepDraft? =
@@ -199,7 +204,8 @@ private fun flatIssue(steps: List<StepDraft>, offer: AutomationOffer): RunsIssue
 	return unwritable(steps, offer, emptyList())?.let { RunsIssue.NotAStep(it.key) }
 }
 
-internal fun calleeIssue(callee: CalleeDraft, offer: AutomationOffer): RunsIssue? = stepIssue(callee.steps, offer, callee.params)
+internal fun calleeIssue(callee: CalleeDraft, offer: AutomationOffer, calleeParams: CalleeParams): RunsIssue? =
+	stepIssue(callee.steps, offer, callee.params, calleeParams)
 
 /** A card the function cannot hold. */
 private fun unwritable(steps: List<StepDraft>, offer: AutomationOffer, params: List<FunctionValueDraft>): StepDraft? =
@@ -230,11 +236,12 @@ internal fun runsIssue(
 	selfId: String,
 	given: TriggerGiven,
 	offer: AutomationOffer,
+	calleeParams: CalleeParams,
 ): RunsIssue? =
 	when (runs) {
 		is RunsDraft.Kept -> null
-		is RunsDraft.Flat -> stepIssue(runs.steps, offer) ?: flatIssue(runs.steps, offer)
-		is RunsDraft.Pointing -> stepIssue(runs.steps, offer, runs.params) ?: pointingIssue(runs, selfId, given, offer)
+		is RunsDraft.Flat -> stepIssue(runs.steps, offer, null, calleeParams) ?: flatIssue(runs.steps, offer)
+		is RunsDraft.Pointing -> stepIssue(runs.steps, offer, runs.params, calleeParams) ?: pointingIssue(runs, selfId, given, offer)
 	}
 
 private fun pointingIssue(

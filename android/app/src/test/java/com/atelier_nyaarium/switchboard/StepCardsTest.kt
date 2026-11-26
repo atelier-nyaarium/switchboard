@@ -225,14 +225,14 @@ class StepCardsTest {
 			StepDraft.If("i", " value > 30 ", listOf(on("x")), listOf(StepDraft.Exit("y"))),
 			StepDraft.Try("t", listOf(StepDraft.Wait("w", "2.5")), listOf(StepDraft.Note("n", "it failed"))),
 		)
-		val written = cards.map { stepOfDraft(it, FN_OFFER)!! }
+		val written = cards.map { stepOfDraft(it, FN_OFFER, calleeParams = listed(FN_OFFER))!! }
 
 		assertEquals(" value > 30 ", (written[0] as FunctionStep.If).`when`)
 		assertEquals(
 			FunctionStep.Try(steps = listOf(FunctionStep.Wait(StepArg.Literal(JsonPrimitive(2.5)))), catch = listOf(FunctionStep.Note("it failed"))),
 			written[1],
 		)
-		assertEquals(written, written.map { stepOfDraft(treeOf(it, FN_OFFER), FN_OFFER) })
+		assertEquals(written, written.map { stepOfDraft(treeOf(it, FN_OFFER), FN_OFFER, calleeParams = listed(FN_OFFER)) })
 		for (kind in listOf("if", "try", "wait", "exit", "note")) assertTrue(freshStatement(kind) != null)
 	}
 
@@ -294,7 +294,7 @@ class StepCardsTest {
 		fun keptBytes(tree: List<StepDraft>): Map<String, String> {
 			val paths = pathsOf(tree)
 			return everyStep(tree).filterIsInstance<StepDraft.Kept>().associate { kept ->
-				paths.getValue(kept.key) to wireJson.encodeToString(FunctionStep.serializer(), stepOfDraft(kept, FN_OFFER)!!)
+				paths.getValue(kept.key) to wireJson.encodeToString(FunctionStep.serializer(), stepOfDraft(kept, FN_OFFER, calleeParams = listed(FN_OFFER))!!)
 			}
 		}
 

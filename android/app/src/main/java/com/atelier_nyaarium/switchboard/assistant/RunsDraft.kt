@@ -230,42 +230,17 @@ private fun bodyOf(
 	params: List<FunctionValueDraft>,
 	steps: List<StepDraft>,
 	offer: AutomationOffer,
-	calleeParams: (String) -> List<FunctionParam>? = { id -> offer.functions?.row(id)?.function?.params },
+	calleeParams: CalleeParams,
 ): AutomationFunction? {
 	val built = steps.map { stepOfDraft(it, offer, params, calleeParams) ?: return null }
 	return AutomationFunction(name = name.trim(), params = params.map { it.param }, steps = built)
 }
 
-/** Reachable functions except start. */
-internal fun reachFrom(start: String, functionOf: (String) -> AutomationFunction?): Set<String> {
-	val seen = mutableSetOf<String>()
-	val queue = ArrayDeque(functionOf(start)?.let(::callsOf).orEmpty())
-	while (queue.isNotEmpty()) {
-		val id = queue.removeFirst()
-		if (id == start || !seen.add(id)) continue
-		queue.addAll(functionOf(id)?.let(::callsOf).orEmpty())
+private fun calledOf(sending: List<CalleeDraft>, offer: AutomationOffer, calleeParams: CalleeParams): List<AutomationSaveCalled>? =
+	sending.map { callee ->
+		val body = bodyOf(callee.name, callee.params, callee.steps, offer, calleeParams) ?: return null
+		AutomationSaveCalled(id = callee.id, body = body, base = callee.base)
 	}
-	return seen
-}
-
-private fun calledOf(
-	start: String,
-	body: AutomationFunction,
-	callees: Map<String, CalleeDraft>,
-	offer: AutomationOffer,
-	calleeParams: (String) -> List<FunctionParam>?,
-): List<AutomationSaveCalled>? {
-	val bodies = mutableMapOf<String, AutomationFunction?>()
-	fun functionOf(id: String): AutomationFunction? = when {
-		id == start -> body
-		id in callees -> bodies.getOrPut(id) { callees.getValue(id).let { bodyOf(it.name, it.params, it.steps, offer, calleeParams) } }
-		else -> offer.functions?.row(id)?.function
-	}
-	val reach = reachFrom(start, ::functionOf)
-	return callees.values.filter { it.id in reach && it.edited() }.map { callee ->
-		AutomationSaveCalled(id = callee.id, body = functionOf(callee.id) ?: return null, base = callee.base)
-	}
-}
 
 /** Plain actions under cap. */
 internal fun flatActions(steps: List<StepDraft>, offer: AutomationOffer): List<AutomationAction>? {
@@ -283,10 +258,11 @@ internal fun saveOpOf(
 	offer: AutomationOffer,
 	confirmed: Boolean,
 	ownFunctionId: String?,
-	callees: Map<String, CalleeDraft> = emptyMap(),
+	/** Edited and still reached. */
+	sending: List<CalleeDraft>,
+	calleeParams: CalleeParams,
 	automationOf: (List<AutomationAction>) -> Automation?,
 ): ConsoleOp.AutomationSave? {
-	val calleeParams = { id: String -> callees[id]?.params?.map { it.param } ?: offer.functions?.row(id)?.function?.params }
 	fun op(
 		actions: List<AutomationAction>,
 		function: AutomationSaveFunction?,
@@ -310,7 +286,7 @@ internal fun saveOpOf(
 			flatActions(runs.steps, offer)?.let { return op(it, null) }
 			val id = ownFunctionId?.takeIf { unnamedServed(offer) } ?: return null
 			val body = bodyOf("", emptyList(), runs.steps, offer, calleeParams) ?: return null
-			val called = calledOf(id, body, callees, offer, calleeParams) ?: return null
+			val called = calledOf(sending, offer, calleeParams) ?: return null
 			op(listOf(AutomationAction.RunFunction(function = id)), AutomationSaveFunction.Edit(id = id, body = body, base = 0L), called = called)
 		}
 		is RunsDraft.Pointing -> {
@@ -324,7 +300,7 @@ internal fun saveOpOf(
 			val values = runs.params.mapNotNull { row -> runs.values[row.key]?.let { functionValueOf(row.param, it) }?.let { row.param.name to it } }
 			val pointer = runs.held.copy(function = runs.functionId, values = JsonObject(values.toMap()).takeIf { values.isNotEmpty() })
 			val body = bodyOf(runs.name, runs.params, runs.steps, offer, calleeParams) ?: return null
-			val called = calledOf(runs.functionId, body, callees, offer, calleeParams) ?: return null
+			val called = calledOf(sending, offer, calleeParams) ?: return null
 			val function = when (runs.mode) {
 				PointMode.SHARED -> if (body == runs.original) null else AutomationSaveFunction.Edit(id = runs.functionId, body = body, base = runs.base)
 				PointMode.UNIQUE -> AutomationSaveFunction.Copy(from = runs.functionId, fromBase = runs.base, body = body)
@@ -415,8 +391,12 @@ internal fun AutomationDraft.madeUnique(offer: AutomationOffer): AutomationDraft
 internal fun AutomationDraft.pointedTo(row: AutomationFunctionRow, offer: AutomationOffer): AutomationDraft {
 	val current = (runs as? RunsHead.Points)?.pointing?.functionId
 	if (current == row.id) return copy(picking = false)
-	// Its callee copy would go stale.
-	return withRuns(pointedAt(runsDraft(), id, row, offer)).copy(
+	// Its edited copy becomes the pointer's cards.
+	val edited = callees[row.id]?.takeIf { it.edited() }
+	val pointing = pointedAt(runsDraft(), id, row, offer).let { at ->
+		edited?.let { at.copy(base = it.base, params = it.params, steps = it.steps, original = it.original) } ?: at
+	}
+	return withRuns(pointing).copy(
 		picking = false,
 		callees = callees - row.id,
 		inside = inside - row.id,
@@ -441,7 +421,7 @@ internal fun sharedName(runs: RunsDraft.Pointing, others: List<String>): Boolean
 internal fun AutomationDraft.reloadedFunction(row: AutomationFunctionRow, offer: AutomationOffer): Pair<AutomationDraft, Boolean> {
 	val runs = runsDraft() as? RunsDraft.Pointing ?: return this to false
 	if (runs.mode !in setOf(PointMode.SHARED, PointMode.UNIQUE) || runs.functionId != row.id) return this to false
-	val dropped = runs.mode == PointMode.UNIQUE || bodyOf(runs.name, runs.params, runs.steps, offer) != runs.original
+	val dropped = runs.mode == PointMode.UNIQUE || bodyOf(runs.name, runs.params, runs.steps, offer, calleeParamsOf(this, offer)) != runs.original
 	val oldValues = runs.params.associate { it.param.name to (it.param.type to runs.values[it.key]) }
 	val params = functionValues(row.function.params)
 	val values = params.mapNotNull { param ->

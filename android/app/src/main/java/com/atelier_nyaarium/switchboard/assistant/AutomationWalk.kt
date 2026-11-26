@@ -105,6 +105,17 @@ internal fun written(function: AutomationFunction): List<FunctionStep> = functio
 /** The functions a function's steps call, at any depth. */
 internal fun callsOf(function: AutomationFunction): List<String> = called(written(function))
 
+/** Includes `starts`. */
+internal fun reachOver(starts: Collection<String>, callsOf: (String) -> List<String>): Set<String> {
+	val seen = mutableSetOf<String>()
+	val queue = ArrayDeque(starts.filter { it.isNotBlank() })
+	while (queue.isNotEmpty()) {
+		val id = queue.removeFirst()
+		if (seen.add(id)) queue += callsOf(id)
+	}
+	return seen
+}
+
 /** Kept steps' calls. */
 internal fun callsIn(steps: List<FunctionStep>): List<String> = called(steps)
 

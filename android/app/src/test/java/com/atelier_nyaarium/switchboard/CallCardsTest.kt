@@ -20,6 +20,8 @@ import com.atelier_nyaarium.switchboard.assistant.callLine
 import com.atelier_nyaarium.switchboard.assistant.canRemove
 import com.atelier_nyaarium.switchboard.assistant.draftRunsIssue
 import com.atelier_nyaarium.switchboard.assistant.functionSaveOf
+import com.atelier_nyaarium.switchboard.assistant.droppedEdits
+import com.atelier_nyaarium.switchboard.assistant.RunsDraft
 import com.atelier_nyaarium.switchboard.assistant.mirrorKey
 import com.atelier_nyaarium.switchboard.assistant.pointedTo
 import com.atelier_nyaarium.switchboard.assistant.offerOf
@@ -79,10 +81,10 @@ class CallCardsTest {
 			mapOf("count" to CallValue.Typed("3"), "label" to CallValue.Typed("hall"), "room" to CallValue.Read("device")),
 			card.values,
 		)
-		assertEquals(stored, stepOfDraft(card, offer))
+		assertEquals(stored, stepOfDraft(card, offer, calleeParams = listed(offer)))
 		assertTrue(treeOf(call("chime", "count" to StepArg.Literal(JsonPrimitive(true))), offer) is StepDraft.Kept)
 		// A blank typed value is left to the trigger.
-		assertEquals(call("chime"), stepOfDraft(card.copy(values = mapOf("count" to CallValue.Typed(" "))), offer))
+		assertEquals(call("chime"), stepOfDraft(card.copy(values = mapOf("count" to CallValue.Typed(" "))), offer, calleeParams = listed(offer)))
 	}
 
 	@Test
@@ -290,7 +292,7 @@ class CallCardsTest {
 	}
 
 	@Test
-	fun aFunctionPointedAtIsReadFromItsCardsNotAStaleCalleeCopy() {
+	fun aFunctionPointedAtKeepsTheCallsItsEditsAddedSoThePickerSeesTheLoop() {
 		val bell = functionRow("bell", "Bell", emptyList(), steps = listOf(plugStep("off")))
 		val wide = offerOf(SANDBOX_SERVES, away = false, functions = listOf(warmUp, chime, bell))
 		val draft = opened(wide)
@@ -299,7 +301,7 @@ class CallCardsTest {
 			.openedCallee("bell", wide)
 			.pointedTo(chime, wide)
 
-		assertEquals(true, callChoices(draft, wide, tree = "bell").contains(CallChoice.Existing("chime", "Chime")))
+		assertEquals(false, callChoices(draft, wide, tree = "bell").contains(CallChoice.Existing("chime", "Chime")))
 	}
 
 	@Test
@@ -338,6 +340,72 @@ class CallCardsTest {
 
 		assertEquals(RefusedAt.Step("0", "device", "chime"), com.atelier_nyaarium.switchboard.assistant.refusedAtOf(refusal))
 		assertNull(com.atelier_nyaarium.switchboard.assistant.generalLine(said, draft, offer))
+	}
+
+	@Test
+	fun anUntouchedCalleeIsReadFromItsListedRowEverywhere() {
+		val bell = functionRow("bell", "Bell", emptyList(), steps = listOf(plugStep("off")))
+		val first = offerOf(SANDBOX_SERVES, away = false, functions = listOf(warmUp, chime, bell))
+		val opened = opened(first).openedCallee("bell", first).copy(inside = emptyList()).openedCallee("chime", first).copy(inside = emptyList())
+		val callsBack = offerOf(SANDBOX_SERVES, away = false, functions = listOf(warmUp, chime, bell.copy(function = bell.function.copy(steps = listOf(call("warm-up"))))))
+		val narrowed = chime.copy(revision = 4L, function = chime.function.copy(params = listOf(FunctionParam("count", "number"))))
+		val fewer = offerOf(SANDBOX_SERVES, away = false, functions = listOf(warmUp, narrowed, bell))
+		val labelled = opened.withStep(callKey(opened)) { (it as StepDraft.Call).copy(values = mapOf("label" to CallValue.Typed("hall"))) }
+		val gone = offerOf(SANDBOX_SERVES, away = false, functions = listOf(warmUp, bell))
+
+		assertEquals(false, callChoices(opened, callsBack, tree = null).contains(CallChoice.Existing("bell", "Bell")))
+		assertEquals(listOf("count"), com.atelier_nyaarium.switchboard.assistant.calleeParams(opened, fewer, "chime")!!.map { it.name })
+		assertTrue(draftRunsIssue(labelled, none, fewer) is RunsIssue.Step)
+		assertNull(com.atelier_nyaarium.switchboard.assistant.calleeParams(opened, gone, "chime"))
+		assertEquals(4L, opened.openedCallee("chime", fewer).callees.getValue("chime").base)
+	}
+
+	@Test
+	fun aSaveSendsAnEditedCalleeReachedThroughALiveRowNotThroughAStaleCopy() {
+		val bell = functionRow("bell", "Bell", emptyList(), steps = listOf(plugStep("off")))
+		val first = offerOf(SANDBOX_SERVES, away = false, functions = listOf(warmUp, chime, bell))
+		val ringing = chime.copy(revision = 4L, function = chime.function.copy(steps = listOf(call("bell"))))
+		val now = offerOf(SANDBOX_SERVES, away = false, functions = listOf(warmUp, ringing, bell))
+		val draft = opened(first).openedCallee("chime", first).copy(inside = emptyList())
+			.openedCallee("bell", first)
+			.plusStep(Slot(null, null, 1), StepDraft.Exit("stop"), tree = "bell")
+
+		assertEquals(listOf("bell"), functionSaveOf(draft, none, now, false)!!.called!!.map { it.id })
+		assertNull(functionSaveOf(draft, none, first, false)!!.called)
+	}
+
+	@Test
+	fun aListThatMovedReReadsUntouchedCopiesAndEditsNothingCallsAreSaidToBeLeft() {
+		val bell = functionRow("bell", "Bell", emptyList(), steps = listOf(plugStep("off")))
+		val ringing = chime.copy(function = chime.function.copy(steps = listOf(call("bell"))))
+		val first = offerOf(SANDBOX_SERVES, away = false, functions = listOf(warmUp, ringing, bell))
+		val draft = opened(first).openedCallee("chime", first).openedCallee("bell", first)
+			.plusStep(Slot(null, null, 1), StepDraft.Exit("stop"), tree = "bell")
+		val quiet = offerOf(SANDBOX_SERVES, away = false, functions = listOf(warmUp, chime.copy(revision = 4L), bell))
+		val fresh = draft.freshened(quiet)
+
+		assertEquals(4L, fresh.callees.getValue("chime").base)
+		assertEquals(draft.callees.getValue("bell"), fresh.callees.getValue("bell"))
+		assertEquals(emptyList<String>(), droppedEdits(draft, first).map { it.name })
+		assertEquals(listOf("Bell"), droppedEdits(fresh, quiet).map { it.name })
+		assertEquals(true, fresh.changedFrom(opened(first)))
+	}
+
+	@Test
+	fun aCallCardSaysWhenATypedValueCannotBeRead() {
+		val step = StepDraft.Call("c", "chime", mapOf("count" to CallValue.Typed("2,5")))
+
+		assertEquals("count is a number", com.atelier_nyaarium.switchboard.assistant.cardHint(step, offer, emptySet(), listed(offer)))
+		assertNull(com.atelier_nyaarium.switchboard.assistant.cardHint(step.copy(values = mapOf("count" to CallValue.Typed("2"))), offer, emptySet(), listed(offer)))
+	}
+
+	@Test
+	fun pointingAtAnEditedCalleeCarriesItsEditsAndTheBaseItRead() {
+		val draft = opened().openedCallee("chime", offer).plusStep(Slot(null, null, 1), StepDraft.Exit("stop"), tree = "chime")
+		val pointing = draft.pointedTo(chime, offer).runsDraft() as RunsDraft.Pointing
+
+		assertEquals(chime.revision, pointing.base)
+		assertEquals(listOf(plugStep("on"), FunctionStep.Exit), pointing.steps.map { stepOfDraft(it, offer, pointing.params, listed(offer)) })
 	}
 
 	@Test

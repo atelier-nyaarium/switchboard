@@ -250,6 +250,9 @@ internal fun CalleePage(
 			verticalArrangement = Arrangement.spacedBy(12.dp),
 		) {
 			if (movedCallee(said, draft, offer) == callee.id) MovedLine(enabled) { reload(callee.id) }
+			droppedLine(droppedEdits(draft, offer).filter { it.id == callee.id })?.let {
+				Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+			}
 			if (others.isNotEmpty()) {
 				Text(REACHES_HEADER, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				for (sentence in others) Text(sentence, style = MaterialTheme.typography.bodyMedium)

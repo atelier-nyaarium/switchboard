@@ -28,7 +28,7 @@ import com.atelier_nyaarium.switchboard.proto.StepArg
 import kotlinx.serialization.json.JsonObject
 import com.atelier_nyaarium.switchboard.assistant.reached
 import com.atelier_nyaarium.switchboard.assistant.callsOf
-import com.atelier_nyaarium.switchboard.assistant.reachFrom
+import com.atelier_nyaarium.switchboard.assistant.reachOver
 import com.atelier_nyaarium.switchboard.assistant.written
 import com.atelier_nyaarium.switchboard.assistant.testLabel
 import com.atelier_nyaarium.switchboard.proto.Automation
@@ -541,7 +541,7 @@ internal class SandboxAutomationGateway(
 				)
 				shelves[gatewayId] = if (judged.held == null) shelf(gatewayId) + row else shelf(gatewayId).map { if (it.id == op.automationId) row else it }
 				val running = shelf(gatewayId).mapNotNull { pointerOf(it.automation) }.toSet()
-				bodies.keys.retainAll(running + running.flatMap { start -> reachFrom(start) { id: String -> bodies[id]?.second } })
+				bodies.keys.retainAll(reachOver(running) { id -> bodies[id]?.second?.let(::callsOf).orEmpty() })
 				return ConsoleAutomationSaveResult(stored = true, automation = row, function = functionRows(gatewayId).firstOrNull { it.id == pointerOf(automation) })
 			}
 		}

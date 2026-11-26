@@ -51,6 +51,9 @@ internal sealed interface StepDraft {
 	data class Kept(override val key: String, val step: FunctionStep) : StepDraft
 }
 
+/** Null when unknown. */
+internal typealias CalleeParams = (String) -> List<FunctionParam>?
+
 /** Typed value; caller expression. */
 internal sealed interface CallValue {
 	data class Typed(val text: String) : CallValue
@@ -251,7 +254,7 @@ internal fun stepOfDraft(
 	draft: StepDraft,
 	offer: AutomationOffer,
 	params: List<FunctionValueDraft> = emptyList(),
-	calleeParams: (String) -> List<FunctionParam>? = { id -> offer.functions?.row(id)?.function?.params },
+	calleeParams: CalleeParams,
 ): FunctionStep? =
 	when (draft) {
 		is StepDraft.Do -> stepOf(draft.action, offer, params)

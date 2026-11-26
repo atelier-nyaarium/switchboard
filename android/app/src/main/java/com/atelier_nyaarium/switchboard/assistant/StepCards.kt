@@ -56,7 +56,7 @@ internal fun CardsSection(
 	val functionParams = if (tree == null) (draft.runs as? RunsHead.Points)?.pointing?.params.orEmpty() else draft.callees[tree]?.params.orEmpty()
 	val valueNames = functionParams.filter { it.param.name.isNotBlank() }.map { it.key }.toSet()
 	val plugs = plugChoices(functionParams, offer)
-	val rows = cardsDraw(draft.stepsOf(tree), { cardHint(it, offer, valueNames) }, lastRun, pointing = draft.runs is RunsHead.Points)
+	val rows = cardsDraw(draft.stepsOf(tree), { cardHint(it, offer, valueNames, calleeParamsOf(draft, offer)) }, lastRun, pointing = draft.runs is RunsHead.Points)
 	val running = lastRun?.running == true
 	lastRun?.let { run ->
 		Text(

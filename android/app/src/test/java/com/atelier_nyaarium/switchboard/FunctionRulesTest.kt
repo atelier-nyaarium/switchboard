@@ -70,6 +70,10 @@ internal fun plugStep(verb: String) = FunctionStep.Do(
 	args = JsonObject(mapOf("device" to literal(SANDBOX_SWITCH), "verb" to literal(verb))),
 )
 
+/** Listed rows only. */
+internal fun listed(offer: AutomationOffer): com.atelier_nyaarium.switchboard.assistant.CalleeParams =
+	{ id -> offer.functions?.row(id)?.function?.params }
+
 internal fun functionRow(
 	id: String,
 	name: String,
@@ -171,7 +175,7 @@ class FunctionRulesTest {
 		val blink = functionRow("blink", "Blink", listOf("mine"), params = listOf(FunctionParam("lamp", "device"), FunctionParam("times", "number")))
 		val offer = offerOf(SANDBOX_SERVES, away = false, functions = listOf(blink, tooWarm, frost))
 		val pointing = pointedAt(RunsDraft.Flat(emptyList()), "mine", blink, offer)
-		fun issue(runs: RunsDraft) = runsIssue(runs, "mine", given, offer)
+		fun issue(runs: RunsDraft) = runsIssue(runs, "mine", given, offer, listed(offer))
 
 		assertEquals(RunsIssue.NoSteps, issue(RunsDraft.Flat(emptyList())))
 		assertNull(issue(RunsDraft.Flat(listOf(StepDraft.Do("plug", ActionDraft.Filled("device_set", mapOf("device" to SANDBOX_SWITCH, "verb" to "on")))))))
@@ -184,7 +188,7 @@ class FunctionRulesTest {
 		val shared = pointedAt(RunsDraft.Flat(emptyList()), "mine", tooWarm, offer).copy(name = "")
 		assertEquals(RunsIssue.SharedName(2), issue(shared))
 		assertNull(issue(shared.copy(mode = PointMode.UNIQUE)))
-		assertNull(runsIssue(pointedAt(RunsDraft.Flat(emptyList()), "outside", frost, offer).copy(name = ""), "outside", given, offer))
+		assertNull(runsIssue(pointedAt(RunsDraft.Flat(emptyList()), "outside", frost, offer).copy(name = ""), "outside", given, offer, listed(offer)))
 	}
 
 	@Test
@@ -195,7 +199,7 @@ class FunctionRulesTest {
 		fun issue(params: List<FunctionParam>, name: String = "Solo", offer: AutomationOffer = FN_OFFER) =
 			runsIssue(base.copy(name = name, params = params.mapIndexed { index, param ->
 				base.params.getOrNull(index)?.copy(param = param) ?: FunctionValueDraft("value-$index", param)
-			}), "mine", given, offer)
+			}), "mine", given, offer, listed(offer))
 
 		assertEquals(RunsIssue.BadParam("", ParamIssue.EMPTY), issue(listOf(FunctionParam("", "text"))))
 		assertEquals(RunsIssue.BadParam("Lamp", ParamIssue.INVALID), issue(listOf(FunctionParam("Lamp", "text"))))

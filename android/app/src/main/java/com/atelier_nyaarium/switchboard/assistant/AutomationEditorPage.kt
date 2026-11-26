@@ -250,6 +250,7 @@ internal fun AutomationEditorPage(
 		HorizontalDivider()
 		Text(if (runs != null) "Runs" else "Do", style = MaterialTheme.typography.labelLarge)
 		runShown(runState, open.opening)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+		droppedLine(droppedEdits(draft, offer))?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
 		runs?.let {
 			RunsBlock(it, offer, can.edit, edit) { reloadable(draft.runsDraft())?.let(reload) }
 		}

@@ -69,7 +69,7 @@ class RunsDraftTest {
 		offer: com.atelier_nyaarium.switchboard.assistant.AutomationOffer = FN_OFFER,
 		own: String? = "fn-own",
 	): ConsoleOp.AutomationSave? =
-		saveOpOf("mine", 2L, runs, offer, confirmed = false, own) { actions ->
+		saveOpOf("mine", 2L, runs, offer, confirmed = false, own, emptyList(), listed(offer)) { actions ->
 			Automation(enabled = true, trigger = CROSSING, actions = actions)
 		}
 

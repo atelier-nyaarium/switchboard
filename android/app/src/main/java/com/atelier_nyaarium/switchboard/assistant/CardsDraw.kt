@@ -194,10 +194,11 @@ internal fun lastStepLine(card: CardRow.Card, running: Boolean): String? {
 }
 
 /** Hide issues while blank. */
-internal fun cardHint(step: StepDraft, offer: AutomationOffer, valueNames: Set<String>): String? = when (step) {
+internal fun cardHint(step: StepDraft, offer: AutomationOffer, valueNames: Set<String>, calleeParams: CalleeParams): String? = when (step) {
 	is StepDraft.Do -> actionHint(step.action, offer, valueNames)
 	is StepDraft.Wait -> step.minutes.takeIf { it.isNotBlank() }?.let(::waitIssue)
-	is StepDraft.If, is StepDraft.Try, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Call, is StepDraft.Kept -> null
+	is StepDraft.Call -> callValueIssue(step, calleeParams)
+	is StepDraft.If, is StepDraft.Try, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept -> null
 }
 
 internal fun waitIssue(typed: String): String? {
@@ -226,7 +227,7 @@ internal fun callChoices(draft: AutomationDraft, offer: AutomationOffer, tree: S
 }
 
 internal fun calleeParams(draft: AutomationDraft, offer: AutomationOffer, id: String): List<FunctionParam>? =
-	draft.callees[id]?.params?.map { it.param } ?: offer.functions?.row(id)?.function?.params
+	functionSource(draft, offer, id)?.params
 
 /** Calls read caller names. */
 internal fun callNames(draft: AutomationDraft, offer: AutomationOffer, tree: String?, key: String): List<String> {
@@ -265,8 +266,11 @@ internal fun callLine(draft: AutomationDraft, offer: AutomationOffer, said: Auto
 	}
 	val saidBelow = saidKey?.let { draft.treeHolding(it) } in below
 	val issueBelow = below.any { id ->
-		val callee = draft.callees[id]?.takeIf { it.edited() }
-		if (callee != null) calleeIssue(callee, offer) != null else offer.functions?.row(id)?.invalid != null
+		when (val source = functionSource(draft, offer, id)) {
+			is FunctionSource.Cards -> source.callee?.let { calleeIssue(it, offer, calleeParamsOf(draft, offer)) } != null
+			is FunctionSource.Listed -> source.row.invalid != null
+			null -> false
+		}
 	}
 	return CallLine.Attention.takeIf { saidBelow || issueBelow }
 }

@@ -339,6 +339,20 @@ internal class AutomationOps(
 				},
 			)
 		}
+		when (answer) {
+			is ListAnswer.Listed -> freshenEdits(gatewayId)
+			ListAnswer.NotServed, ListAnswer.Unreachable -> Unit
+		}
+	}
+
+	/** Open edits re-read untouched callee copies. */
+	private fun freshenEdits(gatewayId: String) {
+		val held = state.value
+		for ((key, session) in edits.state.value.held) {
+			if (key.gatewayId != gatewayId) continue
+			val offer = automationContext(held.gateways, held.assistantHome, gatewayId).over(session.draft.context).offer
+			if (session.draft.freshened(offer) != session.draft) edits.edit(key, session.opening) { it.freshened(offer) }
+		}
 	}
 
 	/** Stored or sent row that moves takes the lock. */

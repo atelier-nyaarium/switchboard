@@ -608,7 +608,7 @@ class AutomationOpsTest {
 
 		assertTrue(result is EditOutcome.Stays)
 		assertEquals(4L to "Changed", landed.base to landed.name)
-		assertEquals(listOf(plugStep("off")), landed.steps.map { stepOfDraft(it, context.offer, landed.params) })
+		assertEquals(listOf(plugStep("off")), landed.steps.map { stepOfDraft(it, context.offer, landed.params, listed(context.offer)) })
 		assertTrue(session.said is AutomationSaid.Note)
 		ops.edits.edit(key, opening) { it.copy(enabled = !it.enabled) }
 		assertEquals(null, ops.edits.state.value.held.getValue(key).said)
@@ -650,7 +650,7 @@ class AutomationOpsTest {
 		val callee = session.draft.callees.getValue("chime")
 
 		assertEquals(7L, callee.base)
-		assertEquals(listOf(plugStep("off")), callee.steps.map { stepOfDraft(it, context.offer, callee.params) })
+		assertEquals(listOf(plugStep("off")), callee.steps.map { stepOfDraft(it, context.offer, callee.params, listed(context.offer)) })
 		assertEquals(notice.revision, (session.draft.runsDraft() as RunsDraft.Pointing).base)
 		assertEquals(AutomationSaid.Note("Reloaded. Your changes to its steps were dropped."), session.said)
 	}
@@ -690,6 +690,42 @@ class AutomationOpsTest {
 
 		assertEquals(7L to "chime", pointing.base to pointing.functionId)
 		assertEquals(false, "chime" in session.draft.callees)
+	}
+
+	@Test
+	fun aListThatLandsReReadsAnOpenEditsUntouchedCalleeCopy() = runBlocking {
+		val fake = FakeGateway().apply { serves = SANDBOX_SERVES }
+		val chime = functionRow("chime", "Chime", emptyList(), steps = listOf(plugStep("on"))).copy(callers = listOf("notice"))
+		val notice = functionRow(
+			"notice",
+			"Notice",
+			listOf("review"),
+			steps = listOf(com.atelier_nyaarium.switchboard.proto.FunctionStep.Call("chime", null)),
+		)
+		fake.functionRows += listOf(notice, chime)
+		val owner = automationRow(
+			"review",
+			1L,
+			Automation(enabled = true, trigger = AutomationTrigger.Interval(60L), actions = listOf(AutomationAction.RunFunction("notice"))),
+		)
+		fake.shelves["sakura"] = listOf(owner)
+		val state = admitting("sakura")
+		state.value = state.value.copy(assistantHome = AssistantHome.Read(AssistantHomeRecord(1L, "sakura"), null))
+		val ops = AutomationOps(state, Host(fake))
+		ops.refresh("sakura")
+		val context = EditContext(offerOf(SANDBOX_SERVES, away = false, functions = listOf(notice, chime)), emptyList())
+		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
+		ops.edits.show(key)
+		val opening = ops.edits.open(key, automationDraftOf(owner, context)!!)!!
+		ops.edits.edit(key, opening) { held -> held.openedCallee("chime", context.offer) }
+		fake.functionRows.clear()
+		fake.functionRows += listOf(notice, chime.copy(revision = 6L, function = chime.function.copy(steps = listOf(plugStep("off")))))
+
+		ops.refresh("sakura")
+		val callee = ops.edits.state.value.held.getValue(key).draft.callees.getValue("chime")
+
+		assertEquals(6L, callee.base)
+		assertEquals(listOf(plugStep("off")), callee.steps.map { stepOfDraft(it, context.offer, callee.params, listed(context.offer)) })
 	}
 
 	@Test

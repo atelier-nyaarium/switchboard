@@ -200,7 +200,7 @@ class AutomationCheckTest {
 		assertEquals(8L to "New name", reloadedRuns.base to reloadedRuns.name)
 		assertEquals(PointMode.SHARED, reloadedRuns.mode)
 		assertEquals(mapOf("room" to "Bedroom"), reloadedRuns.valuesByName())
-		assertEquals(written(changed.function), reloadedRuns.steps.map { stepOfDraft(it, offer, reloadedRuns.params) })
+		assertEquals(written(changed.function), reloadedRuns.steps.map { stepOfDraft(it, offer, reloadedRuns.params, listed(offer)) })
 	}
 
 	@Test

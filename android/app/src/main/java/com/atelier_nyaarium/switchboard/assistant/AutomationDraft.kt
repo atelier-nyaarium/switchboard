@@ -24,6 +24,7 @@ import com.atelier_nyaarium.switchboard.runLine
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationFunction
 import com.atelier_nyaarium.switchboard.proto.AutomationFunctionRow
+import com.atelier_nyaarium.switchboard.proto.FunctionParam
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationCheckResult
@@ -116,6 +117,9 @@ internal data class CalleeDraft(
 	val opened: List<StepDraft>,
 ) {
 	fun edited(): Boolean = base == 0L || unkeyed(steps) != opened
+
+	/** An empty new one holds none. */
+	fun holdsWork(): Boolean = edited() && !(base == 0L && steps.isEmpty())
 }
 
 internal sealed interface AutomationSlot {
@@ -258,9 +262,25 @@ internal data class AutomationDraft(
 
 	/** Read callee once. */
 	fun openedCallee(id: String, offer: AutomationOffer): AutomationDraft {
-		if (id in callees) return copy(inside = inside + id)
-		val row = offer.functions?.row(id) ?: return this
+		val row = offer.functions?.row(id)
+		val held = callees[id]
+		// An untouched copy follows its row.
+		if (held != null && (held.edited() || row == null || row.revision == held.base)) return copy(inside = inside + id)
+		row ?: return this
 		return copy(callees = callees + (id to calleeOf(row, offer)), inside = inside + id)
+	}
+
+	/** Untouched copies whose row moved, read again. */
+	fun freshened(offer: AutomationOffer): AutomationDraft {
+		val moved = callees.values.mapNotNull { held ->
+			offer.functions?.row(held.id)?.takeIf { !held.edited() && it.revision != held.base }
+		}
+		if (moved.isEmpty()) return this
+		val ids = moved.map { it.id }.toSet()
+		return copy(
+			callees = callees + moved.associate { it.id to calleeOf(it, offer) },
+			text = text?.takeIf { treeHolding(it.key) !in ids },
+		)
 	}
 
 	/** True means edits dropped. */
@@ -313,7 +333,7 @@ internal data class AutomationDraft(
 			enabled != opened.enabled ||
 			runs != opened.runs ||
 			keepTryingMin != opened.keepTryingMin ||
-			callees.values.any { it.id in reachedCallees(context.offer) && it.edited() }
+			callees.values.any { it.holdsWork() }
 }
 
 /** Changes when an answer, not typing, replaces bodies. */
@@ -329,22 +349,52 @@ internal fun callTargets(steps: List<StepDraft>): List<String> = everyStep(steps
 	}
 }.filter { it.isNotBlank() }
 
-/** Drafts first; starts included. */
-internal fun AutomationDraft.reached(starts: Collection<String>, offer: AutomationOffer): Set<String> {
-	val own = functionHere(this, null)
-	val seen = mutableSetOf<String>()
-	val queue = ArrayDeque(starts.filter { it.isNotBlank() })
-	while (queue.isNotEmpty()) {
-		val id = queue.removeFirst()
-		if (!seen.add(id)) continue
-		queue += when {
-			id == own -> callTargets(steps)
-			id in callees -> callTargets(callees.getValue(id).steps)
-			else -> offer.functions?.row(id)?.function?.let(::callsOf).orEmpty()
-		}
+/** The one callee reader. */
+internal sealed interface FunctionSource {
+	val params: List<FunctionParam>
+	val calls: List<String>
+
+	/** Own cards, or an edited callee's. */
+	data class Cards(override val params: List<FunctionParam>, val steps: List<StepDraft>, val callee: CalleeDraft?) : FunctionSource {
+		override val calls get() = callTargets(steps)
 	}
-	return seen
+
+	/** Else the listed row; never an untouched copy. */
+	data class Listed(val row: AutomationFunctionRow) : FunctionSource {
+		override val params get() = row.function.params
+		override val calls get() = callsOf(row.function)
+	}
 }
+
+internal fun functionSource(draft: AutomationDraft, offer: AutomationOffer, id: String): FunctionSource? {
+	if (id == functionHere(draft, null)) {
+		val params = (draft.runs as? RunsHead.Points)?.pointing?.params?.map { it.param }.orEmpty()
+		return FunctionSource.Cards(params, draft.steps, null)
+	}
+	draft.callees[id]?.takeIf { it.edited() }?.let { return FunctionSource.Cards(it.params.map { value -> value.param }, it.steps, it) }
+	return offer.functions?.row(id)?.let(FunctionSource::Listed)
+}
+
+/** Starts included. */
+internal fun AutomationDraft.reached(starts: Collection<String>, offer: AutomationOffer): Set<String> =
+	reachOver(starts) { id -> functionSource(this, offer, id)?.calls.orEmpty() }
+
+/** Edited callees the automation still reaches. */
+internal fun sentCallees(draft: AutomationDraft, offer: AutomationOffer): List<CalleeDraft> {
+	val reached = draft.reachedCallees(offer)
+	return draft.callees.values.filter { it.id in reached && it.edited() }
+}
+
+internal fun calleeParamsOf(draft: AutomationDraft, offer: AutomationOffer): CalleeParams = { id -> functionSource(draft, offer, id)?.params }
+
+/** Edited callees a save leaves behind. */
+internal fun droppedEdits(draft: AutomationDraft, offer: AutomationOffer): List<CalleeDraft> {
+	val reached = draft.reachedCallees(offer)
+	return draft.callees.values.filter { it.holdsWork() && it.id !in reached }
+}
+
+internal fun droppedLine(dropped: List<CalleeDraft>): String? =
+	dropped.takeIf { it.isNotEmpty() }?.let { list -> "Edits to ${list.joinToString(", ") { it.name }} are not saved: nothing calls it now." }
 
 /** Automation's reached callees. */
 internal fun AutomationDraft.reachedCallees(offer: AutomationOffer): Set<String> =
@@ -430,9 +480,8 @@ internal fun measureOf(draft: AutomationDraft): String? = (draft.trigger as? Tri
 /** What blocks Save in its Runs block; null where functions are not served. */
 internal fun draftRunsIssue(draft: AutomationDraft, fields: SourceFields, offer: AutomationOffer): RunsIssue? {
 	if (offer.functions == null) return null
-	runsIssue(draft.runsDraft(), draft.id, givenOf(draft, fields), offer)?.let { return it }
-	val reached = draft.reachedCallees(offer)
-	return draft.callees.values.firstOrNull { it.id in reached && it.edited() && calleeIssue(it, offer) != null }?.let { RunsIssue.InCallee(it.name) }
+	runsIssue(draft.runsDraft(), draft.id, givenOf(draft, fields), offer, calleeParamsOf(draft, offer))?.let { return it }
+	return sentCallees(draft, offer).firstOrNull { calleeIssue(it, offer, calleeParamsOf(draft, offer)) != null }?.let { RunsIssue.InCallee(it.name) }
 }
 
 /** The save op; null when unservable or unwritable. */
@@ -445,7 +494,7 @@ internal fun functionSaveOf(
 	if (offer.functions == null) return null
 	val built = draft.builtTrigger(offer) ?: return null
 	if (draft.conditions.any { fields.issueOf(it) != null } || draftRunsIssue(draft, fields, offer) != null) return null
-	return saveOpOf(draft.id, draft.revision, draft.runsDraft(), offer, confirmed, draft.newFunctionId, draft.callees) { actions ->
+	return saveOpOf(draft.id, draft.revision, draft.runsDraft(), offer, confirmed, draft.newFunctionId, sentCallees(draft, offer), calleeParamsOf(draft, offer)) { actions ->
 		draft.automationOf(built, actions)
 	}
 }
