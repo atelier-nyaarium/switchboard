@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReferenceHeldStore } from "../federation-server/blobs/referenceHeldStore.js";
+import { INBOX_HOLD_MS } from "../federation-server/inbox/inboxCustody.js";
 import { InboxService } from "../federation-server/inbox/inboxService.js";
 import { OP_LEDGER_SWEEP_BATCH, OP_LEDGER_TTL_MS, sweepOpLedger } from "../federation-server/inbox/inboxSweep.js";
 import { OwnerStoreRegistry } from "../federation-server/inbox/ownerStoreRegistry.js";
@@ -704,5 +705,237 @@ describe("InboxService content references", () => {
 		held.sweep(domainId, now + INBOX_ROW_TTL_MS + 1);
 		expect(held.has(domainId, blobId)).toBe(false);
 		fixture.registry.close();
+	});
+});
+
+describe("InboxService: a pushed row is its holder's to settle", () => {
+	const address: InboxAddress = { kind: "session", domainId, gatewayId: "gateway", sessionId: "session" };
+	const session = { kind: "shell", label: "x", recordExists: true };
+	const opKey = (opId: string) => ({ conversationId: "conversation", opId });
+	const opRow = (
+		producer: ReturnType<typeof generateIdentity>,
+		opId: string,
+		kind: "console_op" | "op_result",
+		origin: InboxRowInput["envelope"]["origin"],
+	) => {
+		const envelope = { origin, opKey: opKey(opId), epoch: 1, kind, contentRefs: [] };
+		const body = { v: 1, epoch: 1, nonce: "AAAAAAAAAAAAAAAA", ciphertext: "AAAAAAAAAAAAAAAAAAAAAA==" };
+		return { envelope, producerSig: signRowEnvelope(envelope, producer.sign.priv), body };
+	};
+	const world = (options: Parameters<typeof make>[0] = {}) => {
+		const made = make(options);
+		const { service, producer, owner } = made;
+		service.upsertSession(domainId, "gateway", "session", session);
+		let live: number | null = service.registerGateway(domainId, "gateway") as number;
+		service.setHolderGate(() => live);
+		const land = (opId: string): number =>
+			service.appendRow({
+				address,
+				row: opRow(producer, opId, "console_op", { kind: "console", domainId, device: "phone" }),
+				producerSignPub: producer.sign.pub,
+			}).seq as number;
+		const hand = (seq: number): number => {
+			service.pushed(address, [seq], { gatewayId: "gateway", incarnation: live as number });
+			return seq;
+		};
+		return {
+			...made,
+			land,
+			hand,
+			push: (opId: string) => hand(land(opId)),
+			answer: (opId: string) =>
+				service.appendRow({
+					address: ownerAddress(owner),
+					row: opRow(producer, opId, "op_result", { kind: "gateway", domainId, gatewayId: "gateway" }),
+					producerSignPub: producer.sign.pub,
+				}),
+			answersTo: (opId: string) =>
+				service
+					.rows(ownerAddress(owner), 1, 100)
+					.filter((row) => row.envelope.opKey.opId === opId)
+					.map((row) => row.envelope.origin.kind),
+			ack: (seq: number, deliveryEpoch: number, outcome: "delivered" | "waking" | "failed") =>
+				service.ack({
+					address,
+					seq,
+					deliveryEpoch,
+					outcome,
+					by: { domainId, gatewayId: "gateway", incarnation: live as number },
+				}),
+			drop: () => {
+				live = null;
+			},
+		};
+	};
+
+	it("leaves a held row to its holder over a forget: its answer lands and its ack is taken under its own epoch", () => {
+		const { service, registry, push, answer, answersTo, ack } = world();
+		const seq = push("forget");
+		const pushedUnder = service.deliveryEpoch(address);
+		expect(service.forgetSession(domainId, "gateway", "session")).toBe(true);
+		expect(service.hasSession(domainId, "gateway", "session")).toBe(false);
+		expect(service.deliveryEpoch(address)).not.toBe(pushedUnder);
+		expect(answer("forget").outcome).toBe("accepted");
+		expect(answersTo("forget")).toEqual(["gateway"]);
+		expect(ack(seq, pushedUnder, "delivered").outcome).toBe("delivered");
+		expect(service.rows(address, 1, 10)).toEqual([]);
+		registry.close();
+	});
+
+	it("keeps two lives' epochs apart and hands a held-over row to no later life", () => {
+		const { service, registry, push, ack } = world();
+		const old = push("old");
+		const oldEpoch = service.deliveryEpoch(address);
+		service.forgetSession(domainId, "gateway", "session");
+		service.upsertSession(domainId, "gateway", "session", session);
+		const fresh = push("fresh");
+		const freshEpoch = service.deliveryEpoch(address);
+		const redelivered = service
+			.pendingFor(domainId, "gateway")
+			.flatMap((entry) => entry.rows.map((row) => row.seq));
+		expect(redelivered).toEqual([fresh]);
+		expect(ack(fresh, oldEpoch, "delivered").outcome).toBe("refused");
+		expect(ack(old, freshEpoch, "delivered").outcome).toBe("refused");
+		expect(ack(fresh, freshEpoch, "delivered").outcome).toBe("delivered");
+		expect(ack(old, oldEpoch, "delivered").outcome).toBe("delivered");
+		registry.close();
+	});
+
+	it("a repeated forget leaves a held-over row its epoch", () => {
+		const { service, registry, push, ack } = world();
+		const seq = push("op");
+		const pushedUnder = service.deliveryEpoch(address);
+		service.forgetSession(domainId, "gateway", "session");
+		service.forgetSession(domainId, "gateway", "session");
+		expect(ack(seq, pushedUnder, "delivered").outcome).toBe("delivered");
+		registry.close();
+	});
+
+	it("fails a held-over row once its holder's time passes, and not before", () => {
+		const clock = 1_000;
+		const { service, registry, push, answersTo } = world({ now: () => clock });
+		push("slow");
+		service.forgetSession(domainId, "gateway", "session");
+		service.sweep(clock + INBOX_HOLD_MS);
+		expect(service.rows(address, 1, 10)).toHaveLength(1);
+		service.sweep(clock + INBOX_HOLD_MS + 1);
+		expect(service.rows(address, 1, 10)).toEqual([]);
+		expect(answersTo("slow")).toEqual(["router"]);
+		expect(service.opResult(domainId, opKey("slow"))).toMatchObject({
+			outcome: "failed",
+			reason: "session_forgotten",
+		});
+		registry.close();
+	});
+
+	it("fails a held-over row its holder hands back", () => {
+		const { service, registry, push, ack } = world();
+		const seq = push("back");
+		const pushedUnder = service.deliveryEpoch(address);
+		service.forgetSession(domainId, "gateway", "session");
+		expect(ack(seq, pushedUnder, "waking")).toMatchObject({ outcome: "failed", reason: "session_forgotten" });
+		expect(service.rows(address, 1, 10)).toEqual([]);
+		registry.close();
+	});
+
+	it("holds nothing for a Gateway that went away", () => {
+		const { service, registry, push, answersTo, drop } = world();
+		push("orphan");
+		drop();
+		service.forgetSession(domainId, "gateway", "session");
+		expect(service.rows(address, 1, 10)).toEqual([]);
+		expect(answersTo("orphan")).toEqual(["router"]);
+		registry.close();
+	});
+
+	it("leaves a held row out of the expiry sweep until its holder lets go", () => {
+		let clock = 1_000;
+		const { service, registry, land, hand, drop } = world({ now: () => clock });
+		const seq = land("aged");
+		clock += INBOX_ROW_TTL_MS + 1;
+		hand(seq);
+		service.sweep(clock);
+		expect(service.rows(address, 1, 10)).toHaveLength(1);
+		drop();
+		service.sweep(clock);
+		expect(service.rows(address, 1, 10)).toEqual([]);
+		registry.close();
+	});
+
+	it("keeps a held-over row fenced across a restart", () => {
+		const first = world();
+		const seq = first.push("op");
+		const pushedUnder = first.service.deliveryEpoch(address);
+		first.service.forgetSession(domainId, "gateway", "session");
+		first.registry.close();
+		const registry = new OwnerStoreRegistry({
+			dataDir: first.dataDir,
+			ownerOf: () => first.owner.sign.pub,
+			quotaFor: () =>
+				new DomainQuota({
+					dir: first.dataDir,
+					limitBytes: 100_000_000,
+					statfs: () => ({ available: 100_000_000 }),
+				}),
+			ambient: processAmbient(),
+		});
+		const service = new InboxService(registry, {
+			signPub: first.router.sign.pub,
+			signPriv: first.router.sign.priv,
+		});
+		const incarnation = service.registerGateway(domainId, "gateway") as number;
+		expect(service.pendingFor(domainId, "gateway")).toEqual([]);
+		const acked = service.ack({
+			address,
+			seq,
+			deliveryEpoch: pushedUnder,
+			outcome: "delivered",
+			by: { domainId, gatewayId: "gateway", incarnation },
+		});
+		expect(acked.outcome).toBe("delivered");
+		registry.close();
+	});
+
+	it("answers false for a forget whose write did not land", () => {
+		const { service, registry, push } = world();
+		push("op");
+		const fsync = vi.spyOn(fs, "fsyncSync").mockImplementationOnce(() => {
+			throw new Error("fsync uncertain");
+		});
+		expect(service.forgetSession(domainId, "gateway", "session")).toBe(false);
+		fsync.mockRestore();
+		registry.close();
+	});
+
+	it("takes a Gateway's answer for an op the Router had marked waking", () => {
+		const { service, registry, land, answer, answersTo } = world();
+		land("late");
+		service.markWaking(domainId, opKey("late"));
+		expect(answer("late").outcome).toBe("accepted");
+		expect(answersTo("late")).toEqual(["gateway"]);
+		registry.close();
+	});
+
+	it("answers an op once when its row is handed back after its answer landed", () => {
+		const { service, registry, push, answer, answersTo, ack } = world();
+		const seq = push("twice");
+		const first = answer("twice");
+		expect(ack(seq, service.deliveryEpoch(address), "waking").outcome).toBe("waking");
+		expect(answer("twice").seq).toBe(first.seq);
+		expect(answersTo("twice")).toEqual(["gateway"]);
+		expect(ack(seq, service.deliveryEpoch(address), "delivered").outcome).toBe("delivered");
+		registry.close();
+	});
+
+	it("writes no failure over an op its holder already answered", () => {
+		const { service, registry, push, answer, answersTo, drop } = world();
+		push("done");
+		answer("done");
+		drop();
+		service.forgetSession(domainId, "gateway", "session");
+		expect(service.rows(address, 1, 10)).toEqual([]);
+		expect(answersTo("done")).toEqual(["gateway"]);
+		expect(service.opResult(domainId, opKey("done"))).toMatchObject({ outcome: "accepted" });
+		registry.close();
 	});
 });

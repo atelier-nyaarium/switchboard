@@ -88,6 +88,9 @@ export interface FederationStage {
 	attest: () => void;
 	markPresenceDirty: () => void;
 	channelDeliveryAck: (team: string, deliveryId: string) => void;
+	/** Active dispatch settles last. */
+	settleInbox: (address: string) => void;
+	inboxDispatching: (address: string) => boolean;
 	drainInboxPump: () => Promise<void>;
 	stopInboxPump: () => Promise<void>;
 	stop: () => void;
@@ -417,6 +420,8 @@ export function composeFederation(deps: FederationStageDeps): FederationStage {
 		attest: () => shareAttestor?.attest(),
 		markPresenceDirty: () => presenceReporter?.markDirty(),
 		channelDeliveryAck: (team, deliveryId) => void inboxPump?.onChannelDeliveryAck(team, deliveryId),
+		settleInbox: (address) => void inboxPump?.settleAddress(address),
+		inboxDispatching: (address) => inboxPump?.dispatchingAt(address) ?? false,
 		drainInboxPump: async () => {
 			await inboxPump?.drain();
 		},

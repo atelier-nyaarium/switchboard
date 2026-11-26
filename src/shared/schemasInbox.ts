@@ -294,3 +294,4 @@ export const GATEWAY_INBOX_MAX_ROWS = 200;
 export const INBOX_ROW_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const CONSUMER_IDLE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const INBOX_ACK_OUTCOMES = ["delivered", "waking", "failed"] as const;
+export const INBOX_REASON_SESSION_FORGOTTEN = "session_forgotten";

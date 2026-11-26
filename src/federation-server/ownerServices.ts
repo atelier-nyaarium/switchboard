@@ -150,6 +150,7 @@ export function createOwnerServices(deps: OwnerServicesDeps) {
 		return generation;
 	};
 	inbox.setPeerGate(peerGate);
+	inbox.setHolderGate((domainId, gatewayId) => bridge.gatewayIncarnation(domainId, gatewayId));
 	bridge.setPeerRowGate(peerGate);
 	const leases = deps.leases ?? createLeaseService({ registry, migrationWindow: readRouterMigrationWindow });
 	bridge.setMigrationFence((domainId, gatewayId) => leases.fenced(domainId, gatewayId));

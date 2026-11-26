@@ -127,7 +127,7 @@ export class GatewayBridge implements ToolProvider {
 			},
 			getConnectionId: (domainId, gatewayId) => this.gatewayConnections.get(domainId)?.get(gatewayId),
 			getIncarnation: (connId) => this.connGateways.get(connId)?.incarnation,
-			send: (domainId, gatewayId, frame) => this.pushToGatewayInDomain(domainId, gatewayId, frame),
+			pushRows: (domainId, address, rows) => this.pushInboxRows(domainId, address, rows),
 			closeConnection: (connId, reason) => {
 				this.closing.add(connId);
 				// The answer leaves first.
@@ -147,7 +147,7 @@ export class GatewayBridge implements ToolProvider {
 			getRegistration: (connId) => this.connGateways.get(connId),
 			getConnectionId: (domainId, gatewayId) => this.gatewayConnections.get(domainId)?.get(gatewayId),
 			getConnection: (connId) => this.transport?.getConnection(connId) ?? null,
-			send: (domainId, gatewayId, frame) => this.pushToGatewayInDomain(domainId, gatewayId, frame),
+			pushRows: (domainId, address, rows) => this.pushInboxRows(domainId, address, rows),
 			notifySessionForgotten: (identity, sessionId) => {
 				let landed = true;
 				// Every listener runs, whatever an earlier one answered.
@@ -289,13 +289,21 @@ export class GatewayBridge implements ToolProvider {
 		const connId = this.gatewayConnections.get(domainId)?.get(address.gatewayId);
 		const reg = connId ? this.connGateways.get(connId) : undefined;
 		if (!reg || reg.incarnation === null) return false;
-		return this.pushToGatewayInDomain(domainId, address.gatewayId, {
+		const sent = this.pushToGatewayInDomain(domainId, address.gatewayId, {
 			type: "inbox_deliver",
 			address: addressText,
 			rows,
 			incarnation: reg.incarnation,
 			deliveryEpoch: this.inbox?.deliveryEpoch(address) ?? 1,
 		});
+		// Successful pushes establish custody.
+		if (sent)
+			this.inbox?.pushed(
+				address,
+				rows.map((row) => row.seq),
+				{ gatewayId: address.gatewayId, incarnation: reg.incarnation },
+			);
+		return sent;
 	}
 
 	/** Handlers receive connection identity. A built-in's name is taken, so a service asking for one throws. */

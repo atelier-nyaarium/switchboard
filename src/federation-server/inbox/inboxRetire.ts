@@ -94,7 +94,9 @@ export function retireRow(
 	const opKey = row.envelope.opKey;
 	const ledger = store.get("op", recordId(opKey, registry.ownerKey(domainId).ownerSignPub));
 	const result: OpResultEnvelope = { opKey, outcome, seq: row.seq, ...(reason ? { reason } : {}) };
-	const sender = senderAddress(registry, domainId, row);
+	// Completed answers remain final.
+	const answered = ledger?.clear.state === "complete";
+	const sender = answered ? null : senderAddress(registry, domainId, row);
 	const senderStore = sender ? (sender.domainId === domainId ? store : storeOrNull(registry, sender.domainId)) : null;
 	const resultRow =
 		sender && senderStore
@@ -111,7 +113,8 @@ export function retireRow(
 		}
 	}
 	const mutate: Parameters<typeof ledgerTransaction>[1] = (tx) => {
-		if (ledger) tx.put("op", ledger.id, ledger.version, { clear: { ...ledger.clear, state: outcome, result } });
+		if (ledger && !answered)
+			tx.put("op", ledger.id, ledger.version, { clear: { ...ledger.clear, state: outcome, result } });
 		if (sender && resultRow && senderStore === store) tx.append(sender.address, resultRow);
 		tx.remove(addressText, row.seq);
 		if (floorRecord !== undefined)
@@ -128,6 +131,11 @@ export function retireRow(
 			: ledgerTransaction(store, mutate);
 	if (!landed(write)) return null;
 	if (sender && resultRow) notifyAppended?.(sender.domainId, sender.address, resultRow);
-	notifyRetired(domainId, addressText, row, { outcome, ...(reason ? { reason } : {}) });
+	notifyRetired(
+		domainId,
+		addressText,
+		row,
+		answered ? { outcome: "delivered" } : { outcome, ...(reason ? { reason } : {}) },
+	);
 	return result;
 }

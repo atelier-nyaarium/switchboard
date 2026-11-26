@@ -1,5 +1,6 @@
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { INBOX_HOLD_MS } from "../federation-server/inbox/inboxCustody.js";
 import { composeSessionName } from "../shared/session-id.js";
 import { attachFakeSession, type FakeSession, type FakeSessionOptions } from "../testing/fakeSession.js";
 import { createFakeSocket } from "../testing/fakeSocket.js";
@@ -28,6 +29,7 @@ describe("sessions, bindings, and console operations", () => {
 	let h: FederationHarness;
 	const sessions: FakeSession[] = [];
 	let opCounter = 0;
+	let clockOffset = 0;
 	const session = (team: string, options: Partial<Omit<FakeSessionOptions, "team">> = {}): FakeSession => {
 		const attached = attachFakeSession(h.gateway, {
 			team,
@@ -41,39 +43,55 @@ describe("sessions, bindings, and console operations", () => {
 		const { planes } = await h.phone.planesRead({});
 		return rowOf(planes.find((plane) => plane.name === "presence")?.payload, team);
 	};
-	/** Delivers `op` bound to `target` and answers the gateway's dispatch result. */
-	const dispatch = async (target: string, op: Parameters<typeof h.phone.deliver>[1]) => {
+	const startDispatch = async (target: string, op: Parameters<typeof h.phone.deliver>[1]) => {
 		const opId = `op-${++opCounter}`;
 		expect((await h.phone.deliver(target, op, opId)).outcome).toBe("accepted");
-		const row = await h.waitFor(
-			async () =>
-				(await h.phone.inboxRead()).find(
-					(candidate) => candidate.envelope.kind === "op_result" && candidate.envelope.opKey.opId === opId,
-				),
-			`dispatch result for ${opId}`,
-		);
-		return h.phone.open(row) as { ok: boolean; result?: Record<string, unknown>; error?: string };
+		return opId;
 	};
-	let bound: FakeSession | undefined;
-	const ensureBound = async (): Promise<FakeSession> => {
-		if (bound) return bound;
+	const opRows = async (opId: string) =>
+		(await h.phone.inboxRead()).filter(
+			(row) => row.envelope.kind === "op_result" && row.envelope.opKey.opId === opId,
+		);
+	const opRow = async (opId: string) => h.waitFor(async () => (await opRows(opId))[0], `dispatch result for ${opId}`);
+	const dispatch = async (target: string, op: Parameters<typeof h.phone.deliver>[1]) => {
+		const opId = await startDispatch(target, op);
+		return h.phone.open(await opRow(opId)) as { ok: boolean; result?: Record<string, unknown>; error?: string };
+	};
+	const createBound = async (displayLabel: string): Promise<FakeSession> => {
 		h.host.handlers.onCreateSession = (op) =>
 			session(composeSessionName(op.target.name, op.target.sessionName), { sessionToken: op.sessionToken });
 		const before = sessions.length;
 		const { result } = await h.phone.value({
 			kind: "create_session",
 			target: h.target("host"),
-			displayLabel: "Bound",
+			displayLabel,
 		});
 		expect(result).toMatchObject({ created: true });
-		const created = await h.waitFor(() => sessions[before], "the daemon's launch");
+		const created = await h.waitFor(() => sessions[before], `the daemon's launch of ${displayLabel}`);
 		await created.ready();
-		bound = created;
 		return created;
+	};
+	const waitRouterForget = async (team: string) =>
+		h.waitFor(
+			() => (h.router.sessionExists(h.set.domain.id, h.set.gateway.id, team) ? undefined : true),
+			`Router forget for ${team}`,
+		);
+	const gatewayAnswer = async (opId: string) => {
+		const rows = await h.waitFor(async () => {
+			const found = await opRows(opId);
+			return found.length > 0 ? found : undefined;
+		}, `dispatch result for ${opId}`);
+		return { rows, result: h.phone.open(rows[0]!) as { ok: boolean; result?: Record<string, unknown> } };
+	};
+	let bound: FakeSession | undefined;
+	const ensureBound = async (): Promise<FakeSession> => {
+		if (bound) return bound;
+		bound = await createBound("Bound");
+		return bound;
 	};
 
 	beforeAll(async () => {
-		h = await startFederationHarness();
+		h = await startFederationHarness({ now: () => Date.now() + clockOffset });
 	}, 30_000);
 	afterAll(async () => {
 		for (const attached of sessions) attached.close();
@@ -352,9 +370,14 @@ describe("sessions, bindings, and console operations", () => {
 		expect(h.host.ops.at(-1)).toMatchObject({ kind: "killSession" });
 		expect(h.gateway.faults.sessionRecord(owned.team)).toBeDefined();
 
-		// The answer has no session address left to land on; the record's absence is the result.
+		// The holder answers.
 		const forgotAt = h.host.ops.length;
-		await dispatch(owned.team, { kind: "forget", target: h.target(owned.team) });
+		const forgot = await dispatch(owned.team, { kind: "forget", target: h.target(owned.team) });
+		expect(forgot, JSON.stringify(forgot)).toMatchObject({ ok: true, result: { killed: true } });
+		const answers = (await h.phone.inboxRead()).filter(
+			(row) => row.envelope.kind === "op_result" && row.envelope.opKey.opId === `op-${opCounter}`,
+		);
+		expect(answers.map((row) => row.envelope.origin.kind)).toEqual(["gateway"]);
 		expect(h.gateway.faults.sessionRecord(owned.team)).toBeUndefined();
 		expect(h.host.ops[forgotAt]).toMatchObject({ kind: "killSession" });
 		// Its own files go once the daemon has closed the pane.
@@ -366,6 +389,127 @@ describe("sessions, bindings, and console operations", () => {
 		expect((await dispatch("fixture-app", { kind: "forget", target: h.target("fixture-app") })).ok).toBe(false);
 		expect(h.host.ops.length).toBe(opsBefore);
 	});
+
+	it("answers a forget with its own result when the kill outlasts the Router's forget", async () => {
+		const owned = await createBound("Forget Held A");
+		h.host.handlers.holdKills = true;
+		let opId = "";
+		try {
+			opId = await startDispatch(owned.team, { kind: "forget", target: h.target(owned.team) });
+			await h.waitFor(() => (h.host.heldKills() === 1 ? true : undefined), "the held kill");
+			await waitRouterForget(owned.team);
+			expect(h.gateway.faults.sessionRecord(owned.team)).toBeUndefined();
+			h.host.releaseKills();
+			const { rows, result } = await gatewayAnswer(opId);
+			expect(rows).toHaveLength(1);
+			expect(rows.map((row) => row.envelope.origin.kind)).toEqual(["gateway"]);
+			expect(result).toMatchObject({ ok: true, result: { killed: true } });
+		} finally {
+			h.host.releaseKills();
+			h.host.handlers.holdKills = false;
+		}
+	});
+
+	it("answers a close and a forget in flight together, each with its own result", async () => {
+		const owned = await createBound("Forget Held C");
+		h.host.handlers.holdKills = true;
+		try {
+			const closeId = await startDispatch(owned.team, { kind: "close_session", target: h.target(owned.team) });
+			const forgetId = await startDispatch(owned.team, { kind: "forget", target: h.target(owned.team) });
+			await h.waitFor(() => (h.host.heldKills() === 2 ? true : undefined), "both held kills");
+			await waitRouterForget(owned.team);
+			h.host.releaseKills();
+
+			const closed = await gatewayAnswer(closeId);
+			const forgotten = await gatewayAnswer(forgetId);
+			for (const answer of [closed, forgotten]) {
+				expect(answer.rows).toHaveLength(1);
+				expect(answer.rows[0]?.envelope.origin.kind).toBe("gateway");
+				expect(answer.result.ok).toBe(true);
+			}
+			expect(closed.result).toMatchObject({ result: { closed: true } });
+			expect(forgotten.result).toMatchObject({ result: { killed: true } });
+		} finally {
+			h.host.releaseKills();
+			h.host.handlers.holdKills = false;
+		}
+	});
+
+	it("tells the owner session_forgotten once a held forget passes its bound", async () => {
+		const owned = await createBound("Forget Held D");
+		const priorOffset = clockOffset;
+		h.host.handlers.holdKills = true;
+		try {
+			const opId = await startDispatch(owned.team, { kind: "forget", target: h.target(owned.team) });
+			await h.waitFor(() => (h.host.heldKills() === 1 ? true : undefined), "the held kill");
+			await waitRouterForget(owned.team);
+			h.router.server.gatewayBridge.evictSigner(
+				h.set.domain.id,
+				h.set.gateway.identity.sign.pub,
+				"test disconnect",
+			);
+			await h.waitFor(() => (h.gateway.faults.routerRegistered() ? undefined : true), "the dropped Router link");
+
+			clockOffset += INBOX_HOLD_MS + 1;
+			h.router.server.sweep();
+			const rows = await h.waitFor(async () => {
+				const found = await opRows(opId);
+				return found.length > 0 ? found : undefined;
+			}, `Router result for ${opId}`);
+			expect(rows).toHaveLength(1);
+			expect(rows[0]?.envelope.origin.kind).toBe("router");
+			expect(h.phone.open(rows[0]!)).toMatchObject({ outcome: "failed", reason: "session_forgotten" });
+		} finally {
+			clockOffset = priorOffset;
+			h.host.releaseKills();
+			h.host.handlers.holdKills = false;
+			await h.waitFor(() => h.gateway.faults.routerRegistered() || undefined, "gateway reconnect", 30_000);
+		}
+	}, 30_000);
+
+	it("takes a forget's result after the Gateway reconnects", async () => {
+		const owned = await createBound("Forget Held E");
+		h.host.handlers.holdKills = true;
+		try {
+			const opId = await startDispatch(owned.team, { kind: "forget", target: h.target(owned.team) });
+			await h.waitFor(() => (h.host.heldKills() === 1 ? true : undefined), "the held kill");
+			await waitRouterForget(owned.team);
+			h.router.server.gatewayBridge.evictSigner(
+				h.set.domain.id,
+				h.set.gateway.identity.sign.pub,
+				"test disconnect",
+			);
+			await h.waitFor(() => (h.gateway.faults.routerRegistered() ? undefined : true), "the disconnected Gateway");
+			await h.waitFor(() => h.gateway.faults.routerRegistered() || undefined, "Gateway reconnect", 30_000);
+			h.host.releaseKills();
+			const { rows, result } = await gatewayAnswer(opId);
+			expect(rows).toHaveLength(1);
+			expect(rows[0]?.envelope.origin.kind).toBe("gateway");
+			expect(result).toMatchObject({ ok: true, result: { killed: true } });
+		} finally {
+			h.host.releaseKills();
+			h.host.handlers.holdKills = false;
+		}
+	}, 40_000);
+
+	it("takes a forget's result after the Router restarts", async () => {
+		const owned = await createBound("Forget Held F");
+		h.host.handlers.holdKills = true;
+		try {
+			const opId = await startDispatch(owned.team, { kind: "forget", target: h.target(owned.team) });
+			await h.waitFor(() => (h.host.heldKills() === 1 ? true : undefined), "the held kill");
+			await waitRouterForget(owned.team);
+			await h.restartRouter();
+			h.host.releaseKills();
+			const { rows, result } = await gatewayAnswer(opId);
+			expect(rows).toHaveLength(1);
+			expect(rows[0]?.envelope.origin.kind).toBe("gateway");
+			expect(result).toMatchObject({ ok: true, result: { killed: true } });
+		} finally {
+			h.host.releaseKills();
+			h.host.handlers.holdKills = false;
+		}
+	}, 40_000);
 
 	it("drives a session's pane through the daemon and refuses what the daemon must not see", async () => {
 		const owned = await ensureBound();

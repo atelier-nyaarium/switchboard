@@ -132,11 +132,12 @@ describe("what an ended session leaves at its place", () => {
 		expect((await sends()).filter((send) => send.target.sessionId === nia.team)).toMatchObject([
 			{ state: "cancelled" },
 		]);
-		// The Gateway's claim file for its address went with it.
-		const claimed = fs
-			.readdirSync(path.join(h.root, "gateway", "inbox-claims"))
-			.map((file) => Buffer.from(file.slice("claim-".length, -".json".length), "base64url").toString());
-		expect(claimed.filter((address) => address.endsWith(`/${nia.team}`))).toEqual([]);
+		const claimed = () =>
+			fs
+				.readdirSync(path.join(h.root, "gateway", "inbox-claims"))
+				.map((file) => Buffer.from(file.slice("claim-".length, -".json".length), "base64url").toString())
+				.filter((address) => address.endsWith(`/${nia.team}`));
+		await h.waitFor(() => (claimed().length === 0 ? true : undefined), "the claim file to go");
 
 		// A day on, an anchor for a session no Gateway reports goes, and a reported session's stays.
 		const kai = await launch("Kai");

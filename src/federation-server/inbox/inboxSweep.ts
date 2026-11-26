@@ -2,6 +2,7 @@ import { REGISTER_MAX_SKEW_MS } from "../../shared/admission.js";
 import {
 	CONSUMER_IDLE_TTL_MS,
 	formatInboxAddress,
+	INBOX_REASON_SESSION_FORGOTTEN,
 	INBOX_ROW_TTL_MS,
 	type InboxAddress,
 	type InboxRow,
@@ -10,6 +11,7 @@ import {
 import type { ReferenceHeldStore } from "../blobs/referenceHeldStore.js";
 import { OwnerQuarantined, type OwnerStateStore } from "../owner/ownerStateStore.js";
 import { floorOf, ledgerTransaction, ownerAddress } from "./inboxCore.js";
+import { type HeldOverMap, heldOverOf, withHeldOver } from "./inboxCustody.js";
 import { type AppendedListener, type RetiredListener, retireRow } from "./inboxRetire.js";
 import type { OwnerStoreRegistry } from "./ownerStoreRegistry.js";
 
@@ -78,6 +80,16 @@ export function compactInbox(registry: OwnerStoreRegistry, domainId: string): vo
 	});
 }
 
+export type HeldRow = (address: string, seq: number) => boolean;
+
+/** Marks require extant rows. */
+function pruneHeldOver(store: OwnerStateStore, address: string, marks: HeldOverMap, kept: HeldOverMap): void {
+	if (Object.keys(kept).length === Object.keys(marks).length) return;
+	const record = store.get("inbox.address", address);
+	if (!record) return;
+	store.put("inbox.address", address, record.version, { clear: withHeldOver(record.clear, kept) });
+}
+
 function sweepDomain(
 	registry: OwnerStoreRegistry,
 	routerIdentity: { signPub: string; signPriv: string },
@@ -87,6 +99,7 @@ function sweepDomain(
 	now: number,
 	refs?: Pick<ReferenceHeldStore, "publish">,
 	notifyAppended?: AppendedListener,
+	held: HeldRow = () => false,
 ): void {
 	const store = registry.for(domainId);
 	if (store.health().quarantined) return;
@@ -94,23 +107,34 @@ function sweepDomain(
 	for (const record of store.list("consumer"))
 		if (now - Number(record.clear.lastSeen) > CONSUMER_IDLE_TTL_MS)
 			forgetConsumer(domainId, record.id.slice("consumer:".length));
-	for (const address of addresses(store, domainId))
+	for (const address of addresses(store, domainId)) {
+		const over = heldOverOf(store.get("inbox.address", address)?.clear);
+		const kept: HeldOverMap = {};
 		for (const item of store.rows(address, 1, Number.MAX_SAFE_INTEGER)) {
-			if (now - Number((item.row as { acceptedAt: number }).acceptedAt) > INBOX_ROW_TTL_MS)
+			const row = item.row as unknown as InboxRow;
+			const key = String(item.seq);
+			const mark = over[key];
+			// Forgotten rows await holders.
+			const due = mark ? now > mark.until : now - row.acceptedAt > INBOX_ROW_TTL_MS && !held(address, item.seq);
+			const retired =
+				due &&
 				retireRow(
 					registry,
 					routerIdentity,
 					store,
 					domainId,
 					parseInboxAddress(address) as InboxAddress,
-					item.row as unknown as InboxRow,
-					"expired",
-					undefined,
+					row,
+					mark ? "failed" : "expired",
+					mark ? INBOX_REASON_SESSION_FORGOTTEN : undefined,
 					notifyRetired,
 					refs,
 					notifyAppended,
-				);
+				) !== null;
+			if (mark && !retired) kept[key] = mark;
 		}
+		pruneHeldOver(store, address, over, kept);
+	}
 	compactInbox(registry, domainId);
 	if (store.health().journalBytes > JOURNAL_COMPACT_BYTES) store.compact();
 }
@@ -123,10 +147,21 @@ export function sweepInbox(
 	now: number,
 	refs?: Pick<ReferenceHeldStore, "publish">,
 	notifyAppended?: AppendedListener,
+	held?: HeldRow,
 ): void {
 	for (const domainId of registry.domains()) {
 		try {
-			sweepDomain(registry, routerIdentity, notifyRetired, forgetConsumer, domainId, now, refs, notifyAppended);
+			sweepDomain(
+				registry,
+				routerIdentity,
+				notifyRetired,
+				forgetConsumer,
+				domainId,
+				now,
+				refs,
+				notifyAppended,
+				held,
+			);
 		} catch (error) {
 			if (error instanceof OwnerQuarantined) continue;
 			console.warn(`[inbox] sweep skipped ${domainId}: ${(error as Error).message}`);

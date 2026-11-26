@@ -37,7 +37,8 @@ export interface InboxFramesDeps {
 	getRegistration: (connId: ConnectionId) => ConnGatewayRecord | undefined;
 	getConnectionId: (domainId: string, gatewayId: string) => ConnectionId | undefined;
 	getConnection: (connId: ConnectionId) => WSLike;
-	send: (domainId: string, gatewayId: string, frame: Record<string, unknown>) => boolean;
+	/** Sole row delivery path. */
+	pushRows: (domainId: string, address: string, rows: InboxRow[]) => boolean;
 	/** False when a listener's write did not land. */
 	notifySessionForgotten: (identity: GatewayRegistration, sessionId: string) => boolean;
 }
@@ -155,24 +156,14 @@ export class InboxFrames {
 	forgetSession(reg: GatewayRegistration, params: Record<string, unknown>): unknown {
 		const parsed = SessionForgetParamsSchema.safeParse(params);
 		if (!parsed.success) return { ok: false, error: "invalid session_forget" };
-		this.deps.inbox?.forgetSession(reg.domainId, reg.gatewayId, parsed.data.sessionId);
-		// Not ok is reported again.
-		return { ok: this.deps.notifySessionForgotten(reg, parsed.data.sessionId) };
+		const forgotten = this.deps.inbox?.forgetSession(reg.domainId, reg.gatewayId, parsed.data.sessionId) ?? true;
+		// Notify despite forget failure.
+		const told = this.deps.notifySessionForgotten(reg, parsed.data.sessionId);
+		return { ok: forgotten && told };
 	}
 
 	private pushRow(address: InboxAddress, row: InboxRow): boolean {
-		// Pushed on landing.
-		if (address.kind === "owner") return true;
-		const connId = this.deps.getConnectionId(address.domainId, address.gatewayId);
-		const reg = connId ? this.deps.getRegistration(connId) : undefined;
-		if (!reg || reg.incarnation === null) return false;
-		return this.deps.send(address.domainId, address.gatewayId, {
-			type: "inbox_deliver",
-			address: formatInboxAddress(address),
-			rows: [row],
-			incarnation: reg.incarnation,
-			deliveryEpoch: this.deps.inbox?.deliveryEpoch(address) ?? 1,
-		});
+		return this.deps.pushRows(address.domainId, formatInboxAddress(address), [row]);
 	}
 
 	forwardGatewayValue(

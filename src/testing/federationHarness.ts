@@ -62,7 +62,14 @@ export interface RouterOnlyHarness {
 	now: () => number;
 	ambient: FakeAmbient;
 	ambientFor: (dir: string) => FakeAmbient;
-	router: { server: RouterServer; port: number; certFp: string; store: FileSecretStore; dataDir: string };
+	router: {
+		server: RouterServer;
+		port: number;
+		certFp: string;
+		store: FileSecretStore;
+		dataDir: string;
+		sessionExists(domainId: string, gatewayId: string, sessionId: string): boolean;
+	};
 	phone: PhoneDriver;
 	phone2: PhoneDriver;
 	waitFor<T>(probe: () => Probe<T>, label: string, timeoutMs?: number): Promise<T>;
@@ -107,7 +114,7 @@ export interface FederationHarness extends DomainPeer {
 	root: string;
 	now: () => number;
 	routerAmbient: FakeAmbient;
-	router: { server: RouterServer; port: number; certFp: string; store: FileSecretStore; dataDir: string };
+	router: RouterOnlyHarness["router"];
 	waitFor<T>(probe: () => Probe<T>, label: string, timeoutMs?: number): Promise<T>;
 	/** Another of the owner's phones, holding its own view of what the gateway last said. */
 	phoneFor(set: IdentitySet, phone?: 1 | 2): PhoneDriver;
@@ -421,7 +428,21 @@ export async function startRouterOnly(
 		await server.start();
 		const port = server.listeningPort;
 		if (port === null) throw new Error("the Router did not bind");
-		const router = { server, port, certFp: tls.certFp, store, dataDir: routerDir };
+		const router: RouterOnlyHarness["router"] = {
+			server,
+			port,
+			certFp: tls.certFp,
+			store,
+			dataDir: routerDir,
+			sessionExists: (domainId, gatewayId, sessionId) => {
+				const serverState = router.server as unknown as {
+					domain: {
+						inbox: { hasSession: (domainId: string, gatewayId: string, sessionId: string) => boolean };
+					};
+				};
+				return serverState.domain.inbox.hasSession(domainId, gatewayId, sessionId);
+			},
+		};
 		/** Every graph closes before the Router, once. */
 		const graphCloses: (() => Promise<void>)[] = [];
 		const composeGatewayFor = (

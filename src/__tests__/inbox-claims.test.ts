@@ -64,8 +64,29 @@ describe("InboxClaims", () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "inbox-claims-"));
 		roots.push(root);
 		const claims = createInboxClaims(root, processAmbient());
-		expect(claims.claim(address, 4, 1)).toBeNull();
-		expect(claims.claim(address, 4, 2)).toBeNull();
+		claims.claim(address, 4, 1);
+		claims.setOutcome(address, 4, 1, "delivered");
+		claims.claim(address, 5, 2);
+		expect(claims.at(address)).toEqual([
+			{
+				deliveryId: `${address}:5:2`,
+				seq: 5,
+				deliveryEpoch: 2,
+				offeredAt: expect.any(Number),
+				outcome: "waking",
+			},
+		]);
+	});
+
+	it("lists an address's claims and returns none without a file", () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "inbox-claims-"));
+		roots.push(root);
+		const claims = createInboxClaims(root, processAmbient());
+		const other = "session:domain/gateway/other";
+		claims.claim(address, 2, 1);
+		expect(claims.at(address)).toMatchObject([{ deliveryId: `${address}:2:1`, outcome: "waking" }]);
+		expect(claims.at(other)).toEqual([]);
+		expect(claims.addresses()).toEqual([address]);
 	});
 
 	it("holds no claim a failed write did not land, so a retry claims again", () => {

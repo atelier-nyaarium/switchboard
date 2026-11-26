@@ -404,8 +404,8 @@ decision.
 - **A delete that fails says so once:** the drainer logs a `[purge]` line per entry and cause, and
   one more when an entry is given up at 30 days. Nothing is reported to the owner.
 - **What names the session elsewhere goes too.** In the Gateway's own stores the end drops its
-  held jobs (`PendingJobStore.forgetTeam`), fails its queued deliveries and deletes its
-  `InboxClaims` file. Each step runs alone, so one that throws skips no other. An outbox that is
+  held jobs (`PendingJobStore.forgetTeam`), fails its queued deliveries and settles its inbox
+  address. Each step runs alone, so one that throws skips no other. An outbox that is
   migrating fails nothing, which leaves those deliveries to their lifetime. At the Router, `session_forget` runs every `onSessionForgotten` listener: the
   armed scheduled send is cancelled and its record kept, its shares are withdrawn, and the read
   anchors of its conversation and scheduled-result streams are deleted with a version advance. A
@@ -418,6 +418,20 @@ decision.
   registry row.
 - **A claim file with no claims is no file.** The last ack removes it, so a row delivered after the
   end leaves nothing, and `InboxClaims.sweep` drops a claim a week past its row's lifetime.
+- **The op that ends a session is still answered by its Gateway.** A `forget` is a row at the
+  session's own inbox address, and the Gateway reports `session_forget` before that row's result.
+  - **At the Router** a row pushed to a connected Gateway is held by that incarnation until its ack,
+    the incarnation's end, or `INBOX_HOLD_MS` (five minutes). `forgetSession` fails the rows nobody
+    holds, mints the new delivery epoch at once, and marks each held row on the address record with
+    the epoch it was pushed under. A marked row is never redelivered, takes its ack under its own
+    epoch, and is failed `session_forgotten` when its holder hands it back or its bound passes. A
+    name created again starts on the new epoch, so the two lives share no row.
+  - **At the Gateway** the end deletes no claim file. The pump acks every claim it is not
+    dispatching, ends that address's retries and key waits, and starts nothing more of a frame part
+    way through it. A dispatch in flight answers for itself and is then settled the same way.
+  - **A share revocation is the exception:** it retires a friend's rows at once, held or not.
+  - **A final ack whose reply is lost** leaves that claim until the claims sweep or the purge
+    sweep's orphan drop; it is retried once when its dispatch returns.
 - **The Router's op ledger is not swept.** It is keyed by op, not by session, so no forget reaches
   it, and it holds an entry for every op the Domain has taken. `sweepOpLedger` drops entries a week
   past their row's lifetime, one write of at most `OP_LEDGER_SWEEP_BATCH` per pass, read in place

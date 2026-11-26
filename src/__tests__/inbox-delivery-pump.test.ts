@@ -95,6 +95,7 @@ const fireScheduled = async (
 		noDispatcher?: boolean;
 		/** Left by a dead process. */
 		claimedBefore?: boolean;
+		hold?: Promise<void>;
 	} = {},
 ) => {
 	const harness = setup();
@@ -125,22 +126,25 @@ const fireScheduled = async (
 					origin: unknown,
 				) => {
 					dispatched.push({ op, device, conversationId, opId, origin });
+					if (options.hold) await options.hold;
 					const refusal = options.refuse?.(dispatched.length - 1);
 					if (refusal) throw refusal;
 					return { session_id: "job", status: "running" };
 				},
 	});
 	const routerOrigin = { kind: "router", domainId: "domain", ...(options.device ? { device: options.device } : {}) };
-	await delivery.onFrame({
+	const framed = delivery.onFrame({
 		address: options.address ?? address,
 		rows: [{ ...row(1, body), envelope: { ...envelope(1), origin: routerOrigin } }],
 		deliveryEpoch: 1,
 	});
+	if (!options.hold) await framed;
 	const acks = () => harness.calls.filter((call) => call.action === "inbox_ack");
 	return {
 		dispatched,
 		ambient,
 		delivery,
+		framed,
 		claim: () => harness.claims.get(options.address ?? address, 1, 1),
 		/** Waits out every retry delay. */
 		settle: async () => {
@@ -431,6 +435,37 @@ describe("inbox delivery pump", () => {
 		expect(fired.ambient.scheduled()).toBe(0);
 		expect(fired.claim()?.outcome).toBe("waking");
 		expect(fired.outcomes).toEqual([]);
+	});
+
+	it("ends a fire waiting on its next try when its address ends", async () => {
+		const fired = await fireScheduled('{"text":"hi","files":[]}', { refuse: () => new Error("unavailable") });
+		expect(fired.ambient.scheduled()).toBe(1);
+		await fired.delivery.settleAddress(address);
+		expect(fired.ambient.scheduled()).toBe(0);
+		await fired.settle();
+		expect(fired.dispatched).toHaveLength(1);
+		expect(fired.outcomes).toEqual(["failed"]);
+		expect(fired.reasons).toEqual(["session_forgotten"]);
+	});
+
+	it("does not try again a fire whose address ended under it", async () => {
+		let release = () => {};
+		const hold = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const fired = await fireScheduled('{"text":"hi","files":[]}', {
+			refuse: () => new Error("unavailable"),
+			hold,
+		});
+		await fired.delivery.settleAddress(address);
+		expect(fired.outcomes).toEqual([]);
+		release();
+		await fired.framed;
+		expect(fired.ambient.scheduled()).toBe(0);
+		await fired.settle();
+		expect(fired.dispatched).toHaveLength(1);
+		expect(fired.outcomes).toEqual(["failed"]);
+		expect(fired.reasons).toEqual(["session_forgotten"]);
 	});
 
 	it("sends again a fire whose process died mid-dispatch, and acks it delivered", async () => {
@@ -994,5 +1029,190 @@ describe("inbox delivery pump", () => {
 			deliveryEpoch: 1,
 		});
 		expect(setupResult.coordinator.accepted).toHaveLength(1);
+	});
+
+	it("ignores a redelivery of a row it is still dispatching", async () => {
+		const setupResult = setup();
+		let dispatches = 0;
+		let startDispatch = () => {};
+		const dispatchStarted = new Promise<void>((resolve) => {
+			startDispatch = resolve;
+		});
+		let releaseDispatch = () => {};
+		const dispatchHold = new Promise<void>((resolve) => {
+			releaseDispatch = resolve;
+		});
+		const identity = generateIdentity();
+		const deliveryPump = setupResult.pump({
+			gatewayId: "gateway",
+			producerSignPriv: identity.sign.priv,
+			contentKeyStore: {
+				open: () => ({ kind: "ok", plaintext: Buffer.from('{"kind":"forget","target":"session"}') }),
+				seal: () => ({ kind: "ok", envelope: row().body }),
+			} as never,
+			routerClient: {
+				callInboxTool: async (action: string, params: Record<string, unknown>) => {
+					setupResult.calls.push({ action, params });
+					return { result: { outcome: action === "inbox_append" ? "accepted" : params.outcome } };
+				},
+			},
+			consoleDispatch: async () => {
+				dispatches++;
+				startDispatch();
+				await dispatchHold;
+				return { killed: true };
+			},
+		});
+		const frame = {
+			address,
+			rows: [
+				{
+					...row(),
+					envelope: { ...envelope(1), kind: "console_op" as const },
+				},
+			],
+			deliveryEpoch: 1,
+		};
+		const first = deliveryPump.onFrame(frame);
+		await dispatchStarted;
+		await deliveryPump.onFrame(frame);
+
+		expect(dispatches).toBe(1);
+		expect(setupResult.calls.filter((call) => call.action === "inbox_append")).toEqual([]);
+
+		releaseDispatch();
+		await first;
+		expect(setupResult.calls.filter((call) => call.action === "inbox_append")).toHaveLength(1);
+		expect(setupResult.calls.filter((call) => call.action === "inbox_ack")).toMatchObject([
+			{ params: { outcome: "delivered" } },
+		]);
+	});
+
+	it("settles what an ended address holds and is not dispatching", async () => {
+		const setupResult = setup();
+		const identity = generateIdentity();
+		const reply = async (action: string, params: Record<string, unknown>) => {
+			setupResult.calls.push({ action, params });
+			return { result: { outcome: action === "inbox_append" ? "accepted" : params.outcome } };
+		};
+		const messagePump = setupResult.pump({
+			routerClient: { callInboxTool: reply },
+			coordinator: { accept: () => "queued", acknowledge: () => {} },
+			isSessionLive: () => true,
+		});
+		await messagePump.onFrame({ address, rows: [row()], deliveryEpoch: 1 });
+
+		let startDispatch = () => {};
+		const dispatchStarted = new Promise<void>((resolve) => {
+			startDispatch = resolve;
+		});
+		let releaseDispatch = () => {};
+		const dispatchHold = new Promise<void>((resolve) => {
+			releaseDispatch = resolve;
+		});
+		const consolePump = setupResult.pump({
+			gatewayId: "gateway",
+			producerSignPriv: identity.sign.priv,
+			routerClient: { callInboxTool: reply },
+			contentKeyStore: {
+				open: () => ({ kind: "ok", plaintext: Buffer.from('{"kind":"forget","target":"session"}') }),
+				seal: () => ({ kind: "ok", envelope: row().body }),
+			} as never,
+			consoleDispatch: async () => {
+				startDispatch();
+				await dispatchHold;
+				return { killed: true };
+			},
+		});
+		const pending = consolePump.onFrame({
+			address,
+			rows: [{ ...row(), seq: 2, envelope: { ...envelope(1), kind: "console_op" } }],
+			deliveryEpoch: 1,
+		});
+		await dispatchStarted;
+
+		await consolePump.settleAddress(address);
+		expect(setupResult.calls.filter((call) => call.action === "inbox_ack")).toMatchObject([
+			{ params: { seq: 1, outcome: "waking" } },
+			{ params: { seq: 1, outcome: "failed", reason: "session_forgotten" } },
+		]);
+		expect(setupResult.calls.some((call) => call.action === "inbox_ack" && call.params.seq === 2)).toBe(false);
+
+		releaseDispatch();
+		await pending;
+		expect(setupResult.calls.filter((call) => call.action === "inbox_ack").at(-1)).toMatchObject({
+			params: { seq: 2, outcome: "delivered" },
+		});
+		expect(setupResult.claims.addresses()).toEqual([]);
+	});
+
+	it("starts nothing more of a frame whose address ended part way through it", async () => {
+		const setupResult = setup();
+		const identity = generateIdentity();
+		let dispatches = 0;
+		let startDispatch = () => {};
+		const dispatchStarted = new Promise<void>((resolve) => {
+			startDispatch = resolve;
+		});
+		let releaseDispatch = () => {};
+		const dispatchHold = new Promise<void>((resolve) => {
+			releaseDispatch = resolve;
+		});
+		const deliveryPump = setupResult.pump({
+			gatewayId: "gateway",
+			producerSignPriv: identity.sign.priv,
+			routerClient: {
+				callInboxTool: async (action: string, params: Record<string, unknown>) => {
+					setupResult.calls.push({ action, params });
+					return { result: { outcome: action === "inbox_append" ? "accepted" : params.outcome } };
+				},
+			},
+			contentKeyStore: {
+				open: () => ({ kind: "ok", plaintext: Buffer.from('{"kind":"forget","target":"session"}') }),
+				seal: () => ({ kind: "ok", envelope: row().body }),
+			} as never,
+			consoleDispatch: async () => {
+				dispatches++;
+				startDispatch();
+				await dispatchHold;
+				return { killed: true };
+			},
+		});
+		const op = (seq: number) => ({ ...row(), seq, envelope: { ...envelope(1), kind: "console_op" as const } });
+		const pending = deliveryPump.onFrame({ address, rows: [op(1), op(2)], deliveryEpoch: 1 });
+		await dispatchStarted;
+		await deliveryPump.settleAddress(address);
+		releaseDispatch();
+		await pending;
+
+		expect(dispatches).toBe(1);
+		expect(setupResult.calls.filter((call) => call.action === "inbox_ack")).toMatchObject([
+			{ params: { seq: 1, outcome: "delivered" } },
+			{ params: { seq: 2, outcome: "failed", reason: "session_forgotten" } },
+		]);
+		expect(setupResult.claims.addresses()).toEqual([]);
+	});
+
+	it("re-sends a settled claim's own outcome", async () => {
+		const setupResult = setup();
+		const outcomes: unknown[] = [];
+		const deliveryPump = setupResult.pump({
+			routerClient: {
+				callInboxTool: async (action: string, params: Record<string, unknown>) => {
+					setupResult.calls.push({ action, params });
+					if (action === "inbox_ack") {
+						outcomes.push(params.outcome);
+						if (outcomes.length === 1) return { error: "offline" };
+					}
+					return { result: { outcome: params.outcome } };
+				},
+			},
+		});
+		await deliveryPump.onFrame({ address, rows: [row()], deliveryEpoch: 1 });
+		await deliveryPump.onChannelDeliveryAck("session", `${address}:1:1`);
+		await deliveryPump.settleAddress(address);
+
+		expect(outcomes).toEqual(["delivered", "delivered"]);
+		expect(setupResult.claims.addresses()).toEqual([]);
 	});
 });

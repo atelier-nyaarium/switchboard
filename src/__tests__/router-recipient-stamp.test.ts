@@ -50,7 +50,7 @@ function make() {
 		getRegistration: () => undefined,
 		getConnectionId: () => undefined,
 		getConnection: () => null as never,
-		send: () => false,
+		pushRows: (_domainId, pushedTo) => pushedTo.startsWith("owner:"),
 		notifySessionForgotten: () => true,
 	});
 	frames.setPhoneHoldReader((id, at) => hold.read(id, at));

@@ -163,12 +163,13 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 				// What names the session in the Gateway's own stores.
 				["jobs", () => stores.jobs.forgetTeam(team)],
 				["deliveries", () => stores.pendingDeliveries.failTeam(team)],
+				// Claims leave on acknowledgment.
 				[
-					"claims",
+					"inbox",
 					() => {
 						const domainId = context.domainId();
 						if (!domainId) return;
-						stores.inboxClaims.forget(
+						federation?.settleInbox(
 							formatInboxAddress({
 								kind: "session",
 								domainId,
@@ -303,10 +304,12 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 		const domainId = context.domainId();
 		const claimed = stores.inboxClaims.addresses().flatMap((address) => {
 			const parsed = parseInboxAddress(address);
+			// In-flight dispatches hold claims.
 			const own =
 				parsed?.kind === "session" &&
 				parsed.domainId === domainId &&
-				parsed.gatewayId === bootstrap.localGatewayId;
+				parsed.gatewayId === bootstrap.localGatewayId &&
+				!federation?.inboxDispatching(address);
 			return own ? [parsed.sessionId] : [];
 		});
 		const jobs = stores.jobs.listAll();

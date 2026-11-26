@@ -64,11 +64,6 @@ export function createSessionRegistryReporter(deps: SessionRegistryReporterDeps)
 		if (forgetting.has(sessionId)) return;
 		forgetting.add(sessionId);
 		let taken = false;
-		// #region debug forget-race (HYP-A/D): forget frame ordering
-		console.log(
-			`[forget-debug] ${JSON.stringify({ run: "forget-race", hyp: "A", where: "reporter.sendForget", at: "send", sessionId, incarnation })}`,
-		);
-		// #endregion
 		try {
 			taken = landed(await deps.send("session_forget", { sessionId, incarnation }));
 		} catch {
@@ -76,11 +71,6 @@ export function createSessionRegistryReporter(deps: SessionRegistryReporterDeps)
 		} finally {
 			forgetting.delete(sessionId);
 		}
-		// #region debug forget-race (HYP-A/D): forget frame ordering
-		console.log(
-			`[forget-debug] ${JSON.stringify({ run: "forget-race", hyp: "A", where: "reporter.sendForget", at: "answered", sessionId, taken })}`,
-		);
-		// #endregion
 		if (!taken) {
 			if (pendingTombstones.has(sessionId)) scheduleRetry();
 			return;

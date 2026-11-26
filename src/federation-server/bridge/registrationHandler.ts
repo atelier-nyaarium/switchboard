@@ -6,7 +6,7 @@ import {
 	FEDERATION_PROTOCOL_VERSION,
 	GatewayRegisterParamsSchema,
 } from "../../shared/router-protocol.js";
-import { parseInboxAddress } from "../../shared/schemasInbox.js";
+import type { InboxRow } from "../../shared/schemasInbox.js";
 import { OP_LEDGER_PROTOCOL } from "../../shared/schemasRegister.js";
 import { type DomainMeta, sanitizeDomainId } from "../enrollmentCoordinator.js";
 import type { ConnGatewayRecord, GatewayBridgeParams, GatewayRegistration } from "../gatewayBridge.js";
@@ -29,7 +29,8 @@ export interface RegistrationDeps {
 	notifyRegistered: (registered: GatewayRegistration) => void;
 	getConnectionId: (domainId: string, gatewayId: string) => ConnectionId | undefined;
 	getIncarnation: (connId: ConnectionId) => number | null | undefined;
-	send: (domainId: string, gatewayId: string, frame: Record<string, unknown>) => boolean;
+	/** Sole row delivery path. */
+	pushRows: (domainId: string, address: string, rows: InboxRow[]) => boolean;
 	closeConnection: (connId: ConnectionId, reason: string) => void;
 }
 
@@ -176,17 +177,7 @@ export class RegistrationHandler {
 				);
 				return;
 			}
-			for (const entry of pending) {
-				const address = parseInboxAddress(entry.address);
-				if (!address) continue;
-				this.deps.send(domainId, gatewayId, {
-					type: "inbox_deliver",
-					address: entry.address,
-					rows: entry.rows,
-					incarnation,
-					deliveryEpoch: inbox.deliveryEpoch(address),
-				});
-			}
+			for (const entry of pending) this.deps.pushRows(domainId, entry.address, entry.rows);
 		}, 0);
 	}
 }

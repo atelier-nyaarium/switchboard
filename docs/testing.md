@@ -89,6 +89,7 @@ backend was asked.
   generation. `h.agents.skip(ms)` moves the daemon's clock past a crashed target's backoff.
 - **The daemon:** it persists across socket and Gateway restarts. `restartHost({ newDaemon: true })`
   replaces it. Scripted threads persist.
+- **Kill replies:** `holdKills` holds `killSession` replies until `releaseKills()`; `heldKills()` counts them.
 - **The link:** `host.handlers.loseAgentFrames`, `loseAgentAcks` and `loseAgentCommands` each drop
   one direction. `host.daemonFrames` lists runtime frames carried by the link.
   `host.agentCommands(backend)` lists Gateway commands.

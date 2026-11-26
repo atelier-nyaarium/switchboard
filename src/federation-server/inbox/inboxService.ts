@@ -2,6 +2,7 @@ import { mintEpoch } from "../../shared/epoch.js";
 import { errorName } from "../../shared/error-name.js";
 import {
 	formatInboxAddress,
+	INBOX_REASON_SESSION_FORGOTTEN,
 	type InboxAddress,
 	type InboxRow,
 	type InboxRowInput,
@@ -15,6 +16,7 @@ import type { ReferenceHeldStore } from "../blobs/referenceHeldStore.js";
 import type { OwnerStateStore } from "../owner/ownerStateStore.js";
 import { appendInboxRow, sessionExists } from "./inboxAppend.js";
 import { durabilityOutcome, floorOf, guarded, ledgerTransaction, ownerAddress, recordId } from "./inboxCore.js";
+import { type HeldOverMap, type Hold, heldOverOf, InboxCustody, withHeldOver } from "./inboxCustody.js";
 import { appendRouterOpResultRow, readOpResult } from "./inboxOpResult.js";
 import { type AppendedListener, type RetiredListener, type RowRetirement, retireRow } from "./inboxRetire.js";
 import { compactInbox, sweepInbox } from "./inboxSweep.js";
@@ -23,6 +25,8 @@ import type { OwnerStoreRegistry } from "./ownerStoreRegistry.js";
 type OpKeyInput = OpKey | { conversationId: string; opId: string; hash?: string };
 type AckOutcome = "delivered" | "waking" | "failed";
 export type PeerRowGate = (dstDomainId: string, sessionTarget: string, srcDomainId: string) => number | null;
+/** Current Gateway incarnation. */
+export type HolderGate = (domainId: string, gatewayId: string) => number | null;
 
 export function sessionTargetOf(address: InboxAddress): string | null {
 	return address.kind === "session" ? `${address.domainId}.${address.gatewayId}.${address.sessionId}` : null;
@@ -36,6 +40,8 @@ const CONSUMER_SEEN_REFRESH_MS = 60 * 60 * 1000;
 
 export class InboxService {
 	private peerGate: PeerRowGate | null = null;
+	private holderGate: HolderGate | null = null;
+	private readonly custody = new InboxCustody();
 	private readonly retiredListeners: RetiredListener[] = [];
 
 	/** Final row transition. */
@@ -73,6 +79,32 @@ export class InboxService {
 	/** Gate peer rows. */
 	setPeerGate(gate: PeerRowGate): void {
 		this.peerGate = gate;
+	}
+
+	/** No gate, no custody. */
+	setHolderGate(gate: HolderGate): void {
+		this.holderGate = gate;
+	}
+
+	pushed(address: InboxAddress, seqs: readonly number[], by: { gatewayId: string; incarnation: number }): void {
+		if (address.kind === "owner") return;
+		this.custody.pushed(formatInboxAddress(address), seqs, by, this.now());
+	}
+
+	private holdOf(address: InboxAddress, seq: number, now: number = this.now()): Hold | null {
+		if (address.kind === "owner" || !this.holderGate) return null;
+		const live = this.holderGate(address.domainId, address.gatewayId);
+		return this.custody.holder(formatInboxAddress(address), seq, live, now);
+	}
+
+	private heldOver(address: InboxAddress): HeldOverMap {
+		return this.guarded(
+			() =>
+				heldOverOf(
+					this.registry.for(address.domainId).get("inbox.address", formatInboxAddress(address))?.clear,
+				),
+			{},
+		);
 	}
 
 	appendRow(input: {
@@ -164,40 +196,53 @@ export class InboxService {
 			return { opKey: ackKey, outcome: "refused" };
 		const incarnation = this.currentIncarnation(by.domainId, by.gatewayId);
 		if (incarnation === null || by.incarnation !== incarnation) return { opKey: ackKey, outcome: "refused" };
-		if (input.deliveryEpoch !== undefined && input.deliveryEpoch !== this.deliveryEpoch(address))
-			return { opKey: ackKey, outcome: "refused", reason: "delivery_epoch" };
 		const store = this.registry.for(address.domainId);
+		const addressText = formatInboxAddress(address);
 		let found: { seq: number; row: Record<string, unknown> } | undefined;
 		try {
-			found = store.rows(formatInboxAddress(address), input.seq, 1)[0];
+			found = store.rows(addressText, input.seq, 1)[0];
 		} catch {
 			return { opKey: ackKey, outcome: "durability_uncertain" };
 		}
-		// #region debug forget-race (HYP-A): ack after the row left
 		if (!found || found.seq !== input.seq) {
-			console.warn(
-				`[forget-debug] ${JSON.stringify({ run: "forget-race", hyp: "A", where: "ack", address: formatInboxAddress(address), seq: input.seq, outcome: input.outcome, reason: input.reason ?? null })}`,
-			);
+			this.custody.release(addressText, input.seq);
 			return { opKey: ackKey, outcome: "gone" };
 		}
-		// #endregion
+		const mark = this.heldOver(address)[String(input.seq)];
+		// Held-over rows retain epochs.
+		const epoch = mark?.epoch ?? this.deliveryEpoch(address);
+		if (input.deliveryEpoch !== undefined && input.deliveryEpoch !== epoch)
+			return { opKey: ackKey, outcome: "refused", reason: "delivery_epoch" };
+		this.custody.release(addressText, input.seq);
 		const row = found.row as unknown as InboxRow;
-		if (input.outcome === "failed")
+		// Waking after forget fails.
+		const forgotten = input.outcome === "waking" && mark !== undefined;
+		if (input.outcome === "failed" || forgotten)
 			return (
-				this.retire(store, address.domainId, address, row, "failed", input.reason) ?? {
+				this.retire(
+					store,
+					address.domainId,
+					address,
+					row,
+					"failed",
+					forgotten ? INBOX_REASON_SESSION_FORGOTTEN : input.reason,
+				) ?? {
 					opKey: row.envelope.opKey,
 					outcome: "durability_uncertain",
 				}
 			);
 		const opId = recordId(row.envelope.opKey, this.registry.ownerKey(address.domainId).ownerSignPub);
 		const ledger = store.get("op", opId);
+		// Completed answers remain final.
+		if (input.outcome === "waking" && ledger?.clear.state === "complete")
+			return { opKey: row.envelope.opKey, outcome: "waking", seq: input.seq };
 		const write = ledgerTransaction(store, (tx) => {
 			if (ledger) tx.put("op", opId, ledger.version, { clear: { ...ledger.clear, state: input.outcome } });
 			if (input.outcome === "delivered") tx.remove(formatInboxAddress(address), input.seq);
 		});
 		if (!landed(write)) return { opKey: row.envelope.opKey, outcome: durabilityOutcome(write.kind) };
 		if (input.outcome === "delivered")
-			this.rowRetired(address.domainId, formatInboxAddress(address), row, { outcome: "delivered" });
+			this.rowRetired(address.domainId, addressText, row, { outcome: "delivered" });
 		return { opKey: row.envelope.opKey, outcome: input.outcome, seq: input.seq };
 	}
 
@@ -239,13 +284,18 @@ export class InboxService {
 			return store
 				.addresses()
 				.filter((address) => address === own || address.startsWith(sessions))
-				.map((address) => ({
-					address,
-					rows: store
-						.rows(address, 1, Number.MAX_SAFE_INTEGER)
-						.map((entry) => entry.row as unknown as InboxRow)
-						.filter((row) => this.stillShared(store, domainId, address, row)),
-				}))
+				.map((address) => {
+					// Forgotten rows await holders.
+					const over = heldOverOf(store.get("inbox.address", address)?.clear);
+					return {
+						address,
+						rows: store
+							.rows(address, 1, Number.MAX_SAFE_INTEGER)
+							.map((entry) => entry.row as unknown as InboxRow)
+							.filter((row) => over[String(row.seq)] === undefined)
+							.filter((row) => this.stillShared(store, domainId, address, row)),
+					};
+				})
 				.filter((entry) => entry.rows.length > 0);
 		}, []);
 	}
@@ -371,29 +421,40 @@ export class InboxService {
 			store.put("session", id, current?.version ?? null, { clear: { ...value, lastSeen: this.now() } });
 		}, undefined);
 	}
-	forgetSession(domainId: string, gatewayId: string, sessionId: string): void {
-		this.guarded(() => {
+	/**
+	 * Fails unheld rows and advances the epoch. Held rows retain their pushed epoch until acked or expired;
+	 * false means the write failed.
+	 */
+	forgetSession(domainId: string, gatewayId: string, sessionId: string): boolean {
+		return this.guarded(() => {
 			const store = this.registry.for(domainId);
 			const id = `session:${gatewayId}/${sessionId}`;
 			const record = store.get("session", id);
-			if (record) store.del("session", id, record.version);
 			const address: InboxAddress = { kind: "session", domainId, gatewayId, sessionId };
-			const pending = this.rows(address, 1, Number.MAX_SAFE_INTEGER);
-			// #region debug forget-race (HYP-A/D): rows retired by session_forget
-			for (const row of pending) {
-				const ledger = store.get(
-					"op",
-					recordId(row.envelope.opKey, this.registry.ownerKey(domainId).ownerSignPub),
-				);
-				console.warn(
-					`[forget-debug] ${JSON.stringify({ run: "forget-race", hyp: "A", where: "forgetSession", sessionId, seq: row.seq, kind: row.envelope.kind, opId: row.envelope.opKey.opId, ledger: ledger?.clear.state ?? "absent" })}`,
-				);
+			const addressText = formatInboxAddress(address);
+			const held = store.get("inbox.address", addressText);
+			const epoch = Number(held?.clear.epoch ?? 1);
+			const marked = heldOverOf(held?.clear);
+			const now = this.now();
+			const over: HeldOverMap = {};
+			for (const row of this.rows(address, 1, Number.MAX_SAFE_INTEGER)) {
+				const key = String(row.seq);
+				const mark = marked[key];
+				const hold = mark ? null : this.holdOf(address, row.seq);
+				if (mark && now <= mark.until) over[key] = mark;
+				else if (hold) over[key] = { epoch, until: hold.until };
+				// Failed retirements stay fenced.
+				else if (!this.retire(store, domainId, address, row, "failed", INBOX_REASON_SESSION_FORGOTTEN))
+					over[key] = mark ?? { epoch, until: now };
 			}
-			// #endregion
-			for (const row of pending) this.retire(store, domainId, address, row, "failed", "session_forgotten");
-			// Forgetting fails rows and advances the epoch.
-			this.recreateAddress(address);
-		}, undefined);
+			const write = store.batch((tx) => {
+				if (record) tx.del("session", id, record.version);
+				tx.put("inbox.address", addressText, held?.version ?? null, {
+					clear: { ...withHeldOver(held?.clear, over), epoch: mintEpoch() },
+				});
+			});
+			return landed(write);
+		}, false);
 	}
 	hasSession(domainId: string, gatewayId: string, sessionId: string): boolean {
 		return sessionExists(this.registry, domainId, gatewayId, sessionId);
@@ -439,6 +500,7 @@ export class InboxService {
 	}
 
 	sweep(now: number = this.now()): void {
+		this.custody.prune(now);
 		sweepInbox(
 			this.registry,
 			this.routerIdentity,
@@ -447,6 +509,10 @@ export class InboxService {
 			now,
 			this.refs,
 			(domainId, address, row) => this.rowAppended(domainId, address, row),
+			(addressText, seq) => {
+				const address = parseInboxAddress(addressText);
+				return address !== null && this.holdOf(address, seq, now) !== null;
+			},
 		);
 	}
 

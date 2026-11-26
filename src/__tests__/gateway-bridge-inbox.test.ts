@@ -41,6 +41,8 @@ const fakeInbox = (overrides: Record<string, unknown> = {}) =>
 		deliveryEpoch: () => 1,
 		rows: () => [],
 		pendingFor: () => [],
+		pushed: () => undefined,
+		forgetSession: () => true,
 		...overrides,
 	}) as never;
 

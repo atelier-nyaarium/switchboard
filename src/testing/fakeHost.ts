@@ -71,6 +71,8 @@ export interface FakeHostHandlers {
 	onPurge?: (op: HostPurgeOp) => PurgeOutcome | "fail" | undefined;
 	/** Drop pane-kill replies. */
 	silentKills?: boolean;
+	/** Hold pane-kill replies. */
+	holdKills?: boolean;
 }
 
 export type ClaudeResponder = (op: HostClaudeRunOp) => FakeClaudeResult | undefined;
@@ -117,6 +119,8 @@ export interface FakeHost {
 	daemonFrames: Frame[];
 	/** Every relayed HostOp, in order. */
 	ops: HostOp[];
+	heldKills(): number;
+	releaseKills(): void;
 	/** Every wake frame. */
 	wakes: Frame[];
 	/** Request-order purge log. */
@@ -199,6 +203,7 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 	const claudeResults: ClaudeTurnResultFrame[] = [];
 	const claudeAcks: ClaudeTurnAckFrame[] = [];
 	const activeClaudeTurns = new Map<string, ReturnType<typeof setTimeout>>();
+	const heldKillReplies: Array<{ reqId: string }> = [];
 	const handlers: FakeHostHandlers = {
 		onCreateSession: options.onCreateSession,
 		failCreateSession: options.failCreateSession,
@@ -211,6 +216,7 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		loseAgentAcks: options.loseAgentAcks,
 		loseAgentCommands: options.loseAgentCommands,
 		onPurge: options.onPurge,
+		holdKills: options.holdKills,
 	};
 	const ownDaemon = options.agentDaemon ? undefined : createHarnessAgentDaemon(scriptedAgents());
 	const agentDaemon = options.agentDaemon ?? ownDaemon!;
@@ -357,6 +363,10 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 				return;
 			}
 			if (op.kind === "killSession" && handlers.silentKills) return;
+			if (op.kind === "killSession" && handlers.holdKills) {
+				if (typeof frame.reqId === "string") heldKillReplies.push({ reqId: frame.reqId });
+				return;
+			}
 			send({ type: "host_op_reply", reqId: frame.reqId, ok: true, result: answer(op) });
 		}
 		if (frame.type === "claude_turn_ack") {
@@ -436,6 +446,11 @@ export function attachFakeHost(graph: GatewayGraph, options: FakeHostOptions): F
 		daemonInstanceId: agentDaemon.daemonInstanceId,
 		daemonFrames,
 		ops,
+		heldKills: () => heldKillReplies.length,
+		releaseKills: () => {
+			for (const { reqId } of heldKillReplies.splice(0))
+				send({ type: "host_op_reply", reqId, ok: true, result: { killed: true } });
+		},
 		wakes,
 		purges,
 		creates,

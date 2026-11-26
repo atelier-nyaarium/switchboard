@@ -14,6 +14,7 @@ import {
 import { ContentEnvelopeSchema, KeyGrantSchema } from "../../shared/schemasContentKey.js";
 import {
 	formatInboxAddress,
+	INBOX_REASON_SESSION_FORGOTTEN,
 	type InboxAddress,
 	type InboxRow,
 	InboxRowSchema,
@@ -100,6 +101,10 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 	/** Retries by delivery id. */
 	const fireRetries = new Map<string, { tries: number; timer?: TimerHandle }>();
 	const inFlight = new Set<Promise<unknown>>();
+	const dispatching = new Set<string>();
+	/** Dispatches outliving an address. */
+	const outlived = new Set<string>();
+	const frames = new Set<{ address: string; ended: boolean }>();
 	let accepting = true;
 	const track = <T>(work: () => Promise<T>, declined: T): Promise<T> => {
 		if (!accepting) return Promise.resolve(declined);
@@ -136,6 +141,40 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 	}
 
 	async function deliver(address: string, row: InboxRow, deliveryEpoch: number): Promise<void> {
+		const deliveryId = deliveryIdOf(address, row.seq, deliveryEpoch);
+		// Active dispatch owns acknowledgment.
+		if (dispatching.has(deliveryId)) return;
+		dispatching.add(deliveryId);
+		let ended = false;
+		try {
+			await dispatch(address, row, deliveryEpoch);
+		} finally {
+			dispatching.delete(deliveryId);
+			ended = outlived.delete(deliveryId);
+		}
+		// Ended rows cannot wait.
+		if (ended) await settleRow(address, row.seq, deliveryEpoch);
+	}
+
+	async function settleRow(address: string, seq: number, deliveryEpoch: number, pushed = false): Promise<void> {
+		const deliveryId = deliveryIdOf(address, seq, deliveryEpoch);
+		const retry = fireRetries.get(deliveryId);
+		if (retry?.timer) deps.ambient.clearTimer(retry.timer);
+		fireRetries.delete(deliveryId);
+		waiting.delete(deliveryId);
+		const claim = deps.claims.get(address, seq, deliveryEpoch);
+		if (!claim && !pushed) return;
+		const unanswered = !claim || claim.outcome === "waking";
+		await ack(
+			address,
+			seq,
+			deliveryEpoch,
+			unanswered ? "failed" : claim.outcome,
+			unanswered ? INBOX_REASON_SESSION_FORGOTTEN : undefined,
+		);
+	}
+
+	async function dispatch(address: string, row: InboxRow, deliveryEpoch: number): Promise<void> {
 		const claim = deps.claims.claim(address, row.seq, deliveryEpoch);
 		if (claim) {
 			if (row.envelope.kind === "console_op" && claim.outcome === "waking")
@@ -265,13 +304,6 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 			return appendConsoleResult(address, parsed, row, deliveryEpoch, { ok: false, error: "target_mismatch" });
 		}
 		try {
-			// #region debug forget-race (HYP-A/D): dispatch ordering
-			if (op.data.kind === "forget") {
-				console.log(
-					`[forget-debug] ${JSON.stringify({ run: "forget-race", hyp: "A", where: "pump.dispatch", at: "start", opId: row.envelope.opKey.opId, target })}`,
-				);
-			}
-			// #endregion
 			const result = await deps.consoleDispatch(
 				op.data,
 				senderDevice(row),
@@ -279,13 +311,6 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 				row.envelope.opKey.opId,
 				ownerSignPub,
 			);
-			// #region debug forget-race (HYP-A/D): dispatch ordering
-			if (op.data.kind === "forget") {
-				console.log(
-					`[forget-debug] ${JSON.stringify({ run: "forget-race", hyp: "A", where: "pump.dispatch", at: "settled", opId: row.envelope.opKey.opId })}`,
-				);
-			}
-			// #endregion
 			return appendConsoleResult(address, parsed, row, deliveryEpoch, { ok: true, result });
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
@@ -322,13 +347,8 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 			row: { envelope, producerSig: signRowEnvelope(envelope, deps.producerSignPriv), body: sealed.envelope },
 		})) as AckReply | undefined;
 		const outcome = reply?.result?.outcome;
-		// #region debug forget-race (HYP-B): true result refused
-		if (outcome !== OP_OUTCOME_ACCEPTED) {
-			console.log(
-				`[forget-debug] ${JSON.stringify({ run: "forget-race", hyp: "B", where: "pump.appendConsoleResult", opId: row.envelope.opKey.opId, outcome: outcome ?? "unreachable" })}`,
-			);
-		}
-		// #endregion
+		if (outcome !== OP_OUTCOME_ACCEPTED)
+			console.warn(`[inbox] ${address} seq=${row.seq} result not taken: ${outcome ?? "no answer"}`);
 		if (outcome !== OP_OUTCOME_ACCEPTED && outcome !== "conflict")
 			return ack(address, row.seq, deliveryEpoch, "waking", "result_pending", false);
 		return ack(address, row.seq, deliveryEpoch, "delivered");
@@ -528,7 +548,17 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 			.map((row) => InboxRowSchema.safeParse(row).data)
 			.filter((row): row is InboxRow => row !== undefined)
 			.sort((a, b) => a.seq - b.seq);
-		for (const row of rows) await deliver(frame.address, row, frame.deliveryEpoch);
+		const life = { address: frame.address, ended: false };
+		frames.add(life);
+		try {
+			for (const row of rows) {
+				// Ended frames settle leftovers.
+				if (life.ended) await settleRow(frame.address, row.seq, frame.deliveryEpoch, true);
+				else await deliver(frame.address, row, frame.deliveryEpoch);
+			}
+		} finally {
+			frames.delete(life);
+		}
 	}
 
 	function onFrame(frame: {
@@ -566,6 +596,34 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 		return track(sendReceipts, undefined);
 	}
 
+	const dispatchingAt = (address: string): boolean => {
+		for (const deliveryId of dispatching) if (deliveryId.startsWith(`${address}:`)) return true;
+		return false;
+	};
+
+	async function settle(address: string): Promise<void> {
+		const prefix = `${address}:`;
+		for (const life of frames) if (life.address === address) life.ended = true;
+		for (const deliveryId of dispatching) if (deliveryId.startsWith(prefix)) outlived.add(deliveryId);
+		const deferred = [...fireRetries.keys(), ...waiting.keys()].filter(
+			(deliveryId) => deliveryId.startsWith(prefix) && !dispatching.has(deliveryId),
+		);
+		for (const deliveryId of deferred) {
+			const retry = fireRetries.get(deliveryId);
+			if (retry?.timer) deps.ambient.clearTimer(retry.timer);
+			fireRetries.delete(deliveryId);
+			waiting.delete(deliveryId);
+		}
+		for (const claim of deps.claims.at(address)) {
+			if (dispatching.has(claim.deliveryId)) continue;
+			await settleRow(address, claim.seq, claim.deliveryEpoch);
+		}
+	}
+
+	function settleAddress(address: string): Promise<void> {
+		return track(() => settle(address), undefined);
+	}
+
 	async function drain(): Promise<void> {
 		await Promise.allSettled([...inFlight]);
 	}
@@ -578,5 +636,5 @@ export function createInboxDeliveryPump(deps: InboxDeliveryPumpDeps) {
 		await drain();
 	}
 
-	return { onFrame, onChannelDeliveryAck, resendReceipts, drain, stop };
+	return { onFrame, onChannelDeliveryAck, resendReceipts, settleAddress, dispatchingAt, drain, stop };
 }

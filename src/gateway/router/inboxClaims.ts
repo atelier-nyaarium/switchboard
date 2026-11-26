@@ -77,6 +77,11 @@ export class InboxClaims {
 		this.keep(address, { deliveryEpoch, claims: kept });
 	}
 
+	at(address: string): InboxClaim[] {
+		this.file(address);
+		return Object.values(this.claims.get(address)?.claims ?? {});
+	}
+
 	/** Drops claims offered before `before`. Answers how many went. */
 	sweep(before: number): number {
 		let dropped = 0;
