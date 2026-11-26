@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { walked } from "./automation-walk.js";
+import { RULE_ID_RE } from "./schemasAssistantRules.js";
 
 /** Store-wide total. */
 export const FUNCTIONS_MAX = 32;
@@ -79,9 +80,22 @@ export const FunctionStepSchema = z
 		z.strictObject({ kind: z.literal("let"), name: z.string().regex(PARAM_NAME_RE), value: StepArgSchema }),
 		z.strictObject({ kind: z.literal("wait"), minutes: StepArgSchema }),
 		z.strictObject({ kind: z.literal("note"), text: z.string().max(STEP_TEXT_MAX) }),
+		/** Runs another function and waits for it. */
+		z.strictObject({
+			kind: z.literal("call"),
+			function: z.string().regex(RULE_ID_RE),
+			/** By the callee's value names; read when the call starts. */
+			values: z
+				.record(z.string().regex(PARAM_NAME_RE), StepArgSchema)
+				.refine((values) => Object.keys(values).length <= FUNCTION_PARAMS_MAX, { message: "too many values" })
+				.optional(),
+		}),
 	])
 	.meta({ id: "FunctionStep" });
 export type FunctionStep = z.infer<typeof FunctionStepSchema>;
+
+/** No name: one automation's own steps. */
+export const unnamed = (fn: { name: string }): boolean => fn.name === "";
 
 /** Keyed by every kind. */
 const STATEMENTS: { [K in FunctionStep["kind"]]: true } = {
@@ -93,6 +107,7 @@ const STATEMENTS: { [K in FunctionStep["kind"]]: true } = {
 	let: true,
 	wait: true,
 	note: true,
+	call: true,
 };
 /** Every kind a step may be. */
 export const FUNCTION_STATEMENT_KINDS = Object.keys(STATEMENTS) as FunctionStep["kind"][];
@@ -121,7 +136,11 @@ const depthOf = (steps: readonly Tree[]): number =>
 
 export const FunctionSchema = z
 	.strictObject({
-		name: z.string().min(1).max(FUNCTION_NAME_MAX),
+		/** Empty: one automation's own steps. */
+		name: z
+			.string()
+			.max(FUNCTION_NAME_MAX)
+			.refine((name) => name === "" || name.trim() !== "", { message: "a name of spaces" }),
 		params: z.array(FunctionParamSchema).max(FUNCTION_PARAMS_MAX),
 		steps: walked(
 			z

@@ -10,7 +10,7 @@ import {
 	AutomationSchema,
 	FunctionReadsSchema,
 } from "./schemasAutomation.js";
-import { FunctionSchema } from "./schemasFunction.js";
+import { FUNCTIONS_MAX, FunctionSchema } from "./schemasFunction.js";
 
 export const AUTOMATION_SAVE_REFUSALS = [
 	/** `record`, `revision` held now. */
@@ -42,6 +42,10 @@ export const AUTOMATION_SAVE_REFUSALS = [
 	"newer_automation",
 	/** Every derived id it may take is held. */
 	"no_free_id",
+	/** `id`: a function its calls reach again. */
+	"loop",
+	/** `id`: an unnamed function another automation runs, or a function calls. */
+	"private",
 ] as const;
 export type AutomationSaveRefusalCode = (typeof AUTOMATION_SAVE_REFUSALS)[number];
 
@@ -89,6 +93,14 @@ export const AutomationSaveFunctionSchema = z
 	])
 	.meta({ id: "AutomationSaveFunction" });
 
+export const AutomationSaveCalledSchema = z
+	.strictObject({
+		id: z.string().regex(RULE_ID_RE),
+		body: FunctionSchema,
+		base: z.number().int().nonnegative(),
+	})
+	.meta({ id: "AutomationSaveCalled" });
+
 export const AutomationSaveOpShape = {
 	kind: z.literal("automation_save"),
 	automationId: z.string().regex(RULE_ID_RE),
@@ -97,6 +109,8 @@ export const AutomationSaveOpShape = {
 	automationBase: z.number().int().nonnegative(),
 	/** Absent: flat or unchanged. */
 	function: AutomationSaveFunctionSchema.optional(),
+	/** Functions its calls reach, written with it; base 0 adds. */
+	called: z.array(AutomationSaveCalledSchema).max(FUNCTIONS_MAX).optional(),
 	/** Its function's revision as shown. */
 	functionBase: z.number().int().positive().optional(),
 	/** Owner confirmed. */
@@ -122,6 +136,8 @@ export const ConsoleAutomationSaveResultSchema = z
 		stored: z.boolean(),
 		automation: AutomationRowSchema.optional(),
 		function: AutomationFunctionRowSchema.optional(),
+		/** The called functions it wrote. */
+		called: z.array(AutomationFunctionRowSchema).max(FUNCTIONS_MAX).optional(),
 		refusal: AutomationSaveRefusalSchema.optional(),
 	})
 	.meta({ id: "ConsoleAutomationSaveResult" });

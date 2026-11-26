@@ -153,6 +153,7 @@ export function functionReads(fn: Pick<AutomationFunction, "steps">): FunctionRe
 		let: (step) => expression(step.value),
 		wait: (step) => expression(step.minutes),
 		throw: (step) => (step.text === undefined ? undefined : text(step.text)),
+		call: (step) => Object.values(step.values ?? {}).forEach(expression),
 		try: none,
 		exit: none,
 		note: none,

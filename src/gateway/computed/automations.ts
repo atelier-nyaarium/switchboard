@@ -6,12 +6,14 @@ import type { Ambient, TimerHandle } from "../../shared/ambient.js";
 import { functionReads } from "../../shared/automation-fit.js";
 import {
 	below,
+	callsOf,
 	type FlatEntry,
-	type FollowedEntry,
+	type FunctionOf,
 	pointerOf,
+	RUN_FRAMES_MAX,
 	type RunFunction,
 	reached,
-	steering,
+	reachOf,
 	visit,
 	type WalkStep,
 	within,
@@ -51,6 +53,7 @@ import {
 	FunctionSchema,
 	type FunctionStep,
 	type StepArg,
+	unnamed,
 	WAIT_MINUTES_MAX,
 } from "../../shared/schemasFunction.js";
 import { hasHoles, unescapedText, unreadText } from "../../shared/text-holes.js";
@@ -117,7 +120,14 @@ import {
 	stepPlaceOf,
 	type Tell,
 } from "./automationText.js";
-import { createAutomationValidity, FUNCTION_GONE, FUNCTION_UNREAD, STEP_UNFIT } from "./automationValidity.js";
+import {
+	CALL_LOOPS,
+	createAutomationValidity,
+	FUNCTION_GONE,
+	FUNCTION_PRIVATE,
+	FUNCTION_UNREAD,
+	STEP_UNFIT,
+} from "./automationValidity.js";
 import { createAutomationWords, fieldsOf, type WatchedReading } from "./automationWords.js";
 import type { ComputedFields, DerivedField } from "./computedFields.js";
 import { crossingField, crossingFieldId } from "./crossingBand.js";
@@ -154,6 +164,7 @@ export type AutomationSaved =
 /** A filled effect parameter. */
 const EFFECT_TEXT_MAX = 500;
 const NO_RUNNER = "this Gateway runs no such action";
+export const TOO_MANY_CALLS = "it ran more functions than one run may";
 export const SWITCHED_OFF = "it was switched off";
 export { STEP_UNFIT };
 export const VALUE_UNREAD = "a value it takes could not be read";
@@ -189,6 +200,11 @@ const actionAt = (body: Automation, path: string): AutomationAction | undefined 
 };
 
 type Call = RunFunction;
+/** A `do` step and the path it runs at. */
+interface WrittenDo {
+	path: string;
+	step: Extract<FunctionStep, { kind: "do" }>;
+}
 
 const callAt = (body: Automation, path: string): Call | null => {
 	const at = flatAt(body, path);
@@ -280,12 +296,23 @@ export function createAutomations(deps: AutomationsDeps) {
 	let unwritten = restored.changed;
 	/** Silence counts from here. */
 	const startedAt = deps.now();
-	const { triggerIssue, functionIssue, assessBody, automationIssue, writeIssue, entryIssue, resolved, armed } =
-		createAutomationValidity(
-			deps,
-			(id) => functionOf(id),
-			(id) => store.unreadOf(id, FUNCTION_KIND),
-		);
+	const {
+		triggerIssue,
+		functionIssue,
+		assessBody,
+		automationIssue,
+		writeIssue,
+		entryIssue,
+		calledEntryIssue,
+		resolved,
+		resolvedCall,
+		armed,
+	} = createAutomationValidity(
+		deps,
+		(id) => functionOf(id),
+		(id) => store.unreadOf(id, FUNCTION_KIND),
+		(id) => pointingAt(id),
+	);
 	const { sentenceOf, watched, namesOf, crossingNames } = createAutomationWords(deps);
 
 	const store = createOwnerRecords<StoredBody>({
@@ -426,20 +453,10 @@ export function createAutomations(deps: AutomationsDeps) {
 	const frameFunction = (frame: Frame): AutomationFunction | null =>
 		own(state.functionVersions, frameKey(frame)) ?? liveFunction(frame) ?? null;
 
-	/** Through the walk. */
-	const writtenStep = (fire: Fire, path: string): WalkStep<"do"> | null => {
-		const site = siteIn(fire, path);
-		const frame = site === null ? undefined : fire.frames?.[site];
-		const body = bodyOf(fire);
-		const fn = frame ? frameFunction(frame) : null;
-		if (!body || !frame || !fn) return null;
-		const at = reached(body, (id) => (id === frame.function ? fn : null)).find((held) => held.path === path);
-		if (!at) return null;
-		return visit<FollowedEntry, WalkStep<"do"> | null>(at, {
-			action: () => null,
-			step: { do: (held) => held, ...steering(() => null) },
-			unfollowedCall: () => null,
-		});
+	/** The `do` step written at a frame's path, in the body its frame pinned. */
+	const writtenStep = (fire: Fire, path: string): WrittenDo | null => {
+		const step = treeStep(fire, path);
+		return step?.kind === "do" ? { path, step } : null;
 	};
 
 	/** Its automation's own tell, as written. */
@@ -461,8 +478,11 @@ export function createAutomations(deps: AutomationsDeps) {
 		return hasHoles(action.message) ? null : { ...action, message: unescapedText(action.message) };
 	};
 
-	const unreadAt = (fire: Fire, path: string): boolean =>
-		siteIn(fire, path) === null ? ownTell(fire, path) !== null : writtenStep(fire, path) !== null;
+	const unreadAt = (fire: Fire, path: string): boolean => {
+		if (siteIn(fire, path) === null) return ownTell(fire, path) !== null;
+		const kind = treeStep(fire, path)?.kind;
+		return kind === "do" || kind === "call";
+	};
 
 	const noteAt = (fire: Fire, path: string): string | null => {
 		const held = writtenStep(fire, path)?.step.args.message;
@@ -488,12 +508,12 @@ export function createAutomations(deps: AutomationsDeps) {
 	};
 
 	/** The written step at a frame's path, of any kind. */
-	const treeStep = (fire: Fire, path: string): FunctionStep | null => {
+	function treeStep(fire: Fire, path: string): FunctionStep | null {
 		const site = siteIn(fire, path);
 		const tree = site === null ? null : frameBody(fire, site);
 		const address = tree && site !== null ? addressIn(tree, below(path, site)) : null;
 		return tree && address ? treeAt(tree, address) : null;
-	};
+	}
 
 	/** For a step's row: its action, else its own kind. */
 	const kindAt = (fire: Fire, path: string): string | undefined =>
@@ -798,14 +818,33 @@ export function createAutomations(deps: AutomationsDeps) {
 		return issue === null ? null : fireRow(fire, "refused", issue);
 	};
 
+	/** How many held automations point at a function. */
+	const pointingAt = (id: string): number =>
+		records.list().filter((record) => pointerOf(record.body)?.function === id).length;
+
 	/** Opens the frame on its first step; the call's record stays. */
-	const enter = (fire: Fire, path: string, call: Call): Fire | { refused: string } => {
+	const enter = (fire: Fire, path: string, call: Call): Fire | { refused: string; code?: FailureCode } => {
+		const above = Object.entries(fire.frames ?? {}).filter(([site]) => path.startsWith(`${site}.`));
+		// An edit can close a loop.
+		if (above.some(([, held]) => held.function === call.function)) return { refused: CALL_LOOPS, code: "loop" };
+		if (Object.keys(fire.frames ?? {}).length >= RUN_FRAMES_MAX) return { refused: TOO_MANY_CALLS, code: "loop" };
 		const record = store.get(call.function);
 		if (!record || !isFunctionRecord(record))
 			return { refused: store.unreadOf(call.function, FUNCTION_KIND) ? FUNCTION_UNREAD : FUNCTION_GONE };
-		const frame: Frame = { function: record.id, incarnation: record.incarnation, revision: record.revision };
+		const frame: Frame = {
+			function: record.id,
+			incarnation: record.incarnation,
+			revision: record.revision,
+			...(call.values ? { values: call.values } : {}),
+		};
+		// One automation's own steps: never called, never shared.
+		if (unnamed(record.body) && (above.length > 0 || pointingAt(record.id) > 1))
+			return { refused: FUNCTION_PRIVATE };
 		const body = bodyOf(fire) as Automation;
-		const unsound = entryIssue(body, record.id, record.body);
+		const unsound =
+			above.length > 0
+				? calledEntryIssue(body, record.id, record.body, call.values ?? {})
+				: entryIssue(body, record.id, record.body);
 		if (unsound !== null) return { refused: unsound };
 		const first = entered(written(record.body));
 		if (!("to" in first)) return { refused: FRAME_UNREAD };
@@ -848,9 +887,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		if (stopped) return;
 		const now = deps.now();
 		const all = store.list();
-		const used = new Set(
-			all.filter(isAutomationRecord).flatMap((record) => pointerOf(record.body)?.function ?? []),
-		);
+		const used = new Set(all.filter(isAutomationRecord).flatMap((record) => [...reachOf(record.body, functionOf)]));
 		const since: State["unusedFunctions"] = {};
 		const due: string[] = [];
 		for (const record of all.filter(isFunctionRecord)) {
@@ -987,10 +1024,11 @@ export function createAutomations(deps: AutomationsDeps) {
 	const scopeOf = (fire: Fire, at: Pick<WalkStep, "path">): FireNames => {
 		const body = bodyOf(fire);
 		const site = siteIn(fire, at.path);
-		const call = body && site !== null ? callAt(body, site) : null;
 		const frame = site === null ? undefined : fire.frames?.[site];
 		const fn = frame ? frameFunction(frame) : null;
-		const scope = holeScope(fire.names, fn?.params ?? [], call?.values, deps.actions?.switchName);
+		// Remove 2026-12-16: a frame stored before it held its values reads its pointer's.
+		const pointed = body && site !== null && frame?.values === undefined ? callAt(body, site)?.values : undefined;
+		const scope = holeScope(fire.names, fn?.params ?? [], frame?.values ?? pointed, deps.actions?.switchName);
 		if (!frame || !fn || site === null) return scope;
 		const vars = Object.fromEntries(Object.entries(frame.vars ?? {}).map(([name, value]) => [name, { value }]));
 		const address = addressIn(written(fn), below(at.path, site));
@@ -1089,19 +1127,36 @@ export function createAutomations(deps: AutomationsDeps) {
 		);
 	};
 
+	/** Read in the caller's scope. */
+	async function calledOf(
+		fire: Fire,
+		path: string,
+		step: Extract<FunctionStep, { kind: "call" }>,
+	): Promise<{ action: AutomationAction } | { refused: string }> {
+		const names = scopeOf(fire, { path });
+		const values: Record<string, unknown> = {};
+		for (const [name, arg] of Object.entries(step.values ?? {})) {
+			const read = arg.kind === "literal" ? { value: arg.value as unknown } : await evaluated(arg.text, names);
+			if (read === null) return { refused: VALUE_UNREAD };
+			values[name] = read.value;
+		}
+		return resolvedCall(step.function, values);
+	}
+
 	/** Read once, at start. */
 	async function readStep(fire: Fire, ref: StepRef): Promise<boolean> {
 		const own = ownTell(fire, ref.path);
 		if (own) return readOwnTell(fire, ref, own);
-		const steering = treeStep(fire, ref.path);
+		const written = treeStep(fire, ref.path);
 		const frameSite = siteIn(fire, ref.path);
-		if (steering && steering.kind !== "do" && frameSite !== null) {
-			return readSteering(fire, ref, frameSite, steering);
+		if (written && written.kind !== "do" && written.kind !== "call" && frameSite !== null) {
+			return readSteering(fire, ref, frameSite, written);
 		}
 		const rows: RunRow[] = [];
 		const at = writtenStep(fire, ref.path);
 		let read: { action: AutomationAction } | { refused: string };
-		if (!at) read = { refused: FRAME_UNREAD };
+		if (written?.kind === "call") read = await calledOf(fire, ref.path, written);
+		else if (!at) read = { refused: FRAME_UNREAD };
 		else read = await valuesOf(fire, at, rows);
 		const log = rows.reduce(logged, state.log);
 		const current = state.fires.find((held) => sameRun(held, fire));
@@ -1127,7 +1182,7 @@ export function createAutomations(deps: AutomationsDeps) {
 	/** Holes filled, expressions read. */
 	async function valuesOf(
 		fire: Fire,
-		at: WalkStep<"do">,
+		at: WrittenDo,
 		rows: RunRow[],
 	): Promise<{ action: AutomationAction } | { refused: string }> {
 		const names = scopeOf(fire, at);
@@ -1289,11 +1344,13 @@ export function createAutomations(deps: AutomationsDeps) {
 			held,
 			functions: store.list().filter(isFunctionRecord),
 			unreadAutomations: store.unreadCount(AUTOMATION_KIND),
+			unreadFunctions: store.unreadCount(FUNCTION_KIND),
 			isHome: deps.isHome(),
 			assess: (body, functions) => [...assessBody(body, functions)],
 			copyIdOf: (automationId, from) => derivedFunctionId("copy", automationId, from),
 			carryIdOf: (from) => derivedFunctionId("carry", "", from),
 			unreadAt: (id) => store.unreadOf(id, AUTOMATION_KIND) || store.unreadOf(id, FUNCTION_KIND),
+			unreadFunctionAt: (id) => store.unreadOf(id, FUNCTION_KIND),
 		});
 
 	/** What removed automations left queued. */
@@ -1398,10 +1455,12 @@ export function createAutomations(deps: AutomationsDeps) {
 					? { code: "invalid", record, path, ...place, line: issue.message.slice(0, SAVE_LINE_MAX) }
 					: { code: "invalid", record, path, line: `the ${record} is invalid` };
 			}
-			case "moved":
+			case "moved": {
+				const which = record === "function" && write ? { id: write.id } : {};
 				return refusal.record
-					? { code: "moved", record, revision: refusal.record.revision }
-					: { code: "moved", record };
+					? { code: "moved", record, ...which, revision: refusal.record.revision }
+					: { code: "moved", record, ...which };
+			}
 			case "newer_build":
 				return record === "function"
 					? { code: "newer_function", record, ...(write ? { id: write.id } : {}) }
@@ -1418,23 +1477,47 @@ export function createAutomations(deps: AutomationsDeps) {
 		}
 	};
 
-	/** One read; unused functions unlisted. */
+	/** Trigger reads, callees' included. */
+	const readsThrough = (fn: AutomationFunction, lookup: FunctionOf): { names: string[]; eventFields: string[] } => {
+		const own = functionReads(fn);
+		const names = new Set(own.names);
+		const eventFields = new Set(own.eventFields);
+		const seen = new Set<string>();
+		const take = (id: string): void => {
+			const callee = seen.has(id) ? null : lookup(id);
+			seen.add(id);
+			if (!callee) return;
+			const declared = new Set(callee.params.map((param) => param.name));
+			const reads = functionReads(callee);
+			for (const name of reads.names) if (!declared.has(name)) names.add(name);
+			for (const field of reads.eventFields) eventFields.add(field);
+			for (const below of callsOf(callee)) take(below);
+		};
+		for (const called of callsOf(fn)) take(called);
+		return { names: [...names].sort(), eventFields: [...eventFields].sort() };
+	};
+
+	/** One read; a function no automation reaches is unlisted. */
 	const listing = (): { automations: AutomationRow[]; functions: AutomationFunctionRow[] } => {
 		const all = store.list();
 		const automations = all.filter(isAutomationRecord);
-		const functions = all.filter(isFunctionRecord).flatMap((record) => {
-			const users = automations.filter((held) => pointerOf(held.body)?.function === record.id);
-			if (users.length === 0) return [];
+		const held = all.filter(isFunctionRecord);
+		const reaching = automations.map((record) => ({ record, enters: reachOf(record.body, functionOf) }));
+		const functions = held.flatMap((record) => {
+			const reachers = reaching.filter(({ enters }) => enters.has(record.id)).map((each) => each.record);
+			if (reachers.length === 0) return [];
 			const invalid = store.invalidOf(record.id);
-			const reads = functionReads(record.body);
 			return [
 				{
 					id: record.id,
 					revision: record.revision,
 					function: record.body,
-					users: users.map((held) => held.id),
-					moves: users.some((held) => movesWithHome(held.body)),
-					reads: { names: [...reads.names], eventFields: [...reads.eventFields] },
+					users: reachers
+						.filter((each) => pointerOf(each.body)?.function === record.id)
+						.map((each) => each.id),
+					callers: held.filter((each) => callsOf(each.body).includes(record.id)).map((each) => each.id),
+					moves: reachers.some((each) => movesWithHome(each.body)),
+					reads: readsThrough(record.body, functionOf),
 					...(invalid === null ? {} : { invalid }),
 				},
 			];
@@ -1451,7 +1534,14 @@ export function createAutomations(deps: AutomationsDeps) {
 		const row = listed.automations.find((held) => held.id === saved.automation.id);
 		const pointer = pointerOf(saved.automation.body);
 		const fn = pointer ? listed.functions.find((held) => held.id === pointer.function) : undefined;
-		return { stored: true, ...(row ? { automation: row } : {}), ...(fn ? { function: fn } : {}) };
+		const wrote = new Set((op.called ?? []).map((each) => each.id));
+		const called = listed.functions.filter((held) => wrote.has(held.id));
+		return {
+			stored: true,
+			...(row ? { automation: row } : {}),
+			...(fn ? { function: fn } : {}),
+			...(wrote.size > 0 ? { called } : {}),
+		};
 	}
 
 	const saveIntentOf = (
@@ -1462,6 +1552,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		body: op.automation,
 		base: op.automationBase,
 		...(op.function ? { function: op.function } : {}),
+		...(op.called ? { called: op.called } : {}),
 		...(op.functionBase === undefined ? {} : { functionBase: op.functionBase }),
 		confirmed: op.confirmed === true,
 	});
@@ -1472,8 +1563,13 @@ export function createAutomations(deps: AutomationsDeps) {
 		const pointer = pointerOf(op.automation);
 		const sent = op.function && FunctionSchema.safeParse(op.function.body);
 		const body = sent ? (sent.success ? sent.data : null) : pointer ? functionOf(pointer.function) : null;
-		const read = body ? functionReads(body) : null;
-		const reads = read ? { reads: { names: [...read.names], eventFields: [...read.eventFields] } } : {};
+		// As the save would leave them.
+		const written = new Map((op.called ?? []).map((each) => [each.id, FunctionSchema.safeParse(each.body)]));
+		const lookup: FunctionOf = (id) => {
+			const sentCallee = written.get(id);
+			return sentCallee ? (sentCallee.success ? sentCallee.data : null) : functionOf(id);
+		};
+		const reads = body ? { reads: readsThrough(body, lookup) } : {};
 		return "written" in verdict ? { ready: false, refusal: verdict.refusal, ...reads } : { ready: true, ...reads };
 	}
 
@@ -1481,9 +1577,10 @@ export function createAutomations(deps: AutomationsDeps) {
 		const result = write({ kind: "save", ...intent });
 		if (!result.written) return { stored: false, refusal: result.refusal, reason: result.reason };
 		const automation = result.records.find((record) => record?.id === intent.id);
-		const fn = result.records.find((record) => record !== null && isFunctionRecord(record));
 		if (!automation || !isAutomationRecord(automation))
 			return { stored: false, refusal: { code: "gone", record: "automation" }, reason: "not saved; try again" };
+		const pointed = pointerOf(automation.body)?.function;
+		const fn = result.records.find((record) => record?.id === pointed);
 		return { stored: true, automation, ...(fn && isFunctionRecord(fn) ? { function: fn } : {}) };
 	}
 

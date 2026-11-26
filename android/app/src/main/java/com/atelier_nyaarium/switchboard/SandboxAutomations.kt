@@ -535,6 +535,7 @@ internal class SandboxAutomationGateway(
 				is FunctionStep.Let -> return null
 				is FunctionStep.Wait -> return null
 				is FunctionStep.Note -> return null
+				is FunctionStep.Call -> return null
 				is FunctionStep.Unknown -> return null
 			}
 			is UnfollowedCall -> return null

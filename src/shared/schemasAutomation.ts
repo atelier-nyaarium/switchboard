@@ -395,9 +395,12 @@ export const AutomationFunctionRowSchema = z
 		id: z.string().regex(RULE_ID_RE),
 		revision: z.number().int().positive(),
 		function: FunctionSchema,
-		/** In list order. */
+		/** The automations that point at it, in list order. */
 		users: z.array(z.string()).max(AUTOMATIONS_MAX),
-		/** Users move with the home. */
+		// Required from 2026-12-10.
+		/** The functions that call it. */
+		callers: z.array(z.string()).max(FUNCTIONS_MAX).optional(),
+		/** An automation that reaches it moves with the home. */
 		moves: z.boolean(),
 		reads: FunctionReadsSchema,
 		/** Why it cannot run. */
@@ -419,6 +422,7 @@ export const AUTOMATION_SERVES = {
 		steps: [...FUNCTION_STEP_KINDS],
 		paramTypes: [...FUNCTION_PARAM_TYPES],
 		statements: [...FUNCTION_STATEMENT_KINDS],
+		unnamed: true,
 	},
 	triggers: Object.entries(AUTOMATION_TRIGGERS).map(([kind, row]) => ({
 		kind,
@@ -527,6 +531,8 @@ export const ConsoleAutomationListResultSchema = z
 						paramTypes: z.array(z.string().max(16)).max(8),
 						/** The step kinds it runs; absent runs `do` alone. Required from 2026-12-10. */
 						statements: z.array(z.string().max(16)).max(32).optional(),
+						/** It holds a function with no name. Required from 2026-12-10. */
+						unnamed: z.boolean().optional(),
 					})
 					.meta({ id: "AutomationFunctionServes" })
 					.optional(),

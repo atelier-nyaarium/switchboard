@@ -55,6 +55,19 @@ internal fun reached(automation: Automation, functionOf: (String) -> AutomationF
 @OptIn(OpensWalk::class)
 internal fun written(function: AutomationFunction): List<FunctionStep> = function.steps
 
+/** The functions a function's steps call, at any depth. */
+internal fun callsOf(function: AutomationFunction): List<String> = called(written(function))
+
+private fun called(steps: List<FunctionStep>): List<String> = steps.flatMap { step ->
+	when (step) {
+		is FunctionStep.Call -> listOf(step.function)
+		is FunctionStep.If -> called(step.steps.orEmpty()) + called(step.`else`.orEmpty())
+		is FunctionStep.Try -> called(step.steps) + called(step.catch)
+		is FunctionStep.Do, is FunctionStep.Exit, is FunctionStep.Throw, is FunctionStep.Let,
+		is FunctionStep.Wait, is FunctionStep.Note, is FunctionStep.Unknown -> emptyList()
+	}
+}
+
 /** The list as written, one level; a call is never followed. */
 @OptIn(OpensWalk::class)
 internal fun written(automation: Automation): List<AutomationAction> = automation.actions

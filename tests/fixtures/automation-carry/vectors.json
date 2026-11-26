@@ -112,6 +112,128 @@
 				}
 			],
 			"expect": []
+		},
+		{
+			"name": "a function reached only through calls, at any depth, comes too; one nothing reaches stays",
+			"automations": [
+				{
+					"id": "a",
+					"automation": {
+						"enabled": true,
+						"trigger": { "kind": "event", "source": "github", "conditions": [] },
+						"actions": [{ "kind": "run_function", "function": "warm-up" }]
+					}
+				}
+			],
+			"listed": [
+				{
+					"id": "bell",
+					"function": {
+						"name": "Bell",
+						"params": [],
+						"steps": [
+							{
+								"kind": "do",
+								"action": "tell_assistant",
+								"args": { "when": { "kind": "literal", "value": "now" } }
+							}
+						]
+					}
+				},
+				{
+					"id": "other",
+					"function": {
+						"name": "Other",
+						"params": [],
+						"steps": [{ "kind": "call", "function": "bell" }]
+					}
+				},
+				{
+					"id": "chime",
+					"function": {
+						"name": "Chime",
+						"params": [],
+						"steps": [
+							{
+								"kind": "try",
+								"steps": [
+									{
+										"kind": "do",
+										"action": "tell_assistant",
+										"args": { "when": { "kind": "literal", "value": "now" } }
+									}
+								],
+								"catch": [{ "kind": "call", "function": "bell" }]
+							}
+						]
+					}
+				},
+				{
+					"id": "warm-up",
+					"function": {
+						"name": "Warm up",
+						"params": [],
+						"steps": [
+							{
+								"kind": "if",
+								"when": "true",
+								"steps": [
+									{
+										"kind": "do",
+										"action": "tell_assistant",
+										"args": { "when": { "kind": "literal", "value": "now" } }
+									}
+								],
+								"else": [
+									{ "kind": "call", "function": "chime" },
+									{ "kind": "call", "function": "gone" }
+								]
+							}
+						]
+					}
+				}
+			],
+			"expect": ["bell", "chime", "warm-up"]
+		},
+		{
+			"name": "functions that call each other are each carried once",
+			"automations": [
+				{
+					"id": "a",
+					"automation": {
+						"enabled": true,
+						"trigger": { "kind": "event", "source": "github", "conditions": [] },
+						"actions": [{ "kind": "run_function", "function": "warm-up" }]
+					}
+				},
+				{
+					"id": "b",
+					"automation": {
+						"enabled": true,
+						"trigger": { "kind": "event", "source": "github", "conditions": [] },
+						"actions": [{ "kind": "run_function", "function": "chime" }]
+					}
+				}
+			],
+			"listed": [
+				{
+					"id": "chime",
+					"function": {
+						"name": "Chime",
+						"params": [],
+						"steps": [{ "kind": "call", "function": "warm-up" }]
+					}
+				},
+				{
+					"id": "warm-up",
+					"function": {
+						"name": "Warm up",
+						"params": [],
+						"steps": [{ "kind": "call", "function": "chime" }]
+					}
+				}
+			],
+			"expect": ["chime", "warm-up"]
 		}
 	],
 	"land": [

@@ -5,6 +5,7 @@ import {
 	type FunctionOf,
 	type LeafAction,
 	pointerOf,
+	type RunFunction,
 	reached,
 	steering,
 	stepsOf,
@@ -21,11 +22,13 @@ import {
 	AutomationActionSchema,
 	type AutomationTrigger,
 	FUNCTION_STEP_KINDS,
+	type FunctionValue,
 } from "../../shared/schemasAutomation.js";
 import {
 	type AutomationFunction,
 	type FunctionStep,
 	type StepArg,
+	unnamed,
 	WAIT_MINUTES_MAX,
 } from "../../shared/schemasFunction.js";
 import { hasHoles } from "../../shared/text-holes.js";
@@ -54,6 +57,9 @@ const TRIGGER_NAMES = [...new Set(Object.values(AUTOMATION_TRIGGER_NAMES).flat()
 
 export const FUNCTION_GONE = "the function it runs is gone";
 export const FUNCTION_LEFT = "its function did not come with the move";
+export const CALL_LOOPS = "a function it runs calls itself";
+export const FUNCTION_PRIVATE = "it runs steps that belong to one automation";
+export const CALLS_TOO_MUCH = "it runs more than one run may";
 export const FUNCTION_UNREAD = "the function it runs was written by a newer build; update this Gateway";
 export const FUNCTION_UNFIT = "it does not fit the function it runs";
 export const NO_SWITCH = "no such switch on this Gateway";
@@ -89,7 +95,7 @@ export type BodyIssue =
 	| { at: "action"; index: number; issue: StepIssue }
 	| { at: "step"; via: string; path: string; issue: StepIssue }
 	/** Unfollowed function call. */
-	| { at: "call"; function: string; message: string }
+	| { at: "call"; function: string; message: string; why: Unfollowed | "private" }
 	| { at: "fit"; function: string; issue: CallIssue };
 
 export type StepBodyIssue = Extract<BodyIssue, { at: "step" }>;
@@ -121,6 +127,8 @@ export function createAutomationValidity(
 	deps: ValidityDeps,
 	functionOf: FunctionOf,
 	unread: (id: string) => boolean = () => false,
+	/** How many held automations point at a function. */
+	pointing: (id: string) => number = () => 1,
 ) {
 	function triggerIssue(body: Pick<Automation, "trigger">): string | null {
 		if (body.trigger.kind === "event") {
@@ -257,6 +265,13 @@ export function createAutomationValidity(
 			const issue = holeIn(step.text, namesIn(fn));
 			return issue ? { param: "text", ...issue } : null;
 		},
+		call: (fn, step) => {
+			for (const [name, arg] of Object.entries(step.values ?? {})) {
+				const issue = arg.kind === "expression" ? expressionIssue(name, arg.text, namesIn(fn)) : null;
+				if (issue) return issue;
+			}
+			return null;
+		},
 		do: (fn, step) => {
 			if (!stepAction(step.action)) return { message: UNRUNNABLE, unrunnable: true };
 			const row: AutomationActionRow = AUTOMATION_ACTIONS[step.action];
@@ -270,13 +285,23 @@ export function createAutomationValidity(
 	const stepIssue = (fn: Checked, step: FunctionStep): StepIssue | null =>
 		(STEPS[step.kind] as (fn: Checked, step: FunctionStep) => StepIssue | null)(fn, step);
 
-	/** Fit, then each device value against the switches. */
-	function callIssue(body: Automation, fn: AutomationFunction): CallIssue | null {
-		const call = pointerOf(body);
-		if (!call) return null;
+	/** Fit, then held switches. */
+	function boundIssue(
+		body: Automation,
+		fn: AutomationFunction,
+		values: Readonly<Record<string, FunctionValue>>,
+		/** Values read only at the call's turn. */
+		unjudged: ReadonlySet<string> = new Set(),
+	): CallIssue | null {
 		const given = givenOf(body.trigger);
-		const values = call.values ?? {};
-		if (!fitOf(given, { params: fn.params, reads: functionReads(fn) }, values).fits) return { kind: "unfit" };
+		// An unjudged value stands as its declared type.
+		const standing = Object.fromEntries(
+			fn.params
+				.filter((param) => unjudged.has(param.name))
+				.map((param) => [param.name, param.type === "number" ? 0 : ""]),
+		);
+		if (!fitOf(given, { params: fn.params, reads: functionReads(fn) }, { ...values, ...standing }).fits)
+			return { kind: "unfit" };
 		const fromTrigger = new Set(given.names.map((held) => held.name));
 		for (const param of fn.params) {
 			if (param.type !== "device" || fromTrigger.has(param.name) || !Object.hasOwn(values, param.name)) continue;
@@ -284,6 +309,39 @@ export function createAutomationValidity(
 		}
 		return null;
 	}
+
+	const callIssue = (body: Automation, fn: AutomationFunction): CallIssue | null => {
+		const call = pointerOf(body);
+		return call ? boundIssue(body, fn, call.values ?? {}) : null;
+	};
+
+	type CallStep = Extract<FunctionStep, { kind: "call" }>;
+
+	/** Literals typed; expressions judged at entry. */
+	function callFits(body: Automation, step: CallStep, callee: AutomationFunction): boolean {
+		const literal: Record<string, FunctionValue> = {};
+		const unjudged = new Set<string>();
+		for (const [name, arg] of Object.entries(step.values ?? {})) {
+			if (!callee.params.some((param) => param.name === name)) return false;
+			if (arg.kind === "expression") unjudged.add(name);
+			else if (typeof arg.value === "boolean") return false;
+			else literal[name] = arg.value;
+		}
+		return boundIssue(body, callee, literal, unjudged) === null;
+	}
+
+	/** Its steps, then read values. */
+	const calledEntryIssue = (
+		body: Automation,
+		id: string,
+		fn: AutomationFunction,
+		values: Readonly<Record<string, FunctionValue>>,
+	): string | null => {
+		const unsound = functionIssue(fn);
+		if (unsound) return unsound.message;
+		const issue = boundIssue(body, fn, values);
+		return issue && lineOf({ at: "fit", function: id, issue });
+	};
 
 	/** Null lookup, flat walk. */
 	function* assessBody(body: Automation, functions: FunctionOf | null = functionOf): Generator<BodyIssue> {
@@ -295,6 +353,8 @@ export function createAutomationValidity(
 			// Moves strip event users.
 			missing: (id) =>
 				unread(id) ? FUNCTION_UNREAD : body.trigger.kind === "event" ? FUNCTION_LEFT : FUNCTION_GONE,
+			loop: () => CALL_LOOPS,
+			budget: () => CALLS_TOO_MUCH,
 		};
 		for (const at of functions ? reached(body, functions) : reached(body)) {
 			const found = visit<WalkEntry, BodyIssue | null>(at, {
@@ -308,6 +368,17 @@ export function createAutomationValidity(
 						const issue = fn ? stepIssue(fn, step) : null;
 						return issue && { at: "step", via, path, issue };
 					},
+					call: ({ path, step, via }): BodyIssue | null => {
+						const fn = functions?.(via);
+						const issue = fn ? stepIssue(fn, step) : null;
+						if (issue) return { at: "step", via, path, issue };
+						const callee = functions?.(step.function);
+						if (callee && unnamed(callee))
+							return { at: "call", function: step.function, message: FUNCTION_PRIVATE, why: "private" };
+						return callee && !callFits(body, step, callee)
+							? { at: "fit", function: step.function, issue: { kind: "unfit" } }
+							: null;
+					},
 					...steering(({ path, step, via }) => {
 						const fn = functions?.(via);
 						const issue = fn ? stepIssue(fn, step) : null;
@@ -316,13 +387,16 @@ export function createAutomationValidity(
 				},
 				unfollowedCall: ({ call, reason }) => {
 					const message = unfollowed[reason](call.function);
-					return message === null ? null : { at: "call", function: call.function, message };
+					return message === null ? null : { at: "call", function: call.function, message, why: reason };
 				},
 			});
 			if (found) yield found;
 		}
 		const call = functions ? pointerOf(body) : null;
 		const fn = call ? functions?.(call.function) : null;
+		// Its own steps, shared.
+		if (call && fn && unnamed(fn) && pointing(call.function) > 1)
+			yield { at: "call", function: call.function, message: FUNCTION_PRIVATE, why: "private" };
 		const unfit = call && fn ? callIssue(body, fn) : null;
 		if (call && unfit) yield { at: "fit", function: call.function, issue: unfit };
 	}
@@ -391,6 +465,16 @@ export function createAutomationValidity(
 		return issue ? { refused: issue.message } : { action: parsed.data };
 	}
 
+	/** A call's read values, as the pointer its frame is entered by. */
+	function resolvedCall(
+		id: string,
+		values: Readonly<Record<string, unknown>>,
+	): { action: RunFunction } | { refused: string } {
+		const kind: RunFunction["kind"] = "run_function";
+		const parsed = AutomationActionSchema.safeParse({ kind, function: id, values });
+		return parsed.success && parsed.data.kind === kind ? { action: parsed.data } : { refused: STEP_UNFIT };
+	}
+
 	const armed = (record: OwnerRecord<Automation>) => record.body.enabled && automationIssue(record.body) === null;
 
 	return {
@@ -401,7 +485,9 @@ export function createAutomationValidity(
 		writeIssue,
 		functionIssue,
 		entryIssue,
+		calledEntryIssue,
 		resolved,
+		resolvedCall,
 		armed,
 	};
 }

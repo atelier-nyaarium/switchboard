@@ -231,6 +231,8 @@ object Protocol {
 			UNWRITTEN("unwritten"),
 			NEWER_AUTOMATION("newer_automation"),
 			NO_FREE_ID("no_free_id"),
+			LOOP("loop"),
+			PRIVATE("private"),
 		}
 
 		enum class AutomationSaveRecord(val wire: String) {
@@ -1517,6 +1519,8 @@ sealed class ConsoleOp {
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val function: AutomationSaveFunction? = null,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val called: List<AutomationSaveCalled>? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val functionBase: Long? = null,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val confirmed: Boolean? = null,
@@ -1530,6 +1534,8 @@ sealed class ConsoleOp {
 		val automationBase: Long,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val function: AutomationSaveFunction? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val called: List<AutomationSaveCalled>? = null,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val functionBase: Long? = null,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
@@ -2880,6 +2886,14 @@ sealed class FunctionStep {
 		val text: String,
 	) : FunctionStep()
 
+	@Serializable
+	@SerialName("call")
+	data class Call(
+		val function: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val values: JsonObject? = null,
+	) : FunctionStep()
+
 	/** Unknown member, preserved as sent. */
 	data class Unknown(val kind: String, val raw: JsonObject) : FunctionStep()
 }
@@ -2900,6 +2914,7 @@ object FunctionStepSerializer : KSerializer<FunctionStep> {
 			"let" -> input.json.decodeFromJsonElement(FunctionStep.Let.serializer(), body)
 			"wait" -> input.json.decodeFromJsonElement(FunctionStep.Wait.serializer(), body)
 			"note" -> input.json.decodeFromJsonElement(FunctionStep.Note.serializer(), body)
+			"call" -> input.json.decodeFromJsonElement(FunctionStep.Call.serializer(), body)
 			else -> FunctionStep.Unknown(kind ?: "", raw)
 		}
 	}
@@ -2915,6 +2930,7 @@ object FunctionStepSerializer : KSerializer<FunctionStep> {
 			is FunctionStep.Let -> tagged("let", output.json.encodeToJsonElement(FunctionStep.Let.serializer(), value))
 			is FunctionStep.Wait -> tagged("wait", output.json.encodeToJsonElement(FunctionStep.Wait.serializer(), value))
 			is FunctionStep.Note -> tagged("note", output.json.encodeToJsonElement(FunctionStep.Note.serializer(), value))
+			is FunctionStep.Call -> tagged("call", output.json.encodeToJsonElement(FunctionStep.Call.serializer(), value))
 			is FunctionStep.Unknown -> value.raw
 		}
 		output.encodeJsonElement(element)
@@ -2970,6 +2986,8 @@ data class AutomationFunctionRow(
 	val revision: Long,
 	val function: AutomationFunction,
 	val users: List<String>,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val callers: List<String>? = null,
 	val moves: Boolean,
 	val reads: FunctionReads,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
@@ -3078,6 +3096,8 @@ data class ConsoleAutomationSaveResult(
 	val automation: AutomationRow? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val function: AutomationFunctionRow? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val called: List<AutomationFunctionRow>? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val refusal: AutomationSaveRefusal? = null,
 )
@@ -5262,6 +5282,13 @@ data class ConsoleVariable(
 )
 
 @Serializable
+data class AutomationSaveCalled(
+	val id: String,
+	val body: AutomationFunction,
+	val base: Long,
+)
+
+@Serializable
 data class DomainSnapshot(
 	val ownerSignPub: String,
 	val admissions: List<SignedAdmission>,
@@ -5614,6 +5641,8 @@ data class AutomationFunctionServes(
 	val paramTypes: List<String>,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val statements: List<String>? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val unnamed: Boolean? = null,
 )
 
 @Serializable

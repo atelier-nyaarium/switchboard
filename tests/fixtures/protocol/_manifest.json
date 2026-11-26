@@ -174,6 +174,7 @@
 		{ "file": "function-step-as.json", "schema": "FunctionStep", "expect": "pass" },
 		{ "file": "automation-list-result-functions.json", "schema": "ConsoleAutomationListResult", "expect": "pass" },
 		{ "file": "console-op-automation-save.json", "schema": "ConsoleOp", "expect": "pass" },
+		{ "file": "console-op-automation-save-called.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "console-op-automation-save-copy.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "automation-save-result-stored.json", "schema": "ConsoleAutomationSaveResult", "expect": "pass" },
 		{ "file": "automation-save-result-refused.json", "schema": "ConsoleAutomationSaveResult", "expect": "pass" },

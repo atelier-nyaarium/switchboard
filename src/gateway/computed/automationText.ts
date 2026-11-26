@@ -57,6 +57,7 @@ export function laneTells(body: Automation, functionOf: FunctionOf): LaneTell[] 
 					const told = when?.kind === "literal" ? whenOf(when.value) : null;
 					return told && { path, when: told };
 				},
+				call: () => null,
 				...steering((): LaneTell | null => null),
 			},
 			unfollowedCall: () => null,

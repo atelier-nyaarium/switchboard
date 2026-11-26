@@ -40,6 +40,7 @@ class AutomationWalkVectorsTest {
 				is FunctionStep.Let -> "let"
 				is FunctionStep.Wait -> "wait"
 				is FunctionStep.Note -> "note"
+				is FunctionStep.Call -> "call"
 				is FunctionStep.Unknown -> step.kind
 			},
 			entry.index,

@@ -13,9 +13,15 @@ private fun calledBy(entry: WalkEntry): String? = when (entry) {
 	is WalkAction, is WalkStep -> null
 }
 
-/** Each function a carried automation runs, once, in listing order; one not listed stays behind. */
+/** Each function a carried automation runs or reaches through calls, once, in listing order; one not listed stays behind. */
 internal fun carriedFunctionsOf(automations: List<CarriedAutomation>, listed: List<CarriedFunction>): List<CarriedFunction> {
-	val runs = automations.flatMap { carried -> reached(carried.automation).mapNotNull(::calledBy) }.toSet()
+	val byId = listed.associateBy { it.id }
+	val runs = mutableSetOf<String>()
+	fun take(id: String) {
+		if (!runs.add(id)) return
+		byId[id]?.let { callsOf(it.function) }.orEmpty().forEach(::take)
+	}
+	automations.flatMap { carried -> reached(carried.automation).mapNotNull(::calledBy) }.forEach(::take)
 	return listed.filter { it.id in runs }
 }
 
@@ -75,6 +81,7 @@ internal fun carryRefusal(
 			is FunctionStep.Let -> "let"
 			is FunctionStep.Wait -> "wait"
 			is FunctionStep.Note -> "note"
+			is FunctionStep.Call -> "call"
 			is FunctionStep.Unknown -> step.kind
 		}
 	}

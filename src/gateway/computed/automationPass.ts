@@ -21,7 +21,15 @@ import {
 	switchOf,
 	withStep,
 } from "./automationFires.js";
-import { addressIn, type Ended, type Failure, moved, stepAt, type TreeStep } from "./automationFrames.js";
+import {
+	addressIn,
+	type Ended,
+	type Failure,
+	type FailureCode,
+	moved,
+	stepAt,
+	type TreeStep,
+} from "./automationFrames.js";
 import { NOT_HOME } from "./automationJudge.js";
 import { fireRow, logged, type RowWhere, type RunRow } from "./automationLog.js";
 import { type Dropped, QUEUE_FULL, stepMember, told } from "./automationOutbox.js";
@@ -59,7 +67,8 @@ export interface Answer {
 /** Lookups and formatting. */
 export interface PassPorts {
 	retireOf(fire: Fire): RunRow | null;
-	enter(fire: Fire, path: string, call: RunFunction): Fire | { refused: string };
+	/** `code`: a failure its caller may catch. */
+	enter(fire: Fire, path: string, call: RunFunction): Fire | { refused: string; code?: FailureCode };
 	/** The steps the frame at `site` runs. */
 	frameBody(fire: Fire, site: string): readonly TreeStep[] | null;
 	bodyOf(fire: Fire): Automation | null;
@@ -104,6 +113,7 @@ export interface PassResult {
 
 type Tell = Extract<AutomationAction, { kind: "tell_assistant" }>;
 const TELL_KIND: Tell["kind"] = "tell_assistant";
+const CALL_KIND: RunFunction["kind"] = "run_function";
 
 export const NEWER_SET = "a newer setting of this switch landed first";
 export const FRAME_UNREAD = "the function it ran could not be read";
@@ -323,6 +333,25 @@ export function createPass(ports: PassPorts): {
 		}
 	};
 
+	/** Opens a call's frame, or ends the call refused. */
+	const entering = (
+		held: Fire,
+		rows: RunRow[],
+		path: string,
+		step: Step,
+		call: RunFunction,
+	): { fire: Fire; log: RunRow[] } => {
+		const refuse = (reason: string, code?: FailureCode) => {
+			const ended = code ? failedAs(step, code, reason) : refusedUnsent(step);
+			const fire = withStep(held, path, ended);
+			return { fire, log: logged(rows, endedRow(fire, path, ended, reason)) };
+		};
+		// Its frame is open with no step active.
+		if (held.frames?.[path]) return refuse(FRAME_UNREAD);
+		const entered = ports.enter(held, path, call);
+		return "refused" in entered ? refuse(entered.refused, entered.code) : { fire: entered, log: rows };
+	};
+
 	/** To the step whose turn it is. */
 	const advance = (
 		start: Fire,
@@ -347,23 +376,9 @@ export function createPass(ports: PassPorts): {
 			fire = withStep(fire, path, step);
 			if (step.claimed) return { fire, log };
 			const body = ports.bodyOf(fire);
-			const call = body && siteIn(fire, path) === null ? ports.callAt(body, path) : null;
-			if (call && fire.frames?.[path]) {
-				// Its frame is open with no step active.
-				const ended = refusedUnsent(step);
-				fire = withStep(fire, path, ended);
-				log = logged(log, endedRow(fire, path, ended, FRAME_UNREAD));
-				continue;
-			}
-			if (call) {
-				const entered = ports.enter(fire, path, call);
-				if (!("refused" in entered)) {
-					fire = entered;
-					continue;
-				}
-				const ended = refusedUnsent(step);
-				fire = withStep(fire, path, ended);
-				log = logged(log, endedRow(fire, path, ended, entered.refused));
+			const pointer = body && siteIn(fire, path) === null ? ports.callAt(body, path) : null;
+			if (pointer) {
+				({ fire, log } = entering(fire, log, path, step, pointer));
 				continue;
 			}
 			const window = ports.windowOf(fire);
@@ -371,6 +386,16 @@ export function createPass(ports: PassPorts): {
 			const tree = site === null ? null : ports.frameBody(fire, site);
 			const address = tree && site !== null ? addressIn(tree, below(path, site)) : null;
 			const kind = tree && address ? stepAt(tree, address)?.kind : undefined;
+			if (kind === "call") {
+				// Its values are read first.
+				const called = ports.actionOf(fire, path);
+				if (called?.kind !== CALL_KIND) {
+					at.unread.push({ member: fire.member, path });
+					return { fire, log };
+				}
+				({ fire, log } = entering(fire, log, path, step, called));
+				continue;
+			}
 			if (kind !== undefined && kind !== "do") {
 				if (kind === "try" || kind === "exit" || kind === "note") {
 					fire = withStep(fire, path, steered(step));

@@ -6,6 +6,7 @@ import {
 	AUTOMATION_ACTIONS_MAX,
 	type Automation,
 	AutomationActionSchema,
+	FunctionValuesSchema,
 	TELL_WHEN,
 } from "../../shared/schemasAutomation.js";
 import { FUNCTION_STEPS_MAX } from "../../shared/schemasFunction.js";
@@ -69,6 +70,8 @@ export const FrameSchema = z.strictObject({
 	caught: z.record(StepPathSchema, FailureSchema).optional(),
 	/** By name. */
 	vars: z.record(z.string(), z.json()).optional(),
+	/** What its call gave it, by value name. */
+	values: FunctionValuesSchema.optional(),
 });
 export type Frame = z.infer<typeof FrameSchema>;
 

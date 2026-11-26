@@ -1238,8 +1238,8 @@ Recommended: the script and side by side stand on the tree and calls, and using 
 
 The order that follows:
 
-1. **Fable, now:** Question 82, tells as steps, the nested editor model's design (slice 5), the Calls engine (slice 6, Gateway half). Then pause and message the owner to switch.
-2. **Opus:** the Opus-tier leftovers of slice 4 (the run log rework and the last run served, the judge's tree checks and the condition preview, comment clean-up, the phase audits), the tree on the phone (slice 5), Calls on the phone (slice 6), an install on the owner's word. Then pause and message the owner to switch back.
+1. **Fable, now:** Question 82, tells as steps, the nested editor model's design (slice 5), the Calls engine (slice 6, Gateway half), and the unnamed function's Gateway half (Question 91, which arrived inside this block). Then pause and message the owner to switch.
+2. **Opus:** the Opus-tier leftovers of slice 4 (the run log rework and the last run served, the judge's tree checks and the condition preview, comment clean-up, the phase audits), the tree on the phone with the unnamed function's phone half (slice 5), Calls on the phone and the Run button (slice 6), an install on the owner's word. Then pause and message the owner to switch back.
 3. **Fable:** the script's Gateway slice (2.7f), side by side and tasks (2.7g, Gateway). Then pause and message the owner.
 4. **Opus:** the script and the flow map on the phone, the walk-through and cleanup.
 
@@ -2291,7 +2291,7 @@ Written on the Fable tier before the phone work (Question 90). The build is Opus
 - **Both settings** (Question 82) sit on the draft: "Keep trying for" for every automation, "Cool down" on the trigger form, an event's included.
 - **JVM tests:** tree edits keep every other key and refuse at each cap; `cardsDraw` over a body with both sides, a catch and a kept card; the path vectors; the byte-equal case; the save's choice of flat or function.
 
-## Question 91 - What is a tree with no name stored as? [asked 2026-11-26, awaiting the owner]
+## Question 91 - What is a tree with no name stored as?
 
 An automation's own steps are stored flat, with no function record, and a flat list cannot hold an If. A function record's name must be at least one character. Question 75 said nothing asks for a name.
 
@@ -2302,6 +2302,36 @@ Q: When the owner adds an If, a Try, a Wait or an Exit to steps that have no nam
 - C) The phone names it after the automation's sentence.
 
 Recommended A: it keeps "nothing asks for a name" and "unnamed is the automation's own steps", and B and C put names in the picker the owner never chose.
+
+The owner, 2026-11-26, leaning to A and asking for a second opinion before it is settled:
+
+> A. is essentially a lambda function?
+> rubber duck with Sol if so. might be the way.
+
+Yes: an anonymous function, the same record minus its name, owned by one automation. Sol was consulted on A against storing the tree inline on the automation with no function record (A2).
+
+Sol's answer, checked against the code: A2 makes ownership a property of storage (an inline tree cannot gain a second user, needs no sweep and no function slot), but costs a second executable-body form in the engine's frames, the walk, the judge and both phones, and an installed phone that re-encodes an automation would drop the inline tree. A fits the frames and the walk as they are. Its risk is treating it as a one-character schema change: nothing today stops a second automation pointing at such a function, a carry can recreate sharing, and the installed phone flattens a blank-named body it can draw.
+
+A: A, as an ownership rule the Gateway enforces, told to the owner as taken unless they say otherwise. The three rules written first:
+
+1. **One private body, one owner, one entrance.** A name that is empty after trimming means anonymous. The judge, not the picker, refuses a second pointer to it and any `call` naming it, at a save, a copy and a carry; while users are unknown nothing that changes ownership lands. It stays listed for its own automation's editor and for a carry, and is left out of what can be picked or called.
+2. **Naming keeps the id and the contents.** Typing a name makes it an ordinary function under the same id. Clearing the name of a function only its automation uses keeps the tree, its values and its bindings as the anonymous function; a shared or called one is copied first. A body is flattened to plain actions only when it is exactly a list of `do` steps with no values.
+3. **Readers before writers.** Only the tree-capable app writes one. A move to a Gateway that cannot hold one is refused before anything is touched, as an unheld step kind is. A rollback to a build that requires a name leaves the record stored and its automation invalid until the build returns.
+
+It counts toward the 32-function cap, and "Make unique" on an anonymous body gives another anonymous body, never a name.
+
+**How the Gateway half is to be built** (Fable block 1, after the Calls engine):
+
+- **A name may be empty.** `FunctionSchema` takes a name of no characters and refuses a name of spaces; `unnamed(fn)` is an empty name, and is the one test of it on the Gateway. (First built as "empty after trimming"; Sol's read showed a name of spaces would pass an older build's check on a rollback and run shared.)
+- **Ownership is judged at the write, with ids.** After a save, an anonymous function has at most one automation pointing at it and no function calling it. The judge checks every function the save writes or newly points at, in both directions (a written body calling an anonymous function, and an anonymous function gaining a pointer or a caller), and refuses with the code `private` naming the function. Clearing a shared or called function's name is the same refusal: it is copied first.
+- **And read at every read, as validity is.** A call that names an anonymous function, and a pointer to an anonymous function more than one held automation points at, read invalid (`FUNCTION_PRIVATE`) and never run. This is what covers a carry and any road that is not a save: rows land and say why, as an unfit carry does.
+- **A copy of one is one.** "Make unique" sends a body with no name; it lands under the derived id as today.
+- **Its end:** an automation that stops pointing at its anonymous function, or is removed, deletes it in the same write, as the delete at none does today.
+- **`serves.functions.unnamed`** tells a phone this Gateway holds one, so the tree's Save is offered only where it can land.
+- **Rollback:** a build that requires a name holds the record unread, its automation reads invalid, and a run inside it is dropped. Stated, not engineered around.
+
+Built on 2026-11-26 as written. For the phone half: a new unnamed function takes a fresh id every time (a removed id is buried and a save under it is refused `gone`), the picker and the Call picker leave out a row whose name is blank, and `private` has its line.
+
 
 ## Phase 2.7e.4 - Calls (slice 6)
 
@@ -2327,6 +2357,35 @@ Written before the code (Fable block 1, Question 90). Each line is a ruling unti
 - **Keep trying** is the setting of the automation that started the run, for every frame (already so since Question 82).
 - **Order of work:** the step kind with its fixture and the Kotlin ripple (compile only); the walk's descent with the chain; frames with values and the nested end; the run's loop guard and frame cap; the judge's loop and fit checks and `usersOf` through calls; tests for the three gates; then an adversarial read.
 - **Left for the Opus tier:** the Run button's op (`automation_run` under a call id, an automation fired once by hand with the names readable at any moment), and everything on the phone.
+
+Built on 2026-11-26 as written, with these additions the code asked for:
+
+- **One save writes a called function too.** `automation_save` takes `called`: the functions the automation's calls reach, each an id, a body and a base (0 adds it), landed in the same batch as the automation and its own function. Each must be reached by the automation as the save leaves it. This is where a function used only by callers is edited: from the automation that reaches it. The answer holds their rows (`called`), and a stale one is refused `moved` naming its id.
+- **Reach, not pointers, decides who is asked.** Every automation that reaches a written function (`reachOf`) is checked for fit and for what it would newly do. A call that would stop fitting, a call cut by the write, and a loop are refused even when the automation's own row is unchanged.
+- **The list** answers `callers` on a function's row, and `moves` and `reads` follow calls. A function no automation reaches is unlisted and swept after a week, with what it called once nothing reaches that either.
+- **A move** carries every function its automations reach (`carriedFunctionsOf`, both runtimes, shared vectors), maps each carried body's calls to where the callee landed, binds a call whose function did not come to no staying function, and keeps a move in place's callees as held.
+- **The phone compiles and carries, nothing more:** the `call` branches, the `loop` refusal's line, and the carry selector's twin. Its walk follows no call and no card draws one.
+
+### Bug Classes
+
+From Sol's adversarial read of the Calls engine (five findings, each traced against the code and each now held by a test that fails without its fix).
+
+- **B, a third time: where a carried reference lands.** Mechanism: `judgeCarry` decides a landing id through predicates applied in claim order (`takeable`, `claimedBy`, `inPlace`, and now `vacant`). Round one (2.7e.2) made a derived id free only for its own source; round two closed the in-place bypass writing over a stayer's function; this round found a call or pointer whose function did not come binding to a function a let-go kept, and a claim made before a kept callee's own taking its id. Patched: such a reference lands where nothing is held (an older phone's move back excepted, which a shared vector needs), a carried function a move in place keeps holds its id first, and the plan is refused when two sources share a landing. Sol's second read found both patches leaking through the in-place exception (an arriving call bound to a kept callee that did not come; a carried function landing on a kept callee that was not carried), and its third read found the fourth patch substituting a kept body for an arriving function. That was the mechanism failing a fourth time, so the landing was rewritten instead of patched again, as three rules: an automation already here keeps the function it holds and nothing lands on that function or on what it calls; only what an arriving automation needs is landed, on its own id when only movers run it and else on a derived one; a reference whose function did not come lands where nothing is held (an older phone's own id excepted, when only movers use it). In-place sources no longer bypass claims, a carried function nothing needs is written nowhere, and one landing has one source. Every shared vector holds unchanged, the retry among them. Sol's read of the rewrite found no overwrite, substitution or shared landing, and two smaller cases, both fixed with a test: a rerun moved a pointer that shared a missing function with a kept body's call, and an unread automation row at a pointer's id was read as an unread function.
+- **A user set read before the write it judges.** Mechanism: `unused` read who runs a function from the held rows, so a save whose new function calls the old one deleted it. Same shape as class C (2.7e.2). Patched: it reads the save's own writes. `usersOf` over the rows as the write leaves them is the one reader that would end it.
+- **A recursion over callers.** `moves` walked every path through callers; a stored graph of 32 functions calling each other many ways made a move's judgment take without end. Now a least fixed point.
+- **A call checked less than a pointer.** Mechanism: the pointer's fit went through `fitOf`, a call's through a hand copy that knew no types for the trigger's names and none at entry. Now one `boundIssue` for the pointer, the call at the save, and the call at its entry.
+
+### How Calls on the phone is to be built (slice 6, phone half)
+
+Written on the Fable tier for the Opus-tier build; each line is a ruling until the code says otherwise.
+
+- **A Call card** is a `StepDraft` of its own: the function it names by id, and one row per value the callee declares, as a pointer's value rows are today (a typed literal, or a name in scope picked from "Names here"). A value the trigger gives shows as given and holds no row.
+- **The picker** lists the listed functions that have a name, never the automation's own function and never one whose `callers` chain reaches it (`row.callers`, walked on the phone only to grey out a pick; the Gateway refuses a loop by code `loop`).
+- **Opening the callee** from the card edits it inside the automation's own edit, as a text is edited on its own page: the draft holds a map of opened callee drafts by function id, each with the revision it was opened at. Save sends one `automation_save` whose `called` holds every callee whose wire form changed, base its opened revision, and a new function made from the picker's "New function" with base 0 and an id the phone mints.
+- **The check** sends the same `called`, so a refusal inside a callee arrives by `record: "function"`, `id` and `step`, and is drawn on that callee's page, with a line on the Call card that it holds one.
+- **A `moved` refusal with an `id`** names the callee that changed elsewhere: Reload re-reads that one, as the pointed function's Reload does.
+- **The walk's twin** follows calls with the chain and the budget, replaying `tests/fixtures/automation-walk/vectors.json` once the call cases move there from the TypeScript-only tests. `usedBy`, the confirm labels and `carryRefusal` read it.
+- **The Run button** is the last piece: its op is the Gateway's to add first (an automation fired once by hand, admitted as a run of its own with the trigger's names read as they stand), then a button on the editor's bar.
 
 ## Phase 2.7f - The script (Q57, Q58, Q60 to Q63, Q65)
 

@@ -405,6 +405,8 @@ internal fun automationSaveLine(
 		Protocol.Wire.AutomationSaveRefusalCode.UNWRITTEN -> "The Gateway could not save it. Try again."
 		Protocol.Wire.AutomationSaveRefusalCode.NEWER_AUTOMATION -> "Edit this automation in the newer app."
 		Protocol.Wire.AutomationSaveRefusalCode.NO_FREE_ID -> "This Gateway has no room for another copy of that function."
+		Protocol.Wire.AutomationSaveRefusalCode.LOOP -> "A function it runs would end up calling itself."
+		Protocol.Wire.AutomationSaveRefusalCode.PRIVATE -> "Those steps belong to one automation. Give them a name to share them."
 		null -> refusal?.line ?: "The Gateway refused it."
 	}
 }

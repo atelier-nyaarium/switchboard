@@ -447,6 +447,8 @@ internal fun saveAnswerOf(result: ConsoleAutomationSaveResult): SaveAnswer {
 		AutomationSaveRefusalCode.UNWRITTEN,
 		AutomationSaveRefusalCode.NEWER_AUTOMATION,
 		AutomationSaveRefusalCode.NO_FREE_ID,
+		AutomationSaveRefusalCode.LOOP,
+		AutomationSaveRefusalCode.PRIVATE,
 		-> SaveAnswer.Refused(code, refusal)
 	}
 }

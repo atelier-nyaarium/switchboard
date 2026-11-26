@@ -132,11 +132,13 @@ describe("save refusal lines", () => {
 			held: [],
 			functions: [],
 			unreadAutomations: 0,
+			unreadFunctions: 0,
 			isHome: true,
 			assess: () => [],
 			copyIdOf: () => "copy-0",
 			carryIdOf: () => "carry-0",
 			unreadAt: () => false,
+			unreadFunctionAt: () => false,
 			...patch,
 		});
 		const saveIntent = (
@@ -258,7 +260,7 @@ describe("an automation that runs a function", () => {
 
 		expect(first).toMatchObject({ stored: true, automation: { revision: 1 }, function: { revision: 1 } });
 		expect([refusalOf(staleFunction), refusalOf(staleAutomation)]).toEqual([
-			{ code: "moved", record: "function", revision: 1 },
+			{ code: "moved", record: "function", id: "warm-up", revision: 1 },
 			{ code: "moved", record: "automation", revision: 1 },
 		]);
 		expect([automations.list().map((row) => row.revision), functions()]).toEqual([[1], ["warm-up"]]);

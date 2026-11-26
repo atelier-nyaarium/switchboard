@@ -14,10 +14,11 @@ import {
 	NOT_TRUE_OR_FALSE,
 	STEP_UNFIT,
 	THROWN,
+	TOO_MANY_CALLS,
 	VALUE_TOO_LARGE,
 	VALUE_UNREAD,
 } from "../gateway/computed/automations.js";
-import { FUNCTION_GONE, FUNCTION_UNREAD, NO_SWITCH } from "../gateway/computed/automationValidity.js";
+import { CALL_LOOPS, FUNCTION_GONE, FUNCTION_UNREAD, NO_SWITCH } from "../gateway/computed/automationValidity.js";
 import { holesOver } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { unknown } from "../shared/expressions.js";
@@ -891,6 +892,216 @@ describe("a tree of steps", () => {
 			FunctionSchema.safeParse({ name: "Deep", params: [], steps }).success;
 
 		expect([nest(3), nest(4), wide(3), wide(4)].map(parses)).toEqual([true, false, true, false]);
+	});
+});
+
+describe("a function calling another", () => {
+	const call = (fn: string, values?: Record<string, StepArg>) => ({
+		kind: "call" as const,
+		function: fn,
+		...(values ? { values } : {}),
+	});
+	const passing = call("inner", { room: expr("room") });
+	/** A switched-off automation of its own points at it, so the save op can write it. */
+	const held = (
+		w: ReturnType<typeof world>,
+		id: string,
+		steps: AutomationFunctionInput["steps"],
+		bases = { automation: 0, function: 0 },
+	) =>
+		w.automations.save({
+			id: `h-${id}`,
+			body: {
+				enabled: false,
+				trigger: hourly,
+				actions: [{ kind: "run_function", function: id, values: { room: PLUG } }],
+			},
+			base: bases.automation,
+			function: { as: "edit", id, body: { name: id, params: room, steps }, base: bases.function },
+			confirmed: true,
+		});
+	const inner = (
+		w: ReturnType<typeof world>,
+		steps: AutomationFunctionInput["steps"],
+		bases = { automation: 0, function: 0 },
+	) => held(w, "inner", steps, bases);
+	const toLeaf = call("leaf", { room: expr("room") });
+	const calls = (count: number) => Array.from({ length: count }, () => passing);
+
+	it("runs a callee's steps under its call with the values the call gives, then carries on", async () => {
+		const w = world();
+		inner(w, [ifttt("inner", "{room}")]);
+		w.save(pointing(hourly), [turn("on"), call("inner", { room: lit(FAN) }), ifttt("after")]);
+		await w.later(HOUR);
+
+		expect(w.effects).toEqual([`${PLUG}:on`, "ifttt:inner:Fan", "ifttt:after"]);
+		expect(w.where()).toEqual([
+			["0.0", "warm-up"],
+			["0.1.0", "inner"],
+			["0.2", "warm-up"],
+		]);
+	});
+
+	it("catches a callee's failure in its caller's try, as the call's own", async () => {
+		const w = world();
+		w.answer((effect) => (effect.endsWith(":on") ? { word: "refused" } : { word: "done" }));
+		inner(w, [turn("on")]);
+		w.save(pointing(hourly), [
+			{ kind: "try", steps: [passing, ifttt("skipped")], catch: [ifttt("caught", "{e.code}")] },
+			ifttt("after"),
+		]);
+		await w.later(HOUR);
+
+		expect(w.effects).toEqual([`${PLUG}:on`, "ifttt:caught:call_failed", "ifttt:after"]);
+		expect(w.rows().map(([action, outcome]) => [action, outcome])).toEqual([
+			["device_set", "refused"],
+			["run_function", "refused"],
+			["ifttt_trigger", "ran"],
+			["ifttt_trigger", "ran"],
+		]);
+	});
+
+	it("finishes a run waiting inside a callee on the steps it entered, whatever an edit made of it", async () => {
+		const w = world();
+		inner(w, [{ kind: "wait", minutes: lit(5) }, ifttt("old")]);
+		w.save(pointing(hourly), [passing]);
+		await w.later(HOUR);
+		const edited = inner(w, [ifttt("new")], { automation: 1, function: 1 });
+		await w.later(5 * 60_000 + 1_000);
+
+		expect([edited.stored, w.effects]).toEqual([true, ["ifttt:old"]]);
+	});
+
+	it("refuses at the save a call that closes a loop, and fails at the run one an edit closed behind a waiting run", async () => {
+		const w = world();
+		const back = call("warm-up", { room: expr("room") });
+		inner(w, [turn("on")]);
+		w.save(pointing(hourly), [{ kind: "wait", minutes: lit(5) }, passing]);
+		const closing = inner(w, [back], { automation: 1, function: 1 });
+		await w.later(HOUR);
+		w.save(pointing(hourly), [turn("off")], { automation: 1, function: 1 });
+		const behind = inner(w, [back], { automation: 1, function: 1 });
+		await w.later(5 * 60_000 + 1_000);
+
+		expect([closing.stored, behind.stored]).toEqual([false, true]);
+		expect(w.effects).toEqual([]);
+		expect(w.rows()).toEqual([
+			["run_function", "refused", CALL_LOOPS],
+			["run_function", "refused", CALL_FAILED],
+			["run_function", "refused", CALL_FAILED],
+		]);
+	});
+
+	it("refuses at the save a body that would enter more functions than one run may", () => {
+		const w = world();
+		held(w, "leaf", [ifttt("leaf")]);
+		inner(w, [toLeaf]);
+		const few = w.save(pointing(hourly), calls(7));
+		const many = w.save(pointing(hourly), calls(8), { automation: 1, function: 1 });
+
+		expect([few.stored, many.stored]).toEqual([true, false]);
+	});
+
+	it("fails the calls past what one run may enter, when edits behind a waiting run made its path longer", async () => {
+		const w = world();
+		held(w, "leaf", [ifttt("leaf")]);
+		inner(w, [toLeaf]);
+		w.save(pointing(hourly), [{ kind: "wait", minutes: lit(5) }, ...calls(7)]);
+		await w.later(HOUR);
+		w.save(pointing(hourly), [passing], { automation: 1, function: 1 });
+		const longer = inner(w, [toLeaf, toLeaf], { automation: 1, function: 1 });
+		await w.later(5 * 60_000 + 1_000);
+
+		expect(longer.stored).toBe(true);
+		expect(w.effects).toEqual(Array.from({ length: 10 }, () => "ifttt:leaf"));
+		expect(w.rows().filter(([, , reason]) => reason === TOO_MANY_CALLS).length).toBe(2);
+	});
+
+	it("keeps a function another calls when the automation that pointed at it goes", async () => {
+		const w = world();
+		inner(w, [ifttt("inner")]);
+		w.save(pointing(hourly), [passing]);
+		const removed = w.automations.ownerRemove("h-inner", 1);
+		await w.later(HOUR);
+
+		expect([removed.deleted, w.effects]).toEqual([true, ["ifttt:inner"]]);
+	});
+
+	it("refuses at the save a call to a function not held, one that leaves a value unset, and one whose value does not fit", () => {
+		const saved = (step: AutomationFunctionInput["steps"][number]) => {
+			const w = world();
+			inner(w, [ifttt("inner")]);
+			return w.save(pointing(hourly), [step]).stored;
+		};
+		const calls = [
+			call("gone"),
+			call("inner"),
+			call("inner", { room: lit(5) }),
+			call("inner", { room: lit("aa:bb:cc:dd:ee:99") }),
+			call("inner", { room: expr("nobody") }),
+			call("inner", { room: expr("room"), other: lit("x") }),
+			passing,
+		];
+
+		expect(calls.map(saved)).toEqual([false, false, false, false, false, false, true]);
+	});
+
+	it("holds a call to its function's declared types: a trigger's name at the save, a read value before any of its steps run", async () => {
+		const w = world();
+		const calling = (callee: string, params: AutomationFunctionInput["params"], values?: Record<string, StepArg>) =>
+			w.automations.save({
+				id: "warm",
+				body: pointing(hourly),
+				base: 0,
+				function: {
+					as: "edit",
+					id: "warm-up",
+					body: { name: "Warm up", params: room, steps: [call(callee, values)] },
+					base: 0,
+				},
+				called: [
+					{
+						id: callee,
+						body: { name: callee, params, steps: [ifttt("inner"), { kind: "wait", minutes: expr("1") }] },
+						base: 0,
+					},
+				],
+				confirmed: true,
+			});
+		const clock = calling("timed", [{ name: "time", type: "number" }]);
+		const read = calling("leveled", [{ name: "level", type: "number" }], { level: expr("room") });
+		await w.later(HOUR);
+
+		expect([clock.stored, read.stored]).toEqual([false, true]);
+		expect(w.effects).toEqual([]);
+		expect(w.rows().map(([action, outcome]) => [action, outcome])).toEqual([
+			["run_function", "refused"],
+			["run_function", "refused"],
+		]);
+	});
+
+	it("refuses an edit of a callee that would stop a caller's call fitting", () => {
+		const w = world();
+		inner(w, [ifttt("inner")]);
+		w.save(pointing(hourly), [passing]);
+		const widened = w.automations.save({
+			id: "helper",
+			body: {
+				enabled: false,
+				trigger: hourly,
+				actions: [{ kind: "run_function", function: "inner", values: { room: PLUG, level: 3 } }],
+			},
+			base: 1,
+			function: {
+				as: "edit",
+				id: "inner",
+				body: { name: "Inner", params: [...room, { name: "level", type: "number" }], steps: [ifttt("inner")] },
+				base: 1,
+			},
+			confirmed: true,
+		});
+
+		expect(widened.stored).toBe(false);
 	});
 });
 

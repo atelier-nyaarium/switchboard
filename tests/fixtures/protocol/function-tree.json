@@ -20,7 +20,18 @@
 								{ "kind": "wait", "minutes": { "kind": "literal", "value": 5 } },
 								{ "kind": "note", "text": "recovered" }
 							],
-							"else": [{ "kind": "note", "text": "ignored" }]
+							"else": [
+								{ "kind": "note", "text": "ignored" },
+								{
+									"kind": "call",
+									"function": "chime",
+									"values": {
+										"level": { "kind": "literal", "value": 3 },
+										"room": { "kind": "expression", "text": "result" }
+									}
+								},
+								{ "kind": "call", "function": "bell" }
+							]
 						}
 					]
 				}

@@ -69,12 +69,14 @@ function stage() {
 		body: AutomationInput,
 		automationBase: number,
 		fn?: { id: string; body: AutomationFunctionInput; base: number },
+		called?: { id: string; body: AutomationFunctionInput; base: number }[],
 	) =>
 		console.save({
 			automationId: id,
 			automation: AutomationSchema.parse(body),
 			automationBase,
 			...(fn ? { function: { as: "edit", id: fn.id, body: FunctionSchema.parse(fn.body), base: fn.base } } : {}),
+			...(called ? { called: called.map((each) => ({ ...each, body: FunctionSchema.parse(each.body) })) } : {}),
 			confirmed: true,
 		} satisfies Omit<Extract<ConsoleOp, { kind: "automation_save" }>, "kind">);
 	return { console, save };
@@ -132,8 +134,9 @@ describe("the automation save op", () => {
 		expect(listed.serves?.functions).toEqual({
 			max: 32,
 			steps: ["tell_assistant", "device_set", "ifttt_trigger"],
-			statements: ["do", "if", "try", "exit", "throw", "let", "wait", "note"],
+			statements: ["do", "if", "try", "exit", "throw", "let", "wait", "note", "call"],
 			paramTypes: ["device", "text", "number"],
+			unnamed: true,
 		});
 	});
 
@@ -265,6 +268,103 @@ describe("the automation save op", () => {
 			{ code: "moved", record: "function", revision: 2 },
 			true,
 		]);
+	});
+
+	it("writes the functions its calls reach with it, new and edited, and answers their rows", () => {
+		const { console, save } = stage();
+		const calls = warmUp([on, { kind: "call", function: "chime" }]);
+		const chime = (message: string): AutomationFunctionInput => ({
+			name: "Chime",
+			params: [],
+			steps: [{ kind: "do", action: "tell_assistant", args: { when: lit("quietly"), message: lit(message) } }],
+		});
+		const first = save("warm", pointing(hourly), 0, { id: "warm-up", body: calls, base: 0 }, [
+			{ id: "chime", body: chime("At {time}"), base: 0 },
+		]);
+		const edited = save("warm", pointing(hourly), 1, undefined, [{ id: "chime", body: chime("Now"), base: 1 }]);
+		const stale = save("warm", pointing(hourly), 1, undefined, [{ id: "chime", body: chime("Late"), base: 1 }]);
+		const unreached = save("warm", pointing(hourly), 1, undefined, [{ id: "bell", body: chime("Bell"), base: 0 }]);
+
+		expect(first).toMatchObject({
+			stored: true,
+			function: { id: "warm-up", users: ["warm"], callers: [], reads: { names: ["time"] } },
+			called: [{ id: "chime", revision: 1, users: [], callers: ["warm-up"], moves: false }],
+		});
+		expect(edited).toMatchObject({ stored: true, called: [{ id: "chime", revision: 2 }] });
+		expect([refusalOf(stale), refusalOf(unreached)]).toEqual([
+			{ code: "moved", record: "function", id: "chime", revision: 2 },
+			{ code: "invalid", record: "function", id: "bell" },
+		]);
+		expect(console.list().functions?.map((row) => row.id)).toEqual(["warm-up", "chime"]);
+	});
+
+	it("keeps the function it pointed at when its new function calls it", () => {
+		const { console, save } = stage();
+		const wraps = { ...pointing(hourly), actions: [{ kind: "run_function" as const, function: "wrapper" }] };
+		const wrapper: AutomationFunctionInput = {
+			name: "Wrapper",
+			params: [],
+			steps: [{ kind: "call", function: "warm-up", values: { room: lit(PLUG) } }],
+		};
+		save("warm", pointing(hourly), 0, { id: "warm-up", body: warmUp([on]), base: 0 });
+		const wrapped = save("warm", wraps, 1, { id: "wrapper", body: wrapper, base: 0 });
+		const listed = console.list();
+
+		expect(wrapped.stored).toBe(true);
+		expect(listed.functions?.map((row) => row.id).sort()).toEqual(["warm-up", "wrapper"]);
+		expect(listed.automations.map((row) => row.invalid ?? null)).toEqual([null]);
+	});
+
+	it("refuses a called function's edit that would stop another automation's run fitting, and one that closes a loop", () => {
+		const { save } = stage();
+		const calls = warmUp([on, { kind: "call", function: "chime" }]);
+		const chime = (steps: AutomationFunctionInput["steps"]): AutomationFunctionInput => ({
+			name: "Chime",
+			params: [],
+			steps,
+		});
+		const tells = (message: string) =>
+			({ kind: "do", action: "tell_assistant", args: { when: lit("now"), message: lit(message) } }) as const;
+		save("warm", pointing(hourly), 0, { id: "warm-up", body: calls, base: 0 }, [
+			{ id: "chime", body: chime([tells("Hi")]), base: 0 },
+		]);
+		save("ring", pointing(event), 0);
+
+		const unfit = save("ring", pointing(event), 1, undefined, [
+			{ id: "chime", body: chime([tells("{event.title}")]), base: 1 },
+		]);
+		const loop = save("warm", pointing(hourly), 1, undefined, [
+			{ id: "chime", body: chime([{ kind: "call", function: "warm-up", values: { room: lit(PLUG) } }]), base: 1 },
+		]);
+
+		expect([refusalOf(unfit), refusalOf(loop)]).toEqual([
+			{ code: "unfit", automations: ["warm"] },
+			{ code: "loop", record: "function", id: "warm-up" },
+		]);
+	});
+
+	it("holds a function with no name to the one automation that runs it, until it is named", () => {
+		const { console, save } = stage();
+		const named = (name: string): AutomationFunctionInput => ({ ...warmUp([on]), name });
+		const calling: AutomationFunctionInput = {
+			name: "Caller",
+			params: [],
+			steps: [{ kind: "call", function: "warm-up", values: { room: lit(PLUG) } }],
+		};
+		const callsIt = { ...pointing(hourly), actions: [{ kind: "run_function" as const, function: "caller" }] };
+		const own = save("warm", pointing(hourly), 0, { id: "warm-up", body: named(""), base: 0 });
+		const second = save("ring", pointing(hourly), 0);
+		const called = save("clock", callsIt, 0, { id: "caller", body: calling, base: 0 });
+		const renamed = save("warm", pointing(hourly), 1, { id: "warm-up", body: named("Warm up"), base: 1 });
+		const shared = save("ring", pointing(hourly), 0);
+		const cleared = save("warm", pointing(hourly), 1, { id: "warm-up", body: named(""), base: 2 });
+
+		expect([own.stored, renamed.stored, shared.stored]).toEqual([true, true, true]);
+		expect(FunctionSchema.safeParse(named("  ")).success).toBe(false);
+		expect([refusalOf(second), refusalOf(called), refusalOf(cleared)]).toEqual(
+			Array.from({ length: 3 }, () => ({ code: "private", record: "function", id: "warm-up" })),
+		);
+		expect(console.list().serves?.functions?.unnamed).toBe(true);
 	});
 
 	it("answers an older phone's put as before", () => {
