@@ -96,7 +96,6 @@ internal fun reached(automation: Automation): List<WalkEntry> = walk(automation,
 internal fun reached(automation: Automation, functionOf: (String) -> AutomationFunction?): List<WalkEntry> =
 	walk(automation, functionOf)
 
-/** A function's steps at every depth. */
 internal fun stepsOf(function: AutomationFunction): List<FunctionStep> = stepsIn(written(function), emptyList()).map { it.second }
 
 /** A function's steps as written. */

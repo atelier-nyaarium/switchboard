@@ -361,7 +361,7 @@ function judgeSave(
 				(pointers(id) > 1 || callers.has(id)),
 		);
 		if (shared) return refused(FUNCTION_PRIVATE, { code: "private", record: "function", id: shared.id });
-		// Unread rows may run it: no held unnamed function gains an owner.
+		// Unknown usage blocks ownership.
 		const unknown = view.unreadAutomations > 0 || view.unreadFunctions > 0;
 		const calledBy = (writer: string, id: string) => {
 			const was = functionAt(writer);

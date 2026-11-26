@@ -77,7 +77,6 @@ class StepCardsTest {
 		StepDraft.Try("d", emptyList(), listOf(on("e"))),
 	)
 
-	/** try "t" { if "i" { kept "k" } } */
 	private val deep = listOf(
 		StepDraft.Try("t", listOf(StepDraft.If("i", "true", listOf(StepDraft.Kept("k", FunctionStep.Let("total", StepArg.Literal(JsonPrimitive(1))))), emptyList())), emptyList()),
 	)
@@ -246,7 +245,6 @@ class StepCardsTest {
 		// As typed, so its offsets land.
 		assertEquals(listOf(" value > 30 ", listOf("total", "e")), listOf(ask.condition, ask.runNames))
 		assertNull(conditionAsk(CROSSING, "  ", null, tree))
-		// Within the Gateway's cap, a failure's name last.
 		val many = (1..20).map { StepDraft.Kept("k$it", FunctionStep.Let("v$it", StepArg.Literal(JsonPrimitive(it)))) }
 		val capped = conditionAsk(CROSSING, "v1 > 0", null, many)!!.runNames!!
 		assertEquals(listOf(com.atelier_nyaarium.switchboard.proto.Protocol.Wire.RUN_NAMES_MAX, "e"), listOf(capped.size, capped.last()))

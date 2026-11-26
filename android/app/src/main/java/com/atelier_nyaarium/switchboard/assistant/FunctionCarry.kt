@@ -32,7 +32,6 @@ internal sealed interface CarryRefusal {
 	/** Null when unknown. */
 	data class StepNotServed(val kind: String, val label: String? = null) : CarryRefusal
 
-	/** It carries a function with no name. */
 	data object UnnamedNotServed : CarryRefusal
 
 	/** Its list has not arrived. */
@@ -75,7 +74,6 @@ internal fun carryRefusal(
 		FunctionsServed.Unreachable -> return CarryRefusal.Unreachable
 	}
 	if (held.unnamed != true && functions.any { it.function.name.isBlank() }) return CarryRefusal.UnnamedNotServed
-	// Actions by `steps`, statements by `statements`.
 	val statements = held.statements.orEmpty()
 	val missing = functions.flatMap { stepsOf(it.function) }.firstNotNullOfOrNull { step ->
 		when (step) {

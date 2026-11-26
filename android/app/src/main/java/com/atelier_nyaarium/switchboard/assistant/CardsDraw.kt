@@ -106,7 +106,7 @@ internal fun runNamesOf(steps: List<StepDraft>): List<String> {
 	return kept.filter { it != FAILURE_NAME }.take(Protocol.Wire.RUN_NAMES_MAX - 1) + FAILURE_NAME
 }
 
-/** A body holding a statement its Gateway does not run opens read-only. */
+/** Unserved statements disable editing. */
 internal fun holdsUnserved(steps: List<StepDraft>, offer: AutomationOffer): Boolean {
 	val functions = offer.functions ?: return false
 	val served = functions.served.statements.orEmpty()

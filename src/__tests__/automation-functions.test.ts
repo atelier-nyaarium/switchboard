@@ -190,12 +190,10 @@ describe("a save that changes who owns a function", () => {
 			confirmed: true,
 		};
 
-		// Nobody readable runs it.
 		expect([
 			codeOf(point, view({ held: [], functions: [own] })),
 			codeOf(point, view({ held: [], functions: [own], unreadAutomations: 1 })),
 		]).toEqual(["written", "private"]);
-		// Its own owner edits it.
 		expect(codeOf(edit, view({ held: ownedBy("warm"), functions: [own], unreadAutomations: 1 }))).toBe("written");
 	});
 });
