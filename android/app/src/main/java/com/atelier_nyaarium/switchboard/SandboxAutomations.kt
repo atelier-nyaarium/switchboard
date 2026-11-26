@@ -27,6 +27,8 @@ import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.StepArg
 import kotlinx.serialization.json.JsonObject
 import com.atelier_nyaarium.switchboard.assistant.reached
+import com.atelier_nyaarium.switchboard.assistant.callsOf
+import com.atelier_nyaarium.switchboard.assistant.reachFrom
 import com.atelier_nyaarium.switchboard.assistant.written
 import com.atelier_nyaarium.switchboard.assistant.testLabel
 import com.atelier_nyaarium.switchboard.proto.Automation
@@ -334,19 +336,20 @@ internal class SandboxAutomationGateway(
 		)
 	}
 
-	/** A function with no users is unlisted. */
+	/** Unreferenced functions stay unlisted. */
 	private fun functionRows(gatewayId: String): List<AutomationFunctionRow> = functions(gatewayId).mapNotNull { (id, held) ->
 		val users = shelf(gatewayId).filter { pointerOf(it.automation) == id }
-		users.takeIf { it.isNotEmpty() }?.let {
-			AutomationFunctionRow(
-				id,
-				held.first,
-				held.second,
-				it.map(AutomationRow::id),
-				moves = it.any { row -> movesWithHome(row.automation) },
-				reads = sandboxReads(held.second),
-			)
-		}
+		val callers = functions(gatewayId).filter { (other, body) -> other != id && id in callsOf(body.second) }.keys.toList()
+		if (users.isEmpty() && callers.isEmpty()) return@mapNotNull null
+		AutomationFunctionRow(
+			id,
+			held.first,
+			held.second,
+			users.map(AutomationRow::id),
+			moves = users.any { row -> movesWithHome(row.automation) },
+			reads = sandboxReads(held.second),
+			callers = callers.takeIf { it.isNotEmpty() },
+		)
 	}
 
 	private fun shelf(gatewayId: String): List<AutomationRow> = shelves.getOrPut(gatewayId) {
@@ -524,6 +527,7 @@ internal class SandboxAutomationGateway(
 					if (judged.copied) copies += 1
 					bodies[id] = body
 				}
+				for (called in op.called.orEmpty()) bodies[called.id] = ((bodies[called.id]?.first ?: 0L) + 1L) to called.body
 				val automation = judged.automation
 				val revision = judged.revision
 				val clocked = automation.trigger is AutomationTrigger.Time || automation.trigger is AutomationTrigger.Interval
@@ -537,7 +541,7 @@ internal class SandboxAutomationGateway(
 				)
 				shelves[gatewayId] = if (judged.held == null) shelf(gatewayId) + row else shelf(gatewayId).map { if (it.id == op.automationId) row else it }
 				val running = shelf(gatewayId).mapNotNull { pointerOf(it.automation) }.toSet()
-				bodies.keys.retainAll(running)
+				bodies.keys.retainAll(running + running.flatMap { start -> reachFrom(start) { id: String -> bodies[id]?.second } })
 				return ConsoleAutomationSaveResult(stored = true, automation = row, function = functionRows(gatewayId).firstOrNull { it.id == pointerOf(automation) })
 			}
 		}
@@ -656,6 +660,19 @@ internal class SandboxAutomationGateway(
 		val running = shelf(gatewayId).mapNotNull { pointerOf(it.automation) }.toSet()
 		functions(gatewayId).keys.retainAll(running)
 		return ConsoleAutomationDeleteResult(true)
+	}
+
+	override suspend fun run(gatewayId: String, automationId: String, callId: String): AutomationRan {
+		pause()
+		if (gatewayId == SECOND_SANDBOX_GATEWAY) return AutomationRan.NotServed
+		if (gatewayId == SANDBOX_NEVER_REGISTERED) return AutomationRan.Unreachable
+		val held = shelf(gatewayId).find { it.id == automationId }
+			?: return AutomationRan.Refused(Protocol.Wire.AutomationRunRefusal.GONE)
+		if (!held.automation.enabled) return AutomationRan.Refused(Protocol.Wire.AutomationRunRefusal.OFF)
+		val steps = written(held.automation).indices.map { AutomationLastStep("$it", "action", outcome = Protocol.Wire.RunOutcome.RAN.wire) }
+		val ran = held.copy(lastRanAt = now(), lastRun = AutomationLastRun(now(), held.revision, steps, running = false))
+		shelves[gatewayId] = shelf(gatewayId).map { if (it.id == automationId) ran else it }
+		return AutomationRan.Started
 	}
 
 	/** The names each kind of trigger offers a text. */

@@ -160,6 +160,7 @@ describe("the automation save op", () => {
 			{
 				code: "hole",
 				record: "function",
+				id: "warm-up",
 				path: "1",
 				step: "1",
 				param: "message",
@@ -169,6 +170,7 @@ describe("the automation save op", () => {
 			{
 				code: "hole",
 				record: "function",
+				id: "warm-up",
 				path: "0",
 				step: "0",
 				param: "device",
@@ -268,6 +270,39 @@ describe("the automation save op", () => {
 			{ code: "moved", record: "function", revision: 2 },
 			true,
 		]);
+	});
+
+	it("names the called function a refusal sits in, and never the derived id a copy lands on", () => {
+		const { console, save } = stage();
+		const holed = (message: string): AutomationFunctionInput => ({
+			name: "Chime",
+			params: [],
+			steps: [{ kind: "do", action: "tell_assistant", args: { when: lit("now"), message: lit(message) } }],
+		});
+		const calling = (callee: string) => ({
+			id: "warm-up",
+			body: warmUp([on, { kind: "call", function: callee }]),
+			base: 0,
+		});
+		const inCallee = save("warm", pointing(hourly), 0, calling("chime"), [
+			{ id: "chime", body: holed("Hi {nowhere}"), base: 0 },
+		]);
+		const goneCallee = save("warm", pointing(hourly), 0, calling("bell"), [
+			{ id: "bell", body: holed("Hi"), base: 3 },
+		]);
+		save("warm", pointing(hourly), 0, { id: "warm-up", body: warmUp([on]), base: 0 });
+		const copied = console.save({
+			automationId: "warm",
+			automation: AutomationSchema.parse(pointing(hourly)),
+			automationBase: 1,
+			function: { as: "copy", from: "warm-up", fromBase: 1, body: FunctionSchema.parse(holed("Hi {nowhere}")) },
+			confirmed: true,
+		});
+
+		expect(refusalOf(inCallee)).toMatchObject({ code: "hole", record: "function", id: "chime", step: "0" });
+		expect(refusalOf(goneCallee)).toEqual({ code: "gone", record: "function", id: "bell" });
+		expect(refusalOf(copied)).toMatchObject({ code: "hole", record: "function", step: "0" });
+		expect(refusalOf(copied)).not.toHaveProperty("id");
 	});
 
 	it("writes the functions its calls reach with it, new and edited, and answers their rows", () => {

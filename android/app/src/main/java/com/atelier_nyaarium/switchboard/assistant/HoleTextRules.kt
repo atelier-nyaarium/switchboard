@@ -29,7 +29,7 @@ internal const val MINUTES = "minutes"
 internal enum class TextMode { HOLES, EXPRESSION }
 
 internal fun conditionAt(draft: AutomationDraft, ref: TextRef): String? =
-	(findStep(draft.steps, ref.key) as? StepDraft.If)?.condition?.takeIf { ref.param == WHEN }
+	(draft.stepAt(ref.key) as? StepDraft.If)?.condition?.takeIf { ref.param == WHEN }
 
 /** Kept names; catch failure. */
 internal fun runNamesHere(steps: List<StepDraft>, key: String): List<NameHere> {
@@ -90,13 +90,13 @@ private val EVENT_OWN = listOf("id", "title", "url")
 
 /** Null when the action or text is gone. */
 internal fun textParam(draft: AutomationDraft, ref: TextRef, offer: AutomationOffer): ParamOffer? {
-	val action = (findStep(draft.steps, ref.key) as? StepDraft.Do)?.action as? ActionDraft.Filled ?: return null
+	val action = (draft.stepAt(ref.key) as? StepDraft.Do)?.action as? ActionDraft.Filled ?: return null
 	return offer.action(action.kind)?.param(ref.param)?.takeIf { it.kind == PARAM_TEXT }
 }
 
 /** Null where `textParam` is. */
 internal fun textAt(draft: AutomationDraft, ref: TextRef, offer: AutomationOffer): String? {
-	val action = (findStep(draft.steps, ref.key) as? StepDraft.Do)?.action as? ActionDraft.Filled ?: return null
+	val action = (draft.stepAt(ref.key) as? StepDraft.Do)?.action as? ActionDraft.Filled ?: return null
 	return textParam(draft, ref, offer)?.let { action.values[it.name].orEmpty() }
 }
 

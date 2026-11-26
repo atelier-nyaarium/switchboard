@@ -135,15 +135,16 @@ class AutomationCheckTest {
 		val moved = AutomationSaid.FunctionMoved("shared")
 		val refusal = AutomationSaid.Line("held")
 		val other = functionRow("other", "Other", listOf("theirs"))
-		val repointed = draft.pointedTo(other, offerOf(SANDBOX_SERVES, away = false, functions = listOf(oldFunction, other))).runsDraft()
+		val repointedDraft = draft.pointedTo(other, offerOf(SANDBOX_SERVES, away = false, functions = listOf(oldFunction, other)))
+		val repointed = repointedDraft.runsDraft()
 		val fresh = (runs as RunsDraft.Pointing).copy(mode = PointMode.NEW)
 
-		assertFalse(saveAllowedAfterCheck(refusal, null, runs))
-		assertFalse(saveAllowedAfterCheck(null, moved, runs))
-		assertTrue(saveAllowedAfterCheck(null, refusal, runs))
-		assertTrue(saveAllowedAfterCheck(null, null, runs))
+		assertFalse(saveAllowedAfterCheck(refusal, null, draft, draft.context.offer))
+		assertFalse(saveAllowedAfterCheck(null, moved, draft, draft.context.offer))
+		assertTrue(saveAllowedAfterCheck(null, refusal, draft, draft.context.offer))
+		assertTrue(saveAllowedAfterCheck(null, null, draft, draft.context.offer))
 		assertEquals(listOf(true, false, false), listOf(runs, repointed, fresh).map { movedFor(moved, it) })
-		assertTrue(saveAllowedAfterCheck(null, moved, repointed))
+		assertTrue(saveAllowedAfterCheck(null, moved, repointedDraft, repointedDraft.context.offer))
 	}
 
 	@Test

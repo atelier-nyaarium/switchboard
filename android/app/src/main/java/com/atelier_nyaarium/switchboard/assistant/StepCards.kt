@@ -48,11 +48,15 @@ internal fun CardsSection(
 	asked: Boolean,
 	lastRun: AutomationLastRun?,
 	edit: ((AutomationDraft) -> AutomationDraft) -> Unit,
+	/** Re-reads a moved callee. */
+	reload: (String) -> Unit,
+	/** Null selects automation cards. */
+	tree: String? = null,
 ) {
-	val functionParams = (draft.runs as? RunsHead.Points)?.pointing?.params.orEmpty()
+	val functionParams = if (tree == null) (draft.runs as? RunsHead.Points)?.pointing?.params.orEmpty() else draft.callees[tree]?.params.orEmpty()
 	val valueNames = functionParams.filter { it.param.name.isNotBlank() }.map { it.key }.toSet()
 	val plugs = plugChoices(functionParams, offer)
-	val rows = cardsDraw(draft.steps, { cardHint(it, offer, valueNames) }, lastRun, pointing = draft.runs is RunsHead.Points)
+	val rows = cardsDraw(draft.stepsOf(tree), { cardHint(it, offer, valueNames) }, lastRun, pointing = draft.runs is RunsHead.Points)
 	val running = lastRun?.running == true
 	lastRun?.let { run ->
 		Text(
@@ -65,14 +69,14 @@ internal fun CardsSection(
 		key(row.rowKey) {
 			Box(Modifier.padding(start = INDENT * row.depth)) {
 				when (row) {
-					is CardRow.Card -> StepCard(row, draft, offer, plugs, valueNames, enabled, said, textRead, conditionRead, asked, running, edit)
+					is CardRow.Card -> StepCard(row, draft, offer, plugs, valueNames, enabled, said, textRead, conditionRead, asked, running, edit, reload, tree)
 					is CardRow.SideLabel -> Text(
 						sideLabel(row.side),
 						style = MaterialTheme.typography.labelLarge,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
 					is CardRow.AddSlot -> AddStep(slotOffers(draft, offer, row), enabled, nested = row.depth > 0, { freshAction(it, offer) }) { added ->
-						edit { held -> held.plusStep(row.slot, added) }
+						edit { held -> held.plusStep(row.slot, added, tree) }
 					}
 				}
 			}
@@ -100,6 +104,8 @@ private fun StepCard(
 	asked: Boolean,
 	running: Boolean,
 	edit: ((AutomationDraft) -> AutomationDraft) -> Unit,
+	reload: (String) -> Unit,
+	tree: String?,
 ) {
 	val step = row.step
 	val key = step.key
@@ -108,7 +114,7 @@ private fun StepCard(
 		Column(Modifier.padding(start = 12.dp, end = 4.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 			Row(verticalAlignment = Alignment.CenterVertically) {
 				Text(cardLabel(step, offer), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-				MoveMenu(draft.steps, key, enabled) { slot -> edit { held -> movedStep(held.steps, key, slot)?.let { held.copy(steps = it) } ?: held } }
+				MoveMenu(draft.stepsOf(draft.treeHolding(key)), key, enabled) { slot -> edit { it.movedTo(key, slot) } }
 				IconButton(onClick = hapticClick { edit { it.minusStep(key) } }, enabled = enabled && canRemove(draft, key, offer)) {
 					Icon(Icons.Default.Close, contentDescription = "Remove step")
 				}
@@ -149,6 +155,7 @@ private fun StepCard(
 					)
 					is StepDraft.Exit -> Text("Ends the run here.", style = MaterialTheme.typography.bodySmall, color = dim)
 					is StepDraft.Try -> Unit
+					is StepDraft.Call -> CallFields(step, draft, offer, tree, enabled, said, edit, reload)
 					is StepDraft.Kept -> Text("This app cannot edit this step yet. It is kept as it is.", style = MaterialTheme.typography.bodySmall, color = dim)
 				}
 				IssueLine(row.issue)

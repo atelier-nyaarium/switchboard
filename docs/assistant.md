@@ -95,7 +95,16 @@ Router's record names. That Gateway feeds it events. The session decides what to
       actions and then the statements it runs (`statementsOffered`). A card has a move menu (up or
       down its own list) and its remove, and shows how the last run went on it while the editor
       shows what is stored (`lastRunShown`). A body holding a statement the Gateway does not run
-      opens read-only. With no name, cards that are all plain actions save flat, anything else as
+      opens read-only. A Call card picks a named function (less any whose calls reach back to
+      this one) or "New function", and draws one row per value the function declares: typed by its
+      type, or a name read where the call runs, with Clear; a value the trigger gives reads
+      "from the trigger" instead. "Open its steps" shows that function's
+      cards on a page of their own, edited inside the automation's edit, under the other
+      automations those edits reach; Save sends each function
+      the automation still calls and that changed, and the automation's page names one that needs
+      attention. A Call card says "A step in it needs attention." when its function, or one it
+      calls, holds a refusal or a problem, and "It changed elsewhere." with Reload when its
+      function was edited elsewhere since it was opened. With no name, cards that are all plain actions save flat, anything else as
       an unnamed function (`docs/fields.md`, Functions). Where the Gateway serves functions, the Runs block
       (`runsView`) also offers "Run a function" and draws a pointer with its values, who else runs it
       and what an edit reaches (`docs/fields.md`, Functions). The action cards are "Tell the assistant" with Now or
@@ -110,7 +119,9 @@ Router's record names. That Gateway feeds it events. The session decides what to
       tell, from `automation_preview`'s `condition` (`conditionAsk`). Any text that holds a hole shows the Gateway's filled form in a box labelled
       Preview, or the hole it refused, on both pages. A dangerous action says "Asks once when saved", and the save asks "Run
       without asking?" before it sends again. Delete sits in the top bar's menu and asks first, as
-      every record page's removal does (`RemoveMenu`). Back on a changed draft asks "Leave and
+      every record page's removal does (`RemoveMenu`); "Run now" sits above it for a saved
+      automation with nothing changed, and the Gateway's answer is drawn under Runs
+      (`automation_run`). Back on a changed draft asks "Leave and
       discard changes?" with Discard and Stay.
     - **Whether a draft would save is asked while editing:** where the Gateway serves functions,
       the editor sends the op a save would send to `automation_check` once typing settles

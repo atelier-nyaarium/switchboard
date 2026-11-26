@@ -105,6 +105,9 @@ internal fun written(function: AutomationFunction): List<FunctionStep> = functio
 /** The functions a function's steps call, at any depth. */
 internal fun callsOf(function: AutomationFunction): List<String> = called(written(function))
 
+/** Kept steps' calls. */
+internal fun callsIn(steps: List<FunctionStep>): List<String> = called(steps)
+
 private fun called(steps: List<FunctionStep>): List<String> = steps.flatMap { step ->
 	when (step) {
 		is FunctionStep.Call -> listOf(step.function)

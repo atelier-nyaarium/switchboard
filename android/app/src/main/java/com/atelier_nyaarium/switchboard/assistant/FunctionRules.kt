@@ -131,6 +131,8 @@ internal sealed interface RunsIssue {
 	/** Requires a named function. */
 	data class NeedsName(val key: String) : RunsIssue
 
+	data class InCallee(val name: String) : RunsIssue
+
 	data class Unset(val name: String) : RunsIssue
 
 	data object NameWithValues : RunsIssue
@@ -167,7 +169,19 @@ private fun cardIssue(step: StepDraft, offer: AutomationOffer, params: List<Func
 	}
 	is StepDraft.If -> "Its condition is needed".takeIf { step.condition.isBlank() }
 	is StepDraft.Wait -> waitIssue(step.minutes)
+	is StepDraft.Call -> callIssue(step, offer)
 	is StepDraft.Try, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept -> null
+}
+
+private fun callIssue(step: StepDraft.Call, offer: AutomationOffer): String? {
+	if (step.function.isBlank()) return "Pick a function"
+	val declared = offer.functions?.row(step.function)?.function?.params
+	strayCallValues(step, declared).firstOrNull()?.let { return "Clear $it" }
+	val params = declared.orEmpty().associateBy { it.name }
+	return step.values.entries.firstNotNullOfOrNull { (name, value) ->
+		val param = params[name] ?: return@firstNotNullOfOrNull null
+		"$name is a number".takeIf { value is CallValue.Typed && value.text.isNotBlank() && functionValueOf(param, value.text) == null }
+	}
 }
 
 private fun stepIssue(steps: List<StepDraft>, offer: AutomationOffer, params: List<FunctionValueDraft>? = null): RunsIssue? {
@@ -185,12 +199,14 @@ private fun flatIssue(steps: List<StepDraft>, offer: AutomationOffer): RunsIssue
 	return unwritable(steps, offer, emptyList())?.let { RunsIssue.NotAStep(it.key) }
 }
 
+internal fun calleeIssue(callee: CalleeDraft, offer: AutomationOffer): RunsIssue? = stepIssue(callee.steps, offer, callee.params)
+
 /** A card the function cannot hold. */
 private fun unwritable(steps: List<StepDraft>, offer: AutomationOffer, params: List<FunctionValueDraft>): StepDraft? =
 	everyStep(steps).firstOrNull { step ->
 		when (step) {
 			is StepDraft.Do -> stepOf(step.action, offer, params) == null
-			is StepDraft.If, is StepDraft.Try, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept ->
+			is StepDraft.If, is StepDraft.Try, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Call, is StepDraft.Kept ->
 				false
 		}
 	}
@@ -284,6 +300,7 @@ private fun blockIssue(issue: RunsIssue?): RunsIssue? = when (issue) {
 	null, RunsIssue.NoSteps, is RunsIssue.Step -> null
 	is RunsIssue.NotAStep,
 	is RunsIssue.NeedsName,
+	is RunsIssue.InCallee,
 	is RunsIssue.Unset,
 	RunsIssue.NameWithValues,
 	is RunsIssue.BadParam,
@@ -432,7 +449,15 @@ internal sealed interface SaveAnswer {
 	data class Confirm(val labels: List<String>) : SaveAnswer
 
 	/** Lands on its field. */
-	data class Hole(val record: AutomationSaveRecord?, val path: String?, val param: String?, val start: Long?, val end: Long?) : SaveAnswer
+	data class Hole(
+		val record: AutomationSaveRecord?,
+		val path: String?,
+		val param: String?,
+		val start: Long?,
+		val end: Long?,
+		/** Called function ID. */
+		val id: String? = null,
+	) : SaveAnswer
 
 	/** `code` null for one this build does not know. */
 	data class Refused(val code: AutomationSaveRefusalCode?, val refusal: AutomationSaveRefusal) : SaveAnswer
@@ -445,15 +470,16 @@ internal fun pointerOf(automation: Automation): String? = (written(automation).s
 internal sealed interface RefusedAt {
 	data class Value(val param: String) : RefusedAt
 
-	data class Step(val path: String, val param: String) : RefusedAt
+	/** `null` means own function. */
+	data class Step(val path: String, val param: String, val function: String? = null) : RefusedAt
 }
 
-/** A refused hole, by the step's path. */
-internal data class RefusedHole(val path: String, val param: String, val start: Int, val end: Int)
+/** Hole path and function. */
+internal data class RefusedHole(val path: String, val param: String, val start: Int, val end: Int, val function: String? = null)
 
 internal fun refusedHoleOf(hole: SaveAnswer.Hole): RefusedHole? {
 	val path = hole.path?.takeIf { it.isNotEmpty() } ?: return null
-	return RefusedHole(path, hole.param ?: return null, hole.start?.toInt() ?: return null, hole.end?.toInt() ?: return null)
+	return RefusedHole(path, hole.param ?: return null, hole.start?.toInt() ?: return null, hole.end?.toInt() ?: return null, hole.id)
 }
 
 /** An older put names its action by index. */
@@ -465,11 +491,12 @@ internal fun refusedAtOf(refusal: AutomationSaveRefusal): RefusedAt? {
 	if (refusal.code != AutomationSaveRefusalCode.INVALID.wire) return null
 	val step = refusal.step
 	val param = refusal.param
-	if (step != null && param != null) return RefusedAt.Step(step, param)
+	val function = refusal.id.takeIf { refusal.record == AutomationSaveRecord.FUNCTION.wire }
+	if (step != null && param != null) return RefusedAt.Step(step, param, function)
 	val parts = refusal.path?.split(".") ?: return null
 	return when {
 		parts.size == 2 && parts[0] == VALUES -> RefusedAt.Value(parts[1])
-		parts.size == 3 && parts[0] == STEPS -> parts[1].takeIf { it.toIntOrNull() != null }?.let { RefusedAt.Step(it, parts[2]) }
+		parts.size == 3 && parts[0] == STEPS -> parts[1].takeIf { it.toIntOrNull() != null }?.let { RefusedAt.Step(it, parts[2], function) }
 		else -> null
 	}
 }
@@ -494,6 +521,7 @@ internal fun saveAnswerOf(result: ConsoleAutomationSaveResult): SaveAnswer {
 			refusal.param,
 			refusal.start,
 			refusal.end,
+			refusal.id.takeIf { refusal.record == AutomationSaveRecord.FUNCTION.wire },
 		)
 		AutomationSaveRefusalCode.MOVED,
 		AutomationSaveRefusalCode.GONE,
@@ -513,4 +541,10 @@ internal fun saveAnswerOf(result: ConsoleAutomationSaveResult): SaveAnswer {
 		AutomationSaveRefusalCode.PRIVATE,
 		-> SaveAnswer.Refused(code, refusal)
 	}
+}
+
+/** Undeclared values; none while unknown. */
+internal fun strayCallValues(step: StepDraft.Call, params: List<FunctionParam>?): List<String> {
+	val declared = params?.map { it.name }?.toSet() ?: return emptyList()
+	return step.values.keys.filter { it !in declared }
 }

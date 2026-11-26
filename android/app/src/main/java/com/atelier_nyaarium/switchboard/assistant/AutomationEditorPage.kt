@@ -23,7 +23,9 @@ import com.atelier_nyaarium.switchboard.ConfirmDialog
 import com.atelier_nyaarium.switchboard.EditorScaffold
 import com.atelier_nyaarium.switchboard.Lookup
 import com.atelier_nyaarium.switchboard.MirroredDraft
+import com.atelier_nyaarium.switchboard.MenuAction
 import com.atelier_nyaarium.switchboard.RemoveMenu
+import com.atelier_nyaarium.switchboard.RunKey
 import com.atelier_nyaarium.switchboard.assistantGateway
 import com.atelier_nyaarium.switchboard.deleteTakesLine
 import com.atelier_nyaarium.switchboard.keptRow
@@ -90,9 +92,10 @@ internal fun AutomationEditorPage(
 		}
 	} ?: return
 	val session = open.session
+	val runStates by ops.runs.collectAsState()
+	val runState = held?.let { runStates[RunKey(gatewayId, it.id)] }
 	// Rebase or Back replaces typing.
-	val pointedBase = (session.draft.runsDraft() as? RunsDraft.Pointing)?.base
-	val typed = remember(key, open.opening, session.draft.revision, pointedBase, ops.edits.page(session.draft)) {
+	val typed = remember(key, open.opening, mirrorKey(session.draft), ops.edits.page(session.draft)) {
 		MirroredDraft(session.draft) { next -> ops.edits.edit(key, open.opening) { next } }
 	}
 	var draft by typed
@@ -154,10 +157,12 @@ internal fun AutomationEditorPage(
 		val consoles by repo.liveConsoleOps.state.collectAsState()
 		val console = consoles[gatewayId]
 		LaunchedEffect(gatewayId) { repo.command { liveConsoleOps.open(gatewayId) } }
-		val names = namesHere(offer, draft.trigger.kind, triggerRead.answer?.names, pointing?.wireParams().orEmpty(), pointing?.valuesByName().orEmpty())
+		val pageScope = scopeAt(draft, ref.key)
+		val names = namesAt(draft, offer, ref.key, triggerRead.answer?.names)
+		val cards = draft.stepsOf(draft.treeHolding(ref.key))
 		if (shownCondition != null) {
-			val here = names + runNamesHere(draft.steps, ref.key)
-			val read = previewRead(ops, gatewayId, conditionAsk(trigger, shownCondition, previewScope, draft.steps))
+			val here = names + runNamesHere(cards, ref.key)
+			val read = previewRead(ops, gatewayId, conditionAsk(trigger, shownCondition, pageScope, cards))
 			val preview = conditionPreviewOf(shownCondition, trigger != null, read)
 			val refused = refusedHole(said, ref.key, WHEN, shownCondition)
 			HoleTextEditor(
@@ -177,7 +182,7 @@ internal fun AutomationEditorPage(
 			return
 		}
 		if (textOf != null && shownText != null) {
-			val read = previewRead(ops, gatewayId, previewAsk(trigger.takeIf { hasHole(shownText) }, previewText(shownText), previewScope))
+			val read = previewRead(ops, gatewayId, previewAsk(trigger.takeIf { hasHole(shownText) }, previewText(shownText), pageScope))
 			val preview = textPreviewOf(shownText, trigger != null, read)
 			val refused = refusedHole(said, ref.key, ref.param, shownText)
 			HoleTextEditor(
@@ -198,6 +203,30 @@ internal fun AutomationEditorPage(
 		}
 	}
 
+	val textRead: @Composable (String?) -> PreviewRead = { text -> previewRead(ops, gatewayId, previewAsk(trigger.takeIf { text != null }, text, previewScope)) }
+	val conditionRead: @Composable (String) -> PreviewRead = { condition ->
+		previewRead(ops, gatewayId, conditionAsk(trigger, condition, previewScope, draft.steps))
+	}
+	val reload: (String) -> Unit = { id -> repo.command { automationOps.reloadFunction(key, open.opening, id) } }
+	draft.inside.lastOrNull()?.let { draft.callees[it] }?.let { callee ->
+			// Calls supply runtime values.
+		val scope = calleePreviewScope(callee)
+		CalleePage(
+			callee,
+			draft,
+			offer,
+			can.edit,
+			said,
+			textRead = { text -> previewRead(ops, gatewayId, previewAsk(trigger.takeIf { text != null }, text, scope)) },
+			conditionRead = { condition -> previewRead(ops, gatewayId, conditionAsk(trigger, condition, scope, callee.steps)) },
+			asked = trigger != null,
+			edit = edit,
+			reload = reload,
+			rows = rows,
+		)
+		return
+	}
+
 	EditorScaffold(
 		title = if (gone) "Deleted elsewhere" else "Automation",
 		saving = busy,
@@ -205,7 +234,14 @@ internal fun AutomationEditorPage(
 		onSave = { save(confirmed = false) },
 		onBack = onBack,
 		leaving = open.leaving,
-		menu = { if (slot is AutomationSlot.Held) RemoveMenu("Delete automation", enabled = can.delete) { confirmingDelete = true } },
+		menu = {
+			if (slot is AutomationSlot.Held) {
+				val run = MenuAction("Run now", runOffered(slot, gone, draft, session.opened, busy, runState)) {
+					repo.command { automationOps.run(gatewayId, slot.id, open.opening) }
+				}
+				RemoveMenu("Delete automation", enabled = can.delete, actions = listOf(run)) { confirmingDelete = true }
+			}
+		},
 		scrollState = editorScroll,
 	) {
 		Text("When", style = MaterialTheme.typography.labelLarge)
@@ -213,10 +249,9 @@ internal fun AutomationEditorPage(
 
 		HorizontalDivider()
 		Text(if (runs != null) "Runs" else "Do", style = MaterialTheme.typography.labelLarge)
+		runShown(runState, open.opening)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 		runs?.let {
-			RunsBlock(it, offer, can.edit, edit) {
-				repo.command { automationOps.reloadFunction(key, open.opening) }
-			}
+			RunsBlock(it, offer, can.edit, edit) { reloadable(draft.runsDraft())?.let(reload) }
 		}
 		if (holdsUnserved(draft.steps, offer)) {
 			Text("This Gateway cannot run some of these steps.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -227,11 +262,12 @@ internal fun AutomationEditorPage(
 				offer = offer,
 				enabled = can.edit,
 				said = said,
-				textRead = { text -> previewRead(ops, gatewayId, previewAsk(trigger.takeIf { text != null }, text, previewScope)) },
-				conditionRead = { condition -> previewRead(ops, gatewayId, conditionAsk(trigger, condition, previewScope, draft.steps)) },
+				textRead = textRead,
+				conditionRead = conditionRead,
 				asked = trigger != null,
 				lastRun = lastRunShown(draft, session.opened, lookup?.let(::keptRow), offer.functions),
 				edit = edit,
+				reload = reload,
 			)
 		}
 		HorizontalDivider()

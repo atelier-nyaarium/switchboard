@@ -382,10 +382,15 @@ internal fun saidText(draft: AutomationDraft, at: SaidAt): String = when (at) {
 	is SaidAt.Value -> (draft.runs as? RunsHead.Points)?.pointing?.let { pointing ->
 		pointing.params.firstOrNull { it.param.name == at.param }?.let { pointing.values[it.key] }
 	}.orEmpty()
-	is SaidAt.Card -> when (val step = findStep(draft.steps, at.key)) {
+	is SaidAt.Card -> when (val step = draft.stepAt(at.key)) {
 		is StepDraft.Do -> (step.action as? ActionDraft.Filled)?.values?.get(at.param).orEmpty()
 		is StepDraft.If -> step.condition.takeIf { at.param == WHEN }.orEmpty()
 		is StepDraft.Wait -> step.minutes.takeIf { at.param == MINUTES }.orEmpty()
+		is StepDraft.Call -> when (val value = step.values[at.param]) {
+			is CallValue.Typed -> value.text
+			is CallValue.Read -> value.expression
+			null -> ""
+		}
 		is StepDraft.Try, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept, null -> ""
 	}
 }
@@ -397,10 +402,11 @@ internal fun refusedField(said: AutomationSaid?, at: SaidAt, text: String): Stri
 private fun drawsField(draft: AutomationDraft, at: SaidAt, offer: AutomationOffer): Boolean = when (at) {
 	is SaidAt.Value -> offer.functions != null &&
 		(draft.runs as? RunsHead.Points)?.pointing?.params?.any { it.param.name == at.param } == true
-	is SaidAt.Card -> draft.runs !is RunsHead.Kept &&
-		((findStep(draft.steps, at.key) as? StepDraft.Do)?.action as? ActionDraft.Filled)?.let { card ->
-			actionFields(card, offer).any { it.param?.name == at.param }
-		} == true
+	is SaidAt.Card -> draft.runs !is RunsHead.Kept && when (val step = draft.stepAt(at.key)) {
+		is StepDraft.Do -> (step.action as? ActionDraft.Filled)?.let { card -> actionFields(card, offer).any { it.param?.name == at.param } } == true
+		is StepDraft.Call -> calleeParams(draft, offer, step.function).orEmpty().any { it.name == at.param }
+		is StepDraft.If, is StepDraft.Try, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept, null -> false
+	}
 }
 
 /** What no field draws. */

@@ -1,9 +1,14 @@
 package com.atelier_nyaarium.switchboard.assistant
 
 import com.atelier_nyaarium.switchboard.parseDecimal
+import com.atelier_nyaarium.switchboard.proto.FunctionParam
 import com.atelier_nyaarium.switchboard.proto.FunctionStep
 import com.atelier_nyaarium.switchboard.proto.Protocol
+import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.FunctionParamType
 import com.atelier_nyaarium.switchboard.proto.StepArg
+import com.atelier_nyaarium.switchboard.runIsolated
+import com.atelier_nyaarium.switchboard.wireJson
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.doubleOrNull
 import java.util.UUID
@@ -39,8 +44,18 @@ internal sealed interface StepDraft {
 
 	data class Note(override val key: String, val text: String) : StepDraft
 
+	/** Callee parameters key values. */
+	data class Call(override val key: String, val function: String, val values: Map<String, CallValue>) : StepDraft
+
 	/** What cards do not draw, written back as it was read. */
 	data class Kept(override val key: String, val step: FunctionStep) : StepDraft
+}
+
+/** Typed value; caller expression. */
+internal sealed interface CallValue {
+	data class Typed(val text: String) : CallValue
+
+	data class Read(val expression: String) : CallValue
 }
 
 /** Where a new step lands: an index in the top list, or in a step's side. */
@@ -54,7 +69,7 @@ internal val STEPS_DEPTH = Protocol.Wire.FUNCTION_DEPTH_MAX
 internal fun sidesOf(step: StepDraft): List<Pair<Side, List<StepDraft>>> = when (step) {
 	is StepDraft.If -> listOf(Side.THEN to step.then, Side.ELSE to step.otherwise)
 	is StepDraft.Try -> listOf(Side.BODY to step.body, Side.CATCH to step.catch)
-	is StepDraft.Do, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept -> emptyList()
+	is StepDraft.Do, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Call, is StepDraft.Kept -> emptyList()
 }
 
 private fun withSide(step: StepDraft, side: Side, list: List<StepDraft>): StepDraft = when (step) {
@@ -68,7 +83,7 @@ private fun withSide(step: StepDraft, side: Side, list: List<StepDraft>): StepDr
 		Side.CATCH -> step.copy(catch = list)
 		Side.THEN, Side.ELSE -> step
 	}
-	is StepDraft.Do, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept -> step
+	is StepDraft.Do, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Call, is StepDraft.Kept -> step
 }
 
 /** Every step at every depth, a step before what it holds. */
@@ -191,7 +206,37 @@ internal fun treeOf(
 	is FunctionStep.Wait -> minutesText(step.minutes)?.let { StepDraft.Wait(key(), it) } ?: StepDraft.Kept(key(), step)
 	is FunctionStep.Exit -> StepDraft.Exit(key())
 	is FunctionStep.Note -> StepDraft.Note(key(), step.text)
-	is FunctionStep.Throw, is FunctionStep.Let, is FunctionStep.Call, is FunctionStep.Unknown -> StepDraft.Kept(key(), step)
+	is FunctionStep.Call -> callValuesOf(step)?.let { StepDraft.Call(key(), step.function, it) } ?: StepDraft.Kept(key(), step)
+	is FunctionStep.Throw, is FunctionStep.Let, is FunctionStep.Unknown -> StepDraft.Kept(key(), step)
+}
+
+private fun callValuesOf(step: FunctionStep.Call): Map<String, CallValue>? =
+	step.values.orEmpty().mapValues { (_, raw) ->
+		when (val arg = runIsolated { wireJson.decodeFromJsonElement(StepArg.serializer(), raw) }.getOrNull()) {
+			is StepArg.Expression -> CallValue.Read(arg.text)
+			is StepArg.Literal -> (arg.value as? JsonPrimitive)?.takeIf { it.isString || it.doubleOrNull != null }?.let { CallValue.Typed(it.content) }
+			null -> null
+		} ?: return null
+	}
+
+/** Blank defers to trigger. */
+private fun callStepOf(draft: StepDraft.Call, params: List<FunctionParam>?): FunctionStep? {
+	val byName = params.orEmpty().associateBy { it.name }
+	val values = draft.values.mapNotNull { (name, value) ->
+		val arg = when (value) {
+			is CallValue.Read -> value.expression.takeIf { it.isNotBlank() }?.let(StepArg::Expression)
+			is CallValue.Typed -> {
+				if (value.text.isBlank()) null
+				else {
+					val param = byName[name] ?: FunctionParam(name, FunctionParamType.TEXT.wire)
+					StepArg.Literal(functionValueOf(param, value.text) ?: return null)
+				}
+			}
+		}
+		arg?.let { name to wireJson.encodeToJsonElement(StepArg.serializer(), it) }
+	}.toMap()
+	if (draft.function.isBlank()) return null
+	return FunctionStep.Call(function = draft.function, values = JsonObject(values).takeIf { values.isNotEmpty() })
 }
 
 /** A literal number's text; null otherwise. */
@@ -201,21 +246,27 @@ private fun minutesText(arg: StepArg): String? {
 	return literal.content.takeIf { literal.doubleOrNull != null }
 }
 
-/** Null while a card cannot be written. */
-internal fun stepOfDraft(draft: StepDraft, offer: AutomationOffer, params: List<FunctionValueDraft> = emptyList()): FunctionStep? =
+/** Null when unwritable. */
+internal fun stepOfDraft(
+	draft: StepDraft,
+	offer: AutomationOffer,
+	params: List<FunctionValueDraft> = emptyList(),
+	calleeParams: (String) -> List<FunctionParam>? = { id -> offer.functions?.row(id)?.function?.params },
+): FunctionStep? =
 	when (draft) {
 		is StepDraft.Do -> stepOf(draft.action, offer, params)
 		is StepDraft.If -> {
-			val then = draft.then.map { stepOfDraft(it, offer, params) ?: return null }
-			val otherwise = draft.otherwise.map { stepOfDraft(it, offer, params) ?: return null }
+			val then = draft.then.map { stepOfDraft(it, offer, params, calleeParams) ?: return null }
+			val otherwise = draft.otherwise.map { stepOfDraft(it, offer, params, calleeParams) ?: return null }
 			draft.condition.takeIf { it.isNotBlank() }?.let {
 				FunctionStep.If(`when` = it, steps = then.takeIf { list -> list.isNotEmpty() }, `else` = otherwise.takeIf { list -> list.isNotEmpty() })
 			}
 		}
 		is StepDraft.Try -> FunctionStep.Try(
-			steps = draft.body.map { stepOfDraft(it, offer, params) ?: return null },
-			catch = draft.catch.map { stepOfDraft(it, offer, params) ?: return null },
+			steps = draft.body.map { stepOfDraft(it, offer, params, calleeParams) ?: return null },
+			catch = draft.catch.map { stepOfDraft(it, offer, params, calleeParams) ?: return null },
 		)
+		is StepDraft.Call -> callStepOf(draft, calleeParams(draft.function))
 		is StepDraft.Wait -> minutesOf(draft.minutes)?.let { FunctionStep.Wait(StepArg.Literal(it)) }
 		is StepDraft.Exit -> FunctionStep.Exit
 		is StepDraft.Note -> FunctionStep.Note(draft.text)
@@ -238,6 +289,7 @@ internal fun unkeyed(steps: List<StepDraft>): List<StepDraft> = steps.map { step
 		is StepDraft.Wait -> step.copy(key = "")
 		is StepDraft.Exit -> step.copy(key = "")
 		is StepDraft.Note -> step.copy(key = "")
+		is StepDraft.Call -> step.copy(key = "")
 		is StepDraft.Kept -> step.copy(key = "")
 	}
 }
@@ -251,7 +303,7 @@ internal fun mapDoings(steps: List<StepDraft>, change: (ActionDraft) -> ActionDr
 		is StepDraft.Do -> step.copy(action = change(step.action))
 		is StepDraft.If -> step.copy(then = mapDoings(step.then, change), otherwise = mapDoings(step.otherwise, change))
 		is StepDraft.Try -> step.copy(body = mapDoings(step.body, change), catch = mapDoings(step.catch, change))
-		is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept -> step
+		is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Call, is StepDraft.Kept -> step
 	}
 }
 
@@ -263,6 +315,7 @@ internal fun cardLabel(step: StepDraft, offer: AutomationOffer): String = when (
 	is StepDraft.Wait -> "Wait"
 	is StepDraft.Exit -> "Stop here"
 	is StepDraft.Note -> "Note"
+	is StepDraft.Call -> "Call"
 	is StepDraft.Kept -> when (val held = step.step) {
 		is FunctionStep.Throw -> "Fail"
 		is FunctionStep.Let -> "Keep a value"

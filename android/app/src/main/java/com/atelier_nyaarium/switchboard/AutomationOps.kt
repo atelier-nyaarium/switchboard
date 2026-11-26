@@ -35,6 +35,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
+import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationRunResult
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -69,6 +70,33 @@ internal interface AutomationGateway {
 	suspend fun check(gatewayId: String, op: ConsoleOp.AutomationCheck): ConsoleAutomationCheckResult?
 
 	suspend fun preview(gatewayId: String, ask: ConsoleOp.AutomationPreview): ConsoleAutomationPreviewResult?
+
+	/** `callId` joins retries. */
+	suspend fun run(gatewayId: String, automationId: String, callId: String): AutomationRan
+}
+
+internal sealed interface AutomationRan {
+	data object Started : AutomationRan
+
+	/** Null means unknown refusal. */
+	data class Refused(val refusal: Protocol.Wire.AutomationRunRefusal?) : AutomationRan
+
+	data object NotServed : AutomationRan
+
+	data object Unreachable : AutomationRan
+}
+
+internal fun ranOf(result: ConsoleAutomationRunResult): AutomationRan =
+	if (result.ran) AutomationRan.Started
+	else AutomationRan.Refused(Protocol.Wire.AutomationRunRefusal.entries.find { it.wire == result.refusal })
+
+internal data class RunKey(val gatewayId: String, val automationId: String)
+
+internal sealed interface RunState {
+	data object Asking : RunState
+
+	/** Drawn only for the opening that asked. */
+	data class Said(val ran: AutomationRan, val opening: Long) : RunState
 }
 
 internal interface AutomationHost {
@@ -109,7 +137,7 @@ internal sealed interface AutomationSaved {
 		val confirm: List<String> = emptyList(),
 		val hole: RefusedHole? = null,
 		val at: RefusedAt? = null,
-		val functionMoved: Boolean = false,
+		val functionMoved: MovedFunction? = null,
 	) : AutomationSaved
 
 	data object Unreachable : AutomationSaved
@@ -140,17 +168,28 @@ internal fun automationSavedOf(
 			automationSaveLine(read.code, read.refusal, id),
 			heldRow = heldRow.takeIf { movedAutomation(read) },
 			at = refusedAtOf(read.refusal),
-			functionMoved = read.code == Protocol.Wire.AutomationSaveRefusalCode.MOVED &&
-				read.refusal.record == Protocol.Wire.AutomationSaveRecord.FUNCTION.wire,
+			functionMoved = MovedFunction(read.refusal.id).takeIf {
+				read.code == Protocol.Wire.AutomationSaveRefusalCode.MOVED &&
+					read.refusal.record == Protocol.Wire.AutomationSaveRecord.FUNCTION.wire
+			},
 		)
 	}
 
+/** `null` means pointed function. */
+internal data class MovedFunction(val id: String?)
+
 internal data class AutomationDraftKey(val gatewayId: String, val slot: AutomationSlot)
 
-/** Hole text and picker. */
+/** Text, picker, innermost callee. */
 internal val AUTOMATION_PAGES = InnerPages<AutomationDraft>(
-	open = { draft -> (draft.text to draft.picking).takeIf { draft.text != null || draft.picking } },
-	close = { draft -> draft.copy(text = null, picking = false) },
+	open = { draft -> Triple(draft.text, draft.picking, draft.inside).takeIf { draft.text != null || draft.picking || draft.inside.isNotEmpty() } },
+	close = { draft ->
+		when {
+			draft.text != null -> draft.copy(text = null)
+			draft.picking -> draft.copy(picking = false)
+			else -> draft.copy(inside = draft.inside.dropLast(1))
+		}
+	},
 )
 
 /** Nothing held on the phone; a change re-reads. */
@@ -161,6 +200,8 @@ internal class AutomationOps(
 	private val reads = GatewayReadFence()
 
 	val toggles = ToggleFence()
+
+	val runs = MutableStateFlow<Map<RunKey, RunState>>(emptyMap())
 
 	/** The editor's edits, with what the last send said. */
 	val edits = EditorSessions<AutomationDraftKey, AutomationDraft, AutomationSaid>(
@@ -187,6 +228,26 @@ internal class AutomationOps(
 		reads.clear()
 		toggles.clear()
 		edits.clear()
+		runs.value = emptyMap()
+	}
+
+	/** Retry reuses unanswered tap's id. */
+	private val unanswered = java.util.concurrent.ConcurrentHashMap<RunKey, String>()
+
+	suspend fun run(gatewayId: String, automationId: String, opening: Long): AutomationRan {
+		val key = RunKey(gatewayId, automationId)
+		var claimed = false
+		runs.update { held ->
+			claimed = held[key] != RunState.Asking
+			if (claimed) held + (key to RunState.Asking) else held
+		}
+		if (!claimed) return AutomationRan.Unreachable
+		val callId = unanswered.getOrPut(key) { java.util.UUID.randomUUID().toString() }
+		val ran = host.gateway?.let { gateway -> attempt { gateway.run(gatewayId, automationId, callId) } } ?: AutomationRan.Unreachable
+		if (ran != AutomationRan.Unreachable) unanswered.remove(key, callId)
+		runs.update { it + (key to RunState.Said(ran, opening)) }
+		if (ran == AutomationRan.Started) refresh(gatewayId)
+		return ran
 	}
 
 	suspend fun commit(key: AutomationDraftKey, opening: Long, confirmed: Boolean): EditOutcome<AutomationDraft, AutomationSaid>? =
@@ -356,30 +417,34 @@ internal class AutomationOps(
 			automation = save.automation,
 			automationBase = save.automationBase,
 			function = save.function,
+			called = save.called,
 			functionBase = save.functionBase,
 			confirmed = true,
 		)
 		return attempt { client.check(gatewayId, op) }
 	}
 
-	suspend fun reloadFunction(key: AutomationDraftKey, opening: Long): EditOutcome<AutomationDraft, AutomationSaid>? =
+	/** `id`: pointer or callee. */
+	suspend fun reloadFunction(key: AutomationDraftKey, opening: Long, id: String): EditOutcome<AutomationDraft, AutomationSaid>? =
 		edits.send(key, opening) { sent ->
 			refresh(key.gatewayId)
 			val held = state.value
 			val context = automationContext(held.gateways, held.assistantHome, key.gatewayId).over(sent.context)
-			val pointing = sent.runsDraft() as? RunsDraft.Pointing
-			val id = reloadable(sent.runsDraft())
-			val row = id?.let { context.offer.functions?.row(it) }
+			val pointing = (sent.runsDraft() as? RunsDraft.Pointing)?.takeIf { reloadable(sent.runsDraft()) == id }
+			// Pointed body beats stale callee copy.
+			val callee = sent.callees[id]?.takeIf { pointing == null }
+			val base = callee?.base ?: pointing?.base
+			val row = context.offer.functions?.row(id)
 			when {
-				pointing == null || id == null -> EditOutcome.Stays(null)
+				base == null -> EditOutcome.Stays(null)
 				row == null -> EditOutcome.Stays(AutomationSaid.Line("That function is no longer listed."))
 				// Nothing newer was read.
-				row.revision == pointing.base -> {
+				row.revision == base -> {
 					tell(leftLine("", "Automation", GATEWAY_UNREACHABLE))
 					EditOutcome.Stays(AutomationSaid.FunctionMoved(id))
 				}
 				else -> {
-					val (draft, dropped) = sent.reloadedFunction(row, context.offer)
+					val (draft, dropped) = if (callee != null) sent.reloadedCallee(row, context.offer) else sent.reloadedFunction(row, context.offer)
 					val line = if (dropped) "Reloaded. Your changes to its steps were dropped." else "Reloaded."
 					EditOutcome.Stays(AutomationSaid.Note(line), draft)
 				}

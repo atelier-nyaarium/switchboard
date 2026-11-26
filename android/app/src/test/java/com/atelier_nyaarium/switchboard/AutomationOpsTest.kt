@@ -12,7 +12,9 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationCheckResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationRunResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
+import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.assistant.AutomationDraft
 import com.atelier_nyaarium.switchboard.assistant.AutomationSaid
 import com.atelier_nyaarium.switchboard.assistant.AutomationSlot
@@ -33,6 +35,9 @@ import com.atelier_nyaarium.switchboard.assistant.offerOf
 import com.atelier_nyaarium.switchboard.assistant.functionPreviewScopeOf
 import com.atelier_nyaarium.switchboard.assistant.previewAsk
 import com.atelier_nyaarium.switchboard.assistant.RunsDraft
+import com.atelier_nyaarium.switchboard.assistant.runShown
+import com.atelier_nyaarium.switchboard.assistant.pointedTo
+import com.atelier_nyaarium.switchboard.assistant.Slot
 import com.atelier_nyaarium.switchboard.assistant.StepDraft
 import com.atelier_nyaarium.switchboard.assistant.stepOfDraft
 import com.atelier_nyaarium.switchboard.assistant.refusedHoleOf
@@ -92,7 +97,17 @@ class AutomationOpsTest {
 		val checks = mutableListOf<ConsoleOp.AutomationCheck>()
 		var checkAnswer: ConsoleAutomationCheckResult? = ConsoleAutomationCheckResult(ready = true)
 
+		val runCalls = mutableListOf<Pair<String, String>>()
+		var runAnswer: AutomationRan = AutomationRan.Started
+		var listCalls = 0
+
+		override suspend fun run(gatewayId: String, automationId: String, callId: String): AutomationRan {
+			runCalls += automationId to callId
+			return runAnswer
+		}
+
 		override suspend fun list(gatewayId: String): AutomationListing {
+			listCalls++
 			val listed = shelves[gatewayId].orEmpty()
 			holds.remove(gatewayId)?.pass()
 			if (gatewayId in refusing) return AutomationListing(ListAnswer.NotServed)
@@ -457,6 +472,28 @@ class AutomationOpsTest {
 	}
 
 	@Test
+	fun aRunByHandIsHeldForItsOpeningJoinsAnUnansweredTapAndReadsTheListOnlyWhenItStarts() = runBlocking {
+		val fake = FakeGateway()
+		fake.shelves["sakura"] = listOf(automationRow())
+		val ops = AutomationOps(admitting("sakura"), Host(fake))
+		val key = RunKey("sakura", "review")
+
+		fake.runAnswer = AutomationRan.Unreachable
+		ops.run("sakura", "review", 1L)
+		fake.runAnswer = AutomationRan.Started
+		assertEquals(AutomationRan.Started, ops.run("sakura", "review", 1L))
+		assertEquals(1, fake.listCalls)
+		fake.runAnswer = AutomationRan.Refused(Protocol.Wire.AutomationRunRefusal.OFF)
+		ops.run("sakura", "review", 2L)
+
+		val ids = fake.runCalls.map { it.second }
+		assertEquals(listOf(true, false), listOf(ids[0] == ids[1], ids[1] == ids[2]))
+		assertEquals(1, fake.listCalls)
+		assertEquals(listOf(null, "Turn it on to run it."), listOf(1L, 2L).map { runShown(ops.runs.value[key], it) })
+		assertEquals(AutomationRan.Refused(null), ranOf(ConsoleAutomationRunResult(ran = false, refusal = "newer_reason")))
+	}
+
+	@Test
 	fun aTextHolePreviewReceivesTheFunctionValues() = runBlocking {
 		val function = functionRow("notice", "Notice", listOf("review"), params = listOf(FunctionParam("room", "text")))
 		val functions = AutomationFunctionServes(32L, listOf("tell_assistant"), listOf("device", "text", "number"))
@@ -524,7 +561,7 @@ class AutomationOpsTest {
 		val draft = automationDraftOf(owner, context)!!
 		val opening = ops.edits.open(key, draft)!!
 
-		ops.reloadFunction(key, opening)
+		ops.reloadFunction(key, opening, "notice")
 		val session = ops.edits.state.value.held.getValue(key)
 
 		assertEquals(draft, session.draft)
@@ -565,7 +602,7 @@ class AutomationOpsTest {
 		fake.functionRows.clear()
 		fake.functionRows += nextFunction
 
-		val result = ops.reloadFunction(key, opening)
+		val result = ops.reloadFunction(key, opening, "notice")
 		val session = ops.edits.state.value.held.getValue(key)
 		val landed = session.draft.runsDraft() as RunsDraft.Pointing
 
@@ -575,6 +612,84 @@ class AutomationOpsTest {
 		assertTrue(session.said is AutomationSaid.Note)
 		ops.edits.edit(key, opening) { it.copy(enabled = !it.enabled) }
 		assertEquals(null, ops.edits.state.value.held.getValue(key).said)
+	}
+
+	@Test
+	fun reloadingAMovedCalleeReplacesThatCalleeAloneAndSaysItsEditsWereDropped() = runBlocking {
+		val fake = FakeGateway().apply { serves = SANDBOX_SERVES }
+		val chime = functionRow("chime", "Chime", emptyList(), steps = listOf(plugStep("on"))).copy(callers = listOf("notice"))
+		val notice = functionRow(
+			"notice",
+			"Notice",
+			listOf("review"),
+			steps = listOf(com.atelier_nyaarium.switchboard.proto.FunctionStep.Call("chime", null)),
+		)
+		fake.functionRows += listOf(notice, chime)
+		val owner = automationRow(
+			"review",
+			1L,
+			Automation(enabled = true, trigger = AutomationTrigger.Interval(60L), actions = listOf(AutomationAction.RunFunction("notice"))),
+		)
+		fake.shelves["sakura"] = listOf(owner)
+		val state = admitting("sakura")
+		state.value = state.value.copy(assistantHome = AssistantHome.Read(AssistantHomeRecord(1L, "sakura"), null))
+		val ops = AutomationOps(state, Host(fake))
+		ops.refresh("sakura")
+		val context = EditContext(offerOf(SANDBOX_SERVES, away = false, functions = listOf(notice, chime)), emptyList())
+		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
+		ops.edits.show(key)
+		val opening = ops.edits.open(key, automationDraftOf(owner, context)!!)!!
+		ops.edits.edit(key, opening) { held ->
+			held.openedCallee("chime", context.offer).plusStep(Slot(null, null, 1), StepDraft.Exit("stop"), tree = "chime")
+		}
+		fake.functionRows.clear()
+		fake.functionRows += listOf(notice, chime.copy(revision = 7L, function = chime.function.copy(steps = listOf(plugStep("off")))))
+
+		ops.reloadFunction(key, opening, "chime")
+		val session = ops.edits.state.value.held.getValue(key)
+		val callee = session.draft.callees.getValue("chime")
+
+		assertEquals(7L, callee.base)
+		assertEquals(listOf(plugStep("off")), callee.steps.map { stepOfDraft(it, context.offer, callee.params) })
+		assertEquals(notice.revision, (session.draft.runsDraft() as RunsDraft.Pointing).base)
+		assertEquals(AutomationSaid.Note("Reloaded. Your changes to its steps were dropped."), session.said)
+	}
+
+	@Test
+	fun reloadingAFunctionPointedAtReloadsThePointerNotAStaleCalleeCopy() = runBlocking {
+		val fake = FakeGateway().apply { serves = SANDBOX_SERVES }
+		val chime = functionRow("chime", "Chime", emptyList(), steps = listOf(plugStep("on"))).copy(callers = listOf("notice"))
+		val notice = functionRow(
+			"notice",
+			"Notice",
+			listOf("review"),
+			steps = listOf(com.atelier_nyaarium.switchboard.proto.FunctionStep.Call("chime", null)),
+		)
+		fake.functionRows += listOf(notice, chime)
+		val owner = automationRow(
+			"review",
+			1L,
+			Automation(enabled = true, trigger = AutomationTrigger.Interval(60L), actions = listOf(AutomationAction.RunFunction("notice"))),
+		)
+		fake.shelves["sakura"] = listOf(owner)
+		val state = admitting("sakura")
+		state.value = state.value.copy(assistantHome = AssistantHome.Read(AssistantHomeRecord(1L, "sakura"), null))
+		val ops = AutomationOps(state, Host(fake))
+		ops.refresh("sakura")
+		val context = EditContext(offerOf(SANDBOX_SERVES, away = false, functions = listOf(notice, chime)), emptyList())
+		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
+		ops.edits.show(key)
+		val opening = ops.edits.open(key, automationDraftOf(owner, context)!!)!!
+		ops.edits.edit(key, opening) { held -> held.openedCallee("chime", context.offer).pointedTo(chime, context.offer) }
+		fake.functionRows.clear()
+		fake.functionRows += listOf(notice, chime.copy(revision = 7L, function = chime.function.copy(steps = listOf(plugStep("off")))))
+
+		ops.reloadFunction(key, opening, "chime")
+		val session = ops.edits.state.value.held.getValue(key)
+		val pointing = session.draft.runsDraft() as RunsDraft.Pointing
+
+		assertEquals(7L to "chime", pointing.base to pointing.functionId)
+		assertEquals(false, "chime" in session.draft.callees)
 	}
 
 	@Test
@@ -599,7 +714,7 @@ class AutomationOpsTest {
 		val hold = TestHold()
 		fake.holds["sakura"] = hold
 
-		val reload = launch { ops.reloadFunction(key, opening) }
+		val reload = launch { ops.reloadFunction(key, opening, "notice") }
 		hold.entered.await()
 		ops.edits.clear()
 		hold.gate.complete(Unit)

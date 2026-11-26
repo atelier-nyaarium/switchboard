@@ -178,9 +178,9 @@ internal fun withoutValue(action: ActionDraft, name: String): ActionDraft = when
 
 /** The last card stays until its kind is gone. */
 internal fun canRemove(draft: AutomationDraft, key: String, offer: AutomationOffer): Boolean {
-	val step = findStep(draft.steps, key) ?: return false
+	val step = draft.stepAt(key) ?: return false
 	val gone = step is StepDraft.Do && offer.action(step.action.kind) == null
-	return everyStep(draft.steps).size > 1 || gone
+	return everyStep(draft.stepsOf(draft.treeHolding(key))).size > 1 || gone
 }
 
 /** Does nothing here: needs the home. */

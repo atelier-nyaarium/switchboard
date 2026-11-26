@@ -435,6 +435,7 @@ internal fun runsIssueLine(issue: RunsIssue): String = when (issue) {
 	is RunsIssue.Step -> issue.line
 	is RunsIssue.NotAStep -> "One step cannot run in a function."
 	is RunsIssue.NeedsName -> "Name it to keep this step."
+	is RunsIssue.InCallee -> "Steps in ${issue.name} need attention."
 	is RunsIssue.Unset -> "Set a value for ${issue.name}."
 	RunsIssue.NameWithValues -> "Name it, or remove its values."
 	is RunsIssue.BadParam -> paramIssueLine(issue.issue)
@@ -462,6 +463,20 @@ internal const val UNIQUE_LINE = "Saving makes this automation's own copy."
 internal const val FUNCTION_UNLISTED = "Its function is not listed here."
 
 internal fun deleteTakesLine(function: String): String = "This also deletes its function, $function."
+
+internal fun runLine(ran: AutomationRan): String = when (ran) {
+	AutomationRan.Started -> "Running it now."
+	AutomationRan.NotServed -> "This Gateway cannot run it by hand yet."
+	AutomationRan.Unreachable -> GATEWAY_UNREACHABLE
+	is AutomationRan.Refused -> when (ran.refusal) {
+		Protocol.Wire.AutomationRunRefusal.GONE -> "It is no longer stored."
+		Protocol.Wire.AutomationRunRefusal.OFF -> "Turn it on to run it."
+		Protocol.Wire.AutomationRunRefusal.INVALID -> "It cannot run as it stands."
+		Protocol.Wire.AutomationRunRefusal.AWAY -> "Only the assistant's Gateway runs this one."
+		Protocol.Wire.AutomationRunRefusal.NOT_ADMITTED -> "Too much is waiting to run. Try again shortly."
+		null -> "This Gateway did not run it."
+	}
+}
 
 /** A destination that cannot take the carried functions. */
 internal fun carryRefusalLine(refusal: CarryRefusal): String = when (refusal) {

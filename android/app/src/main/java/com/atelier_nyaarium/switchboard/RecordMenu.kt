@@ -17,11 +17,21 @@ import androidx.compose.runtime.setValue
 
 /** A record page's removal: the top bar's menu, then `ConfirmDialog`. */
 @Composable
-fun RemoveMenu(label: String, enabled: Boolean = true, onPick: () -> Unit) {
+fun RemoveMenu(label: String, enabled: Boolean = true, actions: List<MenuAction> = emptyList(), onPick: () -> Unit) {
 	var open by remember { mutableStateOf(false) }
 	Box {
 		IconButton(onClick = hapticClick { open = true }) { Icon(Icons.Default.MoreVert, contentDescription = "More") }
 		DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+			for (action in actions) {
+				DropdownMenuItem(
+					text = { Text(action.label) },
+					enabled = action.enabled,
+					onClick = {
+						open = false
+						action.onPick()
+					},
+				)
+			}
 			DropdownMenuItem(
 				text = { Text(label, color = MaterialTheme.colorScheme.error) },
 				enabled = enabled,
@@ -33,3 +43,5 @@ fun RemoveMenu(label: String, enabled: Boolean = true, onPick: () -> Unit) {
 		}
 	}
 }
+
+class MenuAction(val label: String, val enabled: Boolean, val onPick: () -> Unit)

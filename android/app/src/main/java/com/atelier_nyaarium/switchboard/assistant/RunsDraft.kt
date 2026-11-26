@@ -4,6 +4,7 @@ import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationFunction
 import com.atelier_nyaarium.switchboard.proto.AutomationFunctionRow
+import com.atelier_nyaarium.switchboard.proto.AutomationSaveCalled
 import com.atelier_nyaarium.switchboard.proto.AutomationSaveFunction
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.FunctionParam
@@ -212,6 +213,10 @@ internal fun functionValueOf(param: FunctionParam, text: String): JsonPrimitive?
 
 internal data class FunctionPreviewScope(val params: List<FunctionParam>, val values: JsonObject)
 
+/** Callee parameters; values unset. */
+internal fun calleePreviewScope(callee: CalleeDraft): FunctionPreviewScope =
+	FunctionPreviewScope(callee.params.map { it.param }, JsonObject(emptyMap()))
+
 internal fun functionPreviewScopeOf(runs: RunsDraft): FunctionPreviewScope? {
 	val pointing = runs as? RunsDraft.Pointing ?: return null
 	val values = pointing.params.mapNotNull { row ->
@@ -220,9 +225,46 @@ internal fun functionPreviewScopeOf(runs: RunsDraft): FunctionPreviewScope? {
 	return FunctionPreviewScope(pointing.wireParams(), JsonObject(values))
 }
 
-private fun bodyOf(name: String, params: List<FunctionValueDraft>, steps: List<StepDraft>, offer: AutomationOffer): AutomationFunction? {
-	val built = steps.map { stepOfDraft(it, offer, params) ?: return null }
+private fun bodyOf(
+	name: String,
+	params: List<FunctionValueDraft>,
+	steps: List<StepDraft>,
+	offer: AutomationOffer,
+	calleeParams: (String) -> List<FunctionParam>? = { id -> offer.functions?.row(id)?.function?.params },
+): AutomationFunction? {
+	val built = steps.map { stepOfDraft(it, offer, params, calleeParams) ?: return null }
 	return AutomationFunction(name = name.trim(), params = params.map { it.param }, steps = built)
+}
+
+/** Reachable functions except start. */
+internal fun reachFrom(start: String, functionOf: (String) -> AutomationFunction?): Set<String> {
+	val seen = mutableSetOf<String>()
+	val queue = ArrayDeque(functionOf(start)?.let(::callsOf).orEmpty())
+	while (queue.isNotEmpty()) {
+		val id = queue.removeFirst()
+		if (id == start || !seen.add(id)) continue
+		queue.addAll(functionOf(id)?.let(::callsOf).orEmpty())
+	}
+	return seen
+}
+
+private fun calledOf(
+	start: String,
+	body: AutomationFunction,
+	callees: Map<String, CalleeDraft>,
+	offer: AutomationOffer,
+	calleeParams: (String) -> List<FunctionParam>?,
+): List<AutomationSaveCalled>? {
+	val bodies = mutableMapOf<String, AutomationFunction?>()
+	fun functionOf(id: String): AutomationFunction? = when {
+		id == start -> body
+		id in callees -> bodies.getOrPut(id) { callees.getValue(id).let { bodyOf(it.name, it.params, it.steps, offer, calleeParams) } }
+		else -> offer.functions?.row(id)?.function
+	}
+	val reach = reachFrom(start, ::functionOf)
+	return callees.values.filter { it.id in reach && it.edited() }.map { callee ->
+		AutomationSaveCalled(id = callee.id, body = functionOf(callee.id) ?: return null, base = callee.base)
+	}
 }
 
 /** Plain actions under cap. */
@@ -241,15 +283,23 @@ internal fun saveOpOf(
 	offer: AutomationOffer,
 	confirmed: Boolean,
 	ownFunctionId: String?,
+	callees: Map<String, CalleeDraft> = emptyMap(),
 	automationOf: (List<AutomationAction>) -> Automation?,
 ): ConsoleOp.AutomationSave? {
-	fun op(actions: List<AutomationAction>, function: AutomationSaveFunction?, functionBase: Long? = null): ConsoleOp.AutomationSave? {
+	val calleeParams = { id: String -> callees[id]?.params?.map { it.param } ?: offer.functions?.row(id)?.function?.params }
+	fun op(
+		actions: List<AutomationAction>,
+		function: AutomationSaveFunction?,
+		functionBase: Long? = null,
+		called: List<AutomationSaveCalled> = emptyList(),
+	): ConsoleOp.AutomationSave? {
 		val automation = automationOf(actions) ?: return null
 		return ConsoleOp.AutomationSave(
 			automationId = automationId,
 			automation = automation,
 			automationBase = automationBase,
 			function = function,
+			called = called.takeIf { it.isNotEmpty() },
 			functionBase = functionBase,
 			confirmed = confirmed.takeIf { it },
 		)
@@ -259,8 +309,9 @@ internal fun saveOpOf(
 		is RunsDraft.Flat -> {
 			flatActions(runs.steps, offer)?.let { return op(it, null) }
 			val id = ownFunctionId?.takeIf { unnamedServed(offer) } ?: return null
-			val body = bodyOf("", emptyList(), runs.steps, offer) ?: return null
-			op(listOf(AutomationAction.RunFunction(function = id)), AutomationSaveFunction.Edit(id = id, body = body, base = 0L))
+			val body = bodyOf("", emptyList(), runs.steps, offer, calleeParams) ?: return null
+			val called = calledOf(id, body, callees, offer, calleeParams) ?: return null
+			op(listOf(AutomationAction.RunFunction(function = id)), AutomationSaveFunction.Edit(id = id, body = body, base = 0L), called = called)
 		}
 		is RunsDraft.Pointing -> {
 			if (runs.name.isBlank()) {
@@ -272,13 +323,14 @@ internal fun saveOpOf(
 			}
 			val values = runs.params.mapNotNull { row -> runs.values[row.key]?.let { functionValueOf(row.param, it) }?.let { row.param.name to it } }
 			val pointer = runs.held.copy(function = runs.functionId, values = JsonObject(values.toMap()).takeIf { values.isNotEmpty() })
-			val body = bodyOf(runs.name, runs.params, runs.steps, offer) ?: return null
+			val body = bodyOf(runs.name, runs.params, runs.steps, offer, calleeParams) ?: return null
+			val called = calledOf(runs.functionId, body, callees, offer, calleeParams) ?: return null
 			val function = when (runs.mode) {
 				PointMode.SHARED -> if (body == runs.original) null else AutomationSaveFunction.Edit(id = runs.functionId, body = body, base = runs.base)
 				PointMode.UNIQUE -> AutomationSaveFunction.Copy(from = runs.functionId, fromBase = runs.base, body = body)
 				PointMode.NEW -> AutomationSaveFunction.Edit(id = runs.functionId, body = body, base = 0L)
 			}
-			op(listOf(pointer), function, runs.base.takeIf { function == null && runs.mode == PointMode.SHARED })
+			op(listOf(pointer), function, runs.base.takeIf { function == null && runs.mode == PointMode.SHARED }, called)
 		}
 	}
 }
@@ -363,7 +415,13 @@ internal fun AutomationDraft.madeUnique(offer: AutomationOffer): AutomationDraft
 internal fun AutomationDraft.pointedTo(row: AutomationFunctionRow, offer: AutomationOffer): AutomationDraft {
 	val current = (runs as? RunsHead.Points)?.pointing?.functionId
 	if (current == row.id) return copy(picking = false)
-	return withRuns(pointedAt(runsDraft(), id, row, offer)).copy(picking = false)
+	// Its callee copy would go stale.
+	return withRuns(pointedAt(runsDraft(), id, row, offer)).copy(
+		picking = false,
+		callees = callees - row.id,
+		inside = inside - row.id,
+		text = text?.takeIf { treeHolding(it.key) != row.id },
+	)
 }
 
 /** A fresh empty body, a function once named. */
@@ -408,5 +466,5 @@ private fun stepAction(draft: StepDraft, offer: AutomationOffer): AutomationActi
 		is ActionDraft.Filled -> actionOf(action, offer)
 		is ActionDraft.Kept -> null
 	}
-	is StepDraft.If, is StepDraft.Try, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept -> null
+	is StepDraft.If, is StepDraft.Try, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Call, is StepDraft.Kept -> null
 }

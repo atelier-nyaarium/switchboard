@@ -3,9 +3,11 @@ package com.atelier_nyaarium.switchboard.assistant
 import com.atelier_nyaarium.switchboard.parseDecimal
 import com.atelier_nyaarium.switchboard.proto.AutomationLastRun
 import com.atelier_nyaarium.switchboard.proto.AutomationLastStep
+import com.atelier_nyaarium.switchboard.proto.AutomationPreviewName
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
+import com.atelier_nyaarium.switchboard.proto.FunctionParam
 import com.atelier_nyaarium.switchboard.proto.FunctionStep
 import com.atelier_nyaarium.switchboard.proto.Protocol
 
@@ -64,7 +66,7 @@ internal fun cardsDraw(
 
 internal data class StatementOffer(val kind: String, val label: String)
 
-private val STATEMENTS = listOf("if" to "If", "try" to "Try", "wait" to "Wait", "exit" to "Stop here", "note" to "Note")
+private val STATEMENTS = listOf("if" to "If", "try" to "Try", "wait" to "Wait", "exit" to "Stop here", "note" to "Note", "call" to "Call")
 
 private const val FRESH_WAIT_MIN = "5"
 
@@ -84,6 +86,7 @@ internal fun freshStatement(kind: String): StepDraft? = when (kind) {
 	"wait" -> StepDraft.Wait(freshKey(), FRESH_WAIT_MIN)
 	"exit" -> StepDraft.Exit(freshKey())
 	"note" -> StepDraft.Note(freshKey(), "")
+	"call" -> StepDraft.Call(freshKey(), "", emptyMap())
 	else -> null
 }
 
@@ -119,6 +122,7 @@ private fun statementKind(step: StepDraft): String? = when (step) {
 	is StepDraft.Wait -> "wait"
 	is StepDraft.Exit -> "exit"
 	is StepDraft.Note -> "note"
+	is StepDraft.Call -> "call"
 	is StepDraft.Do, is StepDraft.Kept -> null
 }
 
@@ -193,10 +197,98 @@ internal fun lastStepLine(card: CardRow.Card, running: Boolean): String? {
 internal fun cardHint(step: StepDraft, offer: AutomationOffer, valueNames: Set<String>): String? = when (step) {
 	is StepDraft.Do -> actionHint(step.action, offer, valueNames)
 	is StepDraft.Wait -> step.minutes.takeIf { it.isNotBlank() }?.let(::waitIssue)
-	is StepDraft.If, is StepDraft.Try, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept -> null
+	is StepDraft.If, is StepDraft.Try, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Call, is StepDraft.Kept -> null
 }
 
 internal fun waitIssue(typed: String): String? {
 	val minutes = parseDecimal(typed.trim()) ?: return "Minutes as a number"
 	return "From 0 to ${Protocol.Wire.WAIT_MINUTES_MAX} minutes".takeIf { minutes < 0 || minutes > Protocol.Wire.WAIT_MINUTES_MAX }
+}
+
+internal sealed interface CallChoice {
+	data class Existing(val id: String, val name: String) : CallChoice
+
+	data object New : CallChoice
+}
+
+internal fun functionHere(draft: AutomationDraft, tree: String?): String? =
+	tree ?: (draft.runs as? RunsHead.Points)?.pointing?.functionId ?: draft.newFunctionId
+
+/** Exclude recursive callees. */
+internal fun callChoices(draft: AutomationDraft, offer: AutomationOffer, tree: String?): List<CallChoice> {
+	val here = functionHere(draft, tree)
+	val listed = offer.functions?.rows.orEmpty().filter { it.function.name.isNotBlank() }.map { it.id to it.function.name }
+	val made = draft.callees.values.filter { it.base == 0L && it.name.isNotBlank() }.map { it.id to it.name }
+	val open = (listed + made).distinctBy { it.first }.filter { (id, _) ->
+		here == null || here !in draft.reached(listOf(id), offer)
+	}
+	return open.map { (id, name) -> CallChoice.Existing(id, name) } + CallChoice.New
+}
+
+internal fun calleeParams(draft: AutomationDraft, offer: AutomationOffer, id: String): List<FunctionParam>? =
+	draft.callees[id]?.params?.map { it.param } ?: offer.functions?.row(id)?.function?.params
+
+/** Calls read caller names. */
+internal fun callNames(draft: AutomationDraft, offer: AutomationOffer, tree: String?, key: String): List<String> {
+	val values = if (tree == null) (draft.runs as? RunsHead.Points)?.pointing?.params.orEmpty() else draft.callees[tree]?.params.orEmpty()
+	val trigger = offer.names(draft.trigger.kind).map { it.name }
+	return (trigger + values.map { it.param.name }.filter { it.isNotBlank() } + runNamesHere(draft.stepsOf(tree), key).map { it.name }).distinct()
+}
+
+/** Preview uses tree scope. */
+internal fun scopeAt(draft: AutomationDraft, key: String): FunctionPreviewScope? =
+	draft.treeHolding(key)?.let { draft.callees[it] }?.let(::calleePreviewScope) ?: functionPreviewScopeOf(draft.runsDraft())
+
+internal fun namesAt(draft: AutomationDraft, offer: AutomationOffer, key: String, answered: List<AutomationPreviewName>?): List<NameHere> {
+	val callee = draft.treeHolding(key)?.let { draft.callees[it] }
+	if (callee != null) return namesHere(offer, draft.trigger.kind, answered, callee.params.map { it.param })
+	val pointing = draft.runsDraft() as? RunsDraft.Pointing
+	return namesHere(offer, draft.trigger.kind, answered, pointing?.wireParams().orEmpty(), pointing?.valuesByName().orEmpty())
+}
+
+internal sealed interface CallLine {
+	/** Reload re-reads `id`. */
+	data class Moved(val id: String) : CallLine
+
+	data object Attention : CallLine
+}
+
+/** Through its calls too. */
+internal fun callLine(draft: AutomationDraft, offer: AutomationOffer, said: AutomationSaid?, function: String): CallLine? {
+	if (function.isBlank()) return null
+	val below = draft.reached(listOf(function), offer)
+	movedCallee(said, draft, offer)?.takeIf { it in below }?.let { return CallLine.Moved(it) }
+	val saidKey = when (said) {
+		is AutomationSaid.Field -> (said.at as? SaidAt.Card)?.key
+		is AutomationSaid.Hole -> said.key
+		else -> null
+	}
+	val saidBelow = saidKey?.let { draft.treeHolding(it) } in below
+	val issueBelow = below.any { id ->
+		val callee = draft.callees[id]?.takeIf { it.edited() }
+		if (callee != null) calleeIssue(callee, offer) != null else offer.functions?.row(id)?.invalid != null
+	}
+	return CallLine.Attention.takeIf { saidBelow || issueBelow }
+}
+
+/** Trigger inputs appear given. */
+internal fun callRows(draft: AutomationDraft, offer: AutomationOffer, function: String): List<ValueRow>? {
+	val params = calleeParams(draft, offer, function) ?: return null
+	return valueRows(params, givenOf(draft, fieldsOf(draft, draft.context.sources)), emptyMap(), measureOf(draft))
+}
+
+/** Affected automations' sentences. */
+internal fun alsoRunBy(draft: AutomationDraft, offer: AutomationOffer, rows: List<AutomationRow>, function: String): List<String> {
+	val functions = offer.functions?.rows.orEmpty()
+	val seen = mutableSetOf<String>()
+	val queue = ArrayDeque(listOf(function))
+	val users = mutableSetOf<String>()
+	while (queue.isNotEmpty()) {
+		val id = queue.removeFirst()
+		if (!seen.add(id)) continue
+		val row = functions.firstOrNull { it.id == id } ?: continue
+		users += row.users
+		queue += row.callers.orEmpty()
+	}
+	return (users - draft.id).map { id -> rows.firstOrNull { it.id == id }?.sentence ?: id }
 }

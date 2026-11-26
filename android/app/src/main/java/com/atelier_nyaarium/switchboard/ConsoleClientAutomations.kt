@@ -6,6 +6,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationCheckResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationRunResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.Protocol
@@ -68,6 +69,16 @@ internal suspend fun ConsoleClient.automationDelete(
 		),
 		Protocol.Wire.ConsoleOpKind.AUTOMATION_DELETE,
 	)
+
+internal suspend fun ConsoleClient.automationRun(gatewayId: String, automationId: String, callId: String): AutomationRan =
+	when (val answer = sendValueAnswer(gatewayId, ConsoleOp.AutomationRun(automationId = automationId, callId = callId))) {
+		is ConsoleClient.ValueAnswer.Answered ->
+			runIsolated { wireJson.decodeFromJsonElement<ConsoleAutomationRunResult>(answer.result) }.getOrNull()?.let(::ranOf)
+				?: AutomationRan.Unreachable
+		is ConsoleClient.ValueAnswer.Refused ->
+			if (answer.reason == Protocol.Wire.OP_REASON_NOT_SERVED) AutomationRan.NotServed else AutomationRan.Unreachable
+		is ConsoleClient.ValueAnswer.Undelivered, ConsoleClient.ValueAnswer.Unreachable -> AutomationRan.Unreachable
+	}
 
 internal suspend fun ConsoleClient.automationPreview(gatewayId: String, ask: ConsoleOp.AutomationPreview): ConsoleAutomationPreviewResult? =
 	when (val answer = sendValueAnswer(gatewayId, ask)) {

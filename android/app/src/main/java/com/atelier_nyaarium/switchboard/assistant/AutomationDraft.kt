@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard.assistant
 
 import com.atelier_nyaarium.switchboard.AssistantHome
 import com.atelier_nyaarium.switchboard.AutomationSaved
+import com.atelier_nyaarium.switchboard.MovedFunction
 import com.atelier_nyaarium.switchboard.EditStanding
 import com.atelier_nyaarium.switchboard.waitingLine
 import com.atelier_nyaarium.switchboard.Lookup
@@ -18,7 +19,11 @@ import com.atelier_nyaarium.switchboard.proto.AssistantSource
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationCondition
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
+import com.atelier_nyaarium.switchboard.RunState
+import com.atelier_nyaarium.switchboard.runLine
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
+import com.atelier_nyaarium.switchboard.proto.AutomationFunction
+import com.atelier_nyaarium.switchboard.proto.AutomationFunctionRow
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationCheckResult
@@ -99,6 +104,20 @@ internal data class SourceFields(val specs: List<AssistantFieldSpec>) {
 	}
 }
 
+internal data class CalleeDraft(
+	val id: String,
+	/** `0` means new. */
+	val base: Long,
+	val name: String,
+	val params: List<FunctionValueDraft>,
+	val steps: List<StepDraft>,
+	val original: AutomationFunction?,
+	/** Opened cards without keys. */
+	val opened: List<StepDraft>,
+) {
+	fun edited(): Boolean = base == 0L || unkeyed(steps) != opened
+}
+
 internal sealed interface AutomationSlot {
 	data class Held(val id: String) : AutomationSlot
 
@@ -130,6 +149,9 @@ internal data class AutomationDraft(
 	val picking: Boolean = false,
 	/** Blank uses Gateway default. */
 	val keepTryingMin: String = "",
+	val callees: Map<String, CalleeDraft> = emptyMap(),
+	/** Innermost page last. */
+	val inside: List<String> = emptyList(),
 ) {
 	fun runsDraft(): RunsDraft = runsOf(runs, steps)
 
@@ -187,23 +209,74 @@ internal data class AutomationDraft(
 	fun onInterval(change: (TriggerDraft.Interval) -> TriggerDraft.Interval): AutomationDraft =
 		(trigger as? TriggerDraft.Interval)?.let { copy(trigger = change(it)) } ?: this
 
+	/** Keys span all trees. */
+	fun stepAt(key: String): StepDraft? =
+		findStep(steps, key) ?: callees.values.firstNotNullOfOrNull { findStep(it.steps, key) }
+
+	/** Null selects own cards. */
+	fun cardsOf(function: String?): List<StepDraft> = function?.let { callees[it]?.steps } ?: steps
+
+	/** Null selects own cards. */
+	fun stepsOf(tree: String?): List<StepDraft> = if (tree == null) steps else callees[tree]?.steps.orEmpty()
+
+	/** Null: root or missing. */
+	fun treeHolding(key: String): String? = callees.values.firstOrNull { findStep(it.steps, key) != null }?.id
+
+	private fun withTree(tree: String?, list: List<StepDraft>): AutomationDraft =
+		if (tree == null) copy(steps = list) else callees[tree]?.let { copy(callees = callees + (tree to it.copy(steps = list))) } ?: this
+
 	/** The card at `key` changed. */
-	fun withStep(key: String, change: (StepDraft) -> StepDraft): AutomationDraft = copy(steps = replacedStep(steps, key, change))
+	fun withStep(key: String, change: (StepDraft) -> StepDraft): AutomationDraft = copy(
+		steps = replacedStep(steps, key, change),
+		callees = callees.mapValues { (_, callee) -> callee.copy(steps = replacedStep(callee.steps, key, change)) },
+	)
 
 	/** The action of the card at `key` changed. */
 	fun withAction(key: String, change: (ActionDraft) -> ActionDraft): AutomationDraft =
 		withStep(key) { step -> if (step is StepDraft.Do) step.copy(action = change(step.action)) else step }
 
-	/** A statement mints the function id. */
-	fun plusStep(slot: Slot, step: StepDraft): AutomationDraft {
-		val placed = insertedStep(steps, slot, step) ?: return this
+	/** Statements mint function IDs. */
+	fun plusStep(slot: Slot, step: StepDraft, tree: String? = null): AutomationDraft {
+		val into = if (slot.parent != null) treeHolding(slot.parent) else tree
+		val placed = insertedStep(stepsOf(into), slot, step) ?: return this
+		if (into != null) return withTree(into, placed)
 		val minted = if (step is StepDraft.Do) newFunctionId else newFunctionId ?: freshFunctionId()
 		return copy(steps = placed, newFunctionId = minted)
 	}
 
 	fun plusAction(action: ActionDraft): AutomationDraft = plusStep(Slot(null, null, steps.size), StepDraft.Do(freshKey(), action))
 
-	fun minusStep(key: String): AutomationDraft = copy(steps = removedStep(steps, key))
+	fun minusStep(key: String): AutomationDraft = copy(
+		steps = removedStep(steps, key),
+		callees = callees.mapValues { (_, callee) -> callee.copy(steps = removedStep(callee.steps, key)) },
+	)
+
+	fun movedTo(key: String, slot: Slot): AutomationDraft {
+		val tree = treeHolding(key)
+		return movedStep(stepsOf(tree), key, slot)?.let { withTree(tree, it) } ?: this
+	}
+
+	/** Read callee once. */
+	fun openedCallee(id: String, offer: AutomationOffer): AutomationDraft {
+		if (id in callees) return copy(inside = inside + id)
+		val row = offer.functions?.row(id) ?: return this
+		return copy(callees = callees + (id to calleeOf(row, offer)), inside = inside + id)
+	}
+
+	/** True means edits dropped. */
+	fun reloadedCallee(row: AutomationFunctionRow, offer: AutomationOffer): Pair<AutomationDraft, Boolean> {
+		val held = callees[row.id] ?: return this to false
+		val reloaded = copy(callees = callees + (row.id to calleeOf(row, offer)), text = text?.takeIf { treeHolding(it.key) != row.id })
+		return reloaded to held.edited()
+	}
+
+	fun withNewCallee(key: String, name: String): AutomationDraft {
+		val id = freshFunctionId()
+		val callee = CalleeDraft(id, 0L, name.trim(), emptyList(), emptyList(), null, emptyList())
+		return copy(callees = callees + (id to callee)).withStep(key) { step ->
+			(step as? StepDraft.Call)?.copy(function = id, values = emptyMap()) ?: step
+		}
+	}
 
 	/** Null while the trigger cannot be saved. */
 	fun builtTrigger(offer: AutomationOffer): AutomationTrigger? {
@@ -239,8 +312,43 @@ internal data class AutomationDraft(
 			unkeyed(steps) != unkeyed(opened.steps) ||
 			enabled != opened.enabled ||
 			runs != opened.runs ||
-			keepTryingMin != opened.keepTryingMin
+			keepTryingMin != opened.keepTryingMin ||
+			callees.values.any { it.id in reachedCallees(context.offer) && it.edited() }
 }
+
+/** Changes when an answer, not typing, replaces bodies. */
+internal fun mirrorKey(draft: AutomationDraft): Any =
+	Triple(draft.revision, (draft.runsDraft() as? RunsDraft.Pointing)?.base, draft.callees.mapValues { it.value.base })
+
+/** Calls include kept cards. */
+internal fun callTargets(steps: List<StepDraft>): List<String> = everyStep(steps).flatMap { step ->
+	when (step) {
+		is StepDraft.Call -> listOf(step.function)
+		is StepDraft.Kept -> callsIn(listOf(step.step))
+		is StepDraft.Do, is StepDraft.If, is StepDraft.Try, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note -> emptyList()
+	}
+}.filter { it.isNotBlank() }
+
+/** Drafts first; starts included. */
+internal fun AutomationDraft.reached(starts: Collection<String>, offer: AutomationOffer): Set<String> {
+	val own = functionHere(this, null)
+	val seen = mutableSetOf<String>()
+	val queue = ArrayDeque(starts.filter { it.isNotBlank() })
+	while (queue.isNotEmpty()) {
+		val id = queue.removeFirst()
+		if (!seen.add(id)) continue
+		queue += when {
+			id == own -> callTargets(steps)
+			id in callees -> callTargets(callees.getValue(id).steps)
+			else -> offer.functions?.row(id)?.function?.let(::callsOf).orEmpty()
+		}
+	}
+	return seen
+}
+
+/** Automation's reached callees. */
+internal fun AutomationDraft.reachedCallees(offer: AutomationOffer): Set<String> =
+	reached(callTargets(steps), offer).filterTo(mutableSetOf()) { it in callees }
 
 /** A crossing of that device's first number; null when not offered. */
 private fun watchTrigger(device: String, offer: AutomationOffer, zone: String): TriggerDraft? {
@@ -322,7 +430,9 @@ internal fun measureOf(draft: AutomationDraft): String? = (draft.trigger as? Tri
 /** What blocks Save in its Runs block; null where functions are not served. */
 internal fun draftRunsIssue(draft: AutomationDraft, fields: SourceFields, offer: AutomationOffer): RunsIssue? {
 	if (offer.functions == null) return null
-	return runsIssue(draft.runsDraft(), draft.id, givenOf(draft, fields), offer)
+	runsIssue(draft.runsDraft(), draft.id, givenOf(draft, fields), offer)?.let { return it }
+	val reached = draft.reachedCallees(offer)
+	return draft.callees.values.firstOrNull { it.id in reached && it.edited() && calleeIssue(it, offer) != null }?.let { RunsIssue.InCallee(it.name) }
 }
 
 /** The save op; null when unservable or unwritable. */
@@ -335,7 +445,7 @@ internal fun functionSaveOf(
 	if (offer.functions == null) return null
 	val built = draft.builtTrigger(offer) ?: return null
 	if (draft.conditions.any { fields.issueOf(it) != null } || draftRunsIssue(draft, fields, offer) != null) return null
-	return saveOpOf(draft.id, draft.revision, draft.runsDraft(), offer, confirmed, draft.newFunctionId) { actions ->
+	return saveOpOf(draft.id, draft.revision, draft.runsDraft(), offer, confirmed, draft.newFunctionId, draft.callees) { actions ->
 		draft.automationOf(built, actions)
 	}
 }
@@ -398,7 +508,7 @@ internal fun automationEditing(
 	val edit = standing && !holdsUnserved(draft.steps, offer)
 	return AutomationEditing(
 		edit = edit,
-		save = edit && offered && saveAllowedAfterCheck(checkSaid, said, draft.runsDraft()) && if (offer.functions != null) {
+		save = edit && offered && saveAllowedAfterCheck(checkSaid, said, draft, offer) && if (offer.functions != null) {
 			functionSaveOf(draft, fields, offer, confirmed = false) != null
 		} else {
 			fittingAutomation(draft, fields, offer) != null
@@ -407,9 +517,37 @@ internal fun automationEditing(
 	)
 }
 
+internal fun runOffered(slot: AutomationSlot, gone: Boolean, draft: AutomationDraft, opened: AutomationDraft, busy: Boolean, state: RunState?): Boolean =
+	slot is AutomationSlot.Held && !gone && !busy && state != RunState.Asking && !draft.changedFrom(opened)
+
+internal fun runShown(state: RunState?, opening: Long): String? = when (state) {
+	null -> null
+	RunState.Asking -> "Starting"
+	is RunState.Said -> runLine(state.ran).takeIf { state.opening == opening }
+}
+
+internal fun calleeOf(row: AutomationFunctionRow, offer: AutomationOffer): CalleeDraft {
+	val params = row.function.params.map { FunctionValueDraft(java.util.UUID.randomUUID().toString(), it) }
+	val cards = written(row.function).map { treeOf(it, offer, params) }
+	return CalleeDraft(row.id, row.revision, row.function.name, params, cards, row.function, unkeyed(cards))
+}
+
 /** Refusal blocks; movement too. */
-internal fun saveAllowedAfterCheck(checkSaid: AutomationSaid?, said: AutomationSaid?, runs: RunsDraft): Boolean =
-	checkSaid == null && !movedFor(said, runs)
+internal fun saveAllowedAfterCheck(checkSaid: AutomationSaid?, said: AutomationSaid?, draft: AutomationDraft, offer: AutomationOffer): Boolean =
+	checkSaid == null && !movedFor(said, draft.runsDraft()) && movedCallee(said, draft, offer) == null
+
+internal fun movedCallee(said: AutomationSaid?, draft: AutomationDraft, offer: AutomationOffer): String? =
+	(said as? AutomationSaid.FunctionMoved)?.functionId?.takeIf { it in draft.reachedCallees(offer) }
+
+/** Pointer or callee ID. */
+internal fun movedIdOf(moved: MovedFunction, draft: AutomationDraft): String? {
+	val pointed = reloadable(draft.runsDraft())
+	return when {
+		moved.id == null || moved.id == pointed -> pointed
+		moved.id in draft.callees -> moved.id
+		else -> null
+	}
+}
 
 /** Drawn as an error. */
 internal fun saidRefuses(said: AutomationSaid?): Boolean = said != null && said !is AutomationSaid.Note
@@ -549,7 +687,7 @@ internal sealed interface SaidAt {
 /** Null for a step no card holds. */
 internal fun saidAtOf(at: RefusedAt, draft: AutomationDraft): SaidAt? = when (at) {
 	is RefusedAt.Value -> SaidAt.Value(at.param)
-	is RefusedAt.Step -> keyAt(draft.steps, at.path)?.let { SaidAt.Card(it, at.param) }
+	is RefusedAt.Step -> keyAt(draft.cardsOf(at.function), at.path)?.let { SaidAt.Card(it, at.param) }
 }
 
 internal sealed interface AutomationOutcome {
@@ -571,9 +709,9 @@ internal fun outcomeOf(
 		AutomationSaved.Unreachable -> AutomationOutcome.Said("That Gateway could not be reached")
 		is AutomationSaved.Refused -> {
 			val held = saved.heldRow?.takeIf { it.id == draft.id && it.revision != draft.revision && editable(it, context.offer) }
-			val hole = saved.hole?.let { refused -> keyAt(draft.steps, refused.path)?.let { key -> key to refused } }
+			val hole = saved.hole?.let { refused -> keyAt(draft.cardsOf(refused.function), refused.path)?.let { key -> key to refused } }
 			val at = saved.at?.let { saidAtOf(it, draft) }
-			val moved = reloadable(draft.runsDraft()).takeIf { saved.functionMoved }
+			val moved = saved.functionMoved?.let { movedIdOf(it, draft) }
 			when {
 				moved != null -> AutomationOutcome.Said(AutomationSaid.FunctionMoved(moved))
 				saved.confirm.isNotEmpty() -> AutomationOutcome.Said(AutomationSaid.Confirm(saved.confirm))

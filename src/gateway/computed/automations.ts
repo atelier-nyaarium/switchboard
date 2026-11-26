@@ -1470,10 +1470,11 @@ export function createAutomations(deps: AutomationsDeps) {
 	const storeRefused = (
 		result: Extract<OwnerBatchResult<StoredBody>, { stored: false }>,
 		writes: readonly OwnerWrite[],
+		intent: AutomationIntent,
 	): Extract<AutomationWritten, { written: false }> => ({
 		written: false,
 		reason: result.reason,
-		refusal: refusalWithLine(storeRefusal(result, writes[result.at]), result.reason),
+		refusal: refusalWithLine(storeRefusal(result, writes[result.at], sentFunctions(intent)), result.reason),
 		...(result.record ? { record: result.record } : {}),
 		...(result.issue ? { issue: result.issue } : {}),
 	});
@@ -1493,7 +1494,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			};
 		}
 		const refused = store.refusalOf(verdict.writes);
-		return refused ? storeRefused(refused, verdict.writes) : verdict;
+		return refused ? storeRefused(refused, verdict.writes, intent) : verdict;
 	}
 
 	/** Every row lands, or none. */
@@ -1505,7 +1506,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			console.warn(`[automations] ${intent.kind}: ${id} dropped: ${why}`);
 		}
 		const result = store.batch(verdict.writes);
-		if (!result.stored) return storeRefused(result, verdict.writes);
+		if (!result.stored) return storeRefused(result, verdict.writes, intent);
 		const known = new Set(held.map((record) => record.id));
 		forgetRan(verdict.writes.filter((row) => row.op === "remove" || !known.has(row.id)).map((row) => row.id));
 		const live = new Set(records.list().map((record) => record.id));
@@ -1517,12 +1518,23 @@ export function createAutomations(deps: AutomationsDeps) {
 		return { written: true, records: result.records, dropped: verdict.dropped };
 	}
 
+	/** Derived ids never answered. */
+	const sentFunctions = (intent: AutomationIntent): ReadonlySet<string> =>
+		intent.kind === "save"
+			? new Set([
+					...(intent.function?.as === "edit" ? [intent.function.id] : []),
+					...(intent.called ?? []).map((each) => each.id),
+				])
+			: new Set();
+
 	const storeRefusal = (
 		refusal: Extract<OwnerBatchResult<StoredBody>, { stored: false }>,
 		write: OwnerWrite | undefined,
+		sent: ReadonlySet<string>,
 	): AutomationSaveRefusal => {
 		const kind = write?.op === "put" ? write.kind : (store.get(write?.id ?? "")?.kind ?? AUTOMATION_KIND);
 		const record = kind === FUNCTION_KIND ? "function" : "automation";
+		const which = record === "function" && write && sent.has(write.id) ? { id: write.id } : {};
 		const { cause } = refusal;
 		if (typeof cause === "object") {
 			if (cause.cap === TOTAL_CAP) return { code: "full", max: cause.max };
@@ -1535,6 +1547,7 @@ export function createAutomations(deps: AutomationsDeps) {
 					return {
 						code: "hole",
 						record,
+						...which,
 						path: hole.step,
 						step: hole.step,
 						param: hole.param,
@@ -1543,30 +1556,29 @@ export function createAutomations(deps: AutomationsDeps) {
 						line: `the ${record} has an unresolved value`,
 					};
 				const { issue } = refusal;
-				if (!issue) return { code: "invalid", record, line: refusal.reason.slice(0, SAVE_LINE_MAX) };
+				if (!issue) return { code: "invalid", record, ...which, line: refusal.reason.slice(0, SAVE_LINE_MAX) };
 				const path = issue.path.join(".");
 				const place = stepPlaceOf(issue);
 				return issue.code === STEP_ISSUE_CODE
-					? { code: "invalid", record, path, ...place, line: issue.message.slice(0, SAVE_LINE_MAX) }
-					: { code: "invalid", record, path, line: `the ${record} is invalid` };
+					? { code: "invalid", record, ...which, path, ...place, line: issue.message.slice(0, SAVE_LINE_MAX) }
+					: { code: "invalid", record, ...which, path, line: `the ${record} is invalid` };
 			}
 			case "moved": {
-				const which = record === "function" && write ? { id: write.id } : {};
 				return refusal.record
 					? { code: "moved", record, ...which, revision: refusal.record.revision }
 					: { code: "moved", record, ...which };
 			}
 			case "newer_build":
 				return record === "function"
-					? { code: "newer_function", record, ...(write ? { id: write.id } : {}) }
+					? { code: "newer_function", record, ...which }
 					: { code: "newer_automation", ...(write ? { id: write.id } : {}) };
 			case "spent":
-				return { code: "invalid", record, path: "revision" };
+				return { code: "invalid", record, ...which, path: "revision" };
 			case "bad_id":
-				return { code: "invalid", record, path: "id" };
+				return { code: "invalid", record, ...which, path: "id" };
 			case "absent":
 			case "removed":
-				return { code: "gone", record };
+				return { code: "gone", record, ...which };
 			case "unsaved":
 				return { code: "unwritten", record };
 		}

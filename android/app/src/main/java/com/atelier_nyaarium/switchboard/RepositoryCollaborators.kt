@@ -267,6 +267,8 @@ internal class ConsoleAutomationGateway(private val client: ConsoleClient) : Aut
 
 	override suspend fun preview(gatewayId: String, ask: ConsoleOp.AutomationPreview) = client.automationPreview(gatewayId, ask)
 
+	override suspend fun run(gatewayId: String, automationId: String, callId: String) = client.automationRun(gatewayId, automationId, callId)
+
 	override suspend fun save(gatewayId: String, op: ConsoleOp.AutomationSave) = client.automationSave(gatewayId, op)
 
 	override suspend fun check(gatewayId: String, op: ConsoleOp.AutomationCheck) = client.automationCheck(gatewayId, op)

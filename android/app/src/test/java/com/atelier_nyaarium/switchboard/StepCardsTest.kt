@@ -56,6 +56,7 @@ import com.atelier_nyaarium.switchboard.assistant.freshBody
 import kotlinx.serialization.json.put
 import com.atelier_nyaarium.switchboard.assistant.withFunctionName
 import com.atelier_nyaarium.switchboard.assistant.automationEditing
+import com.atelier_nyaarium.switchboard.assistant.runOffered
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -266,7 +267,7 @@ class StepCardsTest {
 		assertTrue(slotOffers(full, older, top).empty)
 		val served = slotOffers(full, FN_OFFER, top)
 		assertTrue(served.actions.isNotEmpty())
-		assertEquals(listOf("if", "try", "wait", "exit", "note"), served.statements.map { it.kind })
+		assertEquals(listOf("if", "try", "wait", "exit", "note", "call"), served.statements.map { it.kind })
 		assertTrue(slotOffers(full, FN_OFFER, top.copy(full = true)).empty)
 	}
 
@@ -313,6 +314,20 @@ class StepCardsTest {
 
 		assertEquals(listOf(true, true), can(FN_OFFER).let { listOf(it.edit, it.delete) })
 		assertEquals(listOf(false, false, true), can(doOnly).let { listOf(it.edit, it.save, it.delete) })
+	}
+
+	@Test
+	fun runNowIsOfferedOnlyForAStoredUnchangedAutomationStillThereAndNotAsking() {
+		val draft = opened()
+		val held = com.atelier_nyaarium.switchboard.assistant.AutomationSlot.Held("mine")
+
+		assertEquals(true, runOffered(held, false, draft, draft, busy = false, state = null))
+		assertEquals(true, runOffered(held, false, draft, draft, false, RunState.Said(AutomationRan.Started, 1L)))
+		assertEquals(false, runOffered(held, false, draft, draft, false, RunState.Asking))
+		assertEquals(false, runOffered(held, false, draft, draft, busy = true, state = null))
+		assertEquals(false, runOffered(held, true, draft, draft, false, null))
+		assertEquals(false, runOffered(held, false, draft.copy(keepTryingMin = "20"), draft, false, null))
+		assertEquals(false, runOffered(com.atelier_nyaarium.switchboard.assistant.AutomationSlot.New(), false, draft, draft, false, null))
 	}
 
 	@Test

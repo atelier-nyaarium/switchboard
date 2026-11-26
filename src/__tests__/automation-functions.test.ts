@@ -713,15 +713,30 @@ describe("an automation that runs a function", () => {
 				{
 					code: "hole",
 					record: "function",
+					id: "warm-up",
 					path: "0",
 					step: "0",
 					param: "device",
 					start: 0,
 					end: 6,
 				},
-				{ code: "invalid", record: "function", path: "steps.0.colour", step: "0", param: "colour" },
-				{ code: "invalid", record: "function", path: "steps.0.verb", step: "0", param: "verb" },
-				{ code: "invalid", record: "function", path: "steps.0.device", step: "0", param: "device" },
+				{
+					code: "invalid",
+					record: "function",
+					id: "warm-up",
+					path: "steps.0.colour",
+					step: "0",
+					param: "colour",
+				},
+				{ code: "invalid", record: "function", id: "warm-up", path: "steps.0.verb", step: "0", param: "verb" },
+				{
+					code: "invalid",
+					record: "function",
+					id: "warm-up",
+					path: "steps.0.device",
+					step: "0",
+					param: "device",
+				},
 				{ code: "invalid", record: "automation", path: "values.room" },
 			]);
 		});
@@ -745,6 +760,7 @@ describe("an automation that runs a function", () => {
 				{
 					code: "invalid",
 					record: "function",
+					id: "warm-up",
 					path: "steps.0.as",
 					step: "0",
 					param: "as",
