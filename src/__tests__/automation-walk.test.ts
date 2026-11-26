@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { byPath, reached, siteOf, visit, type WalkEntry } from "../shared/automation-walk.js";
+import { byPath, reached, siteOf, steering, visit, type WalkEntry } from "../shared/automation-walk.js";
 import { AutomationSchema } from "../shared/schemasAutomation.js";
 import { FunctionSchema } from "../shared/schemasFunction.js";
 
@@ -28,7 +28,10 @@ const { cases } = JSON.parse(fs.readFileSync(VECTORS, "utf8")) as { cases: Case[
 const rowOf = (at: WalkEntry): Row =>
 	visit<WalkEntry, Row>(at, {
 		action: ({ reach, path, index, action }) => ({ reach, path, index, kind: action.kind }),
-		step: { do: ({ reach, path, index, step }) => ({ reach, path, index, kind: step.action }) },
+		step: {
+			do: ({ reach, path, index, step }) => ({ reach, path, index, kind: step.action }),
+			...steering(({ reach, path, index, step }) => ({ reach, path, index, kind: step.kind })),
+		},
 		unfollowedCall: ({ reach, path, call, reason }) => ({ reach, path, kind: call.kind, reason }),
 	});
 

@@ -165,6 +165,8 @@ object Protocol {
 		const val KEEP_TRYING_MIN_MAX: Int = 60
 		const val FUNCTIONS_MAX: Int = 32
 		const val FUNCTION_STEPS_MAX: Int = 8
+		const val FUNCTION_STEPS_TOTAL_MAX: Int = 32
+		const val FUNCTION_DEPTH_MAX: Int = 4
 		const val FUNCTION_PARAMS_MAX: Int = 8
 		const val FUNCTION_PARAM_NAME_PATTERN: String = "^[a-z][a-z0-9_]{0,31}\$"
 		const val FUNCTION_PARAM_NAME_MAX: Int = 32
@@ -2832,6 +2834,53 @@ sealed class FunctionStep {
 		val args: JsonObject,
 	) : FunctionStep()
 
+	@Serializable
+	@SerialName("if")
+	data class If(
+		val `when`: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val steps: List<FunctionStep>? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val `else`: List<FunctionStep>? = null,
+	) : FunctionStep()
+
+	@Serializable
+	@SerialName("try")
+	data class Try(
+		val steps: List<FunctionStep>,
+		val catch: List<FunctionStep>,
+	) : FunctionStep()
+
+	@Serializable
+	@SerialName("exit")
+	data object Exit : FunctionStep()
+
+	@Serializable
+	@SerialName("throw")
+	data class Throw(
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val text: String? = null,
+	) : FunctionStep()
+
+	@Serializable
+	@SerialName("let")
+	data class Let(
+		val name: String,
+		val value: StepArg,
+	) : FunctionStep()
+
+	@Serializable
+	@SerialName("wait")
+	data class Wait(
+		val minutes: StepArg,
+	) : FunctionStep()
+
+	@Serializable
+	@SerialName("note")
+	data class Note(
+		val text: String,
+	) : FunctionStep()
+
 	/** Unknown member, preserved as sent. */
 	data class Unknown(val kind: String, val raw: JsonObject) : FunctionStep()
 }
@@ -2845,6 +2894,13 @@ object FunctionStepSerializer : KSerializer<FunctionStep> {
 		val body = JsonObject(raw - "kind")
 		return when (val kind = (raw["kind"] as? JsonPrimitive)?.contentOrNull) {
 			"do" -> input.json.decodeFromJsonElement(FunctionStep.Do.serializer(), body)
+			"if" -> input.json.decodeFromJsonElement(FunctionStep.If.serializer(), body)
+			"try" -> input.json.decodeFromJsonElement(FunctionStep.Try.serializer(), body)
+			"exit" -> input.json.decodeFromJsonElement(FunctionStep.Exit.serializer(), body)
+			"throw" -> input.json.decodeFromJsonElement(FunctionStep.Throw.serializer(), body)
+			"let" -> input.json.decodeFromJsonElement(FunctionStep.Let.serializer(), body)
+			"wait" -> input.json.decodeFromJsonElement(FunctionStep.Wait.serializer(), body)
+			"note" -> input.json.decodeFromJsonElement(FunctionStep.Note.serializer(), body)
 			else -> FunctionStep.Unknown(kind ?: "", raw)
 		}
 	}
@@ -2853,6 +2909,13 @@ object FunctionStepSerializer : KSerializer<FunctionStep> {
 		val output = encoder as? JsonEncoder ?: throw SerializationException("FunctionStep writes JSON only")
 		val element = when (value) {
 			is FunctionStep.Do -> tagged("do", output.json.encodeToJsonElement(FunctionStep.Do.serializer(), value))
+			is FunctionStep.If -> tagged("if", output.json.encodeToJsonElement(FunctionStep.If.serializer(), value))
+			is FunctionStep.Try -> tagged("try", output.json.encodeToJsonElement(FunctionStep.Try.serializer(), value))
+			is FunctionStep.Exit -> tagged("exit", output.json.encodeToJsonElement(FunctionStep.Exit.serializer(), value))
+			is FunctionStep.Throw -> tagged("throw", output.json.encodeToJsonElement(FunctionStep.Throw.serializer(), value))
+			is FunctionStep.Let -> tagged("let", output.json.encodeToJsonElement(FunctionStep.Let.serializer(), value))
+			is FunctionStep.Wait -> tagged("wait", output.json.encodeToJsonElement(FunctionStep.Wait.serializer(), value))
+			is FunctionStep.Note -> tagged("note", output.json.encodeToJsonElement(FunctionStep.Note.serializer(), value))
 			is FunctionStep.Unknown -> value.raw
 		}
 		output.encodeJsonElement(element)

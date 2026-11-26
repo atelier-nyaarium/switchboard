@@ -6,6 +6,7 @@ import {
 	type LeafAction,
 	pointerOf,
 	reached,
+	steering,
 	type Unfollowed,
 	visit,
 	type WalkEntry,
@@ -205,6 +206,13 @@ export function createAutomationValidity(
 			step: Extract<FunctionStep, { kind: K }>,
 		) => StepIssue | null;
 	} = {
+		exit: () => ({ message: UNRUNNABLE, unrunnable: true }),
+		if: () => ({ message: UNRUNNABLE, unrunnable: true }),
+		let: () => ({ message: UNRUNNABLE, unrunnable: true }),
+		note: () => ({ message: UNRUNNABLE, unrunnable: true }),
+		throw: () => ({ message: UNRUNNABLE, unrunnable: true }),
+		try: () => ({ message: UNRUNNABLE, unrunnable: true }),
+		wait: () => ({ message: UNRUNNABLE, unrunnable: true }),
 		do: (fn, step) => {
 			if (!stepAction(step.action)) return { message: UNRUNNABLE, unrunnable: true };
 			if (step.as !== undefined) return { message: "a step cannot keep its result yet" };
@@ -213,7 +221,10 @@ export function createAutomationValidity(
 	};
 
 	const stepIssue = (fn: Pick<AutomationFunction, "params">, step: FunctionStep): StepIssue | null =>
-		STEPS[step.kind](fn, step);
+		(STEPS[step.kind] as (fn: Pick<AutomationFunction, "params">, step: FunctionStep) => StepIssue | null)(
+			fn,
+			step,
+		);
 
 	/** Fit, then each device value against the switches. */
 	function callIssue(body: Automation, fn: AutomationFunction): CallIssue | null {
@@ -253,6 +264,11 @@ export function createAutomationValidity(
 						const issue = fn ? stepIssue(fn, step) : null;
 						return issue && { at: "step", via, index, issue };
 					},
+					...steering(({ index, step, via }) => {
+						const fn = functions?.(via);
+						const issue = fn ? stepIssue(fn, step) : null;
+						return issue && { at: "step", via, index, issue };
+					}),
 				},
 				unfollowedCall: ({ call, reason }) => {
 					const message = unfollowed[reason](call.function);

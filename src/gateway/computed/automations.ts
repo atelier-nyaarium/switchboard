@@ -11,6 +11,7 @@ import {
 	type RunFunction,
 	reached,
 	siteOf,
+	steering,
 	visit,
 	type WalkStep,
 } from "../../shared/automation-walk.js";
@@ -396,7 +397,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		if (!at) return null;
 		return visit<FollowedEntry, WalkStep<"do"> | null>(at, {
 			action: () => null,
-			step: { do: (held) => held },
+			step: { do: (held) => held, ...steering(() => null) },
 			unfollowedCall: () => null,
 		});
 	};
@@ -879,7 +880,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		state.fires.map((held) => (held.member === member ? { ...held, ...patch } : held));
 
 	/** Call values over names. */
-	const scopeOf = (fire: Fire, at: WalkStep): FireNames => {
+	const scopeOf = (fire: Fire, at: Pick<WalkStep, "path">): FireNames => {
 		const body = bodyOf(fire);
 		const site = siteOf(at.path);
 		const call = body && site !== null ? callAt(body, site) : null;

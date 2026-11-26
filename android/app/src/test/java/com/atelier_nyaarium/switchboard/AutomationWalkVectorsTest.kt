@@ -33,6 +33,13 @@ class AutomationWalkVectorsTest {
 			entry.path,
 			when (val step = entry.step) {
 				is FunctionStep.Do -> step.action
+				is FunctionStep.If -> "if"
+				is FunctionStep.Try -> "try"
+				is FunctionStep.Exit -> "exit"
+				is FunctionStep.Throw -> "throw"
+				is FunctionStep.Let -> "let"
+				is FunctionStep.Wait -> "wait"
+				is FunctionStep.Note -> "note"
 				is FunctionStep.Unknown -> step.kind
 			},
 			entry.index,

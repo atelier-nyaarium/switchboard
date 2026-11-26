@@ -207,6 +207,17 @@ describe("a run through a function", () => {
 		expect(w.where()).toEqual(["0.0", "0.1", "0.2", "0.3"].map((step) => [step, "warm-up"]));
 	});
 
+	it("refuses to save a body that steers, at any depth", () => {
+		const w = world();
+		const steered = w.save(pointing(hourly), [{ kind: "if", when: "true", steps: [turn("on")] }]);
+		const nested = w.save(pointing(hourly), [
+			{ kind: "try", steps: [turn("on")], catch: [{ kind: "note", text: "it failed" }] },
+		]);
+
+		expect([steered.stored, nested.stored]).toEqual([false, false]);
+		expect(w.automations.list()).toEqual([]);
+	});
+
 	it("refuses an unsound body where it is written, read, entered and run", async () => {
 		const w = world();
 		const written = w.save(pointing(event), [turn("on", lit("aa:bb:cc:dd:ee:99"))]);

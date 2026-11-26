@@ -31,12 +31,14 @@ export interface WalkAction {
 	action: LeafAction;
 }
 
-/** Called function step. */
+/** Called function step, at any depth. */
 export interface WalkStep<K extends StepKind = StepKind> {
 	reach: "step";
-	/** Call path, then index. */
 	path: string;
+	/** In its own list. */
 	index: number;
+	/** In its function's body. */
+	address: Address;
 	step: Extract<FunctionStep, { kind: K }>;
 	via: string;
 }
@@ -63,6 +65,14 @@ export type WalkHandlers<E extends WalkEntry, R> = {
 		: (at: Extract<E, { reach: A }>) => R;
 };
 
+/** Kinds that steer or hold steps and act on nothing themselves. A new kind joins by hand. */
+export const STEERING = ["if", "try", "exit", "throw", "let", "wait", "note"] as const satisfies readonly StepKind[];
+type Steering = (typeof STEERING)[number];
+
+/** One answer for every steering kind. */
+export const steering = <R>(answer: (at: WalkStep<Steering>) => R): { [K in Steering]: (at: WalkStep<K>) => R } =>
+	Object.fromEntries(STEERING.map((kind) => [kind, answer])) as { [K in Steering]: (at: WalkStep<K>) => R };
+
 export function visit<E extends WalkEntry, R>(entry: E, handlers: WalkHandlers<E, R>): R {
 	const at: WalkEntry = entry;
 	const all = handlers as unknown as WalkHandlers<WalkEntry, R>;
@@ -70,7 +80,7 @@ export function visit<E extends WalkEntry, R>(entry: E, handlers: WalkHandlers<E
 		case "action":
 			return all.action(at);
 		case "step":
-			return all.step[at.step.kind](at);
+			return (all.step[at.step.kind] as (held: WalkStep) => R)(at);
 		case "unfollowedCall":
 			return all.unfollowedCall(at);
 	}
@@ -124,8 +134,6 @@ export const framesOf = (path: string): Address[] | null => {
 /** A step of the body the call at `site` runs. */
 export const within = (site: string, address: Address): string => `${site}.${tokensOf(address).join(".")}`;
 
-const under = (site: string, index: number): string => within(site, [index]);
-
 /** Call path or null. */
 export const siteOf = (path: string): string | null => {
 	const frames = framesOf(path);
@@ -157,13 +165,25 @@ export function reached(automation: Walked, functionOf?: FunctionOf): WalkEntry[
 		if (!functionOf) return [{ reach: "unfollowedCall", path, call: action, reason: "not-expanded" }];
 		const fn = functionOf(action.function);
 		if (!fn) return [{ reach: "unfollowedCall", path, call: action, reason: "missing" }];
-		return open(fn.steps).map((step, inner) => ({
+		return stepsIn(open(fn.steps), []).map(({ address, step }) => ({
 			reach: "step",
-			path: under(path, inner),
-			index: inner,
+			path: within(path, address),
+			index: address.at(-1) as number,
+			address,
 			step,
 			via: action.function,
 		}));
+	});
+}
+
+/** Every step at every depth, a step before what it holds. */
+function stepsIn(steps: readonly FunctionStep[], base: Address): { address: Address; step: FunctionStep }[] {
+	return steps.flatMap((step, index) => {
+		const address = [...base, index];
+		const held = (side: Side, list: readonly FunctionStep[] | undefined) => stepsIn(list ?? [], [...address, side]);
+		if (step.kind === "if") return [{ address, step }, ...held("then", step.steps), ...held("else", step.else)];
+		if (step.kind === "try") return [{ address, step }, ...held("try", step.steps), ...held("catch", step.catch)];
+		return [{ address, step }];
 	});
 }
 

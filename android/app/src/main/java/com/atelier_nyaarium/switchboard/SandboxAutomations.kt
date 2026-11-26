@@ -528,6 +528,13 @@ internal class SandboxAutomationGateway(
 				else wireJson.encodeToJsonElement(AutomationAction.serializer(), entry.action).jsonObject.filterKeys { it != KIND }
 			is WalkStep -> when (val step = entry.step) {
 				is FunctionStep.Do -> if (step.action != IFTTT) return null else step.args.mapValues { (_, arg) -> literalOf(arg) ?: arg }
+				is FunctionStep.If -> return null
+				is FunctionStep.Try -> return null
+				is FunctionStep.Exit -> return null
+				is FunctionStep.Throw -> return null
+				is FunctionStep.Let -> return null
+				is FunctionStep.Wait -> return null
+				is FunctionStep.Note -> return null
 				is FunctionStep.Unknown -> return null
 			}
 			is UnfollowedCall -> return null

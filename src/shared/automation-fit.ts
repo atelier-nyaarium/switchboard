@@ -106,6 +106,7 @@ export function functionReads(fn: Pick<AutomationFunction, "steps">): FunctionRe
 		for (const statement of parseConsole(source).statements) collect(statement.node, into);
 	};
 	for (const step of written(fn)) {
+		if (step.kind !== "do") continue;
 		for (const arg of Object.values(step.args)) {
 			if (arg.kind === "expression") read(arg.text);
 			else if (typeof arg.value === "string") {

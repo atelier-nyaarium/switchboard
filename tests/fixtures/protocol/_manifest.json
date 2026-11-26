@@ -165,6 +165,12 @@
 		},
 		{ "file": "automation-action-run-function.json", "schema": "AutomationAction", "expect": "pass" },
 		{ "file": "automation-function.json", "schema": "AutomationFunction", "expect": "pass" },
+		{ "file": "function-tree.json", "schema": "AutomationFunction", "expect": "pass" },
+		{
+			"file": "function-tree-future-kind.json",
+			"schema": "AutomationFunction",
+			"expect": { "ts": "fail", "kotlin": "unknown" }
+		},
 		{ "file": "function-step-as.json", "schema": "FunctionStep", "expect": "pass" },
 		{ "file": "automation-list-result-functions.json", "schema": "ConsoleAutomationListResult", "expect": "pass" },
 		{ "file": "console-op-automation-save.json", "schema": "ConsoleOp", "expect": "pass" },

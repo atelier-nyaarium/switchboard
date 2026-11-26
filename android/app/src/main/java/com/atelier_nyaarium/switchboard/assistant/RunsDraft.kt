@@ -129,6 +129,13 @@ private const val STEP_KEY = "step"
 
 private fun stepKind(step: FunctionStep): String = when (step) {
 	is FunctionStep.Do -> step.action
+	is FunctionStep.If -> "if"
+	is FunctionStep.Try -> "try"
+	is FunctionStep.Exit -> "exit"
+	is FunctionStep.Throw -> "throw"
+	is FunctionStep.Let -> "let"
+	is FunctionStep.Wait -> "wait"
+	is FunctionStep.Note -> "note"
 	is FunctionStep.Unknown -> step.kind
 }
 

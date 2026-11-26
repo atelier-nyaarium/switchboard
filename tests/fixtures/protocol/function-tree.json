@@ -1,0 +1,30 @@
+{
+	"name": "Nested steps",
+	"params": [],
+	"steps": [
+		{
+			"kind": "if",
+			"when": "ready",
+			"steps": [
+				{
+					"kind": "try",
+					"steps": [{ "kind": "do", "action": "tell_assistant", "args": {} }],
+					"catch": [
+						{
+							"kind": "if",
+							"when": "failed",
+							"steps": [
+								{ "kind": "exit" },
+								{ "kind": "throw", "text": "failed" },
+								{ "kind": "let", "name": "result", "value": { "kind": "literal", "value": true } },
+								{ "kind": "wait", "minutes": { "kind": "literal", "value": 5 } },
+								{ "kind": "note", "text": "recovered" }
+							],
+							"else": [{ "kind": "note", "text": "ignored" }]
+						}
+					]
+				}
+			]
+		}
+	]
+}

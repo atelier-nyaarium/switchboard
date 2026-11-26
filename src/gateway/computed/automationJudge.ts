@@ -6,6 +6,7 @@ import {
 	pointerOf,
 	type RunFunction,
 	reached,
+	steering,
 	visit,
 	written,
 } from "../../shared/automation-walk.js";
@@ -122,7 +123,7 @@ const onlyEnabledMoved = (next: Automation, held: Automation | undefined): boole
 const doneKind = (at: FollowedEntry): string | null =>
 	visit(at, {
 		action: ({ action }) => action.kind,
-		step: { do: ({ step }) => step.action },
+		step: { do: ({ step }) => step.action, ...steering(() => null) },
 		unfollowedCall: () => null,
 	});
 
@@ -139,6 +140,7 @@ const dangerKey = (at: FollowedEntry): string | null =>
 				]);
 				return canonicalJson({ kind: step.action, ...Object.fromEntries(values) });
 			},
+			...steering(() => null),
 		},
 		unfollowedCall: () => null,
 	});

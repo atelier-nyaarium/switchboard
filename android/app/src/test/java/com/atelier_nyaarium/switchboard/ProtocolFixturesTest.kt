@@ -138,6 +138,7 @@ class ProtocolFixturesTest {
 
 	private fun reencoded(value: Any): JsonElement? =
 		when (value) {
+			is AutomationFunction -> wireJson.encodeToJsonElement(AutomationFunction.serializer(), value)
 			is AssistantFieldSpec -> wireJson.encodeToJsonElement(AssistantFieldSpec.serializer(), value)
 			is AutomationTrigger -> wireJson.encodeToJsonElement(AutomationTrigger.serializer(), value)
 			is AutomationAction -> wireJson.encodeToJsonElement(AutomationAction.serializer(), value)
@@ -145,6 +146,15 @@ class ProtocolFixturesTest {
 			is FunctionStep -> wireJson.encodeToJsonElement(FunctionStep.serializer(), value)
 			else -> null
 		}
+
+	@Test
+	fun preservesFunctionTrees() {
+		for (file in listOf("function-tree.json", "function-tree-future-kind.json")) {
+			val original = wireJson.parseToJsonElement(fixture(file))
+			val function = wireJson.decodeFromJsonElement<AutomationFunction>(original)
+			assertEquals("$file re-encoded as sent", original, reencoded(function))
+		}
+	}
 
 	@Test
 	fun preservesLargeIntegers() {

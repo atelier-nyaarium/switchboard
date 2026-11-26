@@ -1,7 +1,7 @@
 // Projections, never secrets.
 
 import { z } from "zod";
-import { type FollowedEntry, reached, visit } from "../../shared/automation-walk.js";
+import { type FollowedEntry, reached, steering, visit } from "../../shared/automation-walk.js";
 import type { Advert } from "../../shared/ble-recognition.js";
 import { familyOf, unsupported } from "../../shared/ble-recognition.js";
 import {
@@ -190,6 +190,7 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 				action: ({ action }) => action,
 				step: {
 					do: ({ path, step, via }) => ({ kind: step.action, step: path, function: via, args: step.args }),
+					...steering(({ path, step, via }) => ({ kind: step.kind, step: path, function: via })),
 				},
 				unfollowedCall: ({ call }) => call,
 			}),
