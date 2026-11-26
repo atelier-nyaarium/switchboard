@@ -137,9 +137,7 @@ describe("save refusal lines", () => {
 			functions: [],
 			unreadAutomations: 0,
 			isHome: true,
-			issue: () => null,
-			callIssue: () => null,
-			functionIssue: () => null,
+			assess: () => [],
 			copyIdOf: () => "copy-0",
 			carryIdOf: () => "carry-0",
 			unreadAt: () => false,
@@ -213,7 +211,10 @@ describe("save refusal lines", () => {
 			refusal(saveIntent("gone", pointing(hourly, "gone")), view()),
 			refusal(
 				saveIntent("unfit", pointing(hourly, "fn")),
-				view({ functions: [savedFunction], callIssue: () => ({ kind: "unfit" }) }),
+				view({
+					functions: [savedFunction],
+					assess: () => [{ at: "fit", function: "fn", issue: { kind: "unfit" } }],
+				}),
 			),
 			refusal(saveIntent("away", { ...eventReach }, { confirmed: true }), view({ isHome: false })),
 			refusal(saveIntent("reach", eventReach), view()),

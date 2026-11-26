@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { composeAutomations } from "../gateway/compose/composeAutomations.js";
 import type { Attempt } from "../gateway/computed/automationRunner.js";
 import { NEWER_SET, STEP_UNFIT, VALUE_UNREAD } from "../gateway/computed/automations.js";
-import { FUNCTION_GONE, FUNCTION_UNREAD } from "../gateway/computed/automationValidity.js";
+import { FUNCTION_GONE, FUNCTION_UNREAD, NO_SWITCH } from "../gateway/computed/automationValidity.js";
 import { evaluateHole, fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { unknown } from "../shared/expressions.js";
@@ -52,6 +52,7 @@ function world() {
 	let clock = 1_000_000;
 	let n = 0;
 	const effects: string[] = [];
+	const unplugged = new Set<string>();
 	let answer: (effect: string) => Attempt = () => ({ word: "done" });
 	const open = () =>
 		composeAutomations({
@@ -71,7 +72,8 @@ function world() {
 				}),
 				actions: {
 					ready: () => true,
-					switchName: (device) => (device === PLUG ? "Lamp" : device === FAN ? "Fan" : null),
+					switchName: (device) =>
+						unplugged.has(device) ? null : device === PLUG ? "Lamp" : device === FAN ? "Fan" : null,
 					deviceSet: async (device, verb) => {
 						effects.push(`${device}:${verb}`);
 						return answer(`${device}:${verb}`);
@@ -134,6 +136,15 @@ function world() {
 		answer: (next: (effect: string) => Attempt) => {
 			answer = next;
 		},
+		unplug: (device: string) => unplugged.add(device),
+		/** One starts; one waits. */
+		queueTwo: async () => {
+			answer = unreachable;
+			for (const key of ["one", "two"]) {
+				automations.fireEvents([{ automation: "warm", key, names: {} }], clock);
+				await automations.settled();
+			}
+		},
 		at: () => clock,
 	};
 }
@@ -185,6 +196,40 @@ describe("a run through a function", () => {
 			["device_set", "refused", VALUE_UNREAD],
 			["device_set", "refused", STEP_UNFIT],
 			["device_set", "ran", undefined],
+		]);
+	});
+
+	it("refuses an unsound body where it is written, read, entered and run", async () => {
+		const w = world();
+		const written = w.save(pointing(event), [turn("on", lit("aa:bb:cc:dd:ee:99"))]);
+		w.save(pointing(event, { keepTryingMin: 60 }), [turn("on", lit(PLUG)), turn("on", lit(FAN))]);
+		await w.queueTwo();
+		w.unplug(FAN);
+		const read = w.automations.invalidOf("warm");
+		w.answer(() => ({ word: "done" }));
+		await w.later(60_000);
+
+		expect([written.stored, read]).toEqual([false, NO_SWITCH]);
+		expect(w.effects).toEqual([`${PLUG}:on`, `${PLUG}:on`]);
+		expect(w.rows()).toEqual([
+			["device_set", "ran", undefined],
+			["device_set", "refused", NO_SWITCH],
+			["run_function", "refused", NO_SWITCH],
+		]);
+	});
+
+	it("refuses a call at entry whose bound device went, after the run before it read its own", async () => {
+		const w = world();
+		w.save(pointing(event, { keepTryingMin: 60 }), [turn("on")]);
+		await w.queueTwo();
+		w.unplug(PLUG);
+		w.answer(() => ({ word: "done" }));
+		await w.later(60_000);
+
+		expect(w.effects).toEqual([`${PLUG}:on`, `${PLUG}:on`]);
+		expect(w.rows()).toEqual([
+			["device_set", "ran", undefined],
+			["run_function", "refused", NO_SWITCH],
 		]);
 	});
 

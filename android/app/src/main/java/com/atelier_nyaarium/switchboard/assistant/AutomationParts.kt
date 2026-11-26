@@ -374,8 +374,10 @@ private fun drawsField(draft: AutomationDraft, at: SaidAt, offer: AutomationOffe
 /** What no field draws. */
 internal fun generalLine(said: AutomationSaid?, draft: AutomationDraft, offer: AutomationOffer): String? = when (said) {
 	null -> null
+	// Its block draws it.
+	is AutomationSaid.FunctionMoved -> null
 	is AutomationSaid.Hole ->
 		holeLine(said.text, said.line, said.start, said.end).takeIf { textParam(draft, TextRef(said.action, said.param), offer) == null }
 	is AutomationSaid.Field -> said.line.takeUnless { drawsField(draft, said.at, offer) }
-	is AutomationSaid.Line, is AutomationSaid.Confirm -> said.line
+	is AutomationSaid.Line, is AutomationSaid.Note, is AutomationSaid.Confirm -> said.line
 }

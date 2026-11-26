@@ -3,6 +3,7 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationDeleteResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationCheckResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
@@ -47,6 +48,16 @@ internal suspend fun ConsoleClient.automationPut(
 /** The automation with its function, as one write. */
 internal suspend fun ConsoleClient.automationSave(gatewayId: String, op: ConsoleOp.AutomationSave): ConsoleAutomationSaveResult =
 	valueResult(sendValueOp(gatewayId, op), Protocol.Wire.ConsoleOpKind.AUTOMATION_SAVE)
+
+internal suspend fun ConsoleClient.automationCheck(
+	gatewayId: String,
+	op: ConsoleOp.AutomationCheck,
+): ConsoleAutomationCheckResult? =
+	when (val answer = sendValueAnswer(gatewayId, op)) {
+		is ConsoleClient.ValueAnswer.Answered ->
+			runIsolated { wireJson.decodeFromJsonElement<ConsoleAutomationCheckResult>(answer.result) }.getOrNull()
+		is ConsoleClient.ValueAnswer.Refused, is ConsoleClient.ValueAnswer.Undelivered, ConsoleClient.ValueAnswer.Unreachable -> null
+	}
 
 internal suspend fun ConsoleClient.automationDelete(
 	gatewayId: String,

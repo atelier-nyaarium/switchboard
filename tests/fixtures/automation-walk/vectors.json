@@ -1,5 +1,5 @@
 {
-	"_comment": "What src/shared/automation-walk.ts reaches for each automation: a path and a kind per row, in written order. The phone's twin replays these cases.",
+	"_comment": "What src/shared/automation-walk.ts reaches for each automation, in written order. Each row is one entry: `reach` is action, step or unfollowedCall; `kind` is the action's kind, the step's action, or run_function for a call; `index` is its place in its list; `reason` says why a call was not followed. `functions` absent walks the automation alone. The phone's twin replays these cases.",
 	"cases": [
 		{
 			"name": "one tell",
@@ -8,7 +8,7 @@
 				"trigger": { "kind": "event", "source": "github", "conditions": [] },
 				"actions": [{ "kind": "tell_assistant", "when": "now" }]
 			},
-			"reached": [{ "path": "0", "kind": "tell_assistant" }]
+			"reached": [{ "reach": "action", "path": "0", "index": 0, "kind": "tell_assistant" }]
 		},
 		{
 			"name": "effects and tells keep their written order",
@@ -23,10 +23,10 @@
 				]
 			},
 			"reached": [
-				{ "path": "0", "kind": "device_set" },
-				{ "path": "1", "kind": "tell_assistant" },
-				{ "path": "2", "kind": "ifttt_trigger" },
-				{ "path": "3", "kind": "device_set" }
+				{ "reach": "action", "path": "0", "index": 0, "kind": "device_set" },
+				{ "reach": "action", "path": "1", "index": 1, "kind": "tell_assistant" },
+				{ "reach": "action", "path": "2", "index": 2, "kind": "ifttt_trigger" },
+				{ "reach": "action", "path": "3", "index": 3, "kind": "device_set" }
 			]
 		},
 		{
@@ -47,7 +47,10 @@
 					{ "kind": "device_set", "device": "aa:bb:cc:dd:ee:02", "verb": "off" }
 				]
 			},
-			"reached": [{ "path": "0", "kind": "ifttt_trigger" }, { "path": "1", "kind": "device_set" }]
+			"reached": [
+				{ "reach": "action", "path": "0", "index": 0, "kind": "ifttt_trigger" },
+				{ "reach": "action", "path": "1", "index": 1, "kind": "device_set" }
+			]
 		},
 		{
 			"name": "a pointer reaches its function's steps under the call's path",
@@ -79,17 +82,29 @@
 					]
 				}
 			},
-			"reached": [{ "path": "0.0", "kind": "device_set" }, { "path": "0.1", "kind": "tell_assistant" }]
+			"reached": [
+				{ "reach": "step", "path": "0.0", "index": 0, "kind": "device_set" },
+				{ "reach": "step", "path": "0.1", "index": 1, "kind": "tell_assistant" }
+			]
 		},
 		{
-			"name": "a pointer to a function that is not held reaches the pointer itself",
+			"name": "a pointer to a function that is not held stands as a call, missing",
 			"automation": {
 				"enabled": true,
 				"trigger": { "kind": "event", "source": "github", "conditions": [] },
 				"actions": [{ "kind": "run_function", "function": "gone" }]
 			},
 			"functions": {},
-			"reached": [{ "path": "0", "kind": "run_function" }]
+			"reached": [{ "reach": "unfollowedCall", "path": "0", "kind": "run_function", "reason": "missing" }]
+		},
+		{
+			"name": "walked without functions, a pointer stands as a call, not expanded",
+			"automation": {
+				"enabled": true,
+				"trigger": { "kind": "interval", "everyMin": 60 },
+				"actions": [{ "kind": "run_function", "function": "warm-up" }]
+			},
+			"reached": [{ "reach": "unfollowedCall", "path": "0", "kind": "run_function", "reason": "not-expanded" }]
 		}
 	]
 }

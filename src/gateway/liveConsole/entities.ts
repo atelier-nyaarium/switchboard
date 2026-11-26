@@ -1,7 +1,7 @@
 // Projections, never secrets.
 
 import { z } from "zod";
-import { reached } from "../../shared/automation-walk.js";
+import { type FollowedEntry, reached, visit } from "../../shared/automation-walk.js";
 import type { Advert } from "../../shared/ble-recognition.js";
 import { familyOf, unsupported } from "../../shared/ble-recognition.js";
 import {
@@ -186,7 +186,13 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 	/** Through its function, each step by path. */
 	const actionsOf = (body: Automation) =>
 		reached(body, (id) => automations().functionOf(id)).map((at) =>
-			"action" in at ? at.action : { kind: at.kind, step: at.path, function: at.via, args: at.step.args },
+			visit<FollowedEntry, unknown>(at, {
+				action: ({ action }) => action,
+				step: {
+					do: ({ path, step, via }) => ({ kind: step.action, step: path, function: via, args: step.args }),
+				},
+				unfollowedCall: ({ call }) => call,
+			}),
 		);
 
 	return [

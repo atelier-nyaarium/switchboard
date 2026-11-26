@@ -271,6 +271,8 @@ internal class ConsoleAutomationGateway(private val client: ConsoleClient) : Aut
 		client.automationPreview(gatewayId, trigger, text, params, values)
 
 	override suspend fun save(gatewayId: String, op: ConsoleOp.AutomationSave) = client.automationSave(gatewayId, op)
+
+	override suspend fun check(gatewayId: String, op: ConsoleOp.AutomationCheck) = client.automationCheck(gatewayId, op)
 }
 
 internal class ChatRepositoryAutomationHost(private val repo: ChatRepository) : AutomationHost {

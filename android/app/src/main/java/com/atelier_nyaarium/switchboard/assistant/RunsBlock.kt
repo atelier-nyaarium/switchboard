@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.EXACT_KEYBOARD
+import com.atelier_nyaarium.switchboard.FUNCTION_MOVED_LINE
 import com.atelier_nyaarium.switchboard.PickMenu
 import com.atelier_nyaarium.switchboard.REACHES_HEADER
 import com.atelier_nyaarium.switchboard.UNIQUE_LINE
@@ -49,7 +50,13 @@ internal fun FunctionName(name: String, count: Int?) {
 
 /** The function head, its values, who else it reaches. */
 @Composable
-internal fun RunsBlock(view: RunsView, offer: AutomationOffer, enabled: Boolean, edit: ((AutomationDraft) -> AutomationDraft) -> Unit) {
+internal fun RunsBlock(
+	view: RunsView,
+	offer: AutomationOffer,
+	enabled: Boolean,
+	edit: ((AutomationDraft) -> AutomationDraft) -> Unit,
+	onReload: () -> Unit,
+) {
 	val dim = MaterialTheme.colorScheme.onSurfaceVariant
 	Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 		Text(FUNCTION_MARK, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
@@ -68,6 +75,12 @@ internal fun RunsBlock(view: RunsView, offer: AutomationOffer, enabled: Boolean,
 		view.usedBy?.let { Text(usedByLine(it), style = MaterialTheme.typography.labelMedium, color = dim) }
 		IconButton(onClick = hapticClick { edit { it.copy(picking = true) } }, enabled = enabled) {
 			Icon(Icons.Default.ArrowDropDown, contentDescription = "Run another function")
+		}
+	}
+	if (view.moved) {
+		Column {
+			Text(FUNCTION_MOVED_LINE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+			TextButton(onClick = hapticClick(onReload), enabled = enabled) { Text("Reload") }
 		}
 	}
 	view.invalid?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }

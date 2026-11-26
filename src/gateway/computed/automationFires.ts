@@ -1,13 +1,8 @@
 // A fired trigger's step progress.
 
 import { z } from "zod";
-import { reached } from "../../shared/automation-walk.js";
-import {
-	type Automation,
-	type AutomationAction,
-	AutomationActionSchema,
-	TELL_WHEN,
-} from "../../shared/schemasAutomation.js";
+import { byPath, reached, visit } from "../../shared/automation-walk.js";
+import { type Automation, AutomationActionSchema, TELL_WHEN } from "../../shared/schemasAutomation.js";
 import { BEHIND, CROWDED, REPLACED, TOO_MANY } from "./automationLog.js";
 import { type AutomationEffect, isEffect, natureOf } from "./automationRunner.js";
 import { claimed, FRESH_STEP, isEnded, type Nature, type Step, StepPathSchema, StepSchema } from "./automationSteps.js";
@@ -71,11 +66,6 @@ export const FireSchema = z
 export type Fire = z.infer<typeof FireSchema>;
 export type FireNames = NonNullable<Fire["names"]>;
 
-/** Call site; null at top. */
-export const callSiteOf = (path: string): string | null => {
-	const at = path.lastIndexOf(".");
-	return at < 0 ? null : path.slice(0, at);
-};
 // Remove 2026-12-16: a fire stored by 8.14.84.
 const LegacyFireSchema = z.strictObject({
 	...FireBase,
@@ -118,23 +108,19 @@ export interface Runnable {
 	dueAt: number;
 }
 
-const byPath = (a: string, b: string): number => {
-	const left = a.split(".").map(Number);
-	const right = b.split(".").map(Number);
-	for (let at = 0; at < Math.min(left.length, right.length); at++) {
-		const order = (left[at] as number) - (right[at] as number);
-		if (order !== 0) return order;
-	}
-	return left.length - right.length;
-};
-
 /** Step paths in the order written. */
 export const pathsOf = (fire: Fire): string[] => Object.keys(fire.steps).sort(byPath);
 
-export const isStep = (action: AutomationAction): boolean => isEffect(action) || action.kind === "run_function";
-
+/** Effects and calls. */
 export const stepsOf = (automation: Pick<Automation, "actions">): Fire["steps"] =>
-	Object.fromEntries(reached(automation).flatMap(({ path, action }) => (isStep(action) ? [[path, FRESH_STEP]] : [])));
+	Object.fromEntries(
+		reached(automation).flatMap((at) =>
+			visit(at, {
+				action: ({ path, action }) => (isEffect(action) ? [[path, FRESH_STEP]] : []),
+				unfollowedCall: ({ path }) => [[path, FRESH_STEP]],
+			}),
+		),
+	);
 
 /** The first step not ended. */
 export const turnOf = (fire: Fire): string | null =>

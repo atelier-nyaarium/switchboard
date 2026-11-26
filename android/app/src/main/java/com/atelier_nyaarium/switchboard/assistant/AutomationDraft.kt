@@ -11,6 +11,8 @@ import com.atelier_nyaarium.switchboard.ListEmpty
 import com.atelier_nyaarium.switchboard.groupedView
 import com.atelier_nyaarium.switchboard.listedGroups
 import com.atelier_nyaarium.switchboard.openingDraft
+import com.atelier_nyaarium.switchboard.FUNCTION_MOVED_LINE
+import com.atelier_nyaarium.switchboard.automationSavedOf
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.AssistantSource
 import com.atelier_nyaarium.switchboard.proto.Automation
@@ -18,8 +20,11 @@ import com.atelier_nyaarium.switchboard.proto.AutomationCondition
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationCheckResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.FieldTypes
+import com.atelier_nyaarium.switchboard.proto.FunctionReads
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -281,12 +286,9 @@ internal fun givenOf(draft: AutomationDraft, fields: SourceFields): TriggerGiven
 internal fun measureOf(draft: AutomationDraft): String? = (draft.trigger as? TriggerDraft.Crossing)?.measure?.takeIf { it.isNotBlank() }
 
 /** What blocks Save in its Runs block; null where functions are not served. */
-internal fun draftRunsIssue(draft: AutomationDraft, fields: SourceFields, offer: AutomationOffer, rows: List<AutomationRow> = emptyList()): RunsIssue? {
-	val functions = offer.functions ?: return null
-	val runs = draft.runsDraft()
-	// Edited steps: Gateway judges.
-	val reads = (runs as? RunsDraft.Pointing)?.let { pointing -> functions.row(pointing.functionId)?.reads }
-	return runsIssue(runs, draft.id, givenOf(draft, fields), offer, functions.served.steps, reads, rows, draft.context.sources)
+internal fun draftRunsIssue(draft: AutomationDraft, fields: SourceFields, offer: AutomationOffer): RunsIssue? {
+	if (offer.functions == null) return null
+	return runsIssue(draft.runsDraft(), draft.id, givenOf(draft, fields), offer)
 }
 
 /** The save op; null when unservable or unwritable. */
@@ -295,11 +297,10 @@ internal fun functionSaveOf(
 	fields: SourceFields,
 	offer: AutomationOffer,
 	confirmed: Boolean,
-	rows: List<AutomationRow> = emptyList(),
 ): ConsoleOp.AutomationSave? {
 	if (offer.functions == null) return null
 	val built = draft.builtTrigger(offer) ?: return null
-	if (draft.conditions.any { fields.issueOf(it) != null } || draftRunsIssue(draft, fields, offer, rows) != null) return null
+	if (draft.conditions.any { fields.issueOf(it) != null } || draftRunsIssue(draft, fields, offer) != null) return null
 	return saveOpOf(draft.id, draft.revision, draft.runsDraft(), offer, confirmed) { actions ->
 		Automation(label = draft.original?.label, enabled = draft.enabled, trigger = built, actions = actions)
 	}
@@ -348,19 +349,39 @@ internal fun automationEditing(
 	busy: Boolean,
 	gone: Boolean,
 	offer: AutomationOffer,
-	rows: List<AutomationRow> = emptyList(),
+	checkSaid: AutomationSaid? = null,
+	said: AutomationSaid? = null,
 ): AutomationEditing {
 	val edit = !busy && !gone
 	return AutomationEditing(
 		edit = edit,
-		save = edit && offered && if (offer.functions != null) {
-			functionSaveOf(draft, fields, offer, confirmed = false, rows = rows) != null
+		save = edit && offered && saveAllowedAfterCheck(checkSaid, said, draft.runsDraft()) && if (offer.functions != null) {
+			functionSaveOf(draft, fields, offer, confirmed = false) != null
 		} else {
 			fittingAutomation(draft, fields, offer) != null
 		},
 		delete = edit && slot is AutomationSlot.Held,
 	)
 }
+
+/** Refusal blocks; movement too. */
+internal fun saveAllowedAfterCheck(checkSaid: AutomationSaid?, said: AutomationSaid?, runs: RunsDraft): Boolean =
+	checkSaid == null && !movedFor(said, runs)
+
+/** Drawn as an error. */
+internal fun saidRefuses(said: AutomationSaid?): Boolean = said != null && said !is AutomationSaid.Note
+
+/** The function Reload replaces. */
+internal fun reloadable(runs: RunsDraft): String? =
+	(runs as? RunsDraft.Pointing)?.takeIf { it.mode == PointMode.SHARED || it.mode == PointMode.UNIQUE }?.functionId
+
+/** Moved function remains selected. */
+internal fun movedFor(said: AutomationSaid?, runs: RunsDraft): Boolean =
+	said is AutomationSaid.FunctionMoved && said.functionId == reloadable(runs)
+
+/** Null retains held check. */
+internal fun checkAfter(held: CheckRead, asked: ConsoleOp.AutomationSave, answer: ConsoleAutomationCheckResult?): CheckRead =
+	answer?.let { CheckRead(asked, it) } ?: held
 
 /** An event needs its source; other kinds need the Gateway to hold them. */
 internal fun triggerOffered(draft: AutomationDraft, sources: List<AssistantSource>, offer: AutomationOffer): Boolean =
@@ -409,6 +430,9 @@ internal sealed interface AutomationSaid {
 
 	data class Line(override val line: String) : AutomationSaid
 
+	/** Told, not refused. */
+	data class Note(override val line: String) : AutomationSaid
+
 	/** Dangerous actions to confirm. */
 	data class Confirm(val labels: List<String>) : AutomationSaid {
 		override val line get() = "It needs your go-ahead: ${labels.joinToString(", ")}"
@@ -432,6 +456,41 @@ internal sealed interface AutomationSaid {
 		/** As it was sent. */
 		val text: String,
 	) : AutomationSaid
+
+	data class FunctionMoved(val functionId: String) : AutomationSaid {
+		override val line get() = FUNCTION_MOVED_LINE
+	}
+}
+
+internal data class CheckRead(
+	val op: ConsoleOp.AutomationSave? = null,
+	val answer: ConsoleAutomationCheckResult? = null,
+)
+
+internal fun checkedFor(read: CheckRead, op: ConsoleOp.AutomationSave?): ConsoleAutomationCheckResult? =
+	read.answer?.takeIf { op != null && read.op == op }
+
+internal fun checkedReads(read: CheckRead, functionId: String): FunctionReads? {
+	val automation = read.op?.automation ?: return null
+	return read.answer?.reads?.takeIf { pointerOf(automation) == functionId }
+}
+
+internal fun checkSaidOf(check: ConsoleAutomationCheckResult?, draft: AutomationDraft, context: EditContext): AutomationSaid? {
+	if (check == null || check.ready) return null
+	val refusal = check.refusal ?: return null
+	if (refusal.code == Protocol.Wire.AutomationSaveRefusalCode.CONFIRM.wire) return null
+	if (
+		refusal.code == Protocol.Wire.AutomationSaveRefusalCode.MOVED.wire &&
+		refusal.record == Protocol.Wire.AutomationSaveRecord.AUTOMATION.wire
+	) return null
+	val saved = automationSavedOf(
+		ConsoleAutomationSaveResult(stored = false, refusal = refusal),
+		draft.id,
+	)
+	return when (val outcome = outcomeOf(saved, draft, deleting = false, context)) {
+		is AutomationOutcome.Said -> outcome.said
+		AutomationOutcome.Done, is AutomationOutcome.Offer -> null
+	}
 }
 
 /** Where a refusal lands. */
@@ -464,7 +523,9 @@ internal fun outcomeOf(
 			val held = saved.heldRow?.takeIf { it.id == draft.id && it.revision != draft.revision && editable(it, context.offer) }
 			val hole = saved.hole
 			val at = saved.at
+			val moved = reloadable(draft.runsDraft()).takeIf { saved.functionMoved }
 			when {
+				moved != null -> AutomationOutcome.Said(AutomationSaid.FunctionMoved(moved))
 				saved.confirm.isNotEmpty() -> AutomationOutcome.Said(AutomationSaid.Confirm(saved.confirm))
 				at != null -> AutomationOutcome.Said(AutomationSaid.Field(at, saved.reason, saidText(draft, at)))
 				hole != null -> AutomationOutcome.Said(

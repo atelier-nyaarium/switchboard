@@ -363,6 +363,8 @@ private fun unfitLine(refusal: AutomationSaveRefusal?, selfId: String?): String 
 }
 
 /** A refused `automation_save`; `code` null for one this build does not know. */
+internal const val FUNCTION_MOVED_LINE = "Its function changed elsewhere. Reload to see it."
+
 internal fun automationSaveLine(
 	code: Protocol.Wire.AutomationSaveRefusalCode?,
 	refusal: AutomationSaveRefusal?,
@@ -372,7 +374,7 @@ internal fun automationSaveLine(
 	val function = refusal?.record == Protocol.Wire.AutomationSaveRecord.FUNCTION.wire
 	return when (code) {
 		Protocol.Wire.AutomationSaveRefusalCode.MOVED ->
-			if (function) "Its function changed on another device. Reopen it to edit the latest." else "Changed on another device."
+			if (function) FUNCTION_MOVED_LINE else "Changed on another device."
 		Protocol.Wire.AutomationSaveRefusalCode.GONE ->
 			if (function) "That function no longer exists." else "That automation no longer exists."
 		Protocol.Wire.AutomationSaveRefusalCode.FULL -> {
@@ -434,13 +436,7 @@ internal fun runsIssueLine(issue: RunsIssue): String = when (issue) {
 		ValueIssue.UNKNOWN_DEVICE -> "Pick a device for ${issue.name} again."
 		ValueIssue.NOT_A_NUMBER -> "${issue.name} is a number."
 	}
-	is RunsIssue.Unfit -> when {
-		issue.fit.hidden -> "It reads another source's event."
-		issue.fit.requires.isNotEmpty() -> "Requires ${issue.fit.requires.joinToString(", ")}."
-		else -> issue.fit.wrong.joinToString(" ") { "This trigger gives ${it.name} as ${typeWordText(TypeWord.Given(it.gets)).lowercase()}." }
-	}
 	is RunsIssue.SharedName -> "Used by ${issue.users}. Make unique first."
-	is RunsIssue.SharedUnfit -> "Used by ${issue.users}. Make unique first."
 	is RunsIssue.NameTooLong -> "A function name holds at most ${issue.max} characters."
 }
 

@@ -8,12 +8,16 @@ import com.atelier_nyaarium.switchboard.proto.AutomationSaveFunction
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.FunctionStep
+import com.atelier_nyaarium.switchboard.assistant.pointerOf
+import com.atelier_nyaarium.switchboard.assistant.written
 import com.atelier_nyaarium.switchboard.proto.FunctionParam
+import com.atelier_nyaarium.switchboard.proto.Protocol
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -53,6 +57,67 @@ class SandboxAutomationGatewayTest {
 		assertEquals(before, gateway.rows("sandbox").map { it.id })
 		// One shelf per Gateway.
 		assertEquals(before, gateway.rows("another").map { it.id })
+	}
+
+	@Test
+	fun aCheckAndSaveShareARefusalAndTheCheckLeavesTheListingUnchanged() = runBlocking {
+		val gateway = gateway()
+		val before = gateway.list("sandbox")
+		val held = gateway.rows("sandbox").single { it.id == "evening" }
+		val save = ConsoleOp.AutomationSave(
+			automationId = held.id,
+			automation = held.automation,
+			automationBase = held.revision - 1L,
+			confirmed = true,
+		)
+		val check = ConsoleOp.AutomationCheck(
+			automationId = save.automationId,
+			automation = save.automation,
+			automationBase = save.automationBase,
+			confirmed = true,
+		)
+
+		val checked = gateway.check("sandbox", check)!!
+		val saved = gateway.save("sandbox", save)
+
+		assertEquals(Protocol.Wire.AutomationSaveRefusalCode.MOVED.wire, checked.refusal?.code)
+		assertEquals(checked.refusal, saved.refusal)
+		assertEquals(before, gateway.list("sandbox"))
+	}
+
+	@Test
+	fun aFunctionMovedDuringCheckCanBeSavedAgainstItsNewRevision() = runBlocking {
+		val gateway = gateway()
+		val lamp = gateway.rows("sandbox").single { pointerOf(it.automation) == SANDBOX_MOVING_FUNCTION }
+		val shown = gateway.list("sandbox").functions.orEmpty().single { it.id == SANDBOX_MOVING_FUNCTION }
+		val previousSteps = written(shown.function)
+		val save = ConsoleOp.AutomationSave(
+			automationId = lamp.id,
+			automation = lamp.automation,
+			automationBase = lamp.revision,
+			functionBase = shown.revision,
+			confirmed = true,
+		)
+		val check = ConsoleOp.AutomationCheck(
+			automationId = save.automationId,
+			automation = save.automation,
+			automationBase = save.automationBase,
+			functionBase = save.functionBase,
+			confirmed = true,
+		)
+
+		val refused = gateway.check("sandbox", check)!!
+		val changed = gateway.list("sandbox").functions.orEmpty().single { it.id == SANDBOX_MOVING_FUNCTION }
+		val again = gateway.check("sandbox", check.copy(functionBase = changed.revision))!!
+		val saved = gateway.save("sandbox", save.copy(functionBase = changed.revision))
+
+		assertEquals(Protocol.Wire.AutomationSaveRefusalCode.MOVED.wire, refused.refusal?.code)
+		assertEquals(Protocol.Wire.AutomationSaveRecord.FUNCTION.wire, refused.refusal?.record)
+		assertEquals(shown.revision + 1L, changed.revision)
+		assertNotEquals(previousSteps, written(changed.function))
+		assertTrue(again.ready)
+		assertTrue(saved.stored)
+		assertEquals(lamp.revision + 1L, saved.automation?.revision)
 	}
 
 	@Test
@@ -193,16 +258,22 @@ class SandboxAutomationGatewayTest {
 		val warm = gateway.rows("sandbox").single { it.id == "warm-room" }
 		val source = gateway.list("sandbox").functions.orEmpty().single { it.id == "too-warm" }
 		val copy = source.function.copy(name = "Too warm.001")
-		val answer = gateway.save(
-			"sandbox",
-			ConsoleOp.AutomationSave(
-				automationId = warm.id,
-				automation = warm.automation,
-				automationBase = warm.revision,
-				function = AutomationSaveFunction.Copy(source.id, source.revision, copy),
-			),
+		val save = ConsoleOp.AutomationSave(
+			automationId = warm.id,
+			automation = warm.automation,
+			automationBase = warm.revision,
+			function = AutomationSaveFunction.Copy(source.id, source.revision, copy),
 		)
+		val before = gateway.list("sandbox")
+		val checks = List(2) {
+			gateway.check("sandbox", ConsoleOp.AutomationCheck(save.automationId, save.automation, save.automationBase, function = save.function, confirmed = true))
+		}
+		val untouched = gateway.list("sandbox")
+		val answer = gateway.save("sandbox", save)
 
+		assertEquals(listOf(true, true), checks.map { it?.ready })
+		assertEquals(before, untouched)
+		assertEquals("copy-1", answer.function?.id)
 		assertTrue(answer.stored)
 		assertEquals("Too warm.001", answer.function?.function?.name)
 		assertTrue(gateway.list("sandbox").functions.orEmpty().any { it.function.name == "Too warm.001" })

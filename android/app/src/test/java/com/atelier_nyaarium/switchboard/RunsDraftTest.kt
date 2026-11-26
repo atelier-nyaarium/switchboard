@@ -64,8 +64,8 @@ class RunsDraftTest {
 	private fun open(actions: List<AutomationAction>) =
 		runsDraftOf("mine", Automation(enabled = true, trigger = CROSSING, actions = actions), listOf(blink), FN_OFFER)
 
-	private fun save(runs: RunsDraft): ConsoleOp.AutomationSave? =
-		saveOpOf("mine", 2L, runs, FN_OFFER, confirmed = false) { actions ->
+	private fun save(runs: RunsDraft, offer: com.atelier_nyaarium.switchboard.assistant.AutomationOffer = FN_OFFER): ConsoleOp.AutomationSave? =
+		saveOpOf("mine", 2L, runs, offer, confirmed = false) { actions ->
 			Automation(enabled = true, trigger = CROSSING, actions = actions)
 		}
 
@@ -73,7 +73,6 @@ class RunsDraftTest {
 	fun anUnchangedPointerSavesItsOwnValuesAndLeavesTheFunctionAlone() {
 		val runs = open(listOf(pointer)) as RunsDraft.Pointing
 
-		assertEquals(listOf("other"), runs.others)
 		assertTrue(runs.steps[0] is ActionDraft.Filled)
 		val lamp = runs.params.single { it.param.name == "lamp" }
 		assertEquals(mapOf("device" to FunctionValueReference(lamp.key, "lamp")), (runs.steps[1] as ActionDraft.Filled).references)
@@ -81,6 +80,7 @@ class RunsDraftTest {
 		val op = save(runs.copy(values = runs.values + (timesKey to "3")))!!
 
 		assertNull(op.function)
+		assertEquals(3L, op.functionBase)
 		val sent = written(op.automation).single() as AutomationAction.RunFunction
 		assertEquals("blink", sent.function)
 		assertEquals(5L, sent.keepTryingMin)
@@ -98,10 +98,13 @@ class RunsDraftTest {
 		val function = save(edited)!!.function as AutomationSaveFunction.Edit
 		assertEquals("blink" to 3L, function.id to function.base)
 		assertEquals(listOf(plugStep("off"), expression), written(function.body))
+		assertNull(save(edited)!!.functionBase)
 		// Make unique copies, with the edit.
-		val copy = save(edited.copy(mode = PointMode.UNIQUE))!!.function as AutomationSaveFunction.Copy
+		val copyOp = save(edited.copy(mode = PointMode.UNIQUE))!!
+		val copy = copyOp.function as AutomationSaveFunction.Copy
 		assertEquals("blink" to 3L, copy.from to copy.fromBase)
 		assertEquals(written(function.body), written(copy.body))
+		assertNull(copyOp.functionBase)
 		// A rename alone is an edit too.
 		assertEquals("Blink twice", (save(runs.copy(name = "Blink twice"))!!.function as AutomationSaveFunction.Edit).body.name)
 	}
@@ -118,7 +121,8 @@ class RunsDraftTest {
 		assertEquals(listOf<AutomationAction>(AutomationAction.DeviceSet(SANDBOX_SWITCH, "on")), written(save(sole)!!.automation))
 		// Shared: nothing is built.
 		val sharedRow = functionRow("shared", "Shared", listOf("mine", "other"), steps = listOf(plugStep("on")))
-		assertNull(save(pointedAt(RunsDraft.Flat(emptyList()), "mine", sharedRow, FN_OFFER).copy(name = "")))
+		val sharedOffer = offerOf(SANDBOX_SERVES, away = false, functions = listOf(sharedRow))
+		assertNull(save(pointedAt(RunsDraft.Flat(emptyList()), "mine", sharedRow, sharedOffer).copy(name = ""), sharedOffer))
 	}
 
 	@Test

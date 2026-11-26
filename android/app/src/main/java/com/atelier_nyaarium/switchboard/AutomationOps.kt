@@ -17,6 +17,9 @@ import com.atelier_nyaarium.switchboard.assistant.holeSpanOf
 import com.atelier_nyaarium.switchboard.assistant.movedAutomation
 import com.atelier_nyaarium.switchboard.assistant.movesWithHome
 import com.atelier_nyaarium.switchboard.assistant.pointerOf
+import com.atelier_nyaarium.switchboard.assistant.RunsDraft
+import com.atelier_nyaarium.switchboard.assistant.reloadable
+import com.atelier_nyaarium.switchboard.assistant.reloadedFunction
 import com.atelier_nyaarium.switchboard.assistant.saveAnswerOf
 import com.atelier_nyaarium.switchboard.assistant.automationContext
 import com.atelier_nyaarium.switchboard.assistant.over
@@ -29,6 +32,7 @@ import com.atelier_nyaarium.switchboard.proto.AutomationServes
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.FunctionParam
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationDeleteResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationCheckResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
@@ -64,6 +68,8 @@ internal interface AutomationGateway {
 
 	/** With its function, as one write. */
 	suspend fun save(gatewayId: String, op: ConsoleOp.AutomationSave): ConsoleAutomationSaveResult
+
+	suspend fun check(gatewayId: String, op: ConsoleOp.AutomationCheck): ConsoleAutomationCheckResult?
 
 	/** `text` is a message whose holes to fill. */
 	suspend fun preview(
@@ -113,6 +119,7 @@ internal sealed interface AutomationSaved {
 		val confirm: List<String> = emptyList(),
 		val hole: AutomationHoleSpan? = null,
 		val at: SaidAt? = null,
+		val functionMoved: Boolean = false,
 	) : AutomationSaved
 
 	data object Unreachable : AutomationSaved
@@ -123,6 +130,30 @@ internal fun keptRow(held: Lookup<AutomationRow>): AutomationRow? = when (held) 
 	is Lookup.Found -> held.row
 	Lookup.Gone, Lookup.Reading, Lookup.Unreachable, Lookup.NotServed -> null
 }
+
+internal fun automationSavedOf(
+	answer: ConsoleAutomationSaveResult,
+	id: String,
+	heldRow: AutomationRow? = null,
+): AutomationSaved =
+	when (val read = saveAnswerOf(answer)) {
+		is SaveAnswer.Stored -> AutomationSaved.Stored(read.automation)
+		is SaveAnswer.Confirm -> AutomationSaved.Refused(
+			automationSaveLine(Protocol.Wire.AutomationSaveRefusalCode.CONFIRM, answer.refusal),
+			confirm = read.labels,
+		)
+		is SaveAnswer.Hole -> AutomationSaved.Refused(
+			automationSaveLine(Protocol.Wire.AutomationSaveRefusalCode.HOLE, answer.refusal),
+			hole = holeSpanOf(read),
+		)
+		is SaveAnswer.Refused -> AutomationSaved.Refused(
+			automationSaveLine(read.code, read.refusal, id),
+			heldRow = heldRow.takeIf { movedAutomation(read) },
+			at = refusedAtOf(read.refusal),
+			functionMoved = read.code == Protocol.Wire.AutomationSaveRefusalCode.MOVED &&
+				read.refusal.record == Protocol.Wire.AutomationSaveRecord.FUNCTION.wire,
+		)
+	}
 
 internal data class AutomationDraftKey(val gatewayId: String, val slot: AutomationSlot)
 
@@ -146,7 +177,7 @@ internal class AutomationOps(
 		changed = { draft, opened -> draft.changedFrom(opened) },
 		unattended = { left -> tell(leftLine("", "Automation", left.said?.line.orEmpty())) },
 		inner = AUTOMATION_PAGES,
-		clears = { said -> said is AutomationSaid.Confirm },
+		clears = { said -> said is AutomationSaid.Confirm || said is AutomationSaid.Note },
 	)
 
 	private fun tell(message: String) = state.update { it.withNotice(message) }
@@ -173,11 +204,7 @@ internal class AutomationOps(
 			val fields = fieldsOf(sent, heard.sources)
 			// Functions only where served.
 			if (heard.offer.functions != null) {
-				val rows = when (val answer = state.value.gateways.entry(key.gatewayId)?.automations) {
-					is GatewayList.Listed -> answer.rows
-					GatewayList.Unread, GatewayList.NotServed, GatewayList.Unreachable, null -> emptyList()
-				}
-				functionSaveOf(sent, fields, heard.offer, confirmed, rows)
+				functionSaveOf(sent, fields, heard.offer, confirmed)
 					?.let { saveWithFunction(key.gatewayId, it, sent.original, heard.offer) }
 					?: AutomationSaved.Refused("Not a complete automation")
 			} else {
@@ -196,25 +223,14 @@ internal class AutomationOps(
 			Written.Unreachable -> AutomationSaved.Unreachable
 			is Written.Answered -> {
 				refresh(gatewayId)
-				savedWithFunction(written.answer, gatewayId, op.automationId)
+				automationSavedOf(
+					written.answer,
+					op.automationId,
+					keptRow(state.value.gateways.automationOn(gatewayId, op.automationId)),
+				)
 			}
 		}
 	}
-
-	private fun savedWithFunction(answer: ConsoleAutomationSaveResult, gatewayId: String, id: String): AutomationSaved =
-		when (val read = saveAnswerOf(answer)) {
-			is SaveAnswer.Stored -> AutomationSaved.Stored(read.automation)
-			is SaveAnswer.Confirm -> AutomationSaved.Refused(automationSaveLine(Protocol.Wire.AutomationSaveRefusalCode.CONFIRM, answer.refusal), confirm = read.labels)
-			is SaveAnswer.Hole -> AutomationSaved.Refused(
-				automationSaveLine(Protocol.Wire.AutomationSaveRefusalCode.HOLE, answer.refusal),
-				hole = holeSpanOf(read),
-			)
-			is SaveAnswer.Refused -> AutomationSaved.Refused(
-				automationSaveLine(read.code, read.refusal, id),
-				heldRow = keptRow(state.value.gateways.automationOn(gatewayId, id)).takeIf { movedAutomation(read) },
-				at = refusedAtOf(read.refusal),
-			)
-		}
 
 	suspend fun remove(key: AutomationDraftKey, opening: Long): EditOutcome<AutomationDraft, AutomationSaid>? =
 		send(key, opening, deleting = true) { sent, _ ->
@@ -347,6 +363,44 @@ internal class AutomationOps(
 		if (gatewayId.isBlank()) return null
 		return attempt { client.preview(gatewayId, trigger, text, params, values) }
 	}
+
+	suspend fun check(gatewayId: String, save: ConsoleOp.AutomationSave): ConsoleAutomationCheckResult? {
+		val client = host.gateway ?: return null
+		if (gatewayId.isBlank()) return null
+		val op = ConsoleOp.AutomationCheck(
+			automationId = save.automationId,
+			automation = save.automation,
+			automationBase = save.automationBase,
+			function = save.function,
+			functionBase = save.functionBase,
+			confirmed = true,
+		)
+		return attempt { client.check(gatewayId, op) }
+	}
+
+	suspend fun reloadFunction(key: AutomationDraftKey, opening: Long): EditOutcome<AutomationDraft, AutomationSaid>? =
+		edits.send(key, opening) { sent ->
+			refresh(key.gatewayId)
+			val held = state.value
+			val context = automationContext(held.gateways, held.assistantHome, key.gatewayId).over(sent.context)
+			val pointing = sent.runsDraft() as? RunsDraft.Pointing
+			val id = reloadable(sent.runsDraft())
+			val row = id?.let { context.offer.functions?.row(it) }
+			when {
+				pointing == null || id == null -> EditOutcome.Stays(null)
+				row == null -> EditOutcome.Stays(AutomationSaid.Line("That function is no longer listed."))
+				// Nothing newer was read.
+				row.revision == pointing.base -> {
+					tell(leftLine("", "Automation", GATEWAY_UNREACHABLE))
+					EditOutcome.Stays(AutomationSaid.FunctionMoved(id))
+				}
+				else -> {
+					val (draft, dropped) = sent.reloadedFunction(row, context.offer)
+					val line = if (dropped) "Reloaded. Your changes to its steps were dropped." else "Reloaded."
+					EditOutcome.Stays(AutomationSaid.Note(line), draft)
+				}
+			}
+		}
 
 	private fun saved(answer: ConsoleAutomationPutResult): AutomationSaved = when {
 		answer.stored && answer.row != null -> AutomationSaved.Stored(answer.row)

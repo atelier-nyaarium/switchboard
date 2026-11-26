@@ -4,7 +4,16 @@ import { createHmac } from "node:crypto";
 import { z } from "zod";
 import type { Ambient, TimerHandle } from "../../shared/ambient.js";
 import { functionReads } from "../../shared/automation-fit.js";
-import { type ReachedStep, reached } from "../../shared/automation-walk.js";
+import {
+	type FlatEntry,
+	type FollowedEntry,
+	pointerOf,
+	type RunFunction,
+	reached,
+	siteOf,
+	visit,
+	type WalkStep,
+} from "../../shared/automation-walk.js";
 import { canonicalJson } from "../../shared/canonical-json.js";
 import { chainedTimer } from "../../shared/chained-timer.js";
 import type { ConsoleOp } from "../../shared/console-protocol.js";
@@ -16,7 +25,6 @@ import {
 	type Automation,
 	type AutomationAction,
 	type AutomationActionParam,
-	AutomationActionSchema,
 	type AutomationFunctionRow,
 	type AutomationRow,
 	AutomationSchema,
@@ -46,7 +54,6 @@ import {
 import { CLOCK_GRACE_MS, clockShown, isClock, nextSlot, walkSlots } from "./automationClock.js";
 import {
 	admit,
-	callSiteOf,
 	claim,
 	claimedPaths,
 	type Fire,
@@ -55,7 +62,6 @@ import {
 	finished,
 	frameKey,
 	holdsClaim,
-	isStep,
 	type LandedSet,
 	mayRun,
 	nextEffect,
@@ -80,7 +86,6 @@ import {
 	judgeAutomationWrite,
 	movesWithHome,
 	NOT_HOME,
-	pointerOf,
 } from "./automationJudge.js";
 import { COOLING, fireRow, logged, type RunRow } from "./automationLog.js";
 import { clip, type Dropped, memberOf, outboxOf, ownerOf, QUEUE_FULL, stepMember, told } from "./automationOutbox.js";
@@ -88,7 +93,6 @@ import {
 	type Attempt,
 	type AutomationActionPorts,
 	type AutomationEffect,
-	effectIssue,
 	isEffect,
 	natureOf,
 	runEffect,
@@ -163,23 +167,26 @@ export { STEP_UNFIT };
 export const VALUE_UNREAD = "a value it takes could not be read";
 export const FRAME_UNREAD = "the function it ran could not be read";
 
-const actionAt = (body: Automation, path: string): AutomationAction | undefined =>
-	reached(body).find((at) => at.path === path)?.action;
+const flatAt = (body: Automation, path: string): FlatEntry | undefined => reached(body).find((at) => at.path === path);
 
-type Call = Extract<AutomationAction, { kind: "run_function" }>;
+/** Calls included. */
+const actionAt = (body: Automation, path: string): AutomationAction | undefined => {
+	const at = flatAt(body, path);
+	return (
+		at &&
+		visit<FlatEntry, AutomationAction>(at, { action: ({ action }) => action, unfollowedCall: ({ call }) => call })
+	);
+};
+
+type Call = RunFunction;
 type Tell = Extract<AutomationAction, { kind: "tell_assistant" }>;
 
 const callAt = (body: Automation, path: string): Call | null => {
-	const action = actionAt(body, path);
-	return action?.kind === "run_function" ? action : null;
+	const at = flatAt(body, path);
+	return at ? visit<FlatEntry, Call | null>(at, { action: () => null, unfollowedCall: ({ call }) => call }) : null;
 };
 
-const callOf = (body: Automation): Call | null => {
-	for (const { action } of reached(body)) if (action.kind === "run_function") return action;
-	return null;
-};
-
-const hasSteps = (body: Automation): boolean => reached(body).some(({ action }) => isStep(action));
+const hasSteps = (body: Automation): boolean => Object.keys(stepsOf(body)).length > 0;
 /** A walk whose write failed is retried after this. */
 const CLOCK_RETRY_MS = 30_000;
 /** Kept for a move back. */
@@ -263,7 +270,7 @@ export function createAutomations(deps: AutomationsDeps) {
 	let unwritten = restored.changed;
 	/** Silence counts from here. */
 	const startedAt = deps.now();
-	const { triggerIssue, holesIssue, functionIssue, callIssue, automationIssue, writeIssue, bodyIssue, armed } =
+	const { triggerIssue, functionIssue, assessBody, automationIssue, writeIssue, entryIssue, resolved, armed } =
 		createAutomationValidity(
 			deps,
 			(id) => functionOf(id),
@@ -285,7 +292,7 @@ export function createAutomations(deps: AutomationsDeps) {
 				const row = others.find((other) => other.id === id);
 				return row && isFunctionRecord(row) ? row.body : null;
 			};
-			return holesIssue(candidate.body) ?? writeIssue(candidate.body, functions);
+			return writeIssue(candidate.body, functions);
 		},
 		// Remove 2026-11-28 with the legacy body.
 		settle: true,
@@ -409,19 +416,24 @@ export function createAutomations(deps: AutomationsDeps) {
 		own(state.functionVersions, frameKey(frame)) ?? liveFunction(frame) ?? null;
 
 	/** Through the walk. */
-	const writtenStep = (fire: Fire, path: string): ReachedStep | null => {
-		const site = callSiteOf(path);
+	const writtenStep = (fire: Fire, path: string): WalkStep<"do"> | null => {
+		const site = siteOf(path);
 		const frame = site === null ? undefined : fire.frames?.[site];
 		const body = bodyOf(fire);
 		const fn = frame ? frameFunction(frame) : null;
 		if (!body || !frame || !fn) return null;
 		const at = reached(body, (id) => (id === frame.function ? fn : null)).find((held) => held.path === path);
-		return at && "step" in at ? at : null;
+		if (!at) return null;
+		return visit<FollowedEntry, WalkStep<"do"> | null>(at, {
+			action: () => null,
+			step: { do: (held) => held },
+			unfollowedCall: () => null,
+		});
 	};
 
 	/** As fired, else as read. */
 	const actionOf = (fire: Fire, path: string): AutomationAction | null => {
-		const site = callSiteOf(path);
+		const site = siteOf(path);
 		if (site !== null) return fire.frames?.[site]?.resolved?.[path] ?? null;
 		const body = bodyOf(fire);
 		return (body && actionAt(body, path)) ?? null;
@@ -434,11 +446,11 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	/** For a step's row. */
 	const kindAt = (fire: Fire, path: string): string | undefined =>
-		actionOf(fire, path)?.kind ?? writtenStep(fire, path)?.kind;
+		actionOf(fire, path)?.kind ?? writtenStep(fire, path)?.step.action;
 
 	/** Call window, else default. */
 	const windowOf = (fire: Fire, path: string): number => {
-		const site = callSiteOf(path);
+		const site = siteOf(path);
 		const body = bodyOf(fire);
 		if (site === null || !body) return KEEP_TRYING_MS;
 		return (callAt(body, site)?.keepTryingMin ?? KEEP_TRYING_MIN_DEFAULT) * 60_000;
@@ -478,7 +490,7 @@ export function createAutomations(deps: AutomationsDeps) {
 	): boolean => {
 		const plan = tellPlan(record.body);
 		const fired = { automation: record.id, seq: at.seq, at: at.at };
-		const call = callOf(record.body);
+		const call = pointerOf(record.body);
 		if (call?.coolDownSec !== undefined) {
 			// From admission, as a trigger's own.
 			const held = own(work.firedAt, record.id);
@@ -808,7 +820,8 @@ export function createAutomations(deps: AutomationsDeps) {
 		if (!bodyOf(fire)) return fireRow(fire, "suppressed", "the automation changed");
 		if (started(fire)) return null;
 		if (record.revision !== fire.revision) return fireRow(fire, "suppressed", "the automation changed");
-		const issue = bodyIssue(record.body);
+		// Entry judges its function.
+		const issue = automationIssue(record.body, null);
 		return issue === null ? null : fireRow(fire, "refused", issue);
 	};
 
@@ -819,8 +832,10 @@ export function createAutomations(deps: AutomationsDeps) {
 			return { refused: store.unreadOf(call.function, FUNCTION_KIND) ? FUNCTION_UNREAD : FUNCTION_GONE };
 		const frame: Frame = { function: record.id, incarnation: record.incarnation, revision: record.revision };
 		const body = bodyOf(fire) as Automation;
+		const unsound = entryIssue(body, record.id, record.body);
+		if (unsound !== null) return { refused: unsound };
 		const inner = reached(body, (id) => (id === record.id ? record.body : null)).filter(
-			(at) => callSiteOf(at.path) === path,
+			(at) => siteOf(at.path) === path,
 		);
 		const { [path]: _call, ...steps } = fire.steps;
 		for (const at of inner) steps[at.path] = FRESH_STEP;
@@ -847,7 +862,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			fire = { ...withStep(fire, path, step), active: [path] };
 			if (step.claimed) return { fire, log };
 			const body = bodyOf(fire);
-			const call = body && callSiteOf(path) === null ? callAt(body, path) : null;
+			const call = body && siteOf(path) === null ? callAt(body, path) : null;
 			if (call) {
 				const entered = enter(fire, path, call);
 				if (!("refused" in entered)) {
@@ -860,7 +875,7 @@ export function createAutomations(deps: AutomationsDeps) {
 				continue;
 			}
 			const window = windowOf(fire, path);
-			const site = callSiteOf(path);
+			const site = siteOf(path);
 			const action = actionOf(fire, path);
 			if (site !== null && !action && writtenStep(fire, path)) {
 				at.unread.push({ member: fire.member, path });
@@ -1134,9 +1149,9 @@ export function createAutomations(deps: AutomationsDeps) {
 		state.fires.map((held) => (held.member === member ? { ...held, ...patch } : held));
 
 	/** Call values over names. */
-	const scopeOf = (fire: Fire, at: ReachedStep): FireNames => {
+	const scopeOf = (fire: Fire, at: WalkStep): FireNames => {
 		const body = bodyOf(fire);
-		const site = callSiteOf(at.path);
+		const site = siteOf(at.path);
 		const call = body && site !== null ? callAt(body, site) : null;
 		const fn = site === null ? undefined : fire.frames?.[site];
 		const params = fn ? (frameFunction(fn)?.params ?? []) : [];
@@ -1165,7 +1180,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		const log = rows.reduce(logged, state.log);
 		const current = state.fires.find((held) => held.member === ref.member);
 		const step = current?.steps[ref.path];
-		const site = callSiteOf(ref.path);
+		const site = siteOf(ref.path);
 		const frame = site === null ? undefined : current?.frames?.[site];
 		if (!current || !step || isEnded(step) || !frame || site === null)
 			return rows.length > 0 && commit({ ...state, log });
@@ -1183,16 +1198,17 @@ export function createAutomations(deps: AutomationsDeps) {
 	/** Holes filled, expressions read. */
 	async function valuesOf(
 		fire: Fire,
-		at: ReachedStep,
+		at: WalkStep<"do">,
 		rows: RunRow[],
 	): Promise<{ action: AutomationAction } | { refused: string }> {
 		const names = scopeOf(fire, at);
 		const filled = fillerOf(fire, rows, names);
-		const spec = Object.hasOwn(AUTOMATION_ACTIONS, at.kind)
-			? AUTOMATION_ACTIONS[at.kind as AutomationAction["kind"]]
+		const kind = at.step.action;
+		const spec = Object.hasOwn(AUTOMATION_ACTIONS, kind)
+			? AUTOMATION_ACTIONS[kind as AutomationAction["kind"]]
 			: null;
 		const params: readonly AutomationActionParam[] = spec?.params ?? [];
-		const raw: Record<string, unknown> = { kind: at.kind };
+		const raw: Record<string, unknown> = { kind };
 		for (const [name, arg] of Object.entries(at.step.args)) {
 			if (arg.kind === "expression") {
 				const value = await evaluated(arg.text, names);
@@ -1205,13 +1221,10 @@ export function createAutomations(deps: AutomationsDeps) {
 				continue;
 			}
 			const max = params.find((held) => held.name === name && held.kind === "text")?.max;
-			const text = await filled(arg.value, at.kind);
+			const text = await filled(arg.value, kind);
 			raw[name] = max === undefined ? text : text.slice(0, max);
 		}
-		const parsed = AutomationActionSchema.safeParse(raw);
-		if (!parsed.success || parsed.data.kind === "run_function") return { refused: STEP_UNFIT };
-		const issue = isEffect(parsed.data) ? effectIssue(parsed.data, deps.actions) : null;
-		return issue === null ? { action: parsed.data } : { refused: issue };
+		return resolved(kind, raw);
 	}
 
 	/** Null on failure. */
@@ -1267,7 +1280,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		const filled = fillerOf(fire, rows);
 		const texts: Record<string, string> = {};
 		// Read at start.
-		const written = callSiteOf(ref.path) === null ? holeTextsOf([effect]) : [];
+		const written = siteOf(ref.path) === null ? holeTextsOf([effect]) : [];
 		for (const { param, text } of written) {
 			const params: readonly AutomationActionParam[] = spec.params;
 			const max = params.find((held) => held.name === param)?.max ?? EFFECT_TEXT_MAX;
@@ -1347,9 +1360,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			functions: store.list().filter(isFunctionRecord),
 			unreadAutomations: store.unreadCount(AUTOMATION_KIND),
 			isHome: deps.isHome(),
-			issue: (body) => automationIssue(body),
-			callIssue,
-			functionIssue: (fn) => functionIssue(fn)?.message ?? null,
+			assess: (body, functions) => [...assessBody(body, functions)],
 			copyIdOf: (automationId, from) => derivedFunctionId("copy", automationId, from),
 			carryIdOf: (from) => derivedFunctionId("carry", "", from),
 			unreadAt: (id) => store.unreadOf(id, AUTOMATION_KIND) || store.unreadOf(id, FUNCTION_KIND),

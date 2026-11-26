@@ -6,44 +6,50 @@ import com.atelier_nyaarium.switchboard.proto.AutomationFunction
 import com.atelier_nyaarium.switchboard.proto.FunctionStep
 import com.atelier_nyaarium.switchboard.proto.OpensWalk
 
-/** One row the walk answers. */
-internal sealed interface Reach {
+/** Exhaustive walk entry. */
+internal sealed interface WalkEntry {
 	val path: String
-
-	/** The action it does. */
-	val kind: String
 }
 
-/** Written on the automation itself. */
-internal data class Reached(override val path: String, val action: AutomationAction) : Reach {
-	override val kind: String get() = kindOf(action)
+/** Automation action, not call. */
+internal data class WalkAction(override val path: String, val index: Int, val action: AutomationAction) : WalkEntry
+
+/** Called function step. */
+internal data class WalkStep(override val path: String, val index: Int, val step: FunctionStep, val via: String) : WalkEntry
+
+internal enum class Unfollowed(val wire: String) {
+	/** Walked without functions. */
+	NOT_EXPANDED("not-expanded"),
+
+	/** Function not held. */
+	MISSING("missing"),
 }
 
-/** A function's step, through the automation's pointer. */
-internal data class ReachedStep(override val path: String, val step: FunctionStep, val via: String) : Reach {
-	override val kind: String get() = when (step) {
-		is FunctionStep.Do -> step.action
-		is FunctionStep.Unknown -> step.kind
-	}
-}
+internal data class UnfollowedCall(
+	override val path: String,
+	val call: AutomationAction.RunFunction,
+	val reason: Unfollowed,
+) : WalkEntry
 
-/** Every action an automation reaches, in written order. */
 @OptIn(OpensWalk::class)
-internal fun reached(automation: Automation): List<Reached> =
-	automation.actions.mapIndexed { at, action -> Reached(at.toString(), action) }
-
-/** Follows each call; a pointer it cannot follow is reached itself. */
-@OptIn(OpensWalk::class)
-internal fun reached(automation: Automation, functionOf: (String) -> AutomationFunction?): List<Reach> =
+private fun walk(automation: Automation, functionOf: ((String) -> AutomationFunction?)?): List<WalkEntry> =
 	automation.actions.flatMapIndexed { at, action ->
 		val path = at.toString()
-		val fn = (action as? AutomationAction.RunFunction)?.let { functionOf(it.function) }
-		if (fn == null || action !is AutomationAction.RunFunction) {
-			listOf(Reached(path, action))
-		} else {
-			fn.steps.mapIndexed { inner, step -> ReachedStep("$path.$inner", step, action.function) }
+		when {
+			action !is AutomationAction.RunFunction -> listOf(WalkAction(path, at, action))
+			functionOf == null -> listOf(UnfollowedCall(path, action, Unfollowed.NOT_EXPANDED))
+			else -> functionOf(action.function)?.steps?.mapIndexed { inner, step ->
+				WalkStep("$path.$inner", inner, step, action.function)
+			} ?: listOf(UnfollowedCall(path, action, Unfollowed.MISSING))
 		}
 	}
+
+/** Unexpanded calls, written order. */
+internal fun reached(automation: Automation): List<WalkEntry> = walk(automation, null)
+
+/** Follow available calls. */
+internal fun reached(automation: Automation, functionOf: (String) -> AutomationFunction?): List<WalkEntry> =
+	walk(automation, functionOf)
 
 /** A function's steps as written. */
 @OptIn(OpensWalk::class)

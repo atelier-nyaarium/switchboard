@@ -1,18 +1,21 @@
 package com.atelier_nyaarium.switchboard.assistant
 
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarried
-import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.CarriedAutomation
 import com.atelier_nyaarium.switchboard.proto.CarriedFunction
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.FunctionStep
 
+/** Called function id. */
+private fun calledBy(entry: WalkEntry): String? = when (entry) {
+	is UnfollowedCall -> entry.call.function
+	is WalkAction, is WalkStep -> null
+}
+
 /** Each function a carried automation runs, once, in listing order; one not listed stays behind. */
 internal fun carriedFunctionsOf(automations: List<CarriedAutomation>, listed: List<CarriedFunction>): List<CarriedFunction> {
-	val runs = automations.flatMap { carried ->
-		reached(carried.automation).mapNotNull { (it.action as? AutomationAction.RunFunction)?.function }
-	}.toSet()
+	val runs = automations.flatMap { carried -> reached(carried.automation).mapNotNull(::calledBy) }.toSet()
 	return listed.filter { it.id in runs }
 }
 
@@ -45,7 +48,7 @@ internal fun sealedRefusal(envelope: ContentEnvelope): CarryRefusal? =
 /** Functions, or a pointer. */
 internal fun carriesFunctions(carried: AssistantHomeCarried?): Boolean =
 	!carried?.functions.isNullOrEmpty() ||
-		carried?.automations.orEmpty().any { held -> reached(held.automation).any { it.action is AutomationAction.RunFunction } }
+		carried?.automations.orEmpty().any { held -> reached(held.automation).any { calledBy(it) != null } }
 
 /** Null when the destination holds every carried step kind. */
 internal fun carryRefusal(

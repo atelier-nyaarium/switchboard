@@ -10,6 +10,9 @@ import com.atelier_nyaarium.switchboard.assistant.carriesFunctions
 import com.atelier_nyaarium.switchboard.assistant.carryRefusal
 import com.atelier_nyaarium.switchboard.assistant.functionsServed
 import com.atelier_nyaarium.switchboard.assistant.functionsServedBy
+import com.atelier_nyaarium.switchboard.assistant.UnfollowedCall
+import com.atelier_nyaarium.switchboard.assistant.WalkAction
+import com.atelier_nyaarium.switchboard.assistant.WalkStep
 import com.atelier_nyaarium.switchboard.assistant.reached
 import com.atelier_nyaarium.switchboard.assistant.sealedRefusal
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
@@ -117,7 +120,12 @@ internal fun rulesOf(sourceId: String, events: List<AutomationRow>): AssistantWa
 	val waking = events.mapNotNull { row ->
 		val trigger = row.automation.trigger as? AutomationTrigger.Event
 		val wakes = row.automation.enabled && row.invalid == null &&
-			reached(row.automation).any { (_, action) -> action is AutomationAction.TellAssistant && action.`when` == "now" }
+			reached(row.automation).any { entry ->
+				when (entry) {
+					is WalkAction -> (entry.action as? AutomationAction.TellAssistant)?.`when` == "now"
+					is WalkStep, is UnfollowedCall -> false
+				}
+			}
 		trigger?.takeIf { it.source == sourceId && wakes }?.let { row.id to it.conditions }
 	}
 	val rules = waking.filter { it.second.isNotEmpty() }.take(Protocol.Wire.ASSISTANT_RULES_MAX).map { (id, conditions) ->

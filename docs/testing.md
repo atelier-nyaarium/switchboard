@@ -272,6 +272,10 @@ Each seeded Gateway answers differently, or a grouping bug has nowhere to show: 
 set, one holds the same record ids as different records in another zone, and one answers empty,
 which is not a Gateway that could not be read.
 
+| case | Gateway | behavior |
+|---|---|---|
+| a function changes under its editor | full | the automation at 23:00 runs "Night lamp" (`SANDBOX_MOVING_FUNCTION`); the first check asked about it moves that function once, so the editor shows the changed line and Reload, and a reload draws the new steps |
+
 **What it cannot show.** The sandbox answers after a round trip rather than at once, which is what
 makes a screen keyed on its own load visible here, but it is still one process with no socket: a
 dropped plane, a re-provision landing mid-read, a stale fence and a Gateway that answers slowly are

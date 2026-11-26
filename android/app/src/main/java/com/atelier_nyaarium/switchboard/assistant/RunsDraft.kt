@@ -51,8 +51,6 @@ internal sealed interface RunsDraft {
 		val mode: PointMode,
 		/** The body as read; null when new. */
 		val original: AutomationFunction?,
-		/** Other automations running it. */
-		val others: List<String>,
 	) : RunsDraft
 
 	/** A pointer whose function is not listed. */
@@ -176,7 +174,6 @@ internal fun runsDraftOf(automationId: String, automation: Automation, functions
 		held = pointer,
 		mode = PointMode.SHARED,
 		original = row.function,
-		others = row.users.filter { it != automationId },
 	)
 }
 
@@ -195,7 +192,6 @@ internal fun pointedAt(runs: RunsDraft, automationId: String, row: AutomationFun
 		held = held.copy(function = row.id, values = null),
 		mode = PointMode.SHARED,
 		original = row.function,
-		others = row.users.filter { it != automationId },
 	)
 }
 
@@ -238,6 +234,9 @@ internal fun saveOpOf(
 			automation = automation,
 			automationBase = automationBase,
 			function = function,
+			functionBase = (runs as? RunsDraft.Pointing)
+				?.takeIf { function == null && it.mode == PointMode.SHARED && bodyOf(it.name, it.params, it.steps, offer) == it.original }
+				?.base,
 			confirmed = confirmed.takeIf { it },
 		)
 	}
@@ -266,7 +265,7 @@ internal fun AutomationDraft.withFunctionName(name: String, functions: FunctionO
 	RunsHead.Own -> {
 		if (name.isBlank()) this else {
 			val id = newFunctionId ?: freshFunctionId()
-			withRuns(RunsDraft.Pointing(id, 0L, name, emptyList(), actions, emptyMap(), AutomationAction.RunFunction(function = id), PointMode.NEW, null, emptyList())).copy(newFunctionId = id)
+			withRuns(RunsDraft.Pointing(id, 0L, name, emptyList(), actions, emptyMap(), AutomationAction.RunFunction(function = id), PointMode.NEW, null)).copy(newFunctionId = id)
 		}
 	}
 	is RunsHead.Points -> {
@@ -352,14 +351,32 @@ internal fun AutomationDraft.freshBody(): AutomationDraft = withRuns(RunsDraft.F
 
 /** Other users first. */
 internal fun othersOf(runs: RunsDraft.Pointing, selfId: String, functions: FunctionOffer?): List<String> =
-	functions?.row(runs.functionId)?.users?.filter { it != selfId } ?: runs.others
+	functions?.row(runs.functionId)?.users?.filter { it != selfId }.orEmpty()
 
 /** Its name names a body others run. */
 internal fun sharedName(runs: RunsDraft.Pointing, others: List<String>): Boolean = runs.mode == PointMode.SHARED && others.isNotEmpty()
 
-/** Steps as stored. */
-internal fun stepsUnedited(runs: RunsDraft.Pointing, row: AutomationFunctionRow, offer: AutomationOffer): Boolean =
-	runs.steps.map { stepOf(it, offer, runs.params) } == written(row.function)
+internal fun AutomationDraft.reloadedFunction(row: AutomationFunctionRow, offer: AutomationOffer): Pair<AutomationDraft, Boolean> {
+	val runs = runsDraft() as? RunsDraft.Pointing ?: return this to false
+	if (runs.mode !in setOf(PointMode.SHARED, PointMode.UNIQUE) || runs.functionId != row.id) return this to false
+	val dropped = runs.mode == PointMode.UNIQUE || bodyOf(runs.name, runs.params, runs.steps, offer) != runs.original
+	val oldValues = runs.params.associate { it.param.name to (it.param.type to runs.values[it.key]) }
+	val params = functionValues(row.function.params)
+	val values = params.mapNotNull { param ->
+		val (type, value) = oldValues[param.param.name] ?: return@mapNotNull null
+		value?.takeIf { type == param.param.type }?.let { param.key to it }
+	}.toMap()
+	val reloaded = runs.copy(
+		base = row.revision,
+		name = row.function.name,
+		params = params,
+		steps = written(row.function).map { stepDraftOf(it, offer, params) },
+		values = values,
+		mode = PointMode.SHARED,
+		original = row.function,
+	)
+	return withRuns(reloaded) to dropped
+}
 
 /** A step back as an automation's action. */
 private fun stepAction(draft: ActionDraft, offer: AutomationOffer): AutomationAction? = when (draft) {

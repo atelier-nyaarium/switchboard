@@ -1,11 +1,18 @@
 // Every automation write, judged once.
 
-import { type Reached, reached, written } from "../../shared/automation-walk.js";
+import {
+	type FollowedEntry,
+	type FunctionOf,
+	pointerOf,
+	type RunFunction,
+	reached,
+	visit,
+	written,
+} from "../../shared/automation-walk.js";
 import { canonicalJson } from "../../shared/canonical-json.js";
 import {
 	AUTOMATION_ACTIONS,
 	type Automation,
-	type AutomationAction,
 	type AutomationActionKind,
 	type AutomationInput,
 	AutomationSchema,
@@ -16,9 +23,7 @@ import {
 import { type AutomationSaveRefusal, SAVE_LINE_MAX } from "../../shared/schemasAutomationSave.js";
 import { type AutomationFunction, FunctionSchema } from "../../shared/schemasFunction.js";
 import type { OwnerRecord, OwnerWrite } from "../ownerRecords.js";
-import { type CallIssue, NO_SWITCH } from "./automationValidity.js";
-
-type RunFunction = Extract<AutomationAction, { kind: "run_function" }>;
+import { type BodyIssue, type CallIssue, isFitIssue, isStepIssue, lineOf, NO_SWITCH } from "./automationValidity.js";
 
 export const AUTOMATION_KIND = "automation";
 export const FUNCTION_KIND = "function";
@@ -58,12 +63,8 @@ export interface AutomationJudgeView {
 	/** Automation rows this build cannot read. */
 	unreadAutomations: number;
 	isHome: boolean;
-	/** Why this Gateway cannot run it. */
-	issue: (body: Automation) => string | null;
-	/** Fit and the switches its values name. */
-	callIssue: (body: Automation, fn: AutomationFunction) => CallIssue | null;
-	/** Its first step issue. */
-	functionIssue: (fn: AutomationFunction) => string | null;
+	/** Omitted lookup reads storage. */
+	assess: (body: Automation, functions?: FunctionOf) => BodyIssue[];
 	/** Null without a key. */
 	copyIdOf: (automationId: string, from: string) => string | null;
 	/** Null without a key. */
@@ -114,22 +115,32 @@ const remove = ({ id, revision }: { id: string; revision: number }): OwnerWrite 
 	base: revision,
 });
 
-export const pointerOf = (body: Automation): RunFunction | null =>
-	written(body).find((action): action is RunFunction => action.kind === "run_function") ?? null;
-
 const onlyEnabledMoved = (next: Automation, held: Automation | undefined): boolean =>
 	held !== undefined && canonicalJson({ ...next, enabled: true }) === canonicalJson({ ...held, enabled: true });
 
+const doneKind = (at: FollowedEntry): string | null =>
+	visit(at, {
+		action: ({ action }) => action.kind,
+		step: { do: ({ step }) => step.action },
+		unfollowedCall: () => null,
+	});
+
 /** One key for an action, flat or as a step. */
-const dangerKey = (at: Reached): string | null => {
-	if (!stepDanger(at.kind)) return null;
-	if ("action" in at) return canonicalJson(at.action);
-	const values = Object.entries(at.step.args).map(([name, arg]) => [
-		name,
-		arg.kind === "literal" ? arg.value : { expression: arg.text },
-	]);
-	return canonicalJson({ kind: at.kind, ...Object.fromEntries(values) });
-};
+const dangerKey = (at: FollowedEntry): string | null =>
+	visit(at, {
+		action: ({ action }) => (stepDanger(action.kind) ? canonicalJson(action) : null),
+		step: {
+			do: ({ step }) => {
+				if (!stepDanger(step.action)) return null;
+				const values = Object.entries(step.args).map(([name, arg]) => [
+					name,
+					arg.kind === "literal" ? arg.value : { expression: arg.text },
+				]);
+				return canonicalJson({ kind: step.action, ...Object.fromEntries(values) });
+			},
+		},
+		unfollowedCall: () => null,
+	});
 
 const stepDanger = (kind: string): boolean =>
 	Object.hasOwn(AUTOMATION_ACTIONS, kind) && AUTOMATION_ACTIONS[kind as AutomationActionKind].danger;
@@ -137,17 +148,20 @@ const stepDanger = (kind: string): boolean =>
 const labelOf = (kind: string): string =>
 	Object.hasOwn(AUTOMATION_ACTIONS, kind) ? AUTOMATION_ACTIONS[kind as AutomationActionKind].label : kind;
 
+const CALL_KIND: RunFunction["kind"] = "run_function";
+
 /** New dangerous actions; for an event user, all new reach. */
-function asksOf(next: Reached[], held: Reached[] | null, event: boolean, heldWasEvent: boolean): string[] {
+function asksOf(next: FollowedEntry[], held: FollowedEntry[] | null, event: boolean, heldWasEvent: boolean): string[] {
 	const known = new Set((held ?? []).map(dangerKey).filter((key) => key !== null));
 	const danger = next.filter((at) => {
 		const key = dangerKey(at);
 		return key !== null && !known.has(key);
 	});
-	const prior = (held ?? []).filter((at) => !("action" in at && at.action.kind === "run_function"));
-	const toldOnly = !heldWasEvent || prior.every((at) => at.kind === "tell_assistant");
-	const reach = event && toldOnly ? next.filter((at) => at.kind !== "tell_assistant") : [];
-	return [...danger, ...reach].map((at) => labelOf(at.kind));
+	// Unfollowed calls prove nothing.
+	const prior = (held ?? []).map(doneKind).filter((kind) => kind !== null);
+	const toldOnly = !heldWasEvent || prior.every((kind) => kind === "tell_assistant");
+	const reach = event && toldOnly ? next.filter((at) => doneKind(at) !== "tell_assistant") : [];
+	return [...danger, ...reach].map((at) => labelOf(doneKind(at) ?? CALL_KIND));
 }
 
 function judgeSave(
@@ -249,9 +263,8 @@ function judgeSave(
 	}
 	// Fresh pointers need sound functions.
 	if (!toggle && pointer && pointer.function !== heldPointer?.function && fnWrite?.id !== pointer.function) {
-		const stored = functionAt(pointer.function);
-		const line = stored ? view.functionIssue(stored.body) : null;
-		if (line) return refused(line, { code: "invalid", record: "function", id: pointer.function });
+		const unsound = view.assess(next, functionHeld).find(isStepIssue);
+		if (unsound) return refused(lineOf(unsound), { code: "invalid", record: "function", id: pointer.function });
 	}
 
 	// Includes other users of an edited function.
@@ -265,11 +278,8 @@ function judgeSave(
 	];
 
 	if (!toggle) {
-		const issueUnder = (body: Automation, functions: (id: string) => AutomationFunction | null) => {
-			const at = pointerOf(body);
-			const fn = at ? functions(at.function) : null;
-			return fn ? view.callIssue(body, fn) : null;
-		};
+		const issueUnder = (body: Automation, functions: FunctionOf): CallIssue | null =>
+			view.assess(body, functions).find(isFitIssue)?.issue ?? null;
 		/** Held users only fail on new reach. */
 		const issueOf = (body: Automation, own: boolean) => {
 			const after = issueUnder(body, functionNext);
@@ -401,7 +411,7 @@ function fitting(rows: readonly CarriedAutomation[], view: AutomationJudgeView, 
 		const reason = !movesWithHome(automation)
 			? "not an event automation"
 			: runnable
-				? view.issue(automation)
+				? (view.assess(automation).map(lineOf)[0] ?? null)
 				: null;
 		if (reason === null) wanted.set(id, canonicalAutomation(automation));
 		else dropped.push({ id, reason });

@@ -26,6 +26,7 @@ import com.atelier_nyaarium.switchboard.deleteTakesLine
 import com.atelier_nyaarium.switchboard.keptRow
 import com.atelier_nyaarium.switchboard.homeDisplayUnit
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
+import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.FunctionParam
 import com.atelier_nyaarium.switchboard.rememberEdit
 import kotlinx.serialization.json.JsonObject
@@ -50,6 +51,18 @@ internal fun previewRead(
 		delay(PREVIEW_DEBOUNCE_MS)
 		val answer = ops.preview(gatewayId, asked, text, params, values)
 		read = PreviewRead(answer, failed = answer == null)
+	}
+	return read
+}
+
+/** Debounced check; retain answer. */
+@Composable
+internal fun checkRead(ops: AutomationOps, key: AutomationDraftKey, op: ConsoleOp.AutomationSave?): CheckRead {
+	var read by remember(key) { mutableStateOf(CheckRead()) }
+	LaunchedEffect(key, op) {
+		val asked = op ?: return@LaunchedEffect
+		delay(PREVIEW_DEBOUNCE_MS)
+		read = checkAfter(read, asked, ops.check(key.gatewayId, asked))
 	}
 	return read
 }
@@ -84,7 +97,8 @@ internal fun AutomationEditorPage(
 	} ?: return
 	val session = open.session
 	// Rebase or Back replaces typing.
-	val typed = remember(key, open.opening, session.draft.revision, ops.edits.page(session.draft)) {
+	val pointedBase = (session.draft.runsDraft() as? RunsDraft.Pointing)?.base
+	val typed = remember(key, open.opening, session.draft.revision, pointedBase, ops.edits.page(session.draft)) {
 		MirroredDraft(session.draft) { next -> ops.edits.edit(key, open.opening) { next } }
 	}
 	var draft by typed
@@ -97,7 +111,21 @@ internal fun AutomationEditorPage(
 	val gone = lookup == Lookup.Gone
 	val busy = session.busy
 	val rows = automationGroups(state.gateways, state.assistantHome).firstOrNull { it.gatewayId == gatewayId }?.rows.orEmpty()
-	val can = automationEditing(slot, draft, fields, triggerOffered(draft, sources, offer), busy, gone, offer, rows)
+	val checkOp = functionSaveOf(draft, fields, offer, confirmed = true)
+	val check = checkRead(ops, key, checkOp)
+	val checkSaid = checkSaidOf(checkedFor(check, checkOp), draft, heard)
+	val said = checkSaid ?: session.said
+	val can = automationEditing(
+		slot,
+		draft,
+		fields,
+		triggerOffered(draft, sources, offer),
+		busy,
+		gone,
+		offer,
+		checkSaid = checkSaid,
+		said = session.said,
+	)
 	val trigger = askedTrigger(draft, fields, sources, offer)
 	val pointing = draft.runsDraft() as? RunsDraft.Pointing
 	val previewScope = functionPreviewScopeOf(draft.runsDraft())
@@ -122,7 +150,7 @@ internal fun AutomationEditorPage(
 		)
 		return
 	}
-	val runs = runsView(draft, fields, offer, rows, session.said)
+	val runs = runsView(draft, fields, offer, rows, said, check)
 
 	val ref = draft.text
 	val textOf = ref?.let { textParam(draft, it, offer) }
@@ -142,7 +170,7 @@ internal fun AutomationEditorPage(
 				trigger != null,
 				previewRead(ops, gatewayId, trigger.takeIf { hasHole(shownText) }, previewText(shownText), previewScope?.params, previewScope?.values),
 			),
-			refused = refusedHole(session.said, ref.action, ref.param, shownText),
+			refused = refusedHole(said, ref.action, ref.param, shownText),
 			description = console?.description,
 			ids = console?.ids,
 			shapes = nameShapes(names, fields.fields),
@@ -168,20 +196,25 @@ internal fun AutomationEditorPage(
 
 		HorizontalDivider()
 		Text(if (runs != null) "Runs" else "Do", style = MaterialTheme.typography.labelLarge)
-		runs?.let { RunsBlock(it, offer, can.edit, edit) }
+		runs?.let {
+			RunsBlock(it, offer, can.edit, edit) {
+				repo.command { automationOps.reloadFunction(key, open.opening) }
+			}
+		}
 		if (runs?.kept != true) {
 			ActionsSection(
 				draft = draft,
 				offer = offer,
 				enabled = can.edit,
-				said = session.said,
+				said = said,
 				textRead = { text -> previewRead(ops, gatewayId, trigger.takeIf { text != null }, text, previewScope?.params, previewScope?.values) },
 				asked = trigger != null,
 				edit = edit,
 			)
 		}
-		generalLine(session.said, draft, offer)?.let {
-			Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+		generalLine(said, draft, offer)?.let {
+			val color = if (saidRefuses(said)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+			Text(it, style = MaterialTheme.typography.bodySmall, color = color)
 		}
 	}
 

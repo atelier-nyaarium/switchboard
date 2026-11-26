@@ -14,7 +14,6 @@ import com.atelier_nyaarium.switchboard.assistant.pickerSubtitle
 import com.atelier_nyaarium.switchboard.assistant.refusedAtOf
 import com.atelier_nyaarium.switchboard.assistant.refusedField
 import com.atelier_nyaarium.switchboard.proto.AutomationSaveRefusal
-import com.atelier_nyaarium.switchboard.proto.FunctionReads
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationSaveRefusalCode
 import com.atelier_nyaarium.switchboard.assistant.FunctionsServed
@@ -37,7 +36,6 @@ import com.atelier_nyaarium.switchboard.assistant.functionSaveOf
 import com.atelier_nyaarium.switchboard.assistant.madeUnique
 import com.atelier_nyaarium.switchboard.assistant.offerOf
 import com.atelier_nyaarium.switchboard.assistant.pointedTo
-import com.atelier_nyaarium.switchboard.assistant.plusFunctionParam
 import com.atelier_nyaarium.switchboard.assistant.rowFunction
 import com.atelier_nyaarium.switchboard.assistant.runsView
 import com.atelier_nyaarium.switchboard.assistant.withFunctionName
@@ -47,7 +45,6 @@ import com.atelier_nyaarium.switchboard.assistant.withFunctionParam
 import com.atelier_nyaarium.switchboard.assistant.withoutFunctionParam
 import com.atelier_nyaarium.switchboard.assistant.valuesByName
 import com.atelier_nyaarium.switchboard.assistant.wireParams
-import com.atelier_nyaarium.switchboard.assistant.withValue
 import com.atelier_nyaarium.switchboard.assistant.written
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
@@ -270,73 +267,6 @@ class FunctionDraftTest {
 	}
 
 	@Test
-	fun editingStepsAndValuesOnASharedFunctionUsesTheEditedBodyReads() {
-		val original = functionRow(
-			"read",
-			"Read",
-			listOf("mine", "other"),
-			params = listOf(FunctionParam("old", "text")),
-			reads = FunctionReads(listOf("old"), emptyList()),
-			steps = listOf(FunctionStep.Do(action = "tell_assistant", args = JsonObject(mapOf("when" to literal("now"), "message" to literal("{old}"))))),
-		)
-		val offer = offerOf(SANDBOX_SERVES, away = false, functions = listOf(original))
-		val mine = AutomationRow("mine", 1L, Automation(enabled = true, trigger = CROSSING, actions = listOf(AutomationAction.RunFunction(
-			"read",
-			values = buildJsonObject { put("old", "old-value") },
-		))), "Mine")
-		val other = AutomationRow("other", 1L, Automation(enabled = true, trigger = CROSSING, actions = listOf(AutomationAction.RunFunction(
-			"read",
-			values = buildJsonObject { put("old", "old-value"); put("new", "new-value") },
-		))), "Other")
-		val opened = automationDraftOf(mine, EditContext(offer, emptyList()))!!
-		val oldKey = valueKey(opened, "old")
-		val edited = opened
-			.withFunctionParam(oldKey, FunctionParam("new", "text"))
-			.withFunctionValue(oldKey, "new-value")
-			.withAction(0) { withValue(it, "message", "Set") }
-
-		assertNull(draftRunsIssue(edited, none, offer, listOf(mine, other)))
-	}
-
-	@Test
-	fun aSharedDeviceEditRejectsAnotherUsersNonSwitchText() {
-		val original = functionRow("shared", "Shared", listOf("mine", "other"), params = listOf(FunctionParam("room", "text")))
-		val offer = offerOf(SANDBOX_SERVES, away = false, functions = listOf(original))
-		val mine = AutomationRow("mine", 1L, Automation(enabled = true, trigger = CROSSING, actions = listOf(AutomationAction.RunFunction(
-			"shared",
-			values = buildJsonObject { put("room", SANDBOX_SWITCH) },
-		))), "Mine")
-		val other = AutomationRow("other", 1L, Automation(enabled = true, trigger = AutomationTrigger.Time("18:00", emptyList(), "UTC"), actions = listOf(AutomationAction.RunFunction(
-			"shared",
-			values = buildJsonObject { put("room", "not-a-switch") },
-		))), "Other")
-		val opened = automationDraftOf(mine, EditContext(offer, emptyList()))!!
-		val key = valueKey(opened, "room")
-		val edited = opened.withFunctionParam(key, FunctionParam("room", "device"))
-
-		assertTrue(draftRunsIssue(edited, none, offer, listOf(mine, other)) is RunsIssue.SharedUnfit)
-	}
-
-	@Test
-	fun anOtherUserAlreadyUnfitDoesNotBlockAnUnrelatedValueEdit() {
-		val original = functionRow("shared", "Shared", listOf("mine", "other"), params = listOf(FunctionParam("lamp", "device")))
-		val offer = offerOf(SANDBOX_SERVES, away = false, functions = listOf(original))
-		val mine = AutomationRow("mine", 1L, Automation(enabled = true, trigger = CROSSING, actions = listOf(AutomationAction.RunFunction(
-			"shared",
-			values = buildJsonObject { put("lamp", SANDBOX_SWITCH) },
-		))), "Mine")
-		val other = AutomationRow("other", 1L, Automation(enabled = true, trigger = AutomationTrigger.Time("18:00", emptyList(), "UTC"), actions = listOf(AutomationAction.RunFunction(
-			"shared",
-			values = buildJsonObject { put("lamp", "not-a-switch"); put("note", "held") },
-		))), "Other")
-		val opened = automationDraftOf(mine, EditContext(offer, emptyList()))!!.plusFunctionParam()
-		val key = (opened.runsDraft() as RunsDraft.Pointing).params.last().key
-		val edited = opened.withFunctionParam(key, FunctionParam("note", "text")).withFunctionValue(key, "updated")
-
-		assertNull(draftRunsIssue(edited, none, offer, listOf(mine, other)))
-	}
-
-	@Test
 	fun numberedCopiesChooseTheFirstFreeSuffixAndKeepItWhole() {
 		assertEquals("Too warm.001", uniqueFunctionName("Too warm", listOf("Too warm")))
 		assertEquals("Too warm.002", uniqueFunctionName("Too warm.001", listOf("Too warm.001")))
@@ -347,25 +277,6 @@ class FunctionDraftTest {
 		assertTrue(shortened.endsWith(".001"))
 		val full = (1..999).map { "Too warm.${it.toString().padStart(3, '0')}" }
 		assertEquals("Too warm", uniqueFunctionName("Too warm", full))
-	}
-
-	@Test
-	fun aSharedParameterEditChecksEveryOtherUsersOwnValues() {
-		val original = functionRow("shared", "Shared", listOf("mine", "other"), steps = listOf(plugStep("on")))
-		val offer = offerOf(SANDBOX_SERVES, away = false, functions = listOf(original))
-		val mine = AutomationRow("mine", 1L, Automation(enabled = true, trigger = CROSSING, actions = listOf(AutomationAction.RunFunction("shared", values = buildJsonObject { put("lamp", SANDBOX_SWITCH) }))), "Mine")
-		val other = AutomationRow("other", 1L, Automation(enabled = true, trigger = CROSSING, actions = listOf(AutomationAction.RunFunction("shared"))), "Other")
-		val rows = listOf(mine, other)
-		val adding = automationDraftOf(mine, EditContext(offer, emptyList()))!!.plusFunctionParam()
-		val key = (adding.runsDraft() as RunsDraft.Pointing).params.single().key
-		val draft = adding.withFunctionParam(key, FunctionParam("lamp", "device"))
-			.withFunctionValue(key, SANDBOX_SWITCH)
-		val issue = draftRunsIssue(draft, none, offer, rows)
-
-		assertTrue(issue is RunsIssue.SharedUnfit)
-		val supplied = other.copy(automation = other.automation.copy(actions = listOf(AutomationAction.RunFunction("shared", values = buildJsonObject { put("lamp", SANDBOX_SWITCH) }))))
-		assertNull(draftRunsIssue(draft, none, offer, listOf(mine, supplied)))
-		assertNull(draftRunsIssue(draft.madeUnique(offer), none, offer, rows))
 	}
 
 	@Test
@@ -380,23 +291,6 @@ class FunctionDraftTest {
 		val cleared = opened.withFunctionName("", live.functions)
 		assertNull(functionSaveOf(cleared, none, live, confirmed = false))
 		assertTrue(runsView(cleared, none, live, listOf(shared, hall))!!.issue is RunsIssue.SharedName)
-	}
-
-	@Test
-	fun theFitReadsTheRowOnlyOverTheStoredSteps() {
-		val needsValue = functionRow(
-			"warm",
-			"Warm",
-			listOf("mine"),
-			reads = FunctionReads(listOf("value"), emptyList()),
-		)
-		val context = EditContext(offerOf(SANDBOX_SERVES, away = false, functions = listOf(needsValue)), emptyList())
-		val clock = AutomationRow("mine", 2L, Automation(enabled = true, trigger = AutomationTrigger.Time("18:00", emptyList(), "UTC"), actions = listOf(AutomationAction.RunFunction(function = "warm"))), "Every day")
-		val draft = automationDraftOf(clock, context)!!
-
-		assertTrue(draftRunsIssue(draft, none, context.offer) is RunsIssue.Unfit)
-		val edited = draft.withAction(0) { ActionDraft.Filled("device_set", mapOf("device" to SANDBOX_SWITCH, "verb" to "off")) }
-		assertNull(draftRunsIssue(edited, none, context.offer))
 	}
 
 	@Test

@@ -27,11 +27,34 @@ const read = (file: string) => fs.readFileSync(path.join(REPO, file), "utf8");
 const UNSEAL =
 	/\bas\s+(?:readonly\s+)?AutomationAction\[\]|\bas\s+Sealed\b|\bactions\b[^\n]*\bas\s+unknown\s+as\b|\bas\s+unknown\s+as[^\n]*\bactions\b/;
 
+/** Visitor bypass patterns. */
+const PROBE =
+	/\.reach\s*[!=]==|switch\s*\([^)]*\.reach\s*\)|"(?:action|step|unfollowedCall)"\s+in\s+|\bas\s+(?:WalkAction|WalkStep|UnfollowedCall|FlatEntry|FollowedEntry|WalkEntry)\b/;
+
 describe("the one walk", () => {
 	it("keeps a sample of every read shape the seal refuses", () => {
 		const expected = read(SAMPLES).match(/@ts-expect-error/g) ?? [];
 
-		expect(expected.length).toBeGreaterThanOrEqual(7);
+		expect(expected.length).toBeGreaterThanOrEqual(13);
+	});
+
+	it("reads an entry only through the visitor", () => {
+		const probing = filesUnder("src", ".ts", "src/__tests__").filter(
+			(file) => file !== WALK && /automation-walk\.js"/.test(read(file)) && PROBE.test(read(file)),
+		);
+
+		expect(probing).toEqual([]);
+		expect(
+			[
+				'if (at.reach === "step") return at.step',
+				'held.filter((at) => at.reach !== "action")',
+				"switch (at.reach) {",
+				'"action" in at ? at.action : at.step',
+				"visit(at as WalkAction, { action: () => 1 })",
+				"visit(at, { action: () => 1, unfollowedCall: () => 2 })",
+				'frame.at === "baseline"',
+			].map((sample) => PROBE.test(sample)),
+		).toEqual([true, true, true, true, true, false, false]);
 	});
 
 	it("names OpensWalk only where the phone's walk takes it", () => {

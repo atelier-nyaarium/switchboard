@@ -17,46 +17,110 @@ export const walked = <T extends z.ZodType>(list: z.ZodArray<T>) =>
 
 const open = <T>(list: Sealed<T>): readonly T[] => list as unknown as readonly T[];
 
+export type RunFunction = Extract<AutomationAction, { kind: "run_function" }>;
+
+export type LeafAction = Exclude<AutomationAction, RunFunction>;
+
+type StepKind = FunctionStep["kind"];
+
 /** As written. */
-export interface ReachedAction {
-	/** In a flat list, its index. */
+export interface WalkAction {
+	reach: "action";
 	path: string;
-	kind: AutomationAction["kind"];
-	action: AutomationAction;
+	index: number;
+	action: LeafAction;
 }
 
-/** Reached through a pointer. */
-export interface ReachedStep {
+/** Called function step. */
+export interface WalkStep<K extends StepKind = StepKind> {
+	reach: "step";
 	/** Call path, then index. */
 	path: string;
-	kind: string;
-	step: FunctionStep;
+	index: number;
+	step: Extract<FunctionStep, { kind: K }>;
 	via: string;
 }
 
-export type Reached = ReachedAction | ReachedStep;
+/** Unexpanded or missing function. */
+export type Unfollowed = "not-expanded" | "missing";
+
+export interface UnfollowedCall<R extends Unfollowed = Unfollowed> {
+	reach: "unfollowedCall";
+	path: string;
+	call: RunFunction;
+	reason: R;
+}
+
+export type WalkEntry = WalkAction | WalkStep | UnfollowedCall;
+/** Walked without functions. */
+export type FlatEntry = WalkAction | UnfollowedCall<"not-expanded">;
+export type FollowedEntry = WalkAction | WalkStep | UnfollowedCall<"missing">;
+
+/** Exhaustive walk handlers. */
+export type WalkHandlers<E extends WalkEntry, R> = {
+	[A in E["reach"]]: A extends "step"
+		? { [K in StepKind]: (at: WalkStep<K>) => R }
+		: (at: Extract<E, { reach: A }>) => R;
+};
+
+export function visit<E extends WalkEntry, R>(entry: E, handlers: WalkHandlers<E, R>): R {
+	const at: WalkEntry = entry;
+	const all = handlers as unknown as WalkHandlers<WalkEntry, R>;
+	switch (at.reach) {
+		case "action":
+			return all.action(at);
+		case "step":
+			return all.step[at.step.kind](at);
+		case "unfollowedCall":
+			return all.unfollowedCall(at);
+	}
+}
 
 /** Null when not held. */
 export type FunctionOf = (id: string) => AutomationFunction | null;
 
 type Walked = { actions: Sealed<AutomationAction> };
 
-/** In written order; an unfollowable pointer is itself reached. */
-export function reached(automation: Walked): ReachedAction[];
-export function reached(automation: Walked, functionOf: FunctionOf): Reached[];
-export function reached(automation: Walked, functionOf?: FunctionOf): Reached[] {
-	return open(automation.actions).flatMap((action, at): Reached[] => {
+const under = (site: string, index: number): string => `${site}.${index}`;
+
+/** Call path or null. */
+export const siteOf = (path: string): string | null => {
+	const at = path.lastIndexOf(".");
+	return at < 0 ? null : path.slice(0, at);
+};
+
+/** Written order. */
+export const byPath = (a: string, b: string): number => {
+	const left = a.split(".").map(Number);
+	const right = b.split(".").map(Number);
+	for (let at = 0; at < Math.min(left.length, right.length); at++) {
+		const order = (left[at] as number) - (right[at] as number);
+		if (order !== 0) return order;
+	}
+	return left.length - right.length;
+};
+
+export function reached(automation: Walked): FlatEntry[];
+export function reached(automation: Walked, functionOf: FunctionOf): FollowedEntry[];
+export function reached(automation: Walked, functionOf?: FunctionOf): WalkEntry[] {
+	return open(automation.actions).flatMap((action, at): WalkEntry[] => {
 		const path = String(at);
-		const fn = action.kind === "run_function" ? functionOf?.(action.function) : null;
-		if (!fn || action.kind !== "run_function") return [{ path, kind: action.kind, action }];
+		if (action.kind !== "run_function") return [{ reach: "action", path, index: at, action }];
+		if (!functionOf) return [{ reach: "unfollowedCall", path, call: action, reason: "not-expanded" }];
+		const fn = functionOf(action.function);
+		if (!fn) return [{ reach: "unfollowedCall", path, call: action, reason: "missing" }];
 		return open(fn.steps).map((step, inner) => ({
-			path: `${path}.${inner}`,
-			kind: step.action,
+			reach: "step",
+			path: under(path, inner),
+			index: inner,
 			step,
 			via: action.function,
 		}));
 	});
 }
+
+export const pointerOf = (automation: Walked): RunFunction | null =>
+	open(automation.actions).find((action): action is RunFunction => action.kind === "run_function") ?? null;
 
 /** One level; never through a call. */
 export function written(body: Walked): readonly AutomationAction[];

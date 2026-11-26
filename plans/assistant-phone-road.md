@@ -1177,6 +1177,39 @@ A: Part of the existing functions capability. A Gateway that says it serves func
 
 Recommended: no Gateway has ever served functions to a phone without this op, since N is unshipped, and a fallback would keep the guessing code this change exists to delete.
 
+## Question 86 - A function changes elsewhere while its editor is open. What happens?
+
+A shared function's steps are changed from another automation, another phone or the assistant while this editor shows the old ones. A save that touched only the automation went through, and the automation ran steps the screen never showed.
+
+Q: Block and reload, merge automatically, or save anyway?
+A: Block Save and offer Reload. A line says the function changed elsewhere, and what was typed stays on screen. Reload shows the new steps: edits to the automation itself (its trigger, its values) are kept where they still apply, and edits made to the function's steps are dropped, with a line saying so.
+
+> A
+
+Recommended: the owner should see the steps they are about to run, and it costs one extra tap in a rare case.
+
+## Question 87 - Does the Save button wait for the Gateway's check?
+
+The check runs after typing settles: a short pause, then one round trip.
+
+Q: Save stays available, or Save waits for the answer?
+A: Save stays available. A refusal from the check shows on its field and blocks Save until the draft changes. A tap before the answer lands, or with the Gateway slow, sends the save to be judged as before. The button has no checking state.
+
+> A
+
+Recommended: the save is judged again either way, so a waiting button promises only slightly more, and it would leave a dead button whenever the Gateway is slow or out of reach.
+
+## Question 88 - The phone cannot show the fingerprint or PIN prompt. What happens?
+
+The prompt is the one the app lock and vault approvals show. With the app lock on, any reason Android gives for not showing it counted as passed.
+
+Q: Pass only with no screen lock, keep passing on any reason, or always refuse?
+A: Pass only when the phone has no screen lock at all. Any other reason refuses and says why. The line reads "Problem reading biometrics."
+
+> A. And the error: Problem reading biometrics or something
+
+Recommended: with no screen lock the phone is already open to whoever holds it, and every other reason is a moment where the lock should hold.
+
 ## Question 50 - Where does the flow map live?
 
 Q: A Map and List toggle at the top of Automations, its own menu entry, or only inside an automation's page?
@@ -2014,7 +2047,7 @@ Phone N, built after the alignment read and not yet committed:
 - **"Make unique" names its copy** with the lowest free three-digit suffix on that Gateway (`uniqueFunctionName`, Question 81): "Too warm.001". The name sits in the field and can be changed before Save.
 - **A function write whose listed row is missing** takes the move lock at the assistant's home.
 
-Carried to slice 4: `enter` checks only that the function exists, never `functionIssue`. It matters once `as` means something: a fire queued across a rollback from a build that stores `as` would enter such a function and drop the result. Refuse at entry with the function's own line then.
+Closed by the architecture pass below, not carried: `enter` refuses a call whose function has a step issue or whose bindings do not fit, with that issue's line. It matters once `as` means something: a fire queued across a rollback from a build that stores `as` would otherwise enter such a function and drop the result.
 
 Carried to slice 6: `enter` deletes the call step's record, which `call_failed` will need back; frames and step records are bounded only by construction; `carriedFunctionsOf` follows only an automation's own pointer and must widen to the functions it calls.
 
@@ -2056,6 +2089,18 @@ From the adversarial read of the second lap (six lenses and a verifying synthesi
 - **Left as they are:** a vault entry's delete and a grant's revoke take no presence prompt, as `docs/vault.md` states the gate's scope; a double Save inside one frame is not guarded beyond the disabled button; a phone on a Gateway still on the committed build draws a declared-value hole as refused in the preview until that Gateway is updated.
 
 Carried to slice 5: the phone's check of a function it would write never reads `servedSteps`, and passes a kept step holding `as`; the Gateway refuses both. Not reachable until a build stores `as`.
+
+### Architecture pass, after the second lap
+
+Eight lenses and a synthesis ranked seven changes. Questions 84 to 88 settled the order and the open choices. What each change makes inexpressible:
+
+1. **The Gateway checks a draft** (Phone C's mechanism, three instances). `automation_check` answers what a save would get and writes nothing, through `assess`, which the save shares, so the two cannot disagree on the same rows. A pointer-only save names `functionBase`. The phone asks after typing settles, draws the answer, offers Reload for a function that moved, and holds no fit rule beyond the picker's hints.
+2. **A closed walk** (the unfollowable pointer read as a step, patched twice). `reached` answers `action`, `step` by its kind, or `unfollowedCall` with why, and `visit` takes a handler per case, so a reader that ignores a case does not compile. The step path's decode and order live in the walk beside its encode. A typed path with its stored form lands with slice 4.
+3. **One body check** (class E, the function form lacking the flat form's checks). `argsIssue` is the one check of an action's values, flat or a step's. `assessBody` yields every issue and each boundary applies a policy over it: read, write, retire, frame entry, and before an effect. `enter` now refuses a call whose function has a step issue or whose bindings do not fit, which closes the item carried to slice 4.
+4. **One name resolver and one scope builder.** Done in f7b2d21f.
+5. **Vault presence as a typed answer.** The gate is the only issuer of a carry, on one monotonic clock; no usable authenticator passes only when the phone has no screen lock (Question 88).
+6. **The Router's inbox sweep behind the migration fence.** Done in f7b2d21f.
+7. **Composables take projections.** With slice 5, which redraws those screens.
 
 ## Phase 2.7e.3 - The tree (slices 4 and 5)
 

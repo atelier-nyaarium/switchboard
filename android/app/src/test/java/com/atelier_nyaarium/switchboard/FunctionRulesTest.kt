@@ -167,26 +167,22 @@ class FunctionRulesTest {
 	@Test
 	fun saveWaitsForWhatTheRunsBlockStillOwes() {
 		val blink = functionRow("blink", "Blink", listOf("mine"), params = listOf(FunctionParam("lamp", "device"), FunctionParam("times", "number")))
-		val pointing = pointedAt(RunsDraft.Flat(emptyList()), "mine", blink, FN_OFFER)
-		val steps = listOf("tell_assistant", "device_set", "ifttt_trigger")
-		fun issue(runs: RunsDraft) = runsIssue(runs, "mine", given, FN_OFFER, steps, blink.reads)
+		val offer = offerOf(SANDBOX_SERVES, away = false, functions = listOf(blink, tooWarm, frost))
+		val pointing = pointedAt(RunsDraft.Flat(emptyList()), "mine", blink, offer)
+		fun issue(runs: RunsDraft) = runsIssue(runs, "mine", given, offer)
 
 		assertEquals(RunsIssue.NoSteps, issue(RunsDraft.Flat(emptyList())))
 		assertNull(issue(RunsDraft.Flat(listOf(ActionDraft.Filled("device_set", mapOf("device" to SANDBOX_SWITCH, "verb" to "on"))))))
 		val unknown = ActionDraft.Kept(AutomationAction.Unknown("chime", buildJsonObject { put("kind", "chime") }))
-		assertEquals(RunsIssue.NotAStep(0), issue(RunsDraft.Pointing("new", 0L, "Chime", emptyList(), listOf(unknown), emptyMap(), AutomationAction.RunFunction(function = "new"), PointMode.NEW, null, emptyList())))
+		assertEquals(RunsIssue.NotAStep(0), issue(RunsDraft.Pointing("new", 0L, "Chime", emptyList(), listOf(unknown), emptyMap(), AutomationAction.RunFunction(function = "new"), PointMode.NEW, null)))
 		assertEquals(RunsIssue.Unset("lamp"), issue(pointing))
 		assertEquals(RunsIssue.BadValue("times", ValueIssue.NOT_A_NUMBER), issue(pointing.copy(values = valuesByName(pointing, mapOf("lamp" to SANDBOX_SWITCH, "times" to "two")))))
 		assertNull(issue(pointing.copy(values = valuesByName(pointing, mapOf("lamp" to SANDBOX_SWITCH, "times" to "3")))))
 		// Clearing a shared name waits for Make unique.
-		val shared = pointedAt(RunsDraft.Flat(emptyList()), "mine", tooWarm, FN_OFFER).copy(name = "")
+		val shared = pointedAt(RunsDraft.Flat(emptyList()), "mine", tooWarm, offer).copy(name = "")
 		assertEquals(RunsIssue.SharedName(2), issue(shared))
 		assertNull(issue(shared.copy(mode = PointMode.UNIQUE)))
-		assertNull(issue(pointedAt(RunsDraft.Flat(emptyList()), "outside", frost, FN_OFFER).copy(name = "")))
-		// Another source's event cannot run here.
-		val github = functionRow("wake", "Wake me", listOf("x"), reads = FunctionReads(listOf("event"), listOf("reason")))
-		val onEvent = triggerGiven("event", eventFields = listOf("subject"))
-		assertTrue(runsIssue(pointedAt(RunsDraft.Flat(emptyList()), "x", github, FN_OFFER), "x", onEvent, FN_OFFER, steps, github.reads) is RunsIssue.Unfit)
+		assertNull(runsIssue(pointedAt(RunsDraft.Flat(emptyList()), "outside", frost, offer).copy(name = ""), "outside", given, offer))
 	}
 
 	@Test
@@ -196,13 +192,12 @@ class FunctionRulesTest {
 		fun issue(params: List<FunctionParam>, name: String = "Solo") =
 			runsIssue(base.copy(name = name, params = params.mapIndexed { index, param ->
 				base.params.getOrNull(index)?.copy(param = param) ?: FunctionValueDraft("value-$index", param)
-			}), "mine", given, FN_OFFER, emptyList(), sole.reads)
+			}), "mine", given, FN_OFFER)
 
 		assertEquals(RunsIssue.BadParam("", ParamIssue.EMPTY), issue(listOf(FunctionParam("", "text"))))
 		assertEquals(RunsIssue.BadParam("Lamp", ParamIssue.INVALID), issue(listOf(FunctionParam("Lamp", "text"))))
 		assertEquals(RunsIssue.BadParam("lamp", ParamIssue.DUPLICATE), issue(listOf(FunctionParam("lamp", "text"), FunctionParam("lamp", "number"))))
 		assertNull(issue(listOf(FunctionParam("device", "text"))))
-		assertTrue(issue(listOf(FunctionParam("device", "device"))) is RunsIssue.Unfit)
 		assertEquals(RunsIssue.TooManyParams, issue((1..9).map { FunctionParam("v$it", "text") }))
 		assertEquals(RunsIssue.NameWithValues, issue(listOf(FunctionParam("lamp", "device")), name = ""))
 	}

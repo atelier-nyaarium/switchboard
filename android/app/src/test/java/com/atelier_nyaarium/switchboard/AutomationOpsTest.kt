@@ -3,9 +3,12 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationCondition
+import com.atelier_nyaarium.switchboard.proto.AutomationFunction
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
+import com.atelier_nyaarium.switchboard.proto.AutomationSaveFunction
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationDeleteResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationCheckResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
@@ -20,12 +23,16 @@ import com.atelier_nyaarium.switchboard.proto.AutomationFunctionServes
 import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
 import com.atelier_nyaarium.switchboard.proto.AutomationServes
 import com.atelier_nyaarium.switchboard.proto.FunctionParam
+import com.atelier_nyaarium.switchboard.proto.AutomationFunctionRow
+import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
 import kotlinx.serialization.json.JsonObject
 import com.atelier_nyaarium.switchboard.assistant.EditContext
 import com.atelier_nyaarium.switchboard.assistant.FunctionOffer
 import com.atelier_nyaarium.switchboard.assistant.automationDraftOf
 import com.atelier_nyaarium.switchboard.assistant.offerOf
 import com.atelier_nyaarium.switchboard.assistant.functionPreviewScopeOf
+import com.atelier_nyaarium.switchboard.assistant.RunsDraft
+import com.atelier_nyaarium.switchboard.assistant.stepOf
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -78,6 +85,9 @@ class AutomationOpsTest {
 		val answers = ArrayDeque<ConsoleAutomationPutResult>()
 		var deletes = 0
 		val previews = mutableListOf<Triple<String?, List<FunctionParam>?, JsonObject?>>()
+		val functionRows = mutableListOf<AutomationFunctionRow>()
+		val checks = mutableListOf<ConsoleOp.AutomationCheck>()
+		var checkAnswer: ConsoleAutomationCheckResult? = ConsoleAutomationCheckResult(ready = true)
 
 		override suspend fun list(gatewayId: String): AutomationListing {
 			val listed = shelves[gatewayId].orEmpty()
@@ -85,7 +95,7 @@ class AutomationOpsTest {
 			if (gatewayId in refusing) return AutomationListing(ListAnswer.NotServed)
 			if (gatewayId in prosing) return AutomationListing(ListAnswer.NotServed, prose = true)
 			if (gatewayId in unreachable) throw IllegalStateException("unreachable")
-			return AutomationListing(ListAnswer.Listed(listed), serves)
+			return AutomationListing(ListAnswer.Listed(listed), serves, functions = functionRows.takeIf { it.isNotEmpty() })
 		}
 
 		override suspend fun put(
@@ -138,6 +148,11 @@ class AutomationOpsTest {
 			val stored = automationRow(id = op.automationId, revision = op.automationBase + 1L, automation = op.automation)
 			shelves[gatewayId] = shelves[gatewayId].orEmpty().filterNot { it.id == op.automationId } + stored
 			return ConsoleAutomationSaveResult(stored = true, automation = stored)
+		}
+
+		override suspend fun check(gatewayId: String, op: ConsoleOp.AutomationCheck): ConsoleAutomationCheckResult? {
+			checks += op
+			return checkAnswer
 		}
 	}
 
@@ -458,6 +473,136 @@ class AutomationOpsTest {
 			Triple("We are in {room}.", listOf(FunctionParam("room", "text")), buildJsonObject { put("room", "Bedroom") }),
 			fake.previews.single(),
 		)
+	}
+
+	@Test
+	fun checkUsesTheSavePayloadAndAlwaysConfirmsIt() = runBlocking {
+		val fake = FakeGateway()
+		val ops = AutomationOps(admitting("sakura"), Host(fake))
+		val save = ConsoleOp.AutomationSave(
+			automationId = "review",
+			automation = automation(),
+			automationBase = 4L,
+			functionBase = 7L,
+			confirmed = false,
+		)
+		val body = AutomationFunction("Notice", emptyList(), listOf(plugStep("on")))
+		val writing = save.copy(function = AutomationSaveFunction.Edit("notice", body, 3L), functionBase = null)
+
+		assertEquals(ConsoleAutomationCheckResult(ready = true), ops.check("sakura", save))
+		ops.check("sakura", writing)
+		assertEquals(
+			listOf(
+				ConsoleOp.AutomationCheck("review", save.automation, 4L, functionBase = 7L, confirmed = true),
+				ConsoleOp.AutomationCheck("review", save.automation, 4L, function = writing.function, confirmed = true),
+			),
+			fake.checks,
+		)
+	}
+
+	@Test
+	fun aReloadThatReadsNothingNewerKeepsTheDraftAndStillSaysMoved() = runBlocking {
+		val fake = FakeGateway().apply { serves = SANDBOX_SERVES }
+		val function = functionRow("notice", "Notice", listOf("review"), steps = listOf(plugStep("on")))
+		fake.functionRows += function
+		val owner = automationRow(
+			"review",
+			1L,
+			Automation(enabled = true, trigger = AutomationTrigger.Interval(60L), actions = listOf(AutomationAction.RunFunction("notice"))),
+		)
+		fake.shelves["sakura"] = listOf(owner)
+		val state = admitting("sakura")
+		state.value = state.value.copy(assistantHome = AssistantHome.Read(AssistantHomeRecord(1L, "sakura"), null))
+		val ops = AutomationOps(state, Host(fake))
+		ops.refresh("sakura")
+		val context = EditContext(offerOf(SANDBOX_SERVES, away = false, functions = listOf(function)), emptyList())
+		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
+		ops.edits.show(key)
+		val draft = automationDraftOf(owner, context)!!
+		val opening = ops.edits.open(key, draft)!!
+
+		ops.reloadFunction(key, opening)
+		val session = ops.edits.state.value.held.getValue(key)
+
+		assertEquals(draft, session.draft)
+		assertEquals(AutomationSaid.FunctionMoved("notice"), session.said)
+		assertEquals(1, state.value.notices.size)
+	}
+
+	@Test
+	fun reloadFunctionUsesTheFreshListingAndReplacesTheBody() = runBlocking {
+		val fake = FakeGateway().apply { serves = SANDBOX_SERVES }
+		val oldFunction = functionRow("notice", "Old", listOf("review"), steps = listOf(plugStep("on")))
+		val nextFunction = oldFunction.copy(
+			revision = 4L,
+			function = AutomationFunction("Changed", emptyList(), listOf(plugStep("off"))),
+		)
+		fake.functionRows += oldFunction
+		val owner = automationRow(
+			"review",
+			1L,
+			Automation(enabled = true, trigger = AutomationTrigger.Interval(60L), actions = listOf(AutomationAction.RunFunction("notice"))),
+		)
+		fake.shelves["sakura"] = listOf(owner)
+		val state = admitting("sakura")
+		state.value = state.value.copy(
+			assistantHome = AssistantHome.Read(AssistantHomeRecord(1L, "sakura"), null),
+		)
+		val ops = AutomationOps(state, Host(fake))
+		ops.refresh("sakura")
+		val context = EditContext(offerOf(SANDBOX_SERVES, away = false, functions = listOf(oldFunction)), emptyList())
+		val draft = automationDraftOf(owner, context)!!
+		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
+		ops.edits.show(key)
+		val opening = ops.edits.open(key, draft)!!
+		ops.edits.edit(key, opening) { held ->
+			val runs = held.runsDraft() as RunsDraft.Pointing
+			held.withRuns(runs.copy(name = "Typed"))
+		}
+		fake.functionRows.clear()
+		fake.functionRows += nextFunction
+
+		val result = ops.reloadFunction(key, opening)
+		val session = ops.edits.state.value.held.getValue(key)
+		val landed = session.draft.runsDraft() as RunsDraft.Pointing
+
+		assertTrue(result is EditOutcome.Stays)
+		assertEquals(4L to "Changed", landed.base to landed.name)
+		assertEquals(listOf(plugStep("off")), landed.steps.map { stepOf(it, context.offer, landed.params) })
+		assertTrue(session.said is AutomationSaid.Note)
+		ops.edits.edit(key, opening) { it.copy(enabled = !it.enabled) }
+		assertEquals(null, ops.edits.state.value.held.getValue(key).said)
+	}
+
+	@Test
+	fun aReloadAnswerCannotLandAfterItsOpeningWasCleared() = runBlocking {
+		val fake = FakeGateway().apply { serves = SANDBOX_SERVES }
+		val function = functionRow("notice", "Notice", listOf("review"))
+		fake.functionRows += function
+		val owner = automationRow(
+			"review",
+			1L,
+			Automation(enabled = true, trigger = AutomationTrigger.Interval(60L), actions = listOf(AutomationAction.RunFunction("notice"))),
+		)
+		fake.shelves["sakura"] = listOf(owner)
+		val state = admitting("sakura")
+		state.value = state.value.copy(assistantHome = AssistantHome.Read(AssistantHomeRecord(1L, "sakura"), null))
+		val ops = AutomationOps(state, Host(fake))
+		ops.refresh("sakura")
+		val context = EditContext(offerOf(SANDBOX_SERVES, away = false, functions = listOf(function)), emptyList())
+		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
+		ops.edits.show(key)
+		val opening = ops.edits.open(key, automationDraftOf(owner, context)!!)!!
+		val hold = TestHold()
+		fake.holds["sakura"] = hold
+
+		val reload = launch { ops.reloadFunction(key, opening) }
+		hold.entered.await()
+		ops.edits.clear()
+		hold.gate.complete(Unit)
+		reload.join()
+
+		assertTrue(ops.edits.state.value.held.isEmpty())
 	}
 
 	@Test

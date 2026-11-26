@@ -1,6 +1,6 @@
 // An automation's texts with holes, and how its tells are told.
 
-import { reached, written } from "../../shared/automation-walk.js";
+import { reached, visit, written } from "../../shared/automation-walk.js";
 import {
 	type Automation,
 	type AutomationAction,
@@ -26,7 +26,9 @@ export function holeTextsOf(actions: readonly AutomationAction[]): { action: num
 }
 
 const tellsOf = (body: Pick<Automation, "actions">): Tell[] =>
-	reached(body).flatMap(({ action }) => (isTell(action) ? [action] : []));
+	reached(body).flatMap((at) =>
+		visit(at, { action: ({ action }) => (isTell(action) ? [action] : []), unfollowedCall: () => [] }),
+	);
 
 /** Path: list, index, parameter, start, end. */
 export const holeOwnerIssue = (

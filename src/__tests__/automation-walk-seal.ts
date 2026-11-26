@@ -1,5 +1,6 @@
 // Read shapes the seal refuses; `bun run lint` fails if one compiles.
 
+import { type FlatEntry, type FollowedEntry, visit } from "../shared/automation-walk.js";
 import type { Automation } from "../shared/schemasAutomation.js";
 import type { AutomationFunction } from "../shared/schemasFunction.js";
 
@@ -22,6 +23,18 @@ export function sealSamples(automation: Automation, rows: Automation[]): unknown
 	// @ts-expect-error a length read
 	const count: number = automation.actions.length;
 	return [mapped, first, head, spread, looped, destructured, count];
+}
+
+export function visitSamples(flat: FlatEntry, followed: FollowedEntry): unknown[] {
+	// @ts-expect-error a call left unhandled
+	const noCall = visit(flat, { action: () => 1 });
+	// @ts-expect-error steps left unhandled
+	const noSteps = visit(followed, { action: () => 1, unfollowedCall: () => 1 });
+	// @ts-expect-error a step kind left unhandled
+	const noKind = visit(followed, { action: () => 1, step: {}, unfollowedCall: () => 1 });
+	// @ts-expect-error an entry read unvisited
+	const unvisited = followed.action;
+	return [noCall, noSteps, noKind, unvisited];
 }
 
 export function stepSamples(fn: AutomationFunction): unknown[] {

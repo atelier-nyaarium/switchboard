@@ -10,7 +10,7 @@ import { FUNCTION_LEFT, FUNCTION_UNFIT } from "../gateway/computed/automationVal
 import { evaluateHole, fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { carriedFunctionsOf } from "../shared/automation-carry.js";
-import { reached } from "../shared/automation-walk.js";
+import { pointerOf } from "../shared/automation-walk.js";
 import { unknown } from "../shared/expressions.js";
 import { AssistantHomeSealedSchema, readableSealed } from "../shared/schemasAssistantHome.js";
 import {
@@ -148,8 +148,7 @@ describe("the carry vectors", () => {
 			const points = Object.fromEntries(
 				Object.keys(landed.points).map((id) => {
 					const body = automations.list().find((record) => record.id === id)?.body;
-					const call = body ? reached(body).find((at) => at.action.kind === "run_function") : undefined;
-					return [id, call?.action.kind === "run_function" ? call.action.function : null];
+					return [id, (body && pointerOf(body)?.function) ?? null];
 				}),
 			);
 			const invalid = Object.fromEntries(
@@ -190,8 +189,7 @@ describe("a carry claiming a derived id", () => {
 		});
 	const pointOf = (automations: ReturnType<typeof destination>["automations"], id: string) => {
 		const body = automations.list().find((record) => record.id === id)?.body;
-		const call = body ? reached(body).find((at) => at.action.kind === "run_function") : undefined;
-		return call?.action.kind === "run_function" ? call.action.function : null;
+		return (body && pointerOf(body)?.function) ?? null;
 	};
 	const d = carryId("warm-up");
 

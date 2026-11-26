@@ -1,11 +1,7 @@
 // Actions outside the outbox.
 
 import { errorName } from "../../shared/error-name.js";
-import {
-	AUTOMATION_ACTIONS,
-	type AutomationAction,
-	type AutomationActionParam,
-} from "../../shared/schemasAutomation.js";
+import type { AutomationAction } from "../../shared/schemasAutomation.js";
 import type { DeviceVerb } from "../devices/driver.js";
 import type { AttemptWord, Nature } from "./automationSteps.js";
 
@@ -64,13 +60,4 @@ export async function runEffect(action: AutomationEffect, ports: AutomationActio
 		console.warn(`[automations] an action threw: ${errorName(error)}`);
 		return { word: "no_answer" };
 	}
-}
-
-/** Why this Gateway cannot run it. */
-export function effectIssue(action: AutomationEffect, ports: AutomationActionPorts | undefined): string | null {
-	if (!ports) return "this Gateway runs no such action";
-	const params: readonly AutomationActionParam[] = AUTOMATION_ACTIONS[action.kind].params;
-	const held: Record<string, unknown> = action;
-	const gone = params.some((param) => param.kind === "switch" && ports.switchName(String(held[param.name])) === null);
-	return gone ? "no such switch on this Gateway" : null;
 }

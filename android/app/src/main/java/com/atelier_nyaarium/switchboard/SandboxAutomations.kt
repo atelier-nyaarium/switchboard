@@ -1,11 +1,13 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.assistant.Reach
-import com.atelier_nyaarium.switchboard.assistant.Reached
-import com.atelier_nyaarium.switchboard.assistant.ReachedStep
 import com.atelier_nyaarium.switchboard.assistant.SourceFields
 import com.atelier_nyaarium.switchboard.assistant.TRIGGER_EVENT
+import com.atelier_nyaarium.switchboard.assistant.UnfollowedCall
+import com.atelier_nyaarium.switchboard.assistant.WalkAction
+import com.atelier_nyaarium.switchboard.assistant.WalkEntry
+import com.atelier_nyaarium.switchboard.assistant.WalkStep
 import com.atelier_nyaarium.switchboard.assistant.fitOf
+import com.atelier_nyaarium.switchboard.assistant.kindOf
 import com.atelier_nyaarium.switchboard.assistant.movesWithHome
 import com.atelier_nyaarium.switchboard.assistant.pointerOf
 import com.atelier_nyaarium.switchboard.assistant.triggerGiven
@@ -16,6 +18,7 @@ import com.atelier_nyaarium.switchboard.proto.AutomationFunctionServes
 import com.atelier_nyaarium.switchboard.proto.AutomationSaveFunction
 import com.atelier_nyaarium.switchboard.proto.AutomationSaveRefusal
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationCheckResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.FunctionParam
 import com.atelier_nyaarium.switchboard.proto.FunctionReads
@@ -60,6 +63,9 @@ private const val MINUTE_MS = 60_000L
 private const val HOUR_MS = 60 * MINUTE_MS
 internal const val SANDBOX_SENSOR = "ce:1c:44:06:3c:5d"
 internal const val SANDBOX_SWITCH = "aa:bb:cc:dd:ee:01"
+
+/** Moves on first check. */
+internal const val SANDBOX_MOVING_FUNCTION = "night-lamp"
 
 private fun choice(name: String, label: String, vararg options: Pair<String, String>) =
 	AutomationActionParam(name, label, "choice", options = options.map { (value, shown) -> AutomationActionOption(value, shown) })
@@ -276,6 +282,7 @@ internal class SandboxAutomationGateway(
 	private val functionShelves = mutableMapOf<String, MutableMap<String, Pair<Long, AutomationFunction>>>()
 
 	private var copies = 0
+	private val movedFunctionChecks = mutableSetOf<String>()
 
 	private fun functions(gatewayId: String) = functionShelves.getOrPut(gatewayId) {
 		if (gatewayId == EMPTY_GATEWAY) return@getOrPut mutableMapOf()
@@ -294,6 +301,13 @@ internal class SandboxAutomationGateway(
 				steps = listOf(
 					step("device_set", "device" to StepArg.Expression("lamp"), "verb" to StepArg.Literal(JsonPrimitive("toggle"))),
 					step("tell_assistant", "when" to StepArg.Literal(JsonPrimitive("now")), "message" to StepArg.Literal(JsonPrimitive("{message}"))),
+				),
+			)),
+			SANDBOX_MOVING_FUNCTION to (1L to AutomationFunction(
+				name = "Night lamp",
+				params = emptyList(),
+				steps = listOf(
+					step("device_set", "device" to StepArg.Literal(JsonPrimitive(SANDBOX_SWITCH)), "verb" to StepArg.Literal(JsonPrimitive("off"))),
 				),
 			)),
 		)
@@ -330,6 +344,7 @@ internal class SandboxAutomationGateway(
 				pointing("warm-hall", AutomationTrigger.Crossing(SANDBOX_SENSOR, "temperature", "above", 28.0, 0.5, 1_800L), "too-warm"),
 				pointing("blink-evening", AutomationTrigger.Time("19:00", (1L..7L).toList(), "America/Los_Angeles"), "blink", mapOf("lamp" to SANDBOX_SWITCH, "message" to "Good night")),
 				pointing("blink-morning", AutomationTrigger.Time("07:00", (1L..7L).toList(), "America/Los_Angeles"), "blink", mapOf("lamp" to SANDBOX_SWITCH, "message" to "Good morning")),
+				pointing("lamp-off", AutomationTrigger.Time("23:00", (1L..7L).toList(), "America/Los_Angeles"), SANDBOX_MOVING_FUNCTION),
 			)
 		}
 	}
@@ -344,30 +359,50 @@ internal class SandboxAutomationGateway(
 		}
 	}
 
-	/** Lands the automation and its function together, or neither. */
-	override suspend fun save(gatewayId: String, op: ConsoleOp.AutomationSave): ConsoleAutomationSaveResult {
-		pause()
-		fun refusing(refusal: AutomationSaveRefusal) = ConsoleAutomationSaveResult(stored = false, refusal = refusal)
+	private sealed interface SaveJudgment {
+		data class Refused(val refusal: AutomationSaveRefusal) : SaveJudgment
+
+		data class Ready(
+			val automation: Automation,
+			val revision: Long,
+			val held: AutomationRow?,
+			val landed: Pair<String, Pair<Long, AutomationFunction>>?,
+			val copied: Boolean,
+		) : SaveJudgment
+	}
+
+	private fun judge(gatewayId: String, op: ConsoleOp.AutomationSave): SaveJudgment {
 		fun refused(code: String, record: String? = null, revision: Long? = null) =
-			refusing(AutomationSaveRefusal(code = code, record = record, revision = revision))
+			SaveJudgment.Refused(AutomationSaveRefusal(code = code, record = record, revision = revision))
 		val held = shelf(gatewayId).find { it.id == op.automationId }
 		val revision = held?.revision ?: 0L
-		if (revision != op.automationBase) return refused("moved", "automation", revision)
+		if (revision != op.automationBase) return refused(Protocol.Wire.AutomationSaveRefusalCode.MOVED.wire, Protocol.Wire.AutomationSaveRecord.AUTOMATION.wire, revision)
 		val bodies = functions(gatewayId)
 		var automation = op.automation
 		var landed: Pair<String, Pair<Long, AutomationFunction>>? = null
+		var copied = false
+		if (op.function == null && op.functionBase != null) {
+			val pointer = pointerOf(automation)
+			if (pointer != null) {
+				val stored = bodies[pointer]?.first ?: 0L
+				if (stored != op.functionBase) {
+					return refused(Protocol.Wire.AutomationSaveRefusalCode.MOVED.wire, Protocol.Wire.AutomationSaveRecord.FUNCTION.wire, stored)
+				}
+			}
+		}
 		when (val function = op.function) {
 			null -> Unit
 			is AutomationSaveFunction.Edit -> {
 				val stored = bodies[function.id]?.first ?: 0L
-				if (stored != function.base) return refused("moved", "function", stored)
+				if (stored != function.base) return refused(Protocol.Wire.AutomationSaveRefusalCode.MOVED.wire, Protocol.Wire.AutomationSaveRecord.FUNCTION.wire, stored)
 				landed = function.id to (stored + 1 to function.body)
 			}
 			is AutomationSaveFunction.Copy -> {
-				val from = bodies[function.from] ?: return refused("gone", "function")
-				if (from.first != function.fromBase) return refused("moved", "function", from.first)
-				val id = "copy-${++copies}"
+				val from = bodies[function.from] ?: return refused(Protocol.Wire.AutomationSaveRefusalCode.GONE.wire, Protocol.Wire.AutomationSaveRecord.FUNCTION.wire)
+				if (from.first != function.fromBase) return refused(Protocol.Wire.AutomationSaveRefusalCode.MOVED.wire, Protocol.Wire.AutomationSaveRecord.FUNCTION.wire, from.first)
+				val id = "copy-${copies + 1}"
 				landed = id to (1L to function.body)
+				copied = true
 				val pointer = written(automation).singleOrNull() as? AutomationAction.RunFunction ?: AutomationAction.RunFunction(function = id)
 				automation = automation.copy(actions = listOf(pointer.copy(function = id)))
 			}
@@ -376,34 +411,101 @@ internal class SandboxAutomationGateway(
 		val after: (String) -> AutomationFunction? = { id -> landed?.takeIf { it.first == id }?.second?.second ?: stored(id) }
 		val pointer = pointerOf(automation)
 		val function = pointer?.let(after)
-		if (pointer != null && function == null) return refusing(AutomationSaveRefusal(code = "unknown_function", id = pointer))
-		unreadHole(automation)?.let { (span, _) -> return refusing(holeRefusal("automation", span)) }
-		landed?.let { (_, body) -> unreadStepHole(body.second)?.let { return refusing(holeRefusal("function", it)) } }
+		if (pointer != null && function == null) {
+			return SaveJudgment.Refused(AutomationSaveRefusal(code = Protocol.Wire.AutomationSaveRefusalCode.UNKNOWN_FUNCTION.wire, id = pointer))
+		}
+		unreadHole(automation)?.let { (span, _) -> return SaveJudgment.Refused(holeRefusal(Protocol.Wire.AutomationSaveRecord.AUTOMATION.wire, span)) }
+		landed?.let { (_, body) ->
+			unreadStepHole(body.second)?.let {
+				return SaveJudgment.Refused(holeRefusal(Protocol.Wire.AutomationSaveRecord.FUNCTION.wire, it))
+			}
+		}
 		if (pointer != null && function != null) {
 			val users = listOf(op.automationId to automation) +
 				shelf(gatewayId).filter { it.id != op.automationId && pointerOf(it.automation) == pointer }.map { it.id to it.automation }
 			val unfit = users.filterNot { (_, body) -> fitsFunction(body, function) }.map { it.first }
-			if (unfit.isNotEmpty()) return refusing(AutomationSaveRefusal(code = "unfit", automations = unfit))
+			if (unfit.isNotEmpty()) {
+				return SaveJudgment.Refused(AutomationSaveRefusal(code = Protocol.Wire.AutomationSaveRefusalCode.UNFIT.wire, automations = unfit))
+			}
 		}
 		val asks = unconfirmed(automation, held, after, stored)
 		if (asks.isNotEmpty() && op.confirmed != true) {
-			return refusing(AutomationSaveRefusal(code = "confirm", labels = asks))
+			return SaveJudgment.Refused(AutomationSaveRefusal(code = Protocol.Wire.AutomationSaveRefusalCode.CONFIRM.wire, labels = asks))
 		}
-		landed?.let { (id, body) -> bodies[id] = body }
-		val clocked = automation.trigger is AutomationTrigger.Time || automation.trigger is AutomationTrigger.Interval
-		val row = AutomationRow(
-			op.automationId,
-			revision + 1,
-			automation,
-			sandboxSentence(automation),
-			lastRanAt = held?.lastRanAt,
-			nextRunAt = (held?.nextRunAt ?: now() + HOUR_MS).takeIf { clocked && automation.enabled },
+		return SaveJudgment.Ready(automation, revision, held, landed, copied)
+	}
+
+	private fun functionFor(gatewayId: String, op: ConsoleOp.AutomationSave): AutomationFunction? {
+		val pointer = pointerOf(op.automation) ?: return null
+		return when (val function = op.function) {
+			is AutomationSaveFunction.Copy -> function.body
+			is AutomationSaveFunction.Edit -> if (function.id == pointer) function.body else functions(gatewayId)[pointer]?.second
+			null -> functions(gatewayId)[pointer]?.second
+		}
+	}
+
+	private fun moveFunctionOnFirstCheck(gatewayId: String, op: ConsoleOp.AutomationCheck) {
+		if (pointerOf(op.automation) != SANDBOX_MOVING_FUNCTION || gatewayId in movedFunctionChecks) return
+		val held = functions(gatewayId)[SANDBOX_MOVING_FUNCTION] ?: return
+		val moved = held.second.copy(
+			steps = listOf(
+				step("device_set", "device" to StepArg.Literal(JsonPrimitive(SANDBOX_SWITCH)), "verb" to StepArg.Literal(JsonPrimitive("off"))),
+				step("tell_assistant", "when" to StepArg.Literal(JsonPrimitive("quietly")), "message" to StepArg.Literal(JsonPrimitive("Lamp off for the night."))),
+			),
 		)
-		shelves[gatewayId] = if (held == null) shelf(gatewayId) + row else shelf(gatewayId).map { if (it.id == op.automationId) row else it }
-		// Deleted at none.
-		val running = shelf(gatewayId).mapNotNull { pointerOf(it.automation) }.toSet()
-		bodies.keys.retainAll(running)
-		return ConsoleAutomationSaveResult(stored = true, automation = row, function = functionRows(gatewayId).firstOrNull { it.id == pointerOf(automation) })
+		functions(gatewayId)[SANDBOX_MOVING_FUNCTION] = held.first + 1L to moved
+		movedFunctionChecks += gatewayId
+	}
+
+	private fun saveOf(op: ConsoleOp.AutomationCheck) = ConsoleOp.AutomationSave(
+		automationId = op.automationId,
+		automation = op.automation,
+		automationBase = op.automationBase,
+		function = op.function,
+		functionBase = op.functionBase,
+		confirmed = op.confirmed,
+	)
+
+	override suspend fun check(gatewayId: String, op: ConsoleOp.AutomationCheck): ConsoleAutomationCheckResult? {
+		pause()
+		if (gatewayId == SANDBOX_NEVER_REGISTERED || gatewayId == SECOND_SANDBOX_GATEWAY) return null
+		moveFunctionOnFirstCheck(gatewayId, op)
+		val save = saveOf(op)
+		val reads = functionFor(gatewayId, save)?.let(::sandboxReads)
+		return when (val judged = judge(gatewayId, save)) {
+			is SaveJudgment.Refused -> ConsoleAutomationCheckResult(ready = false, refusal = judged.refusal, reads = reads)
+			is SaveJudgment.Ready -> ConsoleAutomationCheckResult(ready = true, reads = reads)
+		}
+	}
+
+	/** Both land, or neither. */
+	override suspend fun save(gatewayId: String, op: ConsoleOp.AutomationSave): ConsoleAutomationSaveResult {
+		pause()
+		when (val judged = judge(gatewayId, op)) {
+			is SaveJudgment.Refused -> return ConsoleAutomationSaveResult(stored = false, refusal = judged.refusal)
+			is SaveJudgment.Ready -> {
+				val bodies = functions(gatewayId)
+				judged.landed?.let { (id, body) ->
+					if (judged.copied) copies += 1
+					bodies[id] = body
+				}
+				val automation = judged.automation
+				val revision = judged.revision
+				val clocked = automation.trigger is AutomationTrigger.Time || automation.trigger is AutomationTrigger.Interval
+				val row = AutomationRow(
+					op.automationId,
+					revision + 1,
+					automation,
+					sandboxSentence(automation),
+					lastRanAt = judged.held?.lastRanAt,
+					nextRunAt = (judged.held?.nextRunAt ?: now() + HOUR_MS).takeIf { clocked && automation.enabled },
+				)
+				shelves[gatewayId] = if (judged.held == null) shelf(gatewayId) + row else shelf(gatewayId).map { if (it.id == op.automationId) row else it }
+				val running = shelf(gatewayId).mapNotNull { pointerOf(it.automation) }.toSet()
+				bodies.keys.retainAll(running)
+				return ConsoleAutomationSaveResult(stored = true, automation = row, function = functionRows(gatewayId).firstOrNull { it.id == pointerOf(automation) })
+			}
+		}
 	}
 
 	/** IFTTT reach asks. */
@@ -419,11 +521,16 @@ internal class SandboxAutomationGateway(
 	}
 
 	/** Keys as flat form. */
-	private fun dangerKey(reach: Reach): String? {
-		if (reach.kind != IFTTT) return null
-		val args = when (reach) {
-			is Reached -> wireJson.encodeToJsonElement(AutomationAction.serializer(), reach.action).jsonObject.filterKeys { it != KIND }
-			is ReachedStep -> (reach.step as? FunctionStep.Do)?.args?.mapValues { (_, arg) -> literalOf(arg) ?: arg }.orEmpty()
+	private fun dangerKey(entry: WalkEntry): String? {
+		val args = when (entry) {
+			is WalkAction ->
+				if (kindOf(entry.action) != IFTTT) return null
+				else wireJson.encodeToJsonElement(AutomationAction.serializer(), entry.action).jsonObject.filterKeys { it != KIND }
+			is WalkStep -> when (val step = entry.step) {
+				is FunctionStep.Do -> if (step.action != IFTTT) return null else step.args.mapValues { (_, arg) -> literalOf(arg) ?: arg }
+				is FunctionStep.Unknown -> return null
+			}
+			is UnfollowedCall -> return null
 		}
 		return args.toSortedMap().toString()
 	}
