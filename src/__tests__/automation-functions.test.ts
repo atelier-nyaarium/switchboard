@@ -663,8 +663,9 @@ describe("an automation that runs a function", () => {
 				{
 					code: "invalid",
 					record: "function",
-					path: "steps.0",
+					path: "steps.0.as",
 					step: "0",
+					param: "as",
 				},
 				[],
 			]);

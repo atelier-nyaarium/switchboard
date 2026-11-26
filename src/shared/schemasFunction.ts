@@ -83,6 +83,20 @@ export const FunctionStepSchema = z
 	.meta({ id: "FunctionStep" });
 export type FunctionStep = z.infer<typeof FunctionStepSchema>;
 
+/** Keyed by every kind. */
+const STATEMENTS: { [K in FunctionStep["kind"]]: true } = {
+	do: true,
+	if: true,
+	try: true,
+	exit: true,
+	throw: true,
+	let: true,
+	wait: true,
+	note: true,
+};
+/** Every kind a step may be. */
+export const FUNCTION_STATEMENT_KINDS = Object.keys(STATEMENTS) as FunctionStep["kind"][];
+
 type Tree = { kind: string; steps?: readonly Tree[]; else?: readonly Tree[]; catch?: readonly Tree[] };
 
 /** Every step at every depth. */

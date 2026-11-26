@@ -197,7 +197,8 @@
 		"functions": {
 			"max": 32,
 			"steps": ["tell_assistant", "device_set", "ifttt_trigger"],
-			"paramTypes": ["device", "text", "number"]
+			"paramTypes": ["device", "text", "number"],
+			"statements": ["do", "if", "try", "exit", "throw", "let", "wait", "note"]
 		}
 	}
 }

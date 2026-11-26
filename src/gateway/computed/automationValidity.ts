@@ -17,6 +17,7 @@ import {
 	AUTOMATION_TRIGGER_NAMES,
 	type Automation,
 	type AutomationActionParam,
+	type AutomationActionRow,
 	AutomationActionSchema,
 	type AutomationTrigger,
 	FUNCTION_STEP_KINDS,
@@ -61,6 +62,13 @@ export const STEP_UNFIT = "its values do not fit what it does";
 const NO_ACTION = "this Gateway runs no such action";
 const UNRUNNABLE = "a step does what this Gateway cannot run";
 export const NAME_TAKEN = "that name is already a value here";
+export const GIVES_NOTHING = "this action gives nothing to keep";
+
+type Giving = {
+	[K in keyof typeof AUTOMATION_ACTIONS]: (typeof AUTOMATION_ACTIONS)[K] extends { gives: unknown } ? K : never;
+}[keyof typeof AUTOMATION_ACTIONS];
+/** The first action that gives stops the build here: a step's end must then store its result. */
+const STORES_RESULTS: [Giving] extends [never] ? false : never = false;
 export const WAIT_RANGE = "a wait is between 0 minutes and a day";
 
 /** Spans as written. */
@@ -217,6 +225,10 @@ export function createAutomationValidity(
 	/** The run scopes `e` to a catch. */
 	const namesIn = (fn: Checked): string[] => [...holeNames(TRIGGER_NAMES, fn.params), ...letNames(fn), "e"];
 
+	/** A name a kept value may not take. */
+	const nameTaken = (fn: Checked, name: string): boolean =>
+		name === "e" || TRIGGER_NAMES.includes(name) || fn.params.some((param) => param.name === name);
+
 	const expressionIssue = (param: string, text: string, names: readonly string[]): StepIssue | null => {
 		const issue = expressionIn(text, names);
 		return issue ? { param, ...issue } : null;
@@ -230,11 +242,7 @@ export function createAutomationValidity(
 		try: () => null,
 		if: (fn, step) => expressionIssue("when", step.when, namesIn(fn)),
 		let: (fn, step) => {
-			const taken =
-				step.name === "e" ||
-				TRIGGER_NAMES.includes(step.name) ||
-				fn.params.some((param) => param.name === step.name);
-			if (taken) return { param: "name", message: NAME_TAKEN };
+			if (nameTaken(fn, step.name)) return { param: "name", message: NAME_TAKEN };
 			return step.value.kind === "expression" ? expressionIssue("value", step.value.text, namesIn(fn)) : null;
 		},
 		wait: (fn, step) => {
@@ -251,7 +259,10 @@ export function createAutomationValidity(
 		},
 		do: (fn, step) => {
 			if (!stepAction(step.action)) return { message: UNRUNNABLE, unrunnable: true };
-			if (step.as !== undefined) return { message: "a step cannot keep its result yet" };
+			const row: AutomationActionRow = AUTOMATION_ACTIONS[step.action];
+			const gives = STORES_RESULTS && row.gives !== undefined;
+			if (step.as !== undefined && !gives) return { param: "as", message: GIVES_NOTHING };
+			if (step.as !== undefined && nameTaken(fn, step.as)) return { param: "as", message: NAME_TAKEN };
 			return argsIssue(step.action, step.args, namesIn(fn));
 		},
 	};

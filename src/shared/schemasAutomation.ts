@@ -11,7 +11,9 @@ import {
 import { DeviceVerbSchema } from "./schemasDevices.js";
 import {
 	FUNCTION_PARAM_TYPES,
+	FUNCTION_STATEMENT_KINDS,
 	FUNCTIONS_MAX,
+	type FunctionParamType,
 	FunctionSchema,
 	PARAM_NAME_RE,
 	STEP_TEXT_MAX,
@@ -166,6 +168,8 @@ export interface AutomationActionRow {
 	params: readonly AutomationActionParam[];
 	/** Never served. */
 	undrawn?: readonly string[];
+	/** What a step may keep under `as`; absent gives nothing. */
+	gives?: FunctionParamType;
 }
 
 const optionsOf = (values: readonly string[]) =>
@@ -413,7 +417,12 @@ export const FUNCTION_STEP_KINDS = [
 
 /** The kinds this Gateway's automations can hold. */
 export const AUTOMATION_SERVES = {
-	functions: { max: FUNCTIONS_MAX, steps: [...FUNCTION_STEP_KINDS], paramTypes: [...FUNCTION_PARAM_TYPES] },
+	functions: {
+		max: FUNCTIONS_MAX,
+		steps: [...FUNCTION_STEP_KINDS],
+		paramTypes: [...FUNCTION_PARAM_TYPES],
+		statements: [...FUNCTION_STATEMENT_KINDS],
+	},
 	triggers: Object.entries(AUTOMATION_TRIGGERS).map(([kind, row]) => ({
 		kind,
 		names: row.names.map((held) => ({ ...held })),
@@ -516,8 +525,11 @@ export const ConsoleAutomationListResultSchema = z
 				functions: z
 					.object({
 						max: z.number().int().positive(),
+						/** The actions a `do` step may name. */
 						steps: z.array(z.string().max(32)).max(16),
 						paramTypes: z.array(z.string().max(16)).max(8),
+						/** The step kinds it runs; absent runs `do` alone. Required from 2026-12-10. */
+						statements: z.array(z.string().max(16)).max(32).optional(),
 					})
 					.meta({ id: "AutomationFunctionServes" })
 					.optional(),

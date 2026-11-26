@@ -5613,6 +5613,8 @@ data class AutomationFunctionServes(
 	val max: Long,
 	val steps: List<String>,
 	val paramTypes: List<String>,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val statements: List<String>? = null,
 )
 
 @Serializable
