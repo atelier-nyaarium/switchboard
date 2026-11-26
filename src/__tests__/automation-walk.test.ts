@@ -1,9 +1,19 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { byPath, reached, siteAmong, steering, visit, type WalkEntry } from "../shared/automation-walk.js";
+import pathVectors from "../../tests/fixtures/step-path/vectors.json" with { type: "json" };
+import {
+	byPath,
+	reached,
+	type Sealed,
+	siteAmong,
+	steering,
+	stepsOf,
+	visit,
+	type WalkEntry,
+} from "../shared/automation-walk.js";
 import { AutomationSchema } from "../shared/schemasAutomation.js";
-import { FunctionSchema } from "../shared/schemasFunction.js";
+import { FunctionSchema, type FunctionStep } from "../shared/schemasFunction.js";
 
 const VECTORS = path.join(import.meta.dirname, "..", "..", "tests", "fixtures", "automation-walk", "vectors.json");
 
@@ -90,6 +100,19 @@ describe("the walk through a call", () => {
 		expect(missing.at(-1)).toEqual(["0.0", "run_function", "missing"]);
 		expect(bounded.map((row) => row[2])).toEqual(Array.from({ length: bounded.length }, () => "budget"));
 		expect(bounded.length).toBeGreaterThan(0);
+	});
+});
+
+describe("the step path vectors", () => {
+	it.each(pathVectors.cases)("$name", ({ steps, paths }) => {
+		// Read raw: a later kind stays a leaf.
+		const held = { steps: steps as unknown as Sealed<FunctionStep> };
+
+		expect(stepsOf(held).map((at) => at.path)).toEqual(paths);
+	});
+
+	it.each(pathVectors.order)("orders $given as written", ({ given, sorted }) => {
+		expect([...given].sort(byPath)).toEqual(sorted);
 	});
 });
 

@@ -78,7 +78,7 @@ private val SANDBOX_DESCRIPTION =
 				entity(
 					"automations",
 					"Automations and what they did.",
-					property("runs", "List<Run>", "Recent runs, newest first."),
+					property("log", "List<LogRow>", "What ended and what stood in the way, newest first."),
 					method("get", "Automation", "One automation as set.", param("automation", "Automation id.", "automations")),
 				),
 				entity("sources", "Sources and their health.", method("get", "Source", "One source as set.", param("source", "Source id.", "sources"))),
@@ -109,17 +109,17 @@ private fun sensorJson(at: Long) =
 	{"label":"Humidity","key":"humidity","value":48.2,"shown":"48.2%"},
 	{"label":"Battery","key":"battery","value":100,"shown":"100%"}]}"""
 
-private fun runsJson(at: Long) =
-	"""[{"label":"Outside thermometer temperature below 2.0 °C","automation":"a","seq":9,"at":${at - 720_000},"outcome":"ran"},
-	{"label":"Random thermometer temperature below 25.0 °C","automation":"b","seq":8,"at":${at - 7_200_000},"outcome":"ran"},
-	{"label":"Random thermometer temperature below 25.0 °C","automation":"b","seq":7,"at":${at - 7_300_000},"outcome":"suppressed"}]"""
+private fun logJson(at: Long) =
+	"""[{"label":"Outside thermometer temperature below 2.0 °C","kind":"step","automation":"a","seq":9,"at":${at - 720_000},"outcome":"ran","action":"tell_assistant","step":"0"},
+	{"label":"Random thermometer temperature below 25.0 °C","kind":"step","automation":"b","seq":8,"at":${at - 7_200_000},"outcome":"ran","action":"tell_assistant","step":"0"},
+	{"label":"Random thermometer temperature below 25.0 °C","kind":"lost","automation":"b","seq":7,"at":${at - 7_300_000},"outcome":"suppressed","reason":"a newer run replaced it"}]"""
 
 /** Exact-match answers; no evaluation. */
 private fun cannedItem(expr: String, at: Long): ConsoleResultItem? =
 	when (expr) {
 		OUTSIDE -> ConsoleResultItem(value = Json.parseToJsonElement(sensorJson(at)), type = "Sensor")
 		"outside = $OUTSIDE" -> ConsoleResultItem(value = Json.parseToJsonElement(sensorJson(at)), type = "Sensor", assigned = "outside")
-		"automations.runs" -> ConsoleResultItem(value = Json.parseToJsonElement(runsJson(at)), type = "List<Run>", cut = ConsoleCut(3, 12))
+		"automations.log" -> ConsoleResultItem(value = Json.parseToJsonElement(logJson(at)), type = "List<LogRow>", cut = ConsoleCut(3, 12))
 		"sensors.list.count()" -> ConsoleResultItem(value = Json.parseToJsonElement("2"))
 		else -> SANDBOX_DESCRIPTION.entities.firstOrNull { it.name == expr }?.let { ConsoleResultItem(value = JsonNull, entity = it.name) }
 	}

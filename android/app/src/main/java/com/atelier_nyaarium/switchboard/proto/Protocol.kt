@@ -1559,6 +1559,10 @@ sealed class ConsoleOp {
 		val params: List<FunctionParam>? = null,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val values: JsonObject? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val condition: String? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val runNames: List<String>? = null,
 	) : ConsoleOp()
 
 	@Serializable
@@ -2972,6 +2976,8 @@ data class AutomationRow(
 	val lastRanAt: Long? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val nextRunAt: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val lastRun: AutomationLastRun? = null,
 )
 
 @Serializable
@@ -3035,6 +3041,8 @@ data class ConsoleAutomationPreviewResult(
 	val filled: String? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val hole: AutomationPreviewHole? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val condition: AutomationPreviewCondition? = null,
 )
 
 @Serializable
@@ -5567,6 +5575,30 @@ data class AssistantIntegration(
 )
 
 @Serializable
+data class AutomationLastRun(
+	val at: Long,
+	val revision: Long,
+	val steps: List<AutomationLastStep>,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val active: String? = null,
+	val running: Boolean,
+)
+
+@Serializable
+data class AutomationLastStep(
+	val path: String,
+	val kind: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val outcome: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val reason: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val side: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val function: String? = null,
+)
+
+@Serializable
 data class AutomationServes(
 	val triggers: List<AutomationTriggerOffer>,
 	val actions: List<AutomationActionOffer>,
@@ -5667,6 +5699,23 @@ data class AutomationPreviewName(
 
 @Serializable
 data class AutomationPreviewHole(
+	val start: Long,
+	val end: Long,
+	val message: String,
+)
+
+@Serializable
+data class AutomationPreviewCondition(
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val holds: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val unread: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val issue: AutomationConditionIssue? = null,
+)
+
+@Serializable
+data class AutomationConditionIssue(
 	val start: Long,
 	val end: Long,
 	val message: String,

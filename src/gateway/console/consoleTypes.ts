@@ -18,17 +18,14 @@ import type { ConsoleAssistantStateResult, TemperatureUnit } from "../../shared/
 import type { ConsoleAssistantSendAnswerResult } from "../../shared/schemasAssistantSend.js";
 import type {
 	Automation,
-	AutomationTrigger,
 	ConsoleAutomationDeleteResult,
 	ConsoleAutomationListResult,
 	ConsoleAutomationPreviewResult,
 	ConsoleAutomationPutResult,
-	FunctionValues,
 } from "../../shared/schemasAutomation.js";
 import type { ConsoleAutomationCheckResult, ConsoleAutomationSaveResult } from "../../shared/schemasAutomationSave.js";
 import type { ContentEnvelope } from "../../shared/schemasContentKey.js";
 import type { DeviceConsoleOp, DeviceConsoleResult } from "../../shared/schemasDevices.js";
-import type { FunctionParam } from "../../shared/schemasFunction.js";
 import type { PhoneCapabilityAnswer } from "../../shared/schemasPhoneCapabilities.js";
 import type { HolderKey } from "../../shared/schemasPhoneHold.js";
 import type {
@@ -223,12 +220,9 @@ export interface AutomationConsoleHandlers {
 	/** A save's answer, nothing written. */
 	check: (op: Omit<Extract<ConsoleOp, { kind: "automation_check" }>, "kind">) => ConsoleAutomationCheckResult;
 	remove: (automationId: string, base: number) => ConsoleAutomationDeleteResult;
-	/** `text` is a message whose holes to fill. */
+	/** A text's holes filled, a condition read, over the draft's trigger. */
 	preview: (
-		trigger: AutomationTrigger,
-		text?: string,
-		params?: readonly FunctionParam[],
-		values?: FunctionValues,
+		request: Omit<Extract<ConsoleOp, { kind: "automation_preview" }>, "kind">,
 	) => Promise<ConsoleAutomationPreviewResult>;
 }
 

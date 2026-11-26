@@ -11,7 +11,7 @@ import {
 } from "../../shared/schemasAutomation.js";
 import { FUNCTION_STEPS_MAX } from "../../shared/schemasFunction.js";
 import { FAILURE_CODES, FAILURE_MESSAGE_MAX } from "./automationFrames.js";
-import { BEHIND, CROWDED, REPLACED, TOO_MANY } from "./automationLog.js";
+import { BEHIND, CROWDED, type LostReason, REPLACED, TOO_MANY } from "./automationLog.js";
 import { type AutomationEffect, natureOf } from "./automationRunner.js";
 import { claimed, FRESH_STEP, isEnded, type Nature, type Step, StepPathSchema, StepSchema } from "./automationSteps.js";
 
@@ -257,7 +257,7 @@ export function outdatedSets(
 export interface Admitted {
 	fires: Fire[];
 	admitted: boolean;
-	rows: { fire: Fire; outcome: "suppressed" | "refused"; reason: string }[];
+	rows: { fire: Fire; outcome: "suppressed" | "refused"; reason: LostReason }[];
 }
 
 /** Only tells are left to it. */

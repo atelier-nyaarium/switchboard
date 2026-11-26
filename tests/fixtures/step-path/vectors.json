@@ -1,0 +1,69 @@
+{
+	"_comment": "A function's step paths. `paths` lists every step at every depth in written order with its numbers under the function: an index, then a side (0 for an if's then or a try's body, 1 for an else or a catch), then an index in that side. `src/shared/automation-walk.ts` `stepsOf` and the phone's `stepPaths` in `assistant/StepTree.kt` both answer `paths` for each case's `steps`; `order` is `byPath` sorting `given` into `sorted`, on both runtimes.",
+	"cases": [
+		{
+			"name": "a flat list",
+			"steps": [{ "kind": "do", "action": "tell_assistant", "args": {} }, { "kind": "exit" }],
+			"paths": ["0", "1"]
+		},
+		{
+			"name": "both sides of an if, and a step after it",
+			"steps": [
+				{
+					"kind": "if",
+					"when": "true",
+					"steps": [{ "kind": "exit" }, { "kind": "note", "text": "a" }],
+					"else": [{ "kind": "note", "text": "b" }]
+				},
+				{ "kind": "exit" }
+			],
+			"paths": ["0", "0.0.0", "0.0.1", "0.1.0", "1"]
+		},
+		{
+			"name": "an if with only an else",
+			"steps": [{ "kind": "if", "when": "true", "else": [{ "kind": "exit" }] }],
+			"paths": ["0", "0.1.0"]
+		},
+		{
+			"name": "a try inside an if's else, its catch holding a call",
+			"steps": [
+				{ "kind": "note", "text": "first" },
+				{
+					"kind": "if",
+					"when": "ready",
+					"else": [
+						{
+							"kind": "try",
+							"steps": [{ "kind": "wait", "minutes": { "kind": "literal", "value": 5 } }],
+							"catch": [{ "kind": "call", "function": "chime" }, { "kind": "throw" }]
+						}
+					]
+				}
+			],
+			"paths": ["0", "1", "1.1.0", "1.1.0.0.0", "1.1.0.1.0", "1.1.0.1.1"]
+		},
+		{
+			"name": "an empty try",
+			"steps": [{ "kind": "try", "steps": [], "catch": [] }],
+			"paths": ["0"]
+		},
+		{
+			"name": "a kind this build does not know, at depth",
+			"steps": [
+				{
+					"kind": "try",
+					"steps": [{ "kind": "parallel", "steps": [{ "kind": "exit" }] }],
+					"catch": [{ "kind": "exit" }]
+				}
+			],
+			"paths": ["0", "0.0.0", "0.1.0"]
+		}
+	],
+	"order": [
+		{ "given": ["10", "2.1", "2", "2.0", "1"], "sorted": ["1", "2", "2.0", "2.1", "10"] },
+		{
+			"given": ["1.1.0.1.1", "1.1.0", "1", "1.1.0.0.0", "0"],
+			"sorted": ["0", "1", "1.1.0", "1.1.0.0.0", "1.1.0.1.1"]
+		}
+	]
+}

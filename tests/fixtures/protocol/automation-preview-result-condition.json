@@ -1,0 +1,16 @@
+{
+	"matched": 0,
+	"of": 0,
+	"matches": [],
+	"names": [
+		{
+			"name": "time",
+			"shown": "2026-11-26 18:30"
+		},
+		{
+			"name": "level",
+			"shown": "3"
+		}
+	],
+	"condition": { "unread": "it reads a value set while it runs" }
+}

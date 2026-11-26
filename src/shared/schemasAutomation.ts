@@ -1,7 +1,7 @@
 // One automation: a trigger and what it does.
 
 import { z } from "zod";
-import { walked } from "./automation-walk.js";
+import { RUN_FRAMES_MAX, STEP_PATH_RE, walked } from "./automation-walk.js";
 import {
 	AssistantRuleConditionSchema,
 	type AssistantWatcherRules,
@@ -12,6 +12,7 @@ import { DeviceVerbSchema } from "./schemasDevices.js";
 import {
 	FUNCTION_PARAM_TYPES,
 	FUNCTION_STATEMENT_KINDS,
+	FUNCTION_STEPS_TOTAL_MAX,
 	FUNCTIONS_MAX,
 	type FunctionParamType,
 	FunctionSchema,
@@ -368,6 +369,44 @@ export function rulesOfAutomations(
 }
 
 /** One automation as its Gateway lists it. */
+/** How a run or a step ended. */
+export const RUN_OUTCOMES = ["ran", "refused", "uncertain", "suppressed"] as const;
+
+/** Every step one run can reach. */
+export const LAST_RUN_STEPS_MAX = AUTOMATION_ACTIONS_MAX + RUN_FRAMES_MAX * FUNCTION_STEPS_TOTAL_MAX;
+export const LAST_STEP_REASON_MAX = 200;
+
+export const AutomationLastStepSchema = z
+	.object({
+		path: z.string().regex(STEP_PATH_RE),
+		/** Its action or statement kind. */
+		kind: z.string().max(32),
+		/** Absent until it ends. */
+		outcome: z.enum(RUN_OUTCOMES).optional(),
+		reason: z.string().max(LAST_STEP_REASON_MAX).optional(),
+		/** The side an `if` took. */
+		side: z.enum(["then", "else"]).optional(),
+		/** The function it ran in. */
+		function: z.string().optional(),
+	})
+	.meta({ id: "AutomationLastStep" });
+export type AutomationLastStep = z.infer<typeof AutomationLastStepSchema>;
+
+/** Kept until the next run or an edit of what it runs. */
+export const AutomationLastRunSchema = z
+	.object({
+		at: z.number().int(),
+		/** The automation's revision it ran. */
+		revision: z.number().int().positive(),
+		/** Every step it reached, in written order. */
+		steps: z.array(AutomationLastStepSchema).max(LAST_RUN_STEPS_MAX),
+		/** The step in flight. */
+		active: z.string().regex(STEP_PATH_RE).optional(),
+		running: z.boolean(),
+	})
+	.meta({ id: "AutomationLastRun" });
+export type AutomationLastRun = z.infer<typeof AutomationLastRunSchema>;
+
 export const AutomationRowSchema = z
 	.object({
 		id: z.string().regex(RULE_ID_RE),
@@ -381,6 +420,8 @@ export const AutomationRowSchema = z
 		lastRanAt: z.number().int().optional(),
 		/** A time or interval trigger's next slot. */
 		nextRunAt: z.number().int().optional(),
+		/** Absent from older builds. */
+		lastRun: AutomationLastRunSchema.optional(),
 	})
 	.meta({ id: "AutomationRow" });
 
@@ -602,6 +643,22 @@ export const ConsoleAutomationPreviewResultSchema = z
 				message: z.string().max(200),
 			})
 			.meta({ id: "AutomationPreviewHole" })
+			.optional(),
+		/** The condition read now: true or false, why it cannot be, or why it cannot be saved. */
+		condition: z
+			.object({
+				holds: z.boolean().optional(),
+				unread: z.string().max(200).optional(),
+				issue: z
+					.object({
+						start: z.number().int().nonnegative(),
+						end: z.number().int().nonnegative(),
+						message: z.string().max(200),
+					})
+					.meta({ id: "AutomationConditionIssue" })
+					.optional(),
+			})
+			.meta({ id: "AutomationPreviewCondition" })
 			.optional(),
 	})
 	.meta({ id: "ConsoleAutomationPreviewResult" });

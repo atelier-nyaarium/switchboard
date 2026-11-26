@@ -4,7 +4,7 @@ import { z } from "zod";
 import { STEP_PATH_RE } from "../../shared/automation-walk.js";
 import { KEEP_TRYING_MIN_DEFAULT } from "../../shared/schemasAutomation.js";
 import { FAILURE_CODES, FAILURE_MESSAGE_MAX, type Failure, type FailureCode } from "./automationFrames.js";
-import type { RunRow } from "./automationLog.js";
+import type { LogRow } from "./automationLog.js";
 
 /** What one attempt answers. */
 export const ATTEMPT_WORDS = ["done", "refused", "unreachable", "no_answer"] as const;
@@ -146,6 +146,12 @@ export function recovered(found: Step, nature: Nature | null, now: number, windo
 /** A refusal before any attempt. */
 export const refusedUnsent = (step: Step): Step => ending(step, "refused", "failed");
 
+/** A failed step keeps the reason it was given. */
+export const saying = (step: Step, reason: string | undefined): Step =>
+	reason === undefined || step.verdict !== "failed" || step.message !== undefined
+		? step
+		: { ...step, message: reason.slice(0, FAILURE_MESSAGE_MAX) };
+
 const WORD_REASONS: Readonly<Record<Exclude<StepWord, "done">, string>> = {
 	refused: "it was refused",
 	unreachable: "it could not be reached",
@@ -173,7 +179,7 @@ export const steered = (step: Step, side?: "then" | "else"): Step => ({
 });
 
 /** How an ended step logs. */
-export function endedOutcome(word: StepWord | undefined): { outcome: RunRow["outcome"]; reason?: string } {
+export function endedOutcome(word: StepWord | undefined): { outcome: LogRow["outcome"]; reason?: string } {
 	if (word === "done") return { outcome: "ran" };
 	if (word === "no_answer") return { outcome: "uncertain", reason: WORD_REASONS.no_answer };
 	return { outcome: "refused", reason: WORD_REASONS[word ?? "unreachable"] };

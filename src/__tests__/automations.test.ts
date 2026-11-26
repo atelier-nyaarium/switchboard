@@ -1425,6 +1425,7 @@ describe("automations", () => {
 
 		expect(w.effects).toEqual(["plug:on"]);
 		expect(kept.log().map((run) => run.outcome)).toEqual(["ran"]);
+		expect(kept.lastRun("heat")).toMatchObject({ running: false, steps: [{ path: "0", outcome: "ran" }] });
 	});
 
 	describe("a run's steps", () => {

@@ -8,7 +8,17 @@ import {
 	outdatedSets,
 	readFire,
 } from "../gateway/computed/automationFires.js";
-import { fireRow, LOG_MAX, logged, REPLACED, type RunRow } from "../gateway/computed/automationLog.js";
+import {
+	EMPTY_LOG,
+	LOG_MAX,
+	type LogRow,
+	logged,
+	lostRow,
+	REPLACED,
+	readLog,
+	stepRow,
+	triggerRow,
+} from "../gateway/computed/automationLog.js";
 import { QUEUE_MAX_EVENTS, roomFor } from "../gateway/computed/automationOutbox.js";
 import type { AutomationEffect } from "../gateway/computed/automationRunner.js";
 import {
@@ -262,53 +272,77 @@ describe("room in the outbox", () => {
 	});
 });
 
-describe("the run log", () => {
-	const run = (outcome: RunRow["outcome"], reason?: string, action?: string) =>
-		fireRow({ automation: "heat", seq: 0, at: 1 }, outcome, reason, action);
+describe("the log", () => {
+	const fire = { automation: "heat", seq: 0, at: 1 };
+	const step = (path: string, outcome: LogRow["outcome"], reason?: string) =>
+		stepRow(fire, { step: path, action: "device_set", function: "warm-up" }, outcome, reason);
+	const rowsOf = (rows: LogRow[]) => rows.reduce(logged, EMPTY_LOG).rows;
 
-	it("logs a replaced run again once another run came between, and a repeat in a row once", () => {
-		const between = [run("suppressed", REPLACED), run("ran", undefined, "device_set"), run("suppressed", REPLACED)];
-		const repeated = [run("suppressed", REPLACED), run("suppressed", REPLACED)];
+	it("logs a lost run again once any other row of its automation came between, and a repeat in a row once", () => {
+		const between = [lostRow(fire, REPLACED), step("0", "ran"), lostRow(fire, REPLACED)];
+		const repeated = [lostRow(fire, REPLACED), lostRow(fire, REPLACED)];
 
-		expect(between.reduce(logged, [])).toHaveLength(3);
-		expect(repeated.reduce(logged, [])).toHaveLength(1);
+		expect(rowsOf(between)).toHaveLength(3);
+		expect(rowsOf(repeated)).toHaveLength(1);
 	});
 
-	it("logs a standing refusal of no action once, whatever effect rows land between", () => {
-		const refusal = run("refused", "not home");
-		const fires = [refusal, run("ran", undefined, "device_set"), refusal];
+	it("logs a standing refusal of the run once, whatever step rows land between", () => {
+		const refusal = triggerRow(fire, "refused", "not home");
 
-		expect(fires.reduce(logged, []).filter((row) => row.outcome === "refused")).toHaveLength(1);
+		expect(rowsOf([refusal, step("0", "ran"), refusal]).filter((row) => row.outcome === "refused")).toHaveLength(1);
 	});
 
 	it("logs a step's refusal again once that step's own row came between, and another step's refusal beside it", () => {
-		const at = (step: string, outcome: RunRow["outcome"], reason?: string) =>
-			fireRow({ automation: "heat", seq: 0, at: 1 }, outcome, reason, "device_set", {
-				step,
-				function: "warm-up",
-			});
-		const full = at("0.0", "refused", "full");
+		const full = step("0.0", "refused", "full");
 
-		expect([full, full, at("0.1", "refused", "full")].reduce(logged, [])).toHaveLength(2);
-		expect([full, at("0.0", "ran"), full].reduce(logged, [])).toHaveLength(3);
+		expect(rowsOf([full, full, step("0.1", "refused", "full")])).toHaveLength(2);
+		expect(rowsOf([full, step("0.0", "ran"), full])).toHaveLength(3);
 	});
 
-	it("logs a standing refusal and a replaced run once each while they alternate", () => {
-		const pair = [run("refused", "not home"), run("suppressed", REPLACED)];
+	it("logs a standing refusal and a lost run once each while they alternate", () => {
+		const pair = [triggerRow(fire, "refused", "not home"), lostRow(fire, REPLACED)];
 
-		expect([...pair, ...pair, ...pair, ...pair].reduce(logged, [])).toHaveLength(2);
+		expect(rowsOf([...pair, ...pair, ...pair, ...pair])).toHaveLength(2);
+	});
+
+	it("keeps a refusal standing when the oldest rows are dropped for room", () => {
+		const refusal = step("0", "refused", "full");
+		const busy = Array.from({ length: LOG_MAX }, (_, n) => step(`${n + 1}`, "ran"));
+
+		const log = [refusal, ...busy, refusal].reduce(logged, EMPTY_LOG);
+
+		expect(log.rows.filter((row) => row.outcome === "refused")).toEqual([]);
 	});
 
 	it("drops the oldest row of the automation holding the most, so a busy one costs the others nothing", () => {
 		const row = (automation: string, at: number) =>
-			fireRow({ automation, seq: at, at }, "ran", undefined, "device_set");
+			stepRow({ automation, seq: at, at }, { step: "0", action: "device_set" }, "ran", undefined);
 		const quiet = [row("porch", 1), row("hall", 2)];
 		const busy = Array.from({ length: LOG_MAX * 2 }, (_, n) => row("heat", n + 3));
 
-		const held = [...quiet, ...busy].reduce(logged, []);
+		const held = rowsOf([...quiet, ...busy]);
 
 		expect(held).toHaveLength(LOG_MAX);
 		expect(held.slice(0, 2)).toEqual(quiet);
 		expect(held.at(-1)).toEqual(busy.at(-1));
+	});
+
+	it("reads the rows it stores with no kind, each alone, and what stood among them when nothing was stored beside them", () => {
+		const bare = [
+			{ automation: "heat", seq: 1, at: 1, outcome: "refused", reason: "full", action: "device_set", step: "0" },
+			{ automation: "heat", seq: 2, at: 2, outcome: "suppressed", reason: REPLACED },
+			{ automation: "heat", seq: 3, at: 3, outcome: "ran", action: "tell_assistant" },
+			{ automation: "heat", seq: 4, at: 4, outcome: "refused", reason: "not home" },
+			{ automation: "heat", seq: "bad", outcome: "ran" },
+		];
+
+		const read = readLog(bare, undefined);
+		const stored = readLog(bare, { heat: { trigger: "elsewhere", bad: 5 } });
+
+		expect(read.rows.map((row) => row.kind)).toEqual(["step", "lost", "tell", "trigger"]);
+		expect(logged(read, { ...(read.rows[0] as LogRow), seq: 5 }).rows).toHaveLength(4);
+		expect(logged(read, { ...(read.rows[3] as LogRow), seq: 6 }).rows).toHaveLength(4);
+		expect(logged(stored, { ...(read.rows[3] as LogRow), seq: 6 }).rows).toHaveLength(5);
+		expect(stored.standing).toEqual({ heat: { trigger: "elsewhere" } });
 	});
 });

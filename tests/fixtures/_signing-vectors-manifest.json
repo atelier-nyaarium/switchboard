@@ -33,6 +33,7 @@
 		"sealed-blob",
 		"self-revocation",
 		"session-id",
+		"step-path",
 		"sync-cursor",
 		"text-holes",
 		"transport-request",

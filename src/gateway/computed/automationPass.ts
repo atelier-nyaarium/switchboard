@@ -31,7 +31,8 @@ import {
 	type TreeStep,
 } from "./automationFrames.js";
 import { NOT_HOME } from "./automationJudge.js";
-import { fireRow, logged, type RowWhere, type RunRow } from "./automationLog.js";
+import { type RunStamp, recorded } from "./automationLastRun.js";
+import { type Log, type LogRow, logged, stepRow, tellRow } from "./automationLog.js";
 import { type Dropped, QUEUE_FULL, stepMember, told } from "./automationOutbox.js";
 import { type Attempt, type AutomationEffect, isEffect, natureOf } from "./automationRunner.js";
 import { own, type State } from "./automationState.js";
@@ -51,6 +52,7 @@ import {
 	recovered,
 	refusedUnsent,
 	type Step,
+	saying,
 	steered,
 	timedOut,
 	unsent,
@@ -59,14 +61,15 @@ import { isTell } from "./automationText.js";
 
 export interface Answer {
 	ref: StepRef;
-	rows: RunRow[];
+	rows: LogRow[];
 	attempt: Attempt;
 	reason?: string;
 }
 
 /** Lookups and formatting. */
 export interface PassPorts {
-	retireOf(fire: Fire): RunRow | null;
+	retireOf(fire: Fire): LogRow | null;
+	stampOf(fire: Fire): RunStamp;
 	/** `code`: a failure its caller may catch. */
 	enter(fire: Fire, path: string, call: RunFunction): Fire | { refused: string; code?: FailureCode };
 	/** The steps the frame at `site` runs. */
@@ -116,6 +119,8 @@ const TELL_KIND: Tell["kind"] = "tell_assistant";
 const CALL_KIND: RunFunction["kind"] = "run_function";
 
 export const NEWER_SET = "a newer setting of this switch landed first";
+/** A step whose kind its body no longer names. */
+const UNKNOWN_KIND = "unknown";
 export const FRAME_UNREAD = "the function it ran could not be read";
 export const CALL_FAILED = "a step in it failed";
 const MESSAGE_UNREAD = "its message was not read before the restart";
@@ -123,12 +128,12 @@ const MESSAGE_UNREAD = "its message was not read before the restart";
 export const untold = ({ tell: _tell, waiting: _waiting, ...rest }: Fire): Fire => rest;
 
 /** `unowned` takes the rest. */
-export const droppedRows = (log: RunRow[], dropped: Dropped, now: number, unowned: Fire | null): RunRow[] => {
+export const droppedRows = (log: Log, dropped: Dropped, now: number, unowned: Fire | null): Log => {
 	let next = log;
 	for (const [owner, count] of dropped) {
 		const reason = `dropped ${count} older quiet event${count === 1 ? "" : "s"} for room`;
 		const by = owner === null ? unowned : { automation: owner, seq: 0, at: now };
-		if (by) next = logged(next, fireRow(by, "suppressed", reason, "tell_assistant"));
+		if (by) next = logged(next, tellRow(by, "suppressed", reason));
 	}
 	return next;
 };
@@ -138,14 +143,15 @@ export function createPass(ports: PassPorts): {
 	/** Lands answers for readers. */
 	settle(
 		stored: readonly Fire[],
-		held: Pick<State, "log" | "ran" | "landedSets">,
+		held: Pick<State, "log" | "ran" | "landedSets" | "lastRuns" | "order">,
 		now: number,
 		recover: boolean,
 		answers: ReadonlyMap<string, Answer>,
 		inFlight: (ref: StepRef) => boolean,
-	): { fires: Fire[]; log: RunRow[]; ran: State["ran"]; landedSets: State["landedSets"] };
-	endedRow(fire: Fire, path: string, step: Step, reason?: string): RunRow;
-	whereAt(fire: Fire, path: string): RowWhere;
+	): { fires: Fire[]; log: Log; ran: State["ran"]; landedSets: State["landedSets"]; lastRuns: State["lastRuns"] };
+	endedRow(fire: Fire, path: string, step: Step, reason?: string): LogRow;
+	/** A row for the step at `path`, whatever stands it. */
+	rowAt(fire: Fire, path: string, outcome: LogRow["outcome"], reason: string): LogRow;
 } {
 	/** A retiring fire never retries, so it has none. */
 	const natureAt = (fire: Fire, path: string, retiring: boolean): Nature | null => {
@@ -153,24 +159,38 @@ export function createPass(ports: PassPorts): {
 		return effect ? natureOf(effect) : null;
 	};
 
-	/** A call names its function. */
-	const whereAt = (fire: Fire, path: string): RowWhere => {
+	/** The function a step ran in. */
+	const functionAt = (fire: Fire, path: string): string | undefined => {
 		const site = siteIn(fire, path) ?? path;
 		const body = ports.bodyOf(fire);
-		return {
-			step: path,
-			function: fire.frames?.[site]?.function ?? (body ? ports.callAt(body, site)?.function : undefined),
-		};
+		return fire.frames?.[site]?.function ?? (body ? ports.callAt(body, site)?.function : undefined);
 	};
+	const kindAt = (fire: Fire, path: string): string => ports.kindAt(fire, path) ?? UNKNOWN_KIND;
+	const placeOf = (fire: Fire, path: string) => ({
+		step: path,
+		action: kindAt(fire, path),
+		function: functionAt(fire, path),
+	});
 
 	/** An ended step's row. */
-	const endedRow = (fire: Fire, path: string, step: Step, reason?: string): RunRow => {
+	const endedRow = (fire: Fire, path: string, step: Step, reason?: string): LogRow => {
 		const ended = endedOutcome(step.word);
-		return fireRow(fire, ended.outcome, reason ?? ended.reason, ports.kindAt(fire, path), whereAt(fire, path));
+		return stepRow(fire, placeOf(fire, path), ended.outcome, reason ?? ended.reason);
+	};
+
+	/** What the row serves. */
+	const record = (
+		lastRuns: State["lastRuns"],
+		fire: Fire,
+		running: boolean,
+		order: State["order"],
+	): State["lastRuns"] => {
+		const orderOf = (member: string) => own(order.members, member) ?? 0;
+		return recorded(lastRuns, fire, running, { kindAt, functionAt, stampOf: ports.stampOf, orderOf });
 	};
 
 	/** Judges steps a restart found. */
-	const recoverFire = (fire: Fire, held: RunRow[], now: number, retiring: boolean) => {
+	const recoverFire = (fire: Fire, held: Log, now: number, retiring: boolean) => {
 		let log = held;
 		let landed = fire;
 		for (const [path, step] of Object.entries(fire.steps)) {
@@ -182,7 +202,7 @@ export function createPass(ports: PassPorts): {
 	};
 
 	/** A retiring fire's open steps end with their last word. */
-	const endHeard = (fire: Fire, held: RunRow[]) => {
+	const endHeard = (fire: Fire, held: Log) => {
 		let log = held;
 		let landed = fire;
 		for (const [path, step] of Object.entries(fire.steps)) {
@@ -217,7 +237,10 @@ export function createPass(ports: PassPorts): {
 				continue;
 			}
 			log = answer.rows.reduce(logged, log);
-			const next = heard(step, natureAt(fire, path, retiring), answer.attempt.word, now, ports.windowOf(fire));
+			const next = saying(
+				heard(step, natureAt(fire, path, retiring), answer.attempt.word, now, ports.windowOf(fire)),
+				answer.reason,
+			);
 			landed = withStep(landed, path, next);
 			if (!isEnded(next)) continue;
 			log = logged(log, endedRow(fire, path, next, answer.reason));
@@ -231,13 +254,13 @@ export function createPass(ports: PassPorts): {
 
 	const settle = (
 		stored: readonly Fire[],
-		held: Pick<State, "log" | "ran" | "landedSets">,
+		held: Pick<State, "log" | "ran" | "landedSets" | "lastRuns" | "order">,
 		now: number,
 		recover: boolean,
 		answers: ReadonlyMap<string, Answer>,
 		inFlight: (ref: StepRef) => boolean,
 	) => {
-		let { log, ran } = held;
+		let { log, ran, lastRuns } = held;
 		const sets: LandedSet[] = [];
 		const settled = stored.map((found) => {
 			const retiring = ports.retireOf(found) !== null;
@@ -254,7 +277,7 @@ export function createPass(ports: PassPorts): {
 			outdated
 				.filter((at) => at.member === fire.member)
 				.reduce((held, { path }) => {
-					const ended = refusedUnsent(held.steps[path] as Step);
+					const ended = saying(refusedUnsent(held.steps[path] as Step), NEWER_SET);
 					log = logged(log, endedRow(held, path, ended, NEWER_SET));
 					return withStep(held, path, ended);
 				}, fire),
@@ -264,7 +287,8 @@ export function createPass(ports: PassPorts): {
 			const before = own(landedSets, device);
 			if (!before || before.at <= set.at) landedSets[device] = set;
 		}
-		return { fires, log, ran, landedSets };
+		for (const fire of fires) lastRuns = record(lastRuns, fire, !finished(fire), held.order);
+		return { fires, log, ran, landedSets, lastRuns };
 	};
 
 	/** How an ended step moves its frame. */
@@ -277,7 +301,7 @@ export function createPass(ports: PassPorts): {
 	};
 
 	/** Moves past an ended step. In a frame the active step leads; the automation's own list is scanned. */
-	const turn = (start: Fire, held: RunRow[], now: number): { fire: Fire; log: RunRow[]; path: string | null } => {
+	const turn = (start: Fire, held: Log, now: number): { fire: Fire; log: Log; path: string | null } => {
 		let fire = start;
 		let log = held;
 		for (;;) {
@@ -334,15 +358,9 @@ export function createPass(ports: PassPorts): {
 	};
 
 	/** Opens a call's frame, or ends the call refused. */
-	const entering = (
-		held: Fire,
-		rows: RunRow[],
-		path: string,
-		step: Step,
-		call: RunFunction,
-	): { fire: Fire; log: RunRow[] } => {
+	const entering = (held: Fire, rows: Log, path: string, step: Step, call: RunFunction): { fire: Fire; log: Log } => {
 		const refuse = (reason: string, code?: FailureCode) => {
-			const ended = code ? failedAs(step, code, reason) : refusedUnsent(step);
+			const ended = code ? failedAs(step, code, reason) : saying(refusedUnsent(step), reason);
 			const fire = withStep(held, path, ended);
 			return { fire, log: logged(rows, endedRow(fire, path, ended, reason)) };
 		};
@@ -364,7 +382,7 @@ export function createPass(ports: PassPorts): {
 			unread: StepRef[];
 			tell: (fire: Fire, path: string, action: Tell) => "told" | "full" | "away";
 		},
-	): { fire: Fire; log: RunRow[] } => {
+	): { fire: Fire; log: Log } => {
 		let { log } = held;
 		let fire = start;
 		for (;;) {
@@ -431,7 +449,7 @@ export function createPass(ports: PassPorts): {
 				else if (told === "away") ended = { step: refusedUnsent(step), reason: NOT_HOME };
 				else if (told === "late") ended = { step: expired(step) };
 				else {
-					log = logged(log, fireRow(fire, "refused", QUEUE_FULL, "tell_assistant", whereAt(fire, path)));
+					log = logged(log, stepRow(fire, placeOf(fire, path), "refused", QUEUE_FULL));
 					return { fire, log };
 				}
 			} else if (!action || !isEffect(action)) ended = { step: refusedUnsent(step) };
@@ -445,8 +463,9 @@ export function createPass(ports: PassPorts): {
 				if (ready && due <= at.now) at.runnable.push({ ref: { member: fire.member, path }, dueAt: due });
 				return { fire, log };
 			}
-			fire = withStep(fire, path, ended.step);
-			log = logged(log, endedRow(fire, path, ended.step, ended.reason));
+			const said = saying(ended.step, ended.reason);
+			fire = withStep(fire, path, said);
+			log = logged(log, endedRow(fire, path, said, ended.reason));
 		}
 		return { fire: { ...fire, active: [] }, log };
 	};
@@ -470,13 +489,16 @@ export function createPass(ports: PassPorts): {
 			input.inFlight,
 		);
 		const { fires: settledFires, landedSets } = settledPass;
+		let { lastRuns } = settledPass;
 		({ log, ran } = settledPass);
 		for (const stored of settledFires) {
 			let fire: Fire = stored;
 			const retired = ports.retireOf(fire);
 			if (retired) {
 				// Retired once its effect lands.
-				if (holdsClaim(fire)) {
+				const holds = holdsClaim(fire);
+				lastRuns = record(lastRuns, fire, holds, input.state.order);
+				if (holds) {
 					fires.push(fire);
 					retiring.add(fire.member);
 				} else if (!finished(fire)) log = logged(log, retired);
@@ -485,18 +507,18 @@ export function createPass(ports: PassPorts): {
 			const body = ports.bodyOf(fire) as Automation;
 			// Remove 2026-12-16: the one tell 8.14.87 stored for a whole fire, told as it stands.
 			if (fire.tell && !input.home) {
-				log = logged(log, fireRow(fire, "refused", NOT_HOME, "tell_assistant"));
+				log = logged(log, tellRow(fire, "refused", NOT_HOME));
 				fire = untold(fire);
 			} else if (fire.tell) {
 				const { when, fields, fill } = fire.tell;
 				if (fill) {
-					log = logged(log, fireRow(fire, "uncertain", MESSAGE_UNREAD, "tell_assistant"));
+					log = logged(log, tellRow(fire, "uncertain", MESSAGE_UNREAD));
 					fire = { ...fire, tell: { when, fields } };
 				}
 				const entry = { member: fire.member, when, fields };
 				const room = told(queue, entry, ports.sentenceOf(body), input.now);
 				if (!room) {
-					if (!fire.waiting) log = logged(log, fireRow(fire, "refused", QUEUE_FULL, "tell_assistant"));
+					if (!fire.waiting) log = logged(log, tellRow(fire, "refused", QUEUE_FULL));
 					fire = { ...fire, waiting: true };
 				} else {
 					queue = room.queue;
@@ -504,7 +526,7 @@ export function createPass(ports: PassPorts): {
 						dropped.set(owner, (dropped.get(owner) ?? 0) + count);
 						if (owner === null) droppedBy = fire;
 					}
-					log = logged(log, fireRow(fire, "ran", undefined, "tell_assistant"));
+					log = logged(log, tellRow(fire, "ran", undefined));
 					ran = { ...ran, [fire.automation]: fire.at };
 					queued = true;
 					fire = untold(fire);
@@ -544,6 +566,7 @@ export function createPass(ports: PassPorts): {
 						{ now: input.now, home: input.home, runnable, unread, tell },
 					));
 				}
+				lastRuns = record(lastRuns, fire, !finished(fire), input.state.order);
 				return finished(fire) ? [] : [fire];
 			});
 		};
@@ -553,9 +576,12 @@ export function createPass(ports: PassPorts): {
 		const effect = input.busy.effect ? null : nextEffect(runnable);
 		if (effect) fires = claim(fires, effect, input.now);
 		const toRead = input.busy.read ? null : (unread[0] ?? null);
-		const next: State = { ...input.state, queue, log, ran, fires, landedSets };
+		const next: State = { ...input.state, queue, log, ran, fires, landedSets, lastRuns };
 		return { next, effect, read: toRead, queued };
 	}
 
-	return { pass: runPass, settle, endedRow, whereAt };
+	const rowAt = (fire: Fire, path: string, outcome: LogRow["outcome"], reason: string): LogRow =>
+		stepRow(fire, placeOf(fire, path), outcome, reason);
+
+	return { pass: runPass, settle, endedRow, rowAt };
 }

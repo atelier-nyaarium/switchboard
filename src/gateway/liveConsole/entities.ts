@@ -38,7 +38,15 @@ export interface ConsoleReaders {
 	automations: () =>
 		| Pick<
 				Automations,
-				"list" | "log" | "invalidOf" | "checkpoint" | "queued" | "sentenceOf" | "eventsOf" | "functionOf"
+				| "list"
+				| "log"
+				| "lastRun"
+				| "invalidOf"
+				| "checkpoint"
+				| "queued"
+				| "sentenceOf"
+				| "eventsOf"
+				| "functionOf"
 		  >
 		| undefined;
 	assistant: () => ConsoleAssistantStateResult;
@@ -356,7 +364,7 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 		},
 		{
 			name: "automations",
-			description: "Automations, where each stands, their runs and what they queued.",
+			description: "Automations, where each stands, their log, their last runs and what they queued.",
 			audiences: AUDIENCE,
 			members: {
 				list: {
@@ -374,12 +382,19 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 								invalid: automations().invalidOf(record.id),
 							})),
 				},
-				runs: {
+				log: {
 					kind: "property",
-					description: "The run log, newest first.",
-					type: "List<Run>",
+					description: "What ended and what stood in the way, newest first.",
+					type: "List<LogRow>",
 					get: () =>
 						[...automations().log()].reverse().map((row) => ({ label: labelOf(row.automation), ...row })),
+				},
+				last: {
+					kind: "method",
+					description: "Its last run: each step it reached and how it ended.",
+					params: [automationParam],
+					returns: "LastRun",
+					call: ([id]) => automations().lastRun(automation(id as string).id),
 				},
 				queue: {
 					kind: "property",

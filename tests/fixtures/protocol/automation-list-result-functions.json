@@ -11,7 +11,25 @@
 				]
 			},
 			"sentence": "Every hour",
-			"nextRunAt": 1763000000000
+			"nextRunAt": 1763000000000,
+			"lastRun": {
+				"at": 1762996400000,
+				"revision": 2,
+				"steps": [
+					{ "path": "0", "kind": "run_function", "outcome": "refused", "reason": "a step in it failed" },
+					{
+						"path": "0.0",
+						"kind": "device_set",
+						"outcome": "refused",
+						"reason": "it was refused",
+						"function": "warm-up"
+					},
+					{ "path": "0.1", "kind": "if", "outcome": "ran", "side": "else", "function": "warm-up" },
+					{ "path": "0.1.1.0", "kind": "wait", "function": "warm-up" }
+				],
+				"active": "0.1.1.0",
+				"running": true
+			}
 		}
 	],
 	"functions": [

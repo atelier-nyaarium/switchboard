@@ -14,6 +14,8 @@ export const FUNCTION_DEPTH_MAX = 4;
 /** A day. */
 export const WAIT_MINUTES_MAX = 1_440;
 export const FUNCTION_PARAMS_MAX = 8;
+/** A run's variables, and `e`. */
+export const RUN_NAMES_MAX = 17;
 export const FUNCTION_NAME_MAX = 80;
 export const STEP_TEXT_MAX = 1_000;
 /** The widest action row's parameters. */

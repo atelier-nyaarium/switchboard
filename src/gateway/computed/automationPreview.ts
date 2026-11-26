@@ -1,13 +1,12 @@
 // What an automation's editor is shown before a save.
 
+import type { ConsoleOp } from "../../shared/console-protocol.js";
 import {
 	AUTOMATION_TRIGGER_NAMES,
 	type AutomationTrigger,
 	type ConsoleAutomationPreviewResult,
 	type EventTrigger,
-	type FunctionValues,
 } from "../../shared/schemasAutomation.js";
-import type { FunctionParam } from "../../shared/schemasFunction.js";
 import { oneLine } from "../../shared/system-reminder.js";
 import { functionScopeOf, holeNames, holeScope } from "./automationScope.js";
 import type { AutomationHoles } from "./automations.js";
@@ -23,7 +22,12 @@ export interface AutomationPreviewDeps {
 	switchName?: (device: string) => string | null;
 }
 
+export type PreviewRequest = Omit<Extract<ConsoleOp, { kind: "automation_preview" }>, "kind">;
+
 const NAME_SHOWN_MAX = 200;
+const RUN_VALUE = "it reads a value set while it runs";
+const UNREAD_NOW = "it cannot be read now";
+const NOT_BOOLEAN = "it is not true or false";
 const ISSUE_MAX = 200;
 const FILLED_MAX = 4_000;
 
@@ -34,14 +38,11 @@ const shownOf = (held: Names[string]): string => {
 
 export async function previewAutomation(
 	deps: AutomationPreviewDeps,
-	trigger: AutomationTrigger,
-	text?: string,
-	params: readonly FunctionParam[] = [],
-	values?: FunctionValues,
+	{ trigger, text, params = [], values, condition, runNames = [] }: PreviewRequest,
 ): Promise<ConsoleAutomationPreviewResult> {
-	const read = trigger.kind === "event" ? await deps.event(trigger) : null;
-	const names = read ? read.names : deps.namesNow(trigger as Exclude<AutomationTrigger, EventTrigger>);
-	const preview = read?.preview ?? { matched: 0, of: 0, matches: [] };
+	const seen = trigger.kind === "event" ? await deps.event(trigger) : null;
+	const names = seen ? seen.names : deps.namesNow(trigger as Exclude<AutomationTrigger, EventTrigger>);
+	const preview = seen?.preview ?? { matched: 0, of: 0, matches: [] };
 	const paramNames = functionScopeOf(params, values, deps.switchName);
 	const listed = AUTOMATION_TRIGGER_NAMES[trigger.kind]
 		.flatMap((name) => {
@@ -54,11 +55,36 @@ export async function previewAutomation(
 				shown: paramNames[param.name] ? shownOf(paramNames[param.name]) : "not set",
 			})),
 		);
-	if (text === undefined) return { ...preview, names: listed };
 	const holes = deps.holes();
-	const found = holes?.issue(text, holeNames(AUTOMATION_TRIGGER_NAMES[trigger.kind], params)) ?? null;
+	const scope = holeNames(AUTOMATION_TRIGGER_NAMES[trigger.kind], params);
+	const judged =
+		condition === undefined
+			? {}
+			: {
+					condition: await (async (): Promise<NonNullable<ConsoleAutomationPreviewResult["condition"]>> => {
+						if (!holes) return { unread: UNREAD_NOW };
+						const found = holes.expression(condition, [...scope, ...runNames]);
+						if (found) return { issue: { ...found, message: oneLine(found.message).slice(0, ISSUE_MAX) } };
+						// A run's name wins over one of the same spelling, so it parses only without them.
+						if (
+							holes.expression(
+								condition,
+								scope.filter((name) => !runNames.includes(name)),
+							)
+						)
+							return { unread: RUN_VALUE };
+						const value = await holes.evaluate(
+							condition,
+							holeScope(names, params, values, deps.switchName),
+						);
+						if (value === null) return { unread: UNREAD_NOW };
+						return typeof value.value === "boolean" ? { holds: value.value } : { unread: NOT_BOOLEAN };
+					})(),
+				};
+	if (text === undefined) return { ...preview, names: listed, ...judged };
+	const found = holes?.issue(text, scope) ?? null;
 	const hole = found ? { ...found, message: oneLine(found.message).slice(0, ISSUE_MAX) } : null;
-	if (!holes || hole) return { ...preview, names: listed, ...(hole ? { hole } : {}) };
+	if (!holes || hole) return { ...preview, names: listed, ...judged, ...(hole ? { hole } : {}) };
 	const filled = await holes.fill(text, holeScope(names, params, values, deps.switchName));
-	return { ...preview, names: listed, filled: filled.text.slice(0, FILLED_MAX) };
+	return { ...preview, names: listed, ...judged, filled: filled.text.slice(0, FILLED_MAX) };
 }

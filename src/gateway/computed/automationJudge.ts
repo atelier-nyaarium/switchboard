@@ -136,8 +136,12 @@ const remove = ({ id, revision }: { id: string; revision: number }): OwnerWrite 
 	base: revision,
 });
 
+/** The same but for `enabled`. */
+const sameBody = (a: Automation, b: Automation): boolean =>
+	canonicalJson({ ...a, enabled: true }) === canonicalJson({ ...b, enabled: true });
+
 const onlyEnabledMoved = (next: Automation, held: Automation | undefined): boolean =>
-	held !== undefined && canonicalJson({ ...next, enabled: true }) === canonicalJson({ ...held, enabled: true });
+	held !== undefined && sameBody(next, held);
 
 const doneKind = (at: FollowedEntry): string | null =>
 	visit(at, {

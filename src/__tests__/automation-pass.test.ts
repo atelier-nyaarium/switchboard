@@ -15,6 +15,7 @@ const body = AutomationSchema.parse({
 
 const ports: PassPorts = {
 	retireOf: () => null,
+	stampOf: () => ({ body: "body", functions: [] }),
 	enter: (fire) => fire,
 	frameBody: () => null,
 	bodyOf: () => body,
@@ -49,7 +50,7 @@ const fireOf = (step: Fire["steps"][string]): Fire => ({
 const stateOf = (fire: Fire): State => ({
 	automations: {},
 	queue: { lastAt: 0, events: [] },
-	log: [],
+	log: { rows: [], standing: {} },
 	ran: {},
 	fires: [fire],
 	fired: [],
@@ -60,6 +61,8 @@ const stateOf = (fire: Fire): State => ({
 	unusedFunctions: {},
 	landedSets: {},
 	firedAt: {},
+	lastRuns: {},
+	order: { next: 0, members: {} },
 });
 
 const inputOf = (fire: Fire, overrides: Partial<PassInput> = {}): PassInput => ({
@@ -83,7 +86,7 @@ describe("automation pass", () => {
 		expect(result.next.fires[0]?.steps["0"]?.claimed).toBe(true);
 	});
 
-	it("lands a completed answer and logs its step", () => {
+	it("lands a completed answer, logs its step, and keeps the run as its automation's last", () => {
 		const fire = fireOf({ attempts: 1, startedAt: 0, lastAt: 0, claimed: true });
 		const ref = { member: fire.member, path: "0" };
 		const answers = new Map([[stepKey(ref), { ref, rows: [], attempt: { word: "done" as const } }]]);
@@ -91,7 +94,71 @@ describe("automation pass", () => {
 		const result = createPass(ports).pass(inputOf(fire, { answers }));
 
 		expect(result.next.fires).toEqual([]);
-		expect(result.next.log.at(-1)).toMatchObject({ outcome: "ran", action: "device_set", step: "0" });
+		expect(result.next.log.rows.at(-1)).toMatchObject({
+			kind: "step",
+			outcome: "ran",
+			action: "device_set",
+			step: "0",
+		});
+		expect(result.next.lastRuns.automation?.run).toEqual({
+			at: 0,
+			revision: 1,
+			steps: [{ path: "0", kind: "device_set", outcome: "ran" }],
+			running: false,
+		});
+	});
+
+	it("keeps the later run of two fired at one instant, whichever ends first", () => {
+		const step = { attempts: 1, startedAt: 0, lastAt: 0, claimed: true as const };
+		const older = { ...fireOf(step), member: "automation:older" };
+		const newer = { ...fireOf(step), member: "automation:newer" };
+		const answers = new Map(
+			[newer].map((fire) => {
+				const ref = { member: fire.member, path: "0" };
+				return [stepKey(ref), { ref, rows: [], attempt: { word: "done" as const } }];
+			}),
+		);
+		const state = {
+			...stateOf(older),
+			fires: [older, newer],
+			order: { next: 2, members: { [older.member]: 0, [newer.member]: 1 } },
+		};
+
+		const first = createPass(ports).pass({ ...inputOf(older, { answers }), state });
+		const second = createPass(ports).pass({ ...inputOf(older), state: first.next });
+
+		expect([first.next.lastRuns.automation?.member, second.next.lastRuns.automation?.member]).toEqual([
+			"automation:newer",
+			"automation:newer",
+		]);
+	});
+
+	it("lets a later admission replace a run whose fire is gone, at the same instant", () => {
+		const step = { attempts: 1, startedAt: 0, lastAt: 0, claimed: true as const };
+		const later = { ...fireOf(step), member: "automation:later" };
+		const ref = { member: later.member, path: "0" };
+		const answers = new Map([[stepKey(ref), { ref, rows: [], attempt: { word: "done" as const } }]]);
+		const gone = {
+			member: "automation:gone",
+			incarnation: "incarnation",
+			order: 0,
+			stamp: { body: "body", functions: [] },
+			run: {
+				at: 0,
+				revision: 1,
+				steps: [{ path: "0", kind: "device_set", outcome: "ran" as const }],
+				running: false,
+			},
+		};
+		const state = {
+			...stateOf(later),
+			lastRuns: { automation: gone },
+			order: { next: 2, members: { [later.member]: 1 } },
+		};
+
+		const result = createPass(ports).pass({ ...inputOf(later, { answers }), state });
+
+		expect(result.next.lastRuns.automation?.member).toBe("automation:later");
 	});
 
 	it("leaves a ready effect unclaimed while one is busy", () => {

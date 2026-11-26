@@ -74,9 +74,18 @@ const AUTOMATIONS = {
 			: null,
 	sentenceOf: () => "Freezer temperature below 21.0 °C",
 	log: () => [
-		{ automation: "threshold-low", seq: 1, at: 1_794_694_000_000, outcome: "ran" },
-		{ automation: "threshold-low", seq: 2, at: 1_794_694_500_000, outcome: "suppressed" },
+		{ kind: "trigger", automation: "threshold-low", seq: 1, at: 1_794_694_000_000, outcome: "ran" },
+		{ kind: "lost", automation: "threshold-low", seq: 2, at: 1_794_694_500_000, outcome: "suppressed" },
 	],
+	lastRun: (id: string) =>
+		id === "warm"
+			? {
+					at: 1_794_694_500_000,
+					revision: 1,
+					steps: [{ path: "0.0", kind: "ifttt_trigger", outcome: "ran", function: "warm-up" }],
+					running: false,
+				}
+			: null,
 	invalidOf: () => null,
 	eventsOf: () => [
 		{
@@ -246,13 +255,14 @@ describe("live console stage", () => {
 		}
 	});
 
-	it("lists fields with their unknown reason, runs newest first by label, and each source's health", async () => {
+	it("lists fields with their unknown reason, the log newest first by label, a last run, and each source's health", async () => {
 		const gateway = world("C", undefined, true);
 		try {
 			expect((await gateway.ask("fields.list")).text).toContain("value:\n    unknown: not heard for 31 minutes");
-			const runs = await gateway.ask("automations.runs.first()");
-			expect(runs.text).toContain("outcome: suppressed");
-			expect(runs.text).toContain("label: Freezer temperature below 21.0 °C");
+			const logged = await gateway.ask("automations.log.first()");
+			expect(logged.text).toContain("outcome: suppressed");
+			expect(logged.text).toContain("label: Freezer temperature below 21.0 °C");
+			expect((await gateway.ask('automations.last("warm").steps.first().kind')).text).toBe("ifttt_trigger");
 			expect((await gateway.ask('sources.list.where("id", "sensors").first().unread')).text).toBe("2");
 			expect((await gateway.ask('sources.read("sensors").unread')).text).toBe("2");
 			const full = (await gateway.ask('sources.get("sensors")')).text;
@@ -408,7 +418,8 @@ const EVERY_MEMBER: Record<string, string> = {
 	"fields.get": `fields.get("${STORED_FIELD}")`,
 	"fields.read": `fields.read("${STORED_FIELD}")`,
 	"automations.list": "automations.list",
-	"automations.runs": "automations.runs",
+	"automations.log": "automations.log",
+	"automations.last": `automations.last("${WATCH}")`,
 	"automations.queue": "automations.queue",
 	"automations.get": `automations.get("${WATCH}")`,
 	"automations.read": `automations.read("${WATCH}")`,

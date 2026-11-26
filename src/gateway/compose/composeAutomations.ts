@@ -102,7 +102,7 @@ export function composeAutomations(deps: AutomationStageDeps): AutomationStage {
 			save: (op) => automations.saveOp(op),
 			check: (op) => automations.checkOp(op),
 			remove: (id, base) => automations.ownerRemove(id, base),
-			preview: (trigger, text, params, values) =>
+			preview: (request) =>
 				previewAutomation(
 					{
 						event: deps.previewEvent,
@@ -110,10 +110,7 @@ export function composeAutomations(deps: AutomationStageDeps): AutomationStage {
 						holes: () => deps.automations.holes?.(),
 						switchName: deps.automations.actions?.switchName,
 					},
-					trigger,
-					text,
-					params,
-					values,
+					request,
 				),
 		},
 	};

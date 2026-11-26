@@ -171,13 +171,11 @@ describe("a crossing", () => {
 			holes: () => HOLES,
 		};
 
-		const shown = await previewAutomation(deps, trigger, "It is {value}, past {threshold}");
-		const marked = await previewAutomation(deps, trigger, "It is {temp}");
+		const shown = await previewAutomation(deps, { trigger, text: "It is {value}, past {threshold}" });
+		const marked = await previewAutomation(deps, { trigger, text: "It is {temp}" });
 		const elsewhere = previewAutomation(deps, {
-			...trigger,
-			kind: "crossing",
-			device: "nowhere",
-		} as typeof trigger);
+			trigger: { ...trigger, kind: "crossing", device: "nowhere" } as typeof trigger,
+		});
 
 		expect(shown).toEqual({
 			matched: 0,
@@ -200,17 +198,20 @@ describe("a crossing", () => {
 		const { automations } = world();
 		const { trigger } = above();
 		const deps = { event: noEvent, namesNow: automations.namesNow, holes: () => HOLES };
-		const preview = await previewAutomation(
-			deps,
+		const preview = await previewAutomation(deps, {
 			trigger,
-			"Set {degrees} degrees",
-			[{ name: "degrees", type: "text" }],
-			{ degrees: "21" },
-		);
+			text: "Set {degrees} degrees",
+			params: [{ name: "degrees", type: "text" }],
+			values: { degrees: "21" },
+		});
 
 		expect(preview.names?.at(-1)).toEqual({ name: "degrees", shown: "21" });
 		expect(preview.filled).toBe("Set 21 degrees");
-		const unset = await previewAutomation(deps, trigger, "Set {degrees}", [{ name: "degrees", type: "text" }]);
+		const unset = await previewAutomation(deps, {
+			trigger,
+			text: "Set {degrees}",
+			params: [{ name: "degrees", type: "text" }],
+		});
 		expect(unset.names?.at(-1)).toEqual({ name: "degrees", shown: "not set" });
 		expect(unset.filled).toBe((await HOLES.fill("Set {degrees}", {})).text);
 	});
@@ -224,8 +225,11 @@ describe("a crossing", () => {
 			holes: () => HOLES,
 			switchName: (device: string) => (device === FREEZER ? "Freezer" : null),
 		};
-		const preview = await previewAutomation(deps, trigger, "Warm {room}", [{ name: "room", type: "device" }], {
-			room: FREEZER,
+		const preview = await previewAutomation(deps, {
+			trigger,
+			text: "Warm {room}",
+			params: [{ name: "room", type: "device" }],
+			values: { room: FREEZER },
 		});
 
 		expect(preview.names?.at(-1)).toEqual({ name: "room", shown: "Freezer" });
@@ -237,10 +241,7 @@ describe("a crossing", () => {
 		const { trigger } = above();
 		const preview = await previewAutomation(
 			{ event: noEvent, namesNow: automations.namesNow, holes: () => HOLES },
-			trigger,
-			"Use {unknown}",
-			[{ name: "degrees", type: "number" }],
-			{ degrees: 21 },
+			{ trigger, text: "Use {unknown}", params: [{ name: "degrees", type: "number" }], values: { degrees: 21 } },
 		);
 
 		expect(preview.hole).toMatchObject({ start: 5, end: 12 });
@@ -252,14 +253,52 @@ describe("a crossing", () => {
 		const { trigger } = above();
 		const preview = await previewAutomation(
 			{ event: noEvent, namesNow: automations.namesNow, holes: () => HOLES },
-			trigger,
-			"At {value}",
-			[{ name: "value", type: "text" }],
-			{ value: "function value" },
+			{
+				trigger,
+				text: "At {value}",
+				params: [{ name: "value", type: "text" }],
+				values: { value: "function value" },
+			},
 		);
 
 		expect(preview.names?.[0]).toEqual({ name: "value", shown: "-18 C" });
 		expect(preview.names?.at(-1)).toEqual({ name: "value", shown: "function value" });
+		expect(preview.filled).toBe("At -18 C");
+	});
+
+	it("reads a condition as true or false right now, and says why it cannot when a run's value or a refusal stands in the way", async () => {
+		const { automations } = world();
+		const { trigger } = above();
+		const deps = { event: noEvent, namesNow: automations.namesNow, holes: () => HOLES };
+		const read = async (condition: string, runNames: string[] = []) =>
+			(
+				await previewAutomation(deps, {
+					trigger,
+					condition,
+					runNames,
+					params: [{ name: "level", type: "number" }],
+					values: { level: 3 },
+				})
+			).condition;
+
+		expect(await read("value < threshold")).toEqual({ holds: true });
+		expect(await read("level > 5")).toEqual({ holds: false });
+		expect(await read("count > 1", ["count"])).toEqual({ unread: "it reads a value set while it runs" });
+		expect(await read("level > 1", ["level"])).toEqual({ unread: "it reads a value set while it runs" });
+		expect(await read("level + 1")).toEqual({ unread: "it is not true or false" });
+		expect(await read("nobody > 1")).toMatchObject({ issue: { start: 0, end: 6 } });
+		expect(await read("level = 1")).toMatchObject({ issue: { start: 0 } });
+	});
+
+	it("keeps the names and the fill beside a condition", async () => {
+		const { automations } = world();
+		const { trigger } = above();
+		const preview = await previewAutomation(
+			{ event: noEvent, namesNow: automations.namesNow, holes: () => HOLES },
+			{ trigger, text: "At {value}", condition: "true" },
+		);
+
+		expect(preview.condition).toEqual({ holds: true });
 		expect(preview.filled).toBe("At -18 C");
 	});
 

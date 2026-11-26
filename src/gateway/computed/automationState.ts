@@ -4,7 +4,8 @@ import { z } from "zod";
 import { type Automation, AutomationSchema } from "../../shared/schemasAutomation.js";
 import { type AutomationFunction, FunctionSchema } from "../../shared/schemasFunction.js";
 import { FIRES_MAX, type Fire, readFire } from "./automationFires.js";
-import { capped, fireRow, logged, type RunRow, RunRowSchema } from "./automationLog.js";
+import { HeldLastRunSchema, type LastRuns, settledRuns } from "./automationLastRun.js";
+import { type Log, type LogRow, logged, readLog, storedRows, triggerRow } from "./automationLog.js";
 import { QUEUE_MAX_EVENTS, QueueEntrySchema, type QueueState, retained } from "./automationOutbox.js";
 import { clamped, NATURES } from "./automationSteps.js";
 import { NO_SILENCES, type Silences, SilencesSchema } from "./sensorSilence.js";
@@ -39,7 +40,7 @@ export type Checkpoint = z.infer<typeof CheckpointSchema>;
 export interface State {
 	automations: Record<string, Checkpoint>;
 	queue: QueueState;
-	log: RunRow[];
+	log: Log;
 	/** When each automation last ran. */
 	ran: Record<string, number>;
 	/** Oldest first. */
@@ -60,7 +61,21 @@ export interface State {
 	landedSets: Record<string, LandedSwitch>;
 	/** A call's cool-down clock, set at admission. */
 	firedAt: Record<string, CallFired>;
+	/** Each automation's last run, as its row serves it. */
+	lastRuns: LastRuns;
+	/** Each held fire's place as admitted, and the next place to give. */
+	order: Order;
 }
+
+export interface Order {
+	next: number;
+	members: Record<string, number>;
+}
+
+const OrderSchema = z.strictObject({
+	next: z.number().int().nonnegative(),
+	members: z.record(z.string(), z.number().int().nonnegative()),
+});
 
 /** Incarnation separates a revived id. */
 const CallFiredSchema = z.strictObject({ incarnation: z.string(), at: z.number().int() });
@@ -80,7 +95,7 @@ export const versionKey = (fire: { automation: string; incarnation: string; revi
 const EMPTY: State = {
 	automations: {},
 	queue: { lastAt: 0, events: [] },
-	log: [],
+	log: { rows: [], standing: {} },
 	ran: {},
 	fires: [],
 	fired: [],
@@ -91,13 +106,17 @@ const EMPTY: State = {
 	unusedFunctions: {},
 	landedSets: {},
 	firedAt: {},
+	lastRuns: {},
+	order: { next: 0, members: {} },
 };
 
 /** Invalid rows drop. */
 const LooseStateSchema = z.object({
 	automations: z.record(z.string(), z.unknown()).catch({}),
 	queue: z.object({ lastAt: z.number().int(), events: z.array(z.unknown()) }).catch(EMPTY.queue),
-	log: z.array(z.unknown()).catch([]),
+	log: z.unknown().catch([]),
+	/** Beside `log`, so 8.14.87 reads its rows. */
+	standing: z.unknown().catch(undefined),
 	ran: z.record(z.string(), z.number()).catch({}),
 	fires: z.array(z.unknown()).catch([]),
 	fired: z.array(z.string()).catch([]),
@@ -108,6 +127,8 @@ const LooseStateSchema = z.object({
 	unusedFunctions: z.record(z.string(), z.number()).catch({}),
 	landedSets: z.record(z.string(), z.unknown()).catch({}),
 	firedAt: z.record(z.string(), z.unknown()).catch({}),
+	lastRuns: z.record(z.string(), z.unknown()).catch({}),
+	order: OrderSchema.catch({ next: 0, members: {} }),
 });
 
 /** Without an automation id, no row. */
@@ -118,9 +139,9 @@ const DroppedFireSchema = z.object({
 });
 
 /** A fire of another shape never runs, and logs once. */
-function restoreFires(rows: unknown[], now: number): { fires: Fire[]; dropped: RunRow[]; lost: number } {
+function restoreFires(rows: unknown[], now: number): { fires: Fire[]; dropped: LogRow[]; lost: number } {
 	const fires: Fire[] = [];
-	const dropped: RunRow[] = [];
+	const dropped: LogRow[] = [];
 	let lost = 0;
 	for (const row of rows) {
 		const fire = readFire(row);
@@ -133,7 +154,7 @@ function restoreFires(rows: unknown[], now: number): { fires: Fire[]; dropped: R
 		}
 		lost++;
 		const named = DroppedFireSchema.safeParse(row);
-		if (named.success) dropped.push(fireRow(named.data, "uncertain", STORED_UNREAD));
+		if (named.success) dropped.push(triggerRow(named.data, "uncertain", STORED_UNREAD));
 	}
 	if (lost > 0) console.warn(`[automations] ${lost} stored runs of another shape were dropped and will not run`);
 	return { fires: fires.slice(-FIRES_MAX), dropped, lost };
@@ -174,7 +195,7 @@ export function restore(raw: unknown, now: number): { state: State; changed: boo
 				.filter((event) => retained(event, now))
 				.slice(-QUEUE_MAX_EVENTS),
 		},
-		log: capped(dropped.reduce(logged, pick(loose.log, RunRowSchema))),
+		log: dropped.reduce(logged, readLog(loose.log, loose.standing)),
 		ran,
 		fires,
 		fired: loose.fired.slice(-FIRED_MAX),
@@ -191,6 +212,15 @@ export function restore(raw: unknown, now: number): { state: State; changed: boo
 		unusedFunctions: loose.unusedFunctions,
 		landedSets: readable(loose.landedSets, LandedSwitchSchema),
 		firedAt: readable(loose.firedAt, CallFiredSchema),
+		// A run whose fire did not come back has ended.
+		lastRuns: settledRuns(readable(loose.lastRuns, HeldLastRunSchema), new Set(fires.map((fire) => fire.member))),
+		order: loose.order,
 	};
 	return { state, changed: lost > 0 };
 }
+
+/** As written: the log's rows bare, what stands beside them. */
+export const storedOf = (state: State): object => {
+	const { log, ...rest } = state;
+	return { ...rest, log: storedRows(log), standing: log.standing };
+};

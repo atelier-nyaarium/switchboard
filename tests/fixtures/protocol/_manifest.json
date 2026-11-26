@@ -154,6 +154,12 @@
 		},
 		{ "file": "automation-preview-result-hole.json", "schema": "ConsoleAutomationPreviewResult", "expect": "pass" },
 		{
+			"file": "automation-preview-result-condition.json",
+			"schema": "ConsoleAutomationPreviewResult",
+			"expect": "pass"
+		},
+		{ "file": "console-op-automation-preview-condition.json", "schema": "ConsoleOp", "expect": "pass" },
+		{
 			"file": "automation-trigger-future-kind.json",
 			"schema": "AutomationTrigger",
 			"expect": { "ts": "fail", "kotlin": "unknown" }

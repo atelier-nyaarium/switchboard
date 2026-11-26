@@ -16,7 +16,7 @@ Call it with no \`expr\` first. It lists every entity, its members and their sig
 Examples:
 - \`sensors.list\`
 - \`sensors.read("Outside thermometer").readings\`
-- \`automations.runs.take(5)\`
+- \`automations.log.take(5)\`
 - \`automations.list\`
 - \`definitions.decode("govee-h5110", sensors.payloads("Freezer")[0])\`
 

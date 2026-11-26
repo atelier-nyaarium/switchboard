@@ -195,7 +195,12 @@ describe("a run through a function", () => {
 
 		w.automations.fireEvents([{ automation: "warm", key: "number", names: {} }], w.at());
 		await w.automations.settled();
-		const preview = await w.console.preview(event, "Count {count}", params, { count: 42 });
+		const preview = await w.console.preview({
+			trigger: event,
+			text: "Count {count}",
+			params,
+			values: { count: 42 },
+		});
 
 		expect([w.effects, preview.filled]).toEqual([["ifttt:bell:Count 42"], "Count 42"]);
 	});
@@ -642,6 +647,118 @@ describe("a run and an edit of its function", () => {
 	}
 });
 
+describe("the stored log", () => {
+	it("keeps its rows in the shape the build before reads, and what stands beside them", async () => {
+		const w = world();
+		w.answer(() => ({ word: "refused" }));
+		w.save(pointing(hourly), [turn("on")]);
+		await w.later(HOUR);
+		const stored = w.state();
+		const before = ["automation", "seq", "at", "outcome", "reason", "action", "step", "function"];
+
+		expect(stored.log.length).toBeGreaterThan(0);
+		expect(stored.log.every((row: object) => Object.keys(row).every((key) => before.includes(key)))).toBe(true);
+		expect(stored.standing.warm).toBeDefined();
+	});
+});
+
+describe("the last run", () => {
+	const last = (w: ReturnType<typeof world>) =>
+		w.automations.listing().automations.find((row) => row.id === "warm")?.lastRun;
+	const tree: AutomationFunctionInput["steps"] = [
+		{ kind: "if", when: "true", steps: [turn("on")], else: [ifttt("never")] },
+		{ kind: "wait", minutes: lit(5) },
+		ifttt("after"),
+	];
+
+	it("is served on the row with every step it reached, the side taken and the step in flight, until it ends", async () => {
+		const w = world();
+		w.save(pointing(hourly), tree);
+		await w.later(HOUR);
+		const waiting = last(w);
+		await w.later(5 * 60_000 + 1_000);
+
+		expect(waiting).toMatchObject({
+			running: true,
+			active: "0.1",
+			steps: [
+				{ path: "0", kind: "run_function" },
+				{ path: "0.0", kind: "if", outcome: "ran", side: "then", function: "warm-up" },
+				{ path: "0.0.0.0", kind: "device_set", outcome: "ran", function: "warm-up" },
+				{ path: "0.1", kind: "wait", function: "warm-up" },
+			],
+		});
+		expect(last(w)).toMatchObject({ running: false, revision: 1 });
+		expect(last(w)?.active).toBeUndefined();
+		expect(last(w)?.steps.map((step) => [step.path, step.outcome])).toEqual([
+			["0", "ran"],
+			["0.0", "ran"],
+			["0.0.0.0", "ran"],
+			["0.1", "ran"],
+			["0.2", "ran"],
+		]);
+	});
+
+	it("says why a step failed, keeps through a toggle, and is gone once what it runs is edited", async () => {
+		const w = world();
+		w.answer((effect) => (effect.endsWith(":on") ? { word: "refused" } : { word: "done" }));
+		w.save(pointing(hourly), [turn("on"), ifttt("after")]);
+		await w.later(HOUR);
+		const failed = last(w)?.steps.find((step) => step.path === "0.0");
+		w.automations.ownerPut("warm", { ...pointing(hourly), enabled: false }, 1, true);
+		const toggled = last(w);
+		w.automations.ownerPut("warm", pointing(hourly), 2, true);
+		w.save(pointing(hourly), [turn("on")], { automation: 3, function: 1 });
+		const edited = last(w);
+
+		expect(failed).toMatchObject({ outcome: "refused", reason: "it was refused" });
+		expect(toggled?.steps).toHaveLength(3);
+		expect(edited).toBeUndefined();
+	});
+
+	it("is hidden when a function it entered twice ran at two versions", async () => {
+		const w = world();
+		const call = { kind: "call" as const, function: "inner" };
+		const inner = (event: string) => ({ name: "Inner", params: [], steps: [ifttt(event)] });
+		const save = (bases: { automation: number; function: number; inner: number }, body: AutomationFunctionInput) =>
+			w.automations.save({
+				id: "warm",
+				body: pointing(hourly),
+				base: bases.automation,
+				function: {
+					as: "edit",
+					id: "warm-up",
+					body: { name: "Warm up", params: room, steps: [call, { kind: "wait", minutes: lit(5) }, call] },
+					base: bases.function,
+				},
+				called: [{ id: "inner", body, base: bases.inner }],
+				confirmed: true,
+			});
+		save({ automation: 0, function: 0, inner: 0 }, inner("first"));
+		await w.later(HOUR);
+		const edited = save({ automation: 1, function: 1, inner: 1 }, inner("second"));
+		await w.later(5 * 60_000 + 1_000);
+
+		expect(edited.stored).toBe(true);
+		expect(w.effects).toEqual(["ifttt:first", "ifttt:second"]);
+		expect(last(w)).toBeUndefined();
+	});
+
+	it("is replaced by the next run, and a run that keeps going on a version an edit replaced writes none", async () => {
+		const w = world();
+		w.save(pointing(hourly), [{ kind: "wait", minutes: lit(5) }, ifttt("old")]);
+		await w.later(HOUR);
+		w.save(pointing(hourly), [ifttt("new")], { automation: 1, function: 1 });
+		await w.later(5 * 60_000 + 1_000);
+		const afterEdit = last(w);
+		await w.later(HOUR - 5 * 60_000);
+
+		expect(w.effects).toEqual(["ifttt:old", "ifttt:new"]);
+		expect(afterEdit).toBeUndefined();
+		expect(last(w)?.steps.map((step) => step.path)).toEqual(["0", "0.0"]);
+	});
+});
+
 describe("a tree of steps", () => {
 	it("takes the side its condition holds, skips the other, and carries on after either", async () => {
 		const w = world();
@@ -843,9 +960,12 @@ describe("a tree of steps", () => {
 		]);
 	});
 
-	it("refuses at the save a name already taken, a wait out of range, and a condition it cannot read, at any depth", () => {
+	it("refuses at the save a name already taken, a wait out of range, and a condition it cannot read, assigns or holds twice, at any depth", () => {
 		const bodies: AutomationFunctionInput["steps"][] = [
 			[{ kind: "let", name: "room", value: lit(1) }],
+			[{ kind: "if", when: "room = 1" }],
+			[{ kind: "if", when: "true; false" }],
+			[{ kind: "let", name: "count", value: expr("count = 2") }],
 			[{ kind: "wait", minutes: lit(-1) }],
 			[{ kind: "wait", minutes: lit(2_000) }],
 			[{ kind: "if", when: "nobody > 1" }],
