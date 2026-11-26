@@ -170,6 +170,34 @@ describe("a save that changes who owns a function", () => {
 
 		expect([codeOf(clear, view()), codeOf(clear, view({ unreadAutomations: 1 }))]).toEqual(["written", "private"]);
 	});
+
+	it("points nothing new at an unnamed function while an unread row may run it", () => {
+		const own = record("own", "function", 1, FunctionSchema.parse({ ...fn([tell]), name: "" }));
+		const ownedBy = (id: string) => [record(id, "automation", 1, AutomationSchema.parse(pointing(hourly, "own")))];
+		const point: AutomationIntent = {
+			kind: "save",
+			id: "ring",
+			body: pointing(hourly, "own"),
+			base: 0,
+			confirmed: true,
+		};
+		const edit: AutomationIntent = {
+			kind: "save",
+			id: "warm",
+			body: pointing(hourly, "own"),
+			base: 1,
+			function: { as: "edit", id: "own", base: 1, body: { ...fn([tell, tell]), name: "" } },
+			confirmed: true,
+		};
+
+		// Nobody readable runs it.
+		expect([
+			codeOf(point, view({ held: [], functions: [own] })),
+			codeOf(point, view({ held: [], functions: [own], unreadAutomations: 1 })),
+		]).toEqual(["written", "private"]);
+		// Its own owner edits it.
+		expect(codeOf(edit, view({ held: ownedBy("warm"), functions: [own], unreadAutomations: 1 }))).toBe("written");
+	});
 });
 
 describe("save refusal lines", () => {

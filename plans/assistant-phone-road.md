@@ -1137,6 +1137,7 @@ Found by the alignment read: slice 3 stores both settings only on a pointer to a
 
 Q: Every automation, or named only?
 A: Every automation has both, named or not, stored on the automation itself. The cost is accepted: an app build older than this one would drop them if it edited that automation.
+The slice 5 ruling puts `coolDownSec` on the trigger.
 
 > A
 
@@ -2192,14 +2193,14 @@ Design: Phase 2.7e above. The second app update (N+1).
 4. **The tree, engine** (Gateway, L). `if`, `try` and `catch`, `exit`, `throw`, `wait`, the frame walk, the failure table, tells as steps, the last run served.
 5. **The tree, phone** (phone N+1, L). Steps addressed by path, `cardsDraw`, the If, Try, Wait and Exit cards, the condition editor with "true right now".
 
-Gates: the failure table's vectors; phone-encoded nested unknown steps re-encoded byte-equal; a run in a `wait` survives 64 newer fires; one function reached twice tells twice.
+Gates: the failure table's vectors; each phone-encoded nested unknown step's JSON matches after re-encoding; a run in a `wait` survives 64 newer fires; one function reached twice tells twice.
 
 ### How slice 4 is being built
 
 Written before the code, so a restart of the work reads it here. Each line is a ruling until the code says otherwise.
 
 - **The pass is a module** (`automationPass.ts`, `createPass(ports)`): `pass(input)` reads the state, the answers that came back, the clock and read-only lookups, and answers the next state with the one effect, read and fill to start. `pump()` commits and starts them. The move is byte for byte first; the tree changes it afterwards.
-- **The frame walk is its own pure module** (`automationFrames.ts`): given a function's steps, a frame (the path whose turn it is, its variables, its first uncaught failure, the error a catch holds) and how the current step ended, it answers the next path or how the frame ended. The failure table's vectors drive this function alone, with no pump. Nothing scans `steps` to find a turn: `fire.active` is the authority, moved only by the walk's answer.
+- **The frame walk is its own pure module** (`automationFrames.ts`): given a function's steps, a frame (the path whose turn it is, its variables, its first uncaught failure, the error a catch holds) and how the current step ended, it answers the next path or how the frame ended. The failure table's vectors drive this function alone, with no pump. Inside a function frame, `fire.active` names the step whose turn it is; no scan finds it. `turn` finds the top-level step by path.
 - **A step's record is made when its turn comes,** so a side not taken and steps skipped by a jump hold no record, and "what did not run" is the body minus the records.
 - **Built so far:** the pass moved out byte for byte (`automationPass.ts`, with `withMessage` as one more port, and `untold` and `droppedRows` exported for `dropOwned` and `watchSensors`); the frame walk and its sixteen vectors (`automationFrames.ts`, `moved` and `entered`), not yet called by the pass.
 - **The path is built, numbers only (Question 89):** `within`, `siteAmong`, `below`, `byPath` and `STEP_PATH_RE` in the walk, `siteIn` for a fire, `addressIn` in the frames module to name the sides against a body, `step-path.test.ts`. A string alone no longer says which call a step runs under, so every reader asks the fire's frames or the walk entry's `site`. The stored shape is what it was before sides. Its Kotlin twin and shared vectors come with the phone slice.
@@ -2228,9 +2229,9 @@ Written before the code, so a restart of the work reads it here. Each line is a 
 - **Still open in slice 4 (Opus tier, Question 90):** the log row's kind and the last run served; the judge's tree checks and the condition preview; comment clean-up; the phase audits. The failure of a call inside a function (`call_failed` beyond the top frame) comes with calls.
 - **How the pass will run a tree** (in `advance`):
   - The automation's own list is the top frame and stays as it is: its records are made at admission, its turn is its first unended step, and a call's record stays open while its frame runs (today `enter` replaces it with the function's steps; it will keep it and end it when the frame ends, `done` or failed `call_failed` with the frame's first error).
-  - Inside a frame `fire.active` names the step whose turn it is and nothing scans for it. A step's record is made at its turn. When a step ends, `moved(body, address, how, memory)` answers the next address, a catch entered, or the frame's end, and the frame keeps `failed` (first uncaught), `caught` by try address (what `e` reads), and `vars`.
+  - Inside a function frame `fire.active` names the step whose turn it is; no scan finds it. `turn` finds the top-level step by path. A step's record is made at its turn. When a step ends, `moved(body, address, how, memory)` answers the next address, a catch entered, or the frame's end, and the frame keeps `failed` (first uncaught), `caught` by try address (what `e` reads), and `vars`.
   - What each kind does at its turn: `if` reads its condition through the read slot and takes a side (a result that is not true or false is `unread`); `try` enters its guarded side; `exit` and `throw` end or unwind; `let` reads its value into `vars`; `wait` reads its minutes, stores when it ends on its record and is over once that passes; `note` is done; `do` is today's step.
-  - A read's result is stored on the frame by path (beside `resolved`, which stays a `do` step's action), so a restart reads nothing twice and a condition is not re-read after a side was taken.
+  - An `if` side and a wait deadline are stored on the step record, a `let` value in the frame's `vars`, and a `do` step's read action in `resolved`. A restart reuses these stored results.
   - Names in scope: the trigger's, the function's values, the frame's `vars`, and `e` inside a catch (the innermost enclosing one, by `catchOf`).
   - Rows: a `do` step logs as today; a steering step logs only when it fails (`unread`, a `throw`); a run whose top frame ends failed logs one row saying so. The per-step record of the last run carries the rest.
   - A step record gains the side an `if` took and when a `wait` ends. Both are new keys of a strict record, so a build before this drops a fire that holds them; such a fire can only exist once a tree was saved.
@@ -2287,7 +2288,7 @@ Written on the Fable tier before the phone work (Question 90). The build is Opus
 - **Cards draw one level**, as the phase design says: the list, an If with its two sides, a Try with its catch, Wait, Exit, a Note as a label line. A side that itself holds an If or a Try opens the whole body read-only with a line saying so, until the script exists (`cardsStanding`). A `Kept` card is listed, removable and saved as sent, at any depth, as a kept action is today.
 - **What cards draw is one projection:** `cardsDraw(steps, said, lastRun)` answers a flat list of rows, each with its own row key and depth: a step row (the card, its path, its issue, its last outcome), a side label ("Otherwise", "If it fails"), and an add slot naming where a new card lands. The composable draws rows and decides nothing.
 - **A card's path is derived, never stored:** `pathsOf(steps)` walks in the Gateway's order (an index, then side 0 or 1) and answers path by key. A refusal's `step` and `param`, a check's refusal, a hole's span and the last run's rows all arrive by path and are mapped to a key there. The Kotlin twin of the walk's path functions (`spelled`, `addressIn`, `byPath`) replays vectors generated from the TypeScript ones (`tests/fixtures/step-path/vectors.json`).
-- **What cards do not draw is re-encoded byte for byte.** `Kept` holds the decoded step and hands it back untouched; the generated preserve root keeps an unknown kind at every depth. The gate is a phone-encoded case with an unknown step inside an If's side and inside a Try's catch, decoded and encoded back to the same bytes, and a JVM test that editing a sibling card leaves a kept card's bytes alone.
+- **Undrawn steps:** `Kept` holds the decoded step; the generated preserve root keeps an unknown kind at every depth. The gate compares each kept step's JSON after decode and re-encode, normalized, not raw file bytes; a sibling edit leaves it unchanged.
 - **The stored form is chosen at the save:** every card a `Do` and no name is the flat list, as today. Anything else is a function record and a pointer. What a tree with no name is stored as is Question 91.
 - **"Changed" compares wire forms,** never drafts, since keys differ between two drafts of one record.
 - **Which cards are offered** is `serves.functions.statements` met with what cards draw. A Gateway that answers none offers `do` alone, and a body holding more opens read-only there.
@@ -2295,7 +2296,7 @@ Written on the Fable tier before the phone work (Question 90). The build is Opus
 - **Both settings** (Question 82) sit on the draft: "Keep trying for" for every automation, "Cool down" on the trigger form, an event's included.
 - **JVM tests:** tree edits keep every other key and refuse at each cap; `cardsDraw` over a body with both sides, a catch and a kept card; the path vectors; the byte-equal case; the save's choice of flat or function.
 
-Built on 2026-11-26 (Opus block) as written, with these changes. Cards draw every depth, not one: an If or a Try in a side indents under it, so `cardsStanding` is not used to lock a body. The byte-equal gate is a JVM test over the shared `function-tree-future-kind.json`, since the Gateway's schema refuses an unknown kind and the phone-encoded corpus is parsed by it. A card moves up or down its own list (`shiftedSlot`); moving into or out of a side waits for the script. The sandbox serves statements and unnamed functions and holds one unnamed tree with a last run, so the emulator shows both. Walked in the emulator: nested sides, "False right now", the last run per card, the add menu with statements, the condition page with bare names, and the list row of an unnamed function.
+Built on 2026-11-26 (Opus block) as written, with these changes. Cards draw every depth, not one: an If or a Try in a side indents under it, so `cardsStanding` is not used to lock a body. The byte-equal gate is a JVM test over the shared `function-tree-future-kind.json`: it compares each kept step's JSON after decode and re-encode, normalized, not raw file bytes. The Gateway schema refuses an unknown kind, and the phone-encoded corpus is parsed by it. A card moves up or down its own list (`shiftedSlot`); moving into or out of a side waits for the script. The sandbox serves statements and unnamed functions and holds one unnamed tree with a last run, so the emulator shows both. Walked in the emulator: nested sides, "False right now", the last run per card, the add menu with statements, the condition page with bare names, and the list row of an unnamed function.
 
 Sol's architecture read found six, each fixed with a test that fails without it: a flatten sent no function revision, so an edit made elsewhere was lost (the save names the function it held, and the judge checks it with no pointer left); values were still refused on an unnamed function, against Question 91's second rule; "who else runs it" read automations and not calling functions, on the phone's copy, reach line and delete line, and the Gateway made a function unnamed while unread rows left its users unknown; a fresh body kept the old minted id; a last run could be drawn over cards an editor opened at an older revision; and a trimmed condition put the Gateway's offsets in the wrong place. Not taken: binding a check's `reads` to the exact op, since the last answer is closer to the draft than the stored row's and the next check replaces it.
 
@@ -2322,7 +2323,7 @@ Sol's answer, checked against the code: A2 makes ownership a property of storage
 
 A: A, as an ownership rule the Gateway enforces, told to the owner as taken unless they say otherwise. The three rules written first:
 
-1. **One private body, one owner, one entrance.** A name that is empty after trimming means anonymous. The judge, not the picker, refuses a second pointer to it and any `call` naming it, at a save, a copy and a carry; while users are unknown nothing that changes ownership lands. It stays listed for its own automation's editor and for a carry, and is left out of what can be picked or called.
+1. **One private body, one owner, one entrance.** A name that is empty after trimming means anonymous. The judge refuses a save or copy that adds a second pointer or any caller. A carry can land a second pointer or caller; the affected row reads invalid (`FUNCTION_PRIVATE`). While users are unknown, ownership changes do not land. The function stays listed for its automation's editor and for a carry, but not in pickers or calls.
 2. **Naming keeps the id and the contents.** Typing a name makes it an ordinary function under the same id. Clearing the name of a function only its automation uses keeps the tree, its values and its bindings as the anonymous function; a shared or called one is copied first. A body is flattened to plain actions only when it is exactly a list of `do` steps with no values.
 3. **Readers before writers.** Only the tree-capable app writes one. A move to a Gateway that cannot hold one is refused before anything is touched, as an unheld step kind is. A rollback to a build that requires a name leaves the record stored and its automation invalid until the build returns.
 
@@ -2338,7 +2339,7 @@ It counts toward the 32-function cap, and "Make unique" on an anonymous body giv
 - **`serves.functions.unnamed`** tells a phone this Gateway holds one, so the tree's Save is offered only where it can land.
 - **Rollback:** a build that requires a name holds the record unread, its automation reads invalid, and a run inside it is dropped. Stated, not engineered around.
 
-Built on 2026-11-26 as written. For the phone half: a new unnamed function takes a fresh id every time (a removed id is buried and a save under it is refused `gone`), the picker and the Call picker leave out a row whose name is blank, and `private` has its line.
+Built on 2026-11-26 as written. For the phone half: a new unnamed function takes a fresh id every time (a removed id is buried and a save under it is refused `gone`), the picker leaves out rows whose names are blank, and `private` has its line. The Call picker and its unnamed-row filter come with the Call card (slice 6).
 
 
 ## Phase 2.7e.4 - Calls (slice 6)
@@ -2372,7 +2373,7 @@ Built on 2026-11-26 as written, with these additions the code asked for:
 - **Reach, not pointers, decides who is asked.** Every automation that reaches a written function (`reachOf`) is checked for fit and for what it would newly do. A call that would stop fitting, a call cut by the write, and a loop are refused even when the automation's own row is unchanged.
 - **The list** answers `callers` on a function's row, and `moves` and `reads` follow calls. A function no automation reaches is unlisted and swept after a week, with what it called once nothing reaches that either.
 - **A move** carries every function its automations reach (`carriedFunctionsOf`, both runtimes, shared vectors), maps each carried body's calls to where the callee landed, binds a call whose function did not come to no staying function, and keeps a move in place's callees as held.
-- **The phone compiles and carries, nothing more:** the `call` branches, the `loop` refusal's line, and the carry selector's twin. Its walk follows no call and no card draws one.
+- **The phone's call walk:** it follows calls with the chain and budget, and Android replays the shared vectors, including nested, loop and missing cases. The Call card remains deferred to slice 6.
 
 ### How Calls are to be built on the phone, and the Run button (slice 6, Opus block)
 
@@ -2383,7 +2384,7 @@ Written before the code. Each line is a ruling until the code says otherwise.
 - **A callee is edited from inside the automation's edit:** the Call card opens its page, a stack of function ids on the draft (`inside`), drawing the callee's cards with `CardsSection`, its name read-only and who else runs it. Its edits sit on the draft (`callees`, by id, with the base and body it was read at) and every key is unique across the draft, so a text page, a said-at and a refusal find their card wherever it sits. A refusal naming a called function by `id` maps its `step` path under that function's cards.
 - **The save sends `called`:** every callee whose body differs from what it was read at, with its base; an unchanged callee is not sent. A callee nothing reaches any more is dropped from the draft before the op is built, so the Gateway's "the automation does not run it" is never earned by the phone.
 - **No last run on a callee's page:** a callee reached from two sites has two paths. The Call card itself shows how its call ended.
-- **The walk's twin follows calls** as the TypeScript one does: through `if` and `try` sides and into callees, under the call's path, with `loop`, `missing` and `budget`, and the walk vectors gain cases for each. The phone reads reach through it, never its own descent.
+- **The walk's twin:** follows calls as the TypeScript one does, through `if` and `try` sides and into callees under the call's path, with `loop`, `missing` and `budget` outcomes. Android replays the shared vectors, including call, loop, missing and nested cases. The phone reads reach through it, never its own descent.
 - **The Run button** fires an automation once by hand: `automation_run { automationId, callId }`, deduped by the call id, admitted as a fire of its own (`manual`), its names read from what the trigger would give now (a crossing's reading, a clock's time), and a name it cannot give reads unread, as a hole that cannot be filled does. It is refused for a disabled automation and away from the home for an event automation, and logs as any run, so the last run shows it. The button sits in the editor's menu and is offered only when the draft is unchanged.
 
 ### Bug Classes
@@ -2404,7 +2405,7 @@ Written on the Fable tier for the Opus-tier build; each line is a ruling until t
 - **Opening the callee** from the card edits it inside the automation's own edit, as a text is edited on its own page: the draft holds a map of opened callee drafts by function id, each with the revision it was opened at. Save sends one `automation_save` whose `called` holds every callee whose wire form changed, base its opened revision, and a new function made from the picker's "New function" with base 0 and an id the phone mints.
 - **The check** sends the same `called`, so a refusal inside a callee arrives by `record: "function"`, `id` and `step`, and is drawn on that callee's page, with a line on the Call card that it holds one.
 - **A `moved` refusal with an `id`** names the callee that changed elsewhere: Reload re-reads that one, as the pointed function's Reload does.
-- **The walk's twin** follows calls with the chain and the budget, replaying `tests/fixtures/automation-walk/vectors.json` once the call cases move there from the TypeScript-only tests. `usedBy`, the confirm labels and `carryRefusal` read it.
+- **The walk's twin:** follows calls with the chain and budget and replays `tests/fixtures/automation-walk/vectors.json`, including call, loop, missing and nested cases. `usedBy`, the confirm labels and `carryRefusal` read it.
 - **The Run button** is the last piece: its op is the Gateway's to add first (an automation fired once by hand, admitted as a run of its own with the trigger's names read as they stand), then a button on the editor's bar.
 
 ## Phase 2.7f - The script (Q57, Q58, Q60 to Q63, Q65)

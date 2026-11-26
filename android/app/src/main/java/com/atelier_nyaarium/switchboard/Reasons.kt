@@ -468,6 +468,7 @@ internal fun carryRefusalLine(refusal: CarryRefusal): String = when (refusal) {
 	CarryRefusal.NoFunctions -> "That Gateway cannot hold functions."
 	is CarryRefusal.StepNotServed ->
 		refusal.label?.let { "That Gateway cannot run \"$it\" in a function." } ?: "That Gateway cannot run one of its steps in a function."
+	CarryRefusal.UnnamedNotServed -> "That Gateway cannot hold steps with no name."
 	CarryRefusal.Reading -> "Still reading that Gateway. Try again in a moment."
 	CarryRefusal.TooLarge -> "The assistant's settings are too large to move."
 	CarryRefusal.Unreachable -> "That Gateway could not be read. Try again once it answers."

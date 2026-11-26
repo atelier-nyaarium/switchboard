@@ -394,7 +394,8 @@ internal fun automationEditing(
 	checkSaid: AutomationSaid? = null,
 	said: AutomationSaid? = null,
 ): AutomationEditing {
-	val edit = !busy && !gone
+	val standing = !busy && !gone
+	val edit = standing && !holdsUnserved(draft.steps, offer)
 	return AutomationEditing(
 		edit = edit,
 		save = edit && offered && saveAllowedAfterCheck(checkSaid, said, draft.runsDraft()) && if (offer.functions != null) {
@@ -402,7 +403,7 @@ internal fun automationEditing(
 		} else {
 			fittingAutomation(draft, fields, offer) != null
 		},
-		delete = edit && slot is AutomationSlot.Held,
+		delete = standing && slot is AutomationSlot.Held,
 	)
 }
 

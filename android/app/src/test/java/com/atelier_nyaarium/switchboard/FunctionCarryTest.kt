@@ -71,6 +71,29 @@ class FunctionCarryTest {
 	}
 
 	@Test
+	fun aTreeIsReadAtEveryDepthActionsByStepsStatementsByStatementsAndNoNameByUnnamed() {
+		val tell = FunctionStep.Do(action = "tell_assistant", args = JsonObject(emptyMap()))
+		val ifttt = FunctionStep.Do(action = "ifttt_trigger", args = JsonObject(emptyMap()))
+		fun tree(name: String, inside: FunctionStep) =
+			CarriedFunction(name.ifBlank { "own" }, AutomationFunction(name, emptyList(), listOf(FunctionStep.If(`when` = "true", steps = listOf(inside)))))
+		val serves = AutomationFunctionServes(
+			max = 32L,
+			steps = listOf("tell_assistant", "device_set"),
+			paramTypes = listOf("device", "text", "number"),
+			statements = listOf("do", "if"),
+			unnamed = true,
+		)
+		fun refusal(function: CarriedFunction, held: AutomationFunctionServes = serves) =
+			carryRefusal(AssistantHomeCarried(approveEverySend = false, watchers = emptyList(), functions = listOf(function)), FunctionsServed.Serves(held))
+
+		assertNull(refusal(tree("Warm", tell)))
+		assertEquals(CarryRefusal.StepNotServed("ifttt_trigger"), refusal(tree("Warm", ifttt)))
+		assertEquals(CarryRefusal.StepNotServed("if"), refusal(tree("Warm", tell), serves.copy(statements = null)))
+		assertEquals(CarryRefusal.UnnamedNotServed, refusal(tree("", tell), serves.copy(unnamed = null)))
+		assertNull(refusal(tree("", tell)))
+	}
+
+	@Test
 	fun aSealedHomePastTheRoutersBoundIsRefusedBeforeItIsSent() {
 		fun sealedOf(bytes: Int) = ContentEnvelope(1L, 1L, "nonce", Base64.getEncoder().encodeToString(ByteArray(bytes)))
 		val max = Protocol.Wire.ASSISTANT_HOME_SEALED_MAX_BYTES

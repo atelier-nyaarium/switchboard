@@ -101,8 +101,26 @@ internal fun slotOffers(draft: AutomationDraft, offer: AutomationOffer, slot: Ca
 }
 
 /** Kept values; catch failure. */
-internal fun runNamesOf(steps: List<StepDraft>): List<String> =
-	(everyStep(steps).mapNotNull { ((it as? StepDraft.Kept)?.step as? FunctionStep.Let)?.name } + FAILURE_NAME).distinct()
+internal fun runNamesOf(steps: List<StepDraft>): List<String> {
+	val kept = everyStep(steps).mapNotNull { ((it as? StepDraft.Kept)?.step as? FunctionStep.Let)?.name }.distinct()
+	return kept.filter { it != FAILURE_NAME }.take(Protocol.Wire.RUN_NAMES_MAX - 1) + FAILURE_NAME
+}
+
+/** A body holding a statement its Gateway does not run opens read-only. */
+internal fun holdsUnserved(steps: List<StepDraft>, offer: AutomationOffer): Boolean {
+	val functions = offer.functions ?: return false
+	val served = functions.served.statements.orEmpty()
+	return everyStep(steps).any { step -> statementKind(step)?.let { it !in served } == true }
+}
+
+private fun statementKind(step: StepDraft): String? = when (step) {
+	is StepDraft.If -> "if"
+	is StepDraft.Try -> "try"
+	is StepDraft.Wait -> "wait"
+	is StepDraft.Exit -> "exit"
+	is StepDraft.Note -> "note"
+	is StepDraft.Do, is StepDraft.Kept -> null
+}
 
 internal fun conditionAsk(
 	trigger: AutomationTrigger?,

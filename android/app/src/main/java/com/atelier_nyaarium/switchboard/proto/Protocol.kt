@@ -173,6 +173,7 @@ object Protocol {
 		const val STEP_ARGS_MAX: Int = 4
 		const val STEP_TEXT_MAX: Int = 1000
 		const val WAIT_MINUTES_MAX: Int = 1440
+		const val RUN_NAMES_MAX: Int = 17
 		const val WALK_ENTRIES_MAX: Int = 256
 		const val RUN_FRAMES_MAX: Int = 16
 		const val FUNCTION_NAME_MAX: Int = 80

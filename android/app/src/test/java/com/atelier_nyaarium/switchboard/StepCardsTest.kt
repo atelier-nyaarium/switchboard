@@ -55,6 +55,7 @@ import com.atelier_nyaarium.switchboard.assistant.PointMode
 import com.atelier_nyaarium.switchboard.assistant.freshBody
 import kotlinx.serialization.json.put
 import com.atelier_nyaarium.switchboard.assistant.withFunctionName
+import com.atelier_nyaarium.switchboard.assistant.automationEditing
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -74,6 +75,11 @@ class StepCardsTest {
 	private val tree = listOf(
 		StepDraft.If("a", "value > 30", listOf(on("b")), listOf(on("c"))),
 		StepDraft.Try("d", emptyList(), listOf(on("e"))),
+	)
+
+	/** try "t" { if "i" { kept "k" } } */
+	private val deep = listOf(
+		StepDraft.Try("t", listOf(StepDraft.If("i", "true", listOf(StepDraft.Kept("k", FunctionStep.Let("total", StepArg.Literal(JsonPrimitive(1))))), emptyList())), emptyList()),
 	)
 
 	@Test
@@ -154,7 +160,7 @@ class StepCardsTest {
 	}
 
 	@Test
-	fun cardsDrawBothSidesOfAnIfAndATryWithTheirAddSlotsAndLastRun() {
+	fun cardsDrawBothSidesNestingAKeptCardWithTheirAddSlotsAndLastRun() {
 		val run = AutomationLastRun(
 			at = 0L,
 			revision = 2L,
@@ -178,6 +184,9 @@ class StepCardsTest {
 			listOf("0:a@0", "1:b@0.0.0", "1:+a", "1:ELSE", "1:c@0.1.0", "1:+a", "0:d@1", "1:+d", "1:CATCH", "1:e@1.1.0", "1:+d", "0:+top"),
 			shape,
 		)
+		val nested = cardsDraw(deep, { null }, null, pointing = false).filterIsInstance<CardRow.Card>()
+		assertEquals(listOf("0:t@0", "1:i@0.0.0", "2:k@0.0.0.0.0"), nested.map { "${it.depth}:${it.step.key}@${it.path}" })
+		assertTrue(nested.last().step is StepDraft.Kept)
 		val cards = rows.filterIsInstance<CardRow.Card>().associateBy { it.step.key }
 		assertEquals("Last run: it did not hold", lastStepLine(cards.getValue("a"), running = true))
 		assertEquals("Last run: failed: not home", lastStepLine(cards.getValue("c"), running = true))
@@ -237,6 +246,10 @@ class StepCardsTest {
 		// As typed, so its offsets land.
 		assertEquals(listOf(" value > 30 ", listOf("total", "e")), listOf(ask.condition, ask.runNames))
 		assertNull(conditionAsk(CROSSING, "  ", null, tree))
+		// Within the Gateway's cap, a failure's name last.
+		val many = (1..20).map { StepDraft.Kept("k$it", FunctionStep.Let("v$it", StepArg.Literal(JsonPrimitive(it)))) }
+		val capped = conditionAsk(CROSSING, "v1 > 0", null, many)!!.runNames!!
+		assertEquals(listOf(com.atelier_nyaarium.switchboard.proto.Protocol.Wire.RUN_NAMES_MAX, "e"), listOf(capped.size, capped.last()))
 		assertNull(conditionAsk(null, "true", null, tree))
 		assertEquals(ConditionPreview.Holds(true), conditionPreviewOf("true", true, said(AutomationPreviewCondition(holds = true))))
 		assertEquals(ConditionPreview.CannotTell("it reads a value set while it runs"), conditionPreviewOf("total", true, said(AutomationPreviewCondition(unread = "it reads a value set while it runs"))))
@@ -294,6 +307,17 @@ class StepCardsTest {
 	}
 
 	@Test
+	fun aBodyHoldingAStatementItsGatewayDoesNotRunOpensReadOnly() {
+		val withIf = opened().plusStep(Slot(null, null, 1), StepDraft.If("if", "true", emptyList(), emptyList()))
+		val doOnly = FN_OFFER.copy(functions = FN_OFFER.functions!!.copy(served = FN_OFFER.functions!!.served.copy(statements = null)))
+		fun can(offer: com.atelier_nyaarium.switchboard.assistant.AutomationOffer) =
+			automationEditing(com.atelier_nyaarium.switchboard.assistant.AutomationSlot.Held("mine"), withIf, none, true, false, false, offer)
+
+		assertEquals(listOf(true, true), can(FN_OFFER).let { listOf(it.edit, it.delete) })
+		assertEquals(listOf(false, false, true), can(doOnly).let { listOf(it.edit, it.save, it.delete) })
+	}
+
+	@Test
 	fun keepTryingAndAnEventsCoolDownSurviveTheDraft() {
 		val event = Automation(
 			enabled = true,
@@ -304,6 +328,7 @@ class StepCardsTest {
 		val draft = automationDraftOf(AutomationRow("mine", 2L, event, "A GitHub event"), EditContext(FN_OFFER, emptyList()))!!
 
 		assertEquals(event, draft.toAutomation(FN_OFFER))
+		assertEquals(event, functionSaveOf(draft, none, FN_OFFER, false)!!.automation)
 		assertEquals("Keep trying is 1 to 60 minutes", settingsIssue(draft.copy(keepTryingMin = "90")))
 		assertNull(draft.copy(keepTryingMin = "90").toAutomation(FN_OFFER))
 		assertEquals(null, draft.copy(keepTryingMin = "").toAutomation(FN_OFFER)?.keepTryingMin)

@@ -218,6 +218,9 @@ internal fun AutomationEditorPage(
 				repo.command { automationOps.reloadFunction(key, open.opening) }
 			}
 		}
+		if (holdsUnserved(draft.steps, offer)) {
+			Text("This Gateway cannot run some of these steps.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+		}
 		if (runs?.kept != true) {
 			CardsSection(
 				draft = draft,

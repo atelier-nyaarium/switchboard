@@ -361,14 +361,28 @@ function judgeSave(
 				(pointers(id) > 1 || callers.has(id)),
 		);
 		if (shared) return refused(FUNCTION_PRIVATE, { code: "private", record: "function", id: shared.id });
-		// Unread rows may run it.
+		// Unread rows may run it: no held unnamed function gains an owner.
 		const unknown = view.unreadAutomations > 0 || view.unreadFunctions > 0;
-		const privatized = [...fnWrites].find(([id, each]) => {
+		const calledBy = (writer: string, id: string) => {
+			const was = functionAt(writer);
+			return was !== undefined && callsOf(was.body).includes(id);
+		};
+		const gains = (id: string): boolean => {
 			const was = functionAt(id);
-			return unnamed(each.body) && was !== undefined && !unnamed(was.body);
-		});
-		if (unknown && privatized)
-			return refused(FUNCTION_PRIVATE, { code: "private", record: "function", id: privatized[0] });
+			const now = functionNext(id);
+			if (was === undefined || now === null || !unnamed(now)) return false;
+			if (!unnamed(was.body)) return true;
+			const pointed = pointer?.function === id && heldPointer?.function !== id;
+			const called = [...fnWrites].some(
+				([writer, each]) => callsOf(each.body).includes(id) && !calledBy(writer, id),
+			);
+			return pointed || called;
+		};
+		const gained = [...new Set([...fnWrites.keys(), ...(pointer ? [pointer.function] : []), ...written])].find(
+			gains,
+		);
+		if (unknown && gained !== undefined)
+			return refused(FUNCTION_PRIVATE, { code: "private", record: "function", id: gained });
 	}
 	// Fresh reach needs sound functions.
 	const before = held ? reachOf(held.body, functionHeld) : new Set<string>();

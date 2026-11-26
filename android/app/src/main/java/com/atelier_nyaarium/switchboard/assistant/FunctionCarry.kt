@@ -32,6 +32,9 @@ internal sealed interface CarryRefusal {
 	/** Null when unknown. */
 	data class StepNotServed(val kind: String, val label: String? = null) : CarryRefusal
 
+	/** It carries a function with no name. */
+	data object UnnamedNotServed : CarryRefusal
+
 	/** Its list has not arrived. */
 	data object Reading : CarryRefusal
 
@@ -71,19 +74,22 @@ internal fun carryRefusal(
 		FunctionsServed.Reading -> return CarryRefusal.Reading
 		FunctionsServed.Unreachable -> return CarryRefusal.Unreachable
 	}
-	val kinds = functions.flatMap { written(it.function) }.map { step ->
+	if (held.unnamed != true && functions.any { it.function.name.isBlank() }) return CarryRefusal.UnnamedNotServed
+	// Actions by `steps`, statements by `statements`.
+	val statements = held.statements.orEmpty()
+	val missing = functions.flatMap { stepsOf(it.function) }.firstNotNullOfOrNull { step ->
 		when (step) {
-			is FunctionStep.Do -> step.action
-			is FunctionStep.If -> "if"
-			is FunctionStep.Try -> "try"
-			is FunctionStep.Exit -> "exit"
-			is FunctionStep.Throw -> "throw"
-			is FunctionStep.Let -> "let"
-			is FunctionStep.Wait -> "wait"
-			is FunctionStep.Note -> "note"
-			is FunctionStep.Call -> "call"
-			is FunctionStep.Unknown -> step.kind
+			is FunctionStep.Do -> step.action.takeIf { it !in held.steps }
+			is FunctionStep.If -> "if".takeIf { it !in statements }
+			is FunctionStep.Try -> "try".takeIf { it !in statements }
+			is FunctionStep.Exit -> "exit".takeIf { it !in statements }
+			is FunctionStep.Throw -> "throw".takeIf { it !in statements }
+			is FunctionStep.Let -> "let".takeIf { it !in statements }
+			is FunctionStep.Wait -> "wait".takeIf { it !in statements }
+			is FunctionStep.Note -> "note".takeIf { it !in statements }
+			is FunctionStep.Call -> "call".takeIf { it !in statements }
+			is FunctionStep.Unknown -> step.kind.takeIf { it !in statements }
 		}
 	}
-	return kinds.firstOrNull { it !in held.steps }?.let { CarryRefusal.StepNotServed(it, labelOf(it)) }
+	return missing?.let { CarryRefusal.StepNotServed(it, labelOf(it)) }
 }

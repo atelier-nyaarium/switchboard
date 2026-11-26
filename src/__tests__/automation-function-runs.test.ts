@@ -288,6 +288,39 @@ describe("a run through a function", () => {
 		expect(w.rows()).toEqual([["tell_assistant", "ran", undefined]]);
 	});
 
+	it("tells twice from one function reached at two call sites", async () => {
+		const w = world();
+		const call = { kind: "call" as const, function: "chime" };
+		w.automations.save({
+			id: "warm",
+			body: pointing(hourly),
+			base: 0,
+			function: {
+				as: "edit",
+				id: "warm-up",
+				body: { name: "Warm up", params: room, steps: [call, call] },
+				base: 0,
+			},
+			called: [
+				{
+					id: "chime",
+					body: {
+						name: "Chime",
+						params: [],
+						steps: [{ kind: "do", action: "tell_assistant", args: { when: lit("quietly") } }],
+					},
+					base: 0,
+				},
+			],
+			confirmed: true,
+		});
+		await w.later(HOUR);
+
+		const told = w.automations.outbox.events();
+		expect(told).toHaveLength(2);
+		expect(new Set(told.map((event) => event.id)).size).toBe(2);
+	});
+
 	it("logs a tell step held for a full outbox under that step, and a deleted automation's rows go with it", async () => {
 		const urgent = Array.from({ length: QUEUE_MAX_EVENTS }, (_, n) => ({
 			member: `old:${n}`,
