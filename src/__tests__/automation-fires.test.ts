@@ -33,7 +33,16 @@ const fire = (automation: string, at: number, steps: Fire["steps"] = { "0": { at
 const retrying = { "0": { attempts: 1, startedAt: 0, lastAt: 0, word: "unreachable" as const } };
 const running = (automation: string, at: number): Fire => ({ ...fire(automation, at, retrying), active: ["0"] });
 const others = (count: number) => Array.from({ length: count }, (_, n) => fire(`a${n}`, 100 + n));
-const rule = { supersede: false, earlier: () => false };
+/** Path 1 is its own tell. */
+const withTell = (automation: string, at: number): Fire =>
+	fire(automation, at, { "0": { attempts: 0 }, "1": { attempts: 0 } });
+const telling = (automation: string, at: number): Fire => ({
+	...fire(automation, at, { "1": { attempts: 0 } }),
+	light: true,
+});
+const tells = (held: Fire): Fire | null =>
+	held.steps["1"] ? { ...held, steps: { "1": held.steps["1"] }, active: [], light: true } : null;
+const rule = { supersede: false, earlier: () => false, tells };
 const members = (fires: readonly Fire[]) => fires.map((held) => held.member);
 
 describe("admission past the bound", () => {
@@ -57,32 +66,46 @@ describe("admission past the bound", () => {
 	});
 
 	it("keeps a started run through 64 newer fires, even where its automation holds the most", () => {
-		const telling: Fire = { ...fire("busy", 1, {}), tell: { when: "now", fields: {} } };
-		let held = [running("busy", 0), telling, ...others(FIRES_MAX - 2)];
+		let held = [running("busy", 0), telling("busy", 1), ...others(FIRES_MAX - 2)];
 		for (let at = 0; at < 64; at++) held = admit(held, fire(`new${at}`, 500 + at), rule).fires;
 
 		expect(members(held)).toContain("busy:0");
 		expect(members(held)).not.toContain("busy:1");
 	});
 
-	it("drops an event's run past its automation's waiting cap but keeps its tell, and still replaces a clock's own waiting fire", () => {
+	it("drops an event's run past its automation's waiting cap but keeps its tells, and still replaces a clock's own waiting fire", () => {
 		const waiting = [running("bell", 0), fire("bell", 1), fire("bell", 2)];
-		const telling: Fire = { ...fire("bell", 4), tell: { when: "now", fields: {} } };
 
 		const capped = admit(waiting, fire("bell", 3), { ...rule, waitingMax: 2 });
-		const told = admit(waiting, telling, { ...rule, waitingMax: 2 });
-		const replaced = admit(waiting, fire("bell", 3), { supersede: true, earlier: () => true });
+		const told = admit(waiting, withTell("bell", 4), { ...rule, waitingMax: 2 });
+		const replaced = admit(waiting, fire("bell", 3), { ...rule, supersede: true, earlier: () => true });
 
 		expect([capped.admitted, capped.rows.map((row) => row.outcome)]).toEqual([false, ["suppressed"]]);
-		expect(told.fires.at(-1)).toMatchObject({ member: "bell:4", steps: {} });
+		expect(told.fires.at(-1)).toEqual(telling("bell", 4));
 		expect(members(replaced.fires)).toEqual(["bell:0", "bell:2", "bell:3"]);
 	});
 
-	it("refuses a capped event's tell when every slot is held, costing no other run", () => {
-		const held = [running("bell", 0), fire("bell", 1), fire("bell", 2), ...others(FIRES_MAX - 3)];
-		const telling: Fire = { ...fire("bell", 4), tell: { when: "now", fields: {} } };
+	it("neither counts a run of tells alone as waiting nor replaces one, and keeps a replaced run's tells", () => {
+		const lights = [running("bell", 0), telling("bell", 1), telling("bell", 2)];
 
-		const answer = admit(held, telling, { ...rule, waitingMax: 2 });
+		const light = admit(lights, telling("bell", 3), { ...rule, waitingMax: 2 });
+		const heavy = admit(lights, fire("bell", 3), { ...rule, waitingMax: 2 });
+		const over = admit([running("bell", 0), withTell("bell", 1)], fire("bell", 2), {
+			...rule,
+			supersede: true,
+			earlier: () => true,
+		});
+		const past = admit(lights, fire("bell", 3), { ...rule, supersede: true, earlier: () => true });
+
+		expect([light.admitted, heavy.admitted, light.rows, heavy.rows]).toEqual([true, true, [], []]);
+		expect(over.fires).toEqual([running("bell", 0), telling("bell", 1), fire("bell", 2)]);
+		expect(members(past.fires)).toEqual(["bell:0", "bell:1", "bell:2", "bell:3"]);
+	});
+
+	it("refuses a capped event's tells when every slot is held, costing no other run", () => {
+		const held = [running("bell", 0), fire("bell", 1), fire("bell", 2), ...others(FIRES_MAX - 3)];
+
+		const answer = admit(held, withTell("bell", 4), { ...rule, waitingMax: 2 });
 
 		expect([answer.admitted, answer.fires, answer.rows.map((row) => row.outcome)]).toEqual([
 			false,
@@ -125,10 +148,10 @@ describe("the runner's next attempt", () => {
 		expect(nextEffect([])).toBeNull();
 	});
 
-	it("gives an automation's turn to its oldest fire with steps, past a fire waiting only to tell", () => {
-		const telling: Fire = { ...fire("bell", 0, {}), tell: { when: "now", fields: {} }, waiting: true };
+	it("gives every run of tells alone a turn, and one more to its automation's oldest other fire", () => {
+		const held = [telling("bell", 0), fire("bell", 1), fire("bell", 2), telling("bell", 3)];
 
-		expect([...mayRun([telling, fire("bell", 1), fire("bell", 2)])]).toEqual(["bell:1"]);
+		expect([...mayRun(held)]).toEqual(["bell:0", "bell:1", "bell:3"]);
 	});
 });
 
@@ -184,7 +207,7 @@ describe("a fire whose step's turn began", () => {
 			active: ["0"],
 		};
 
-		const replaced = admit([holding], fire("bell", 1), { supersede: true, earlier: () => true });
+		const replaced = admit([holding], fire("bell", 1), { ...rule, supersede: true, earlier: () => true });
 		let crowd = [holding, ...others(FIRES_MAX - 1)];
 		for (let at = 0; at < 64; at++) crowd = admit(crowd, fire(`new${at}`, 500 + at), rule).fires;
 
@@ -208,9 +231,10 @@ describe("a fire an 8.14.84 build stored", () => {
 		const waiting = readFire(legacy(0, { "0": "pending", "1": "pending" })) as Fire;
 		const ran = readFire(legacy(1, { "0": "done", "1": "pending" })) as Fire;
 
-		const replaced = admit([waiting], fire("bell", 9), { supersede: true, earlier: () => true });
+		const over = { supersede: true, earlier: () => true, tells: () => null };
+		const replaced = admit([waiting], fire("bell", 9), over);
 		const capped = admit([waiting], fire("bell", 9), { ...rule, waitingMax: 1 });
-		const kept = admit([ran], fire("bell", 9), { supersede: true, earlier: () => true });
+		const kept = admit([ran], fire("bell", 9), over);
 
 		expect(members(replaced.fires)).toEqual(["bell:9"]);
 		expect(capped.admitted).toBe(false);

@@ -1,20 +1,21 @@
 // An automation's texts with holes, and how its tells are told.
 
-import { reached, STEP_PATH_RE, visit, written } from "../../shared/automation-walk.js";
 import {
-	type Automation,
-	type AutomationAction,
-	actionTexts,
-	type TellWhen,
-	tellWhenOf,
-} from "../../shared/schemasAutomation.js";
-import { hasHoles } from "../../shared/text-holes.js";
+	type FollowedEntry,
+	type FunctionOf,
+	reached,
+	STEP_PATH_RE,
+	steering,
+	visit,
+	written,
+} from "../../shared/automation-walk.js";
+import { type Automation, type AutomationAction, actionTexts, type TellWhen } from "../../shared/schemasAutomation.js";
 import type { OwnerIssue } from "../ownerRecords.js";
 
 /** A hole a save refused. */
 export const HOLE_ISSUE_CODE = "invalid_hole";
 
-type Tell = Extract<AutomationAction, { kind: "tell_assistant" }>;
+export type Tell = Extract<AutomationAction, { kind: "tell_assistant" }>;
 
 export const isTell = (action: AutomationAction): action is Tell => action.kind === "tell_assistant";
 
@@ -25,10 +26,53 @@ export function holeTextsOf(actions: readonly AutomationAction[]): { action: num
 	return actions.flatMap((action, at) => actionTexts(action).map((held) => ({ action: at, ...held })));
 }
 
-const tellsOf = (body: Pick<Automation, "actions">): Tell[] =>
-	reached(body).flatMap((at) =>
-		visit(at, { action: ({ action }) => (isTell(action) ? [action] : []), unfollowedCall: () => [] }),
+/** The paths of an automation's own tells, a function's aside. */
+export const ownTellPaths = (body: Pick<Automation, "actions">): Set<string> =>
+	new Set(
+		reached(body).flatMap((at) =>
+			visit(at, { action: ({ path, action }) => (isTell(action) ? [path] : []), unfollowedCall: () => [] }),
+		),
 	);
+
+/** A tell the lane tells itself. */
+export interface LaneTell {
+	path: string;
+	when: TellWhen;
+}
+
+const whenOf = (value: unknown): TellWhen | null => (value === "now" || value === "quietly" ? value : null);
+
+/** An event automation's leading tells with no message, through its function's first steps. */
+export function laneTells(body: Automation, functionOf: FunctionOf): LaneTell[] {
+	if (body.trigger.kind !== "event") return [];
+	const found: LaneTell[] = [];
+	for (const at of reached(body, functionOf)) {
+		const tell = visit<FollowedEntry, LaneTell | null>(at, {
+			action: ({ path, action }) =>
+				isTell(action) && action.message === undefined ? { path, when: action.when } : null,
+			step: {
+				do: ({ path, address, step }) => {
+					const { when, message } = step.args;
+					if (address.length !== 1 || step.action !== "tell_assistant" || message !== undefined) return null;
+					const told = when?.kind === "literal" ? whenOf(when.value) : null;
+					return told && { path, when: told };
+				},
+				...steering((): LaneTell | null => null),
+			},
+			unfollowedCall: () => null,
+		});
+		if (!tell) break;
+		found.push(tell);
+	}
+	return found;
+}
+
+/** Now outranks quietly; null when the lane tells nothing. */
+export const laneTellWhen = (body: Automation, functionOf: FunctionOf): TellWhen | null => {
+	const tells = laneTells(body, functionOf);
+	if (tells.length === 0) return null;
+	return tells.some((tell) => tell.when === "now") ? "now" : "quietly";
+};
 
 /** A step's field a save refused. */
 export const STEP_ISSUE_CODE = "invalid_step";
@@ -73,23 +117,3 @@ export function holeSpanOf(issue: OwnerIssue | undefined) {
 	if (!place?.param || typeof start !== "number" || typeof end !== "number") return undefined;
 	return { action: Number(place.step.split(".")[0]), step: place.step, param: place.param, start, end };
 }
-
-/** How one firing tells the assistant. */
-export interface TellPlan {
-	/** Null when nothing is told. */
-	when: TellWhen | null;
-	messages: string[];
-	/** A message needs its holes read. */
-	filling: boolean;
-}
-
-/** Message-less event tells are the lane's. */
-export function tellPlan(body: Automation): TellPlan {
-	const tells = tellsOf(body).filter((tell) => body.trigger.kind !== "event" || tell.message !== undefined);
-	const messages = tells.flatMap((tell) => (tell.message === undefined ? [] : [tell.message]));
-	return { when: tellWhenOf(tells), messages, filling: messages.some(hasHoles) };
-}
-
-/** Message-less tells. */
-export const laneTellWhen = (body: Automation): TellWhen | null =>
-	tellWhenOf(tellsOf(body).filter((tell) => tell.message === undefined));

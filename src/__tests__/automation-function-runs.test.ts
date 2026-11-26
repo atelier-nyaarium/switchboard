@@ -360,6 +360,113 @@ describe("a run through a function", () => {
 		expect(w.automations.log().map((row) => row.outcome)).toEqual(["suppressed"]);
 	});
 
+	it("leaves an event automation's leading tells with no message to the lane, named or not, and tells the rest in order", async () => {
+		const quiet = { kind: "do", action: "tell_assistant", args: { when: lit("now") } } as const;
+		const named = world();
+		const flat = world();
+		named.save(pointing(event), [quiet, turn("on"), quiet]);
+		flat.automations.ownerPut(
+			"warm",
+			{
+				enabled: true,
+				trigger: event,
+				actions: [
+					{ kind: "tell_assistant", when: "quietly" },
+					{ kind: "device_set", device: PLUG, verb: "on" },
+					{ kind: "tell_assistant", when: "now" },
+				],
+			},
+			0,
+			true,
+		);
+		const lane = [named, flat].map((w) => w.automations.eventsOf("github").map((held) => held.when));
+		for (const w of [named, flat]) {
+			w.automations.fireEvents([{ automation: "warm", key: "one", names: {} }], w.at());
+			await w.automations.settled();
+		}
+
+		expect(lane).toEqual([["now"], ["quietly"]]);
+		expect([named, flat].map((w) => [w.effects, w.automations.queued().events.length])).toEqual([
+			[[`${PLUG}:on`], 1],
+			[[`${PLUG}:on`], 1],
+		]);
+	});
+
+	it("tells every event of a burst for an automation that only tells, past its waiting cap, in the one pass that recorded them", async () => {
+		const burst = (message: string) => {
+			const w = world();
+			const note: AutomationInput = {
+				enabled: true,
+				trigger: event,
+				actions: [{ kind: "tell_assistant", when: "quietly", message }],
+			};
+			w.automations.ownerPut("note", note, 0, true);
+			w.automations.fireEvents(
+				Array.from({ length: 12 }, (_, n) => ({
+					automation: "note",
+					key: `k${n}`,
+					names: { event: { value: { title: `T${n}` } } },
+				})),
+				w.at(),
+			);
+			return w;
+		};
+		const plain = burst("Got one");
+		const atOnce = plain.automations.outbox.events().length;
+		const filled = burst("Got {event.title}");
+		await filled.automations.settled();
+
+		expect(atOnce).toBe(12);
+		expect(filled.automations.outbox.events().map((held) => held.fields.message)).toEqual(
+			Array.from({ length: 12 }, (_, n) => `Got T${n}`),
+		);
+		expect(filled.automations.log().map((row) => row.outcome)).toEqual(Array.from({ length: 12 }, () => "ran"));
+	});
+
+	it("keeps a run whose own tell filled to nothing, telling it with no message", async () => {
+		const w = world();
+		w.answer(unreachable);
+		w.automations.ownerPut(
+			"flat",
+			{
+				enabled: true,
+				trigger: event,
+				actions: [
+					{ kind: "tell_assistant", when: "quietly", message: '{""}' },
+					{ kind: "device_set", device: PLUG, verb: "on" },
+				],
+			},
+			0,
+			true,
+		);
+		w.automations.fireEvents([{ automation: "flat", key: "one", names: {} }], w.at());
+		await w.automations.settled();
+		w.restartWith((rows) => rows);
+		w.answer(() => ({ word: "done" }));
+		await w.later(6_000);
+
+		expect(w.effects).toEqual([`${PLUG}:on`, `${PLUG}:on`]);
+		expect(w.automations.outbox.events().map((held) => held.fields.message)).toEqual([undefined]);
+	});
+
+	it("tells a function's leading tell the lane never told, though an edit moved it to the front while its run waited", async () => {
+		const quiet = { kind: "do", action: "tell_assistant", args: { when: lit("now") } } as const;
+		const w = world();
+		w.save(pointing(event), [turn("on"), quiet]);
+		w.answer(unreachable);
+		const lane = w.automations.eventsOf("github").map((held) => held.when);
+		for (const key of ["one", "two"]) {
+			w.automations.fireEvents([{ automation: "warm", key, names: {} }], w.at());
+			await w.automations.settled();
+		}
+		w.save(pointing(event), [quiet, turn("on")], { automation: 1, function: 1 });
+		w.answer(() => ({ word: "done" }));
+		await w.later(6_000);
+
+		expect(lane).toEqual([null]);
+		expect(w.automations.outbox.events()).toHaveLength(2);
+	});
+
 	it("starts a waiting run in the pump where the run before it ended at its turn", async () => {
 		const w = world();
 		w.save(pointing({ kind: "interval", everyMin: 1 }, { keepTryingMin: 1 }), [turn("on")]);

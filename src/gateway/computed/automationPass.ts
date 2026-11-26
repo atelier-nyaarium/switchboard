@@ -1,8 +1,7 @@
 // One pass of the pump: the next state, and the work to start.
 
-import { below, type RunFunction, type WalkStep, within } from "../../shared/automation-walk.js";
+import { below, type RunFunction, within } from "../../shared/automation-walk.js";
 import { AUTOMATION_ACTIONS, type Automation, type AutomationAction } from "../../shared/schemasAutomation.js";
-import { hasHoles } from "../../shared/text-holes.js";
 import {
 	claim,
 	claimedPaths,
@@ -13,7 +12,6 @@ import {
 	type LandedSet,
 	mayRun,
 	nextEffect,
-	nextFill,
 	outdatedSets,
 	pathsOf,
 	type Runnable,
@@ -68,7 +66,12 @@ export interface PassPorts {
 	actionOf(fire: Fire, path: string): AutomationAction | null;
 	stepAt(fire: Fire, path: string): AutomationEffect | null;
 	kindAt(fire: Fire, path: string): string | undefined;
-	writtenStep(fire: Fire, path: string): WalkStep<"do"> | null;
+	/** Its values are still to read. */
+	unreadAt(fire: Fire, path: string): boolean;
+	/** A tell's written message, when it had holes. */
+	noteAt(fire: Fire, path: string): string | null;
+	/** The lane told it already. */
+	laneTold(fire: Fire, path: string): boolean;
 	windowOf(fire: Fire): number;
 	callAt(body: Automation, path: string): RunFunction | null;
 	ready(action: AutomationAction): boolean;
@@ -89,22 +92,24 @@ export interface PassInput {
 	answers: ReadonlyMap<string, Answer>;
 	/** In-flight claimed step. */
 	inFlight(ref: StepRef): boolean;
-	busy: { effect: boolean; fill: boolean; read: boolean };
+	busy: { effect: boolean; read: boolean };
 }
 
 export interface PassResult {
 	next: State;
 	effect: StepRef | null;
-	fill: string | null;
 	read: StepRef | null;
 	queued: boolean;
 }
 
 type Tell = Extract<AutomationAction, { kind: "tell_assistant" }>;
+const TELL_KIND: Tell["kind"] = "tell_assistant";
 
 export const NEWER_SET = "a newer setting of this switch landed first";
 export const FRAME_UNREAD = "the function it ran could not be read";
 export const CALL_FAILED = "a step in it failed";
+const MESSAGE_UNREAD = "its message was not read before the restart";
+// Remove 2026-12-16 with the fire's `tell`.
 export const untold = ({ tell: _tell, waiting: _waiting, ...rest }: Fire): Fire => rest;
 
 /** `unowned` takes the rest. */
@@ -380,18 +385,26 @@ export function createPass(ports: PassPorts): {
 				at.unread.push({ member: fire.member, path });
 				return { fire, log };
 			}
+			if (ports.laneTold(fire, path)) {
+				fire = withStep(fire, path, steered(step));
+				continue;
+			}
 			const action = ports.actionOf(fire, path);
-			if (site !== null && !action && ports.writtenStep(fire, path)) {
+			// Away, a tell is refused before its message is read.
+			const away = !at.home && ports.kindAt(fire, path) === TELL_KIND;
+			if (!away && !action && ports.unreadAt(fire, path)) {
 				at.unread.push({ member: fire.member, path });
 				return { fire, log };
 			}
 			let ended: { step: Step; reason?: string };
-			if (site !== null && !action) ended = { step: refusedUnsent(step), reason: FRAME_UNREAD };
+			if (away) ended = { step: refusedUnsent(step), reason: NOT_HOME };
+			else if (site !== null && !action) ended = { step: refusedUnsent(step), reason: FRAME_UNREAD };
 			else if (action && isTell(action)) {
-				const told = at.tell(fire, path, action);
+				// Past its window it is not told, as an effect is not tried.
+				const told = outOfTime(step, at.now, window) ? "late" : at.tell(fire, path, action);
 				if (told === "told") ended = { step: heard(step, null, "done", at.now) };
 				else if (told === "away") ended = { step: refusedUnsent(step), reason: NOT_HOME };
-				else if (outOfTime(step, at.now, window)) ended = { step: expired(step) };
+				else if (told === "late") ended = { step: expired(step) };
 				else {
 					log = logged(log, fireRow(fire, "refused", QUEUE_FULL, "tell_assistant", whereAt(fire, path)));
 					return { fire, log };
@@ -445,11 +458,17 @@ export function createPass(ports: PassPorts): {
 				continue;
 			}
 			const body = ports.bodyOf(fire) as Automation;
+			// Remove 2026-12-16: the one tell 8.14.87 stored for a whole fire, told as it stands.
 			if (fire.tell && !input.home) {
 				log = logged(log, fireRow(fire, "refused", NOT_HOME, "tell_assistant"));
 				fire = untold(fire);
-			} else if (fire.tell && !fire.tell.fill) {
-				const entry = { member: fire.member, when: fire.tell.when, fields: fire.tell.fields };
+			} else if (fire.tell) {
+				const { when, fields, fill } = fire.tell;
+				if (fill) {
+					log = logged(log, fireRow(fire, "uncertain", MESSAGE_UNREAD, "tell_assistant"));
+					fire = { ...fire, tell: { when, fields } };
+				}
+				const entry = { member: fire.member, when, fields };
 				const room = told(queue, entry, ports.sentenceOf(body), input.now);
 				if (!room) {
 					if (!fire.waiting) log = logged(log, fireRow(fire, "refused", QUEUE_FULL, "tell_assistant"));
@@ -473,9 +492,8 @@ export function createPass(ports: PassPorts): {
 			const body = ports.bodyOf(fire);
 			if (!input.home || !body) return "away";
 			const message = action.message === undefined ? [] : [action.message];
-			const written = ports.writtenStep(fire, path)?.step.args.message;
-			const note = written?.kind === "literal" && typeof written.value === "string" ? written.value : null;
-			const fields = ports.withMessage(fire.fields ?? {}, message, note !== null && hasHoles(note) ? [note] : []);
+			const note = ports.noteAt(fire, path);
+			const fields = ports.withMessage(fire.fields ?? {}, message, note === null ? [] : [note]);
 			const entry = { member: stepMember(fire.member, path), when: action.when, fields };
 			const room = told(queue, entry, ports.sentenceOf(body), input.now);
 			if (!room) return "full";
@@ -509,10 +527,9 @@ export function createPass(ports: PassPorts): {
 		log = droppedRows(log, dropped, input.now, droppedBy);
 		const effect = input.busy.effect ? null : nextEffect(runnable);
 		if (effect) fires = claim(fires, effect, input.now);
-		const toFill = input.busy.fill ? null : nextFill(fires);
 		const toRead = input.busy.read ? null : (unread[0] ?? null);
 		const next: State = { ...input.state, queue, log, ran, fires, landedSets };
-		return { next, effect, fill: toFill, read: toRead, queued };
+		return { next, effect, read: toRead, queued };
 	}
 
 	return { pass: runPass, settle, endedRow, whereAt };

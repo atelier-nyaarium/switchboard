@@ -477,6 +477,24 @@ describe("automations", () => {
 		expect(automations.log().map((run) => run.outcome)).toEqual(["refused", "ran"]);
 	});
 
+	it("gives up a tell that found no room once its automation's window has passed, though room came first", async () => {
+		const dir = fresh();
+		const old = fullQueue(dir, "now");
+		const w = world(dir);
+		const { fields, automations } = w.open();
+		fields.put("band", hotBand, 0);
+		automations.ownerPut("bucket", { ...iceBucket(), keepTryingMin: 1 }, 0);
+		w.read(fields, -5);
+		w.advance(61_000);
+		automations.clear(old);
+
+		expect(await queued(automations)).toEqual([]);
+		expect(automations.log().map((run) => [run.action, run.outcome])).toEqual([
+			["tell_assistant", "refused"],
+			["tell_assistant", "refused"],
+		]);
+	});
+
 	it("drops the oldest quiet events to tell an urgent one at once", async () => {
 		const dir = fresh();
 		const old = fullQueue(dir, "quietly");
@@ -531,7 +549,7 @@ describe("automations", () => {
 		).toEqual(["alpha", "beta"]);
 	});
 
-	it("runs a fire's effects whatever the outbox holds, and tells it within the lane's bounds once there is room", async () => {
+	it("runs a fire's effects whatever the outbox holds, and tells each tell on its own once there is room", async () => {
 		const dir = fresh();
 		const old = fullQueue(dir, "now");
 		const w = world(dir);
@@ -559,11 +577,12 @@ describe("automations", () => {
 		expect(w.effects).toEqual(["plug:on"]);
 		expect(waiting.toSorted()).toEqual(["device_set ran", "tell_assistant refused"]);
 		expect(told.map((event) => [event.fields.value, event.fields.message?.length, event.tell])).toEqual([
-			["high", 1_000, "now"],
+			["high", 605, "now"],
+			["high", 600, "quietly"],
 		]);
 	});
 
-	it("runs an effect held across a long downtime, its time starting again, and still tells the fire", async () => {
+	it("runs an effect held across a long downtime, its time starting again, and tells after it", async () => {
 		const dir = fresh();
 		const old = fullQueue(dir, "now");
 		const w = world(dir);
@@ -590,9 +609,8 @@ describe("automations", () => {
 
 		expect(w.effects).toEqual(["ifttt:freezer"]);
 		expect(after.log().map((run) => [run.action, run.outcome])).toEqual([
-			["tell_assistant", "refused"],
-			["tell_assistant", "ran"],
 			["ifttt_trigger", "ran"],
+			["tell_assistant", "ran"],
 		]);
 		expect(await queued(after)).toEqual(["high"]);
 	});
@@ -1027,7 +1045,7 @@ describe("automations", () => {
 			.filter((run) => run.action === "ifttt_trigger")
 			.map((run) => run.outcome);
 
-	it("runs a fire's plug and tell while its unready effect holds, ends it past its own time, and gives it a full time from when its turn came", async () => {
+	it("runs a fire's plug while its unready effect holds and its tell waits behind, ends the effect past its own time and then tells, and gives it a full time from when its turn came", async () => {
 		const w = world(fresh());
 		const { fields, automations } = w.open();
 		fields.put("band", hotBand, 0);
@@ -1039,6 +1057,7 @@ describe("automations", () => {
 		w.advance(KEEP_TRYING_MS);
 		automations.tick();
 		await automations.settled();
+		const toldAfter = (await queued(automations)).length;
 
 		const afterQueue = async (first: Attempt) => {
 			const queues = world(fresh());
@@ -1061,9 +1080,9 @@ describe("automations", () => {
 			return [queues.effects, ifttt(b.automations)];
 		};
 
-		expect(held).toEqual([["plug:on"], 1, []]);
+		expect(held).toEqual([["plug:on"], 0, []]);
 		expect(w.effects).toEqual(["plug:on"]);
-		expect(ifttt(automations)).toEqual(["refused"]);
+		expect([ifttt(automations), toldAfter]).toEqual([["refused"], 1]);
 		expect(await afterQueue({ word: "done" })).toEqual([["plug:on", "ifttt:freezer"], ["ran"]]);
 		expect(await afterQueue({ hold: "not_ready" })).toEqual([
 			["plug:on", "ifttt:freezer", "ifttt:freezer"],
@@ -1097,7 +1116,7 @@ describe("automations", () => {
 		expect(ifttt(automations)).toEqual(["refused"]);
 	});
 
-	it("retries an effect that sent nothing after its plug while its tell goes ahead, holds no retry for a clock stepped back, and ends it once its time has passed", async () => {
+	it("retries an effect that sent nothing after its plug while its tell waits behind, holds no retry for a clock stepped back, and ends it once its time has passed", async () => {
 		const sends = world(fresh());
 		const a = sends.open();
 		a.fields.put("band", hotBand, 0);
@@ -1127,9 +1146,10 @@ describe("automations", () => {
 			await b.automations.settled();
 		}
 
-		expect(first).toEqual([["plug:on", "ifttt:freezer"], 1, []]);
+		expect(first).toEqual([["plug:on", "ifttt:freezer"], 0, []]);
 		expect(resting).toEqual(["plug:on", "ifttt:freezer"]);
 		expect([sends.effects, ifttt(a.automations)]).toEqual([["plug:on", "ifttt:freezer", "ifttt:freezer"], ["ran"]]);
+		expect((await queued(a.automations)).length).toBe(1);
 		expect([lapses.effects, ifttt(b.automations)]).toEqual([
 			["plug:on", "ifttt:freezer", "ifttt:freezer"],
 			["refused"],
@@ -1207,7 +1227,7 @@ describe("automations", () => {
 				.filter((run) => run.automation === "alert")
 				.map((run) => [run.action, run.outcome]),
 		).toEqual([
-			[undefined, "refused"],
+			["tell_assistant", "refused"],
 			["ifttt_trigger", "refused"],
 		]);
 	});
@@ -2161,7 +2181,7 @@ describe("automations", () => {
 		expect(w.effects).toEqual(["plug:toggle"]);
 	});
 
-	it("never puts back a tell the home's leaving withdrew while its fill was in flight", async () => {
+	it("never puts back a tell the home's leaving refused while its message was being read", async () => {
 		const w = world(fresh());
 		const { fields, automations } = w.open();
 		fields.put("band", hotBand, 0);
@@ -2177,14 +2197,15 @@ describe("automations", () => {
 		const releaseFill = w.holdFills();
 
 		w.read(fields, -5);
+		releasePlug();
+		for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setImmediate(resolve));
 		w.setHome(false);
 		automations.tick();
 		w.setHome(true);
 		releaseFill();
-		await new Promise((resolve) => setImmediate(resolve));
-		releasePlug();
 		await automations.settled();
 
+		expect(w.effects).toEqual(["plug:on"]);
 		expect(await queued(automations)).toEqual([]);
 		expect(
 			automations

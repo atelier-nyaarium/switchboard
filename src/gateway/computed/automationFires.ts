@@ -1,17 +1,25 @@
 // A fired trigger's step progress.
 
 import { z } from "zod";
-import { byPath, reached, siteAmong, visit } from "../../shared/automation-walk.js";
-import { type Automation, AutomationActionSchema, TELL_WHEN } from "../../shared/schemasAutomation.js";
+import { byPath, reached, siteAmong } from "../../shared/automation-walk.js";
+import {
+	AUTOMATION_ACTIONS_MAX,
+	type Automation,
+	AutomationActionSchema,
+	TELL_WHEN,
+} from "../../shared/schemasAutomation.js";
+import { FUNCTION_STEPS_MAX } from "../../shared/schemasFunction.js";
 import { FAILURE_CODES, FAILURE_MESSAGE_MAX } from "./automationFrames.js";
 import { BEHIND, CROWDED, REPLACED, TOO_MANY } from "./automationLog.js";
-import { type AutomationEffect, isEffect, natureOf } from "./automationRunner.js";
+import { type AutomationEffect, natureOf } from "./automationRunner.js";
 import { claimed, FRESH_STEP, isEnded, type Nature, type Step, StepPathSchema, StepSchema } from "./automationSteps.js";
 
 /** Runs waiting on their steps. */
 export const FIRES_MAX = 64;
 /** Event fires of one automation not yet started. */
 export const WAITING_EVENTS_MAX = 8;
+/** An automation's own list, then its function's first one. */
+const LANE_TELLS_MAX = AUTOMATION_ACTIONS_MAX + FUNCTION_STEPS_MAX;
 
 const NamesSchema = z.record(z.string(), z.object({ value: z.unknown(), shown: z.string().optional() }));
 
@@ -33,8 +41,9 @@ const FireBase = {
 	at: z.number().int(),
 	/** What the trigger read, for its texts' holes. */
 	names: NamesSchema.optional(),
+	// Remove 2026-12-16: one tell for the whole fire, as 8.14.87 stored it.
 	tell: TellSchema.optional(),
-	/** The outbox had no room. */
+	// Remove 2026-12-16 with `tell`.
 	waiting: z.literal(true).optional(),
 };
 
@@ -78,6 +87,12 @@ export const FireSchema = z
 		frames: z.record(StepPathSchema, FrameSchema).optional(),
 		/** Tell fields. */
 		fields: z.record(z.string(), z.string()).optional(),
+		/** Its own tells, as read at their turn. */
+		resolved: z.record(StepPathSchema, AutomationActionSchema).optional(),
+		/** Every step is its own tell. */
+		light: z.literal(true).optional(),
+		/** The tells the lane told, by path. */
+		lane: z.array(StepPathSchema).max(LANE_TELLS_MAX).optional(),
 	})
 	.refine((fire) => fire.active.every((path) => Object.hasOwn(fire.steps, path)));
 export type Fire = z.infer<typeof FireSchema>;
@@ -132,16 +147,9 @@ export interface Runnable {
 /** Step paths in the order written. */
 export const pathsOf = (fire: Fire): string[] => Object.keys(fire.steps).sort(byPath);
 
-/** Effects and calls. */
+/** Every action it lists. */
 export const stepsOf = (automation: Pick<Automation, "actions">): Fire["steps"] =>
-	Object.fromEntries(
-		reached(automation).flatMap((at) =>
-			visit(at, {
-				action: ({ path, action }) => (isEffect(action) ? [[path, FRESH_STEP]] : []),
-				unfollowedCall: ({ path }) => [[path, FRESH_STEP]],
-			}),
-		),
-	);
+	Object.fromEntries(reached(automation).map((at) => [at.path, FRESH_STEP]));
 
 /** The first step not ended. */
 export const turnOf = (fire: Fire): string | null =>
@@ -170,16 +178,17 @@ export const live = (fire: Fire): boolean => started(fire) && hasOpenSteps(fire)
 /** Steps left, no turn begun. */
 export const unstarted = (fire: Fire): boolean => hasOpenSteps(fire) && !started(fire);
 
-/** Oldest fire first. */
-export const nextFill = (fires: readonly Fire[]): string | null =>
-	fires.find((fire) => fire.tell?.fill)?.member ?? null;
-
-/** Its automation's oldest fire with steps left. */
+/** Its automation's oldest fire with steps left, and every light one. */
 export function mayRun(fires: readonly Fire[]): Set<string> {
 	const seen = new Set<string>();
 	const runs = new Set<string>();
 	for (const fire of fires) {
-		if (!hasOpenSteps(fire) || seen.has(fire.automation)) continue;
+		if (!hasOpenSteps(fire)) continue;
+		if (fire.light) {
+			runs.add(fire.member);
+			continue;
+		}
+		if (seen.has(fire.automation)) continue;
 		seen.add(fire.automation);
 		runs.add(fire.member);
 	}
@@ -248,46 +257,46 @@ export interface Admitted {
 	rows: { fire: Fire; outcome: "suppressed" | "refused"; reason: string }[];
 }
 
-/** Only waits to tell. */
-const onlyTelling = (fire: Fire): boolean => fire.waiting === true && !hasOpenSteps(fire);
+/** Only tells are left to it. */
+const onlyTelling = (fire: Fire): boolean => fire.light === true || (fire.waiting === true && !hasOpenSteps(fire));
 
-/** Its least advanced idle fire. */
+/** Its least advanced idle fire; one that only tells goes first. */
 const victimOf = (held: readonly Fire[]): Fire | undefined => {
-	const free = held.filter((fire) => !live(fire));
+	const free = held.filter((fire) => onlyTelling(fire) || !live(fire));
 	return free.find(onlyTelling) ?? free.find(unstarted) ?? free[0];
 };
 
-/** Past the bound, the heaviest automation drops one. */
-export function admit(
-	fires: readonly Fire[],
-	incoming: Fire,
-	rule: { supersede: boolean; earlier: (member: string) => boolean; waitingMax?: number },
-): Admitted {
+export interface AdmitRule {
+	supersede: boolean;
+	earlier: (member: string) => boolean;
+	waitingMax?: number;
+	/** The fire holding its own tells alone; null when it has none. */
+	tells: (fire: Fire) => Fire | null;
+}
+
+/** Past the bound, the heaviest automation drops one. A light fire is never replaced or counted waiting. */
+export function admit(fires: readonly Fire[], incoming: Fire, rule: AdmitRule): Admitted {
 	const held = [...fires];
 	const rows: Admitted["rows"] = [];
+	const waits = (fire: Fire): boolean => fire.automation === incoming.automation && !fire.light && unstarted(fire);
 	const older = rule.supersede
-		? held.findIndex(
-				(fire) =>
-					fire.automation === incoming.automation &&
-					fire.member !== incoming.member &&
-					unstarted(fire) &&
-					rule.earlier(fire.member),
-			)
+		? held.findIndex((fire) => fire.member !== incoming.member && waits(fire) && rule.earlier(fire.member))
 		: -1;
 	const replaced = held[older];
 	if (replaced) {
 		rows.push({ fire: replaced, outcome: "suppressed", reason: REPLACED });
-		if (replaced.tell) held[older] = { ...replaced, steps: {}, active: [] };
+		const kept = rule.tells(replaced);
+		if (kept) held[older] = kept;
 		else held.splice(older, 1);
 	}
 	let admitted = incoming;
-	if (rule.waitingMax !== undefined && hasOpenSteps(incoming)) {
-		const waiting = held.filter((fire) => fire.automation === incoming.automation && unstarted(fire));
-		if (waiting.length >= rule.waitingMax) {
+	if (rule.waitingMax !== undefined && !incoming.light && hasOpenSteps(incoming)) {
+		if (held.filter(waits).length >= rule.waitingMax) {
 			rows.push({ fire: incoming, outcome: "suppressed", reason: BEHIND });
-			// Its tell goes while there is room.
-			if (!incoming.tell || held.length >= FIRES_MAX) return { fires: held, admitted: false, rows };
-			admitted = { ...incoming, steps: {}, active: [] };
+			const kept = rule.tells(incoming);
+			// Its tells go while there is room.
+			if (!kept || held.length >= FIRES_MAX) return { fires: held, admitted: false, rows };
+			admitted = kept;
 		}
 	}
 	return room(held, admitted, rows);

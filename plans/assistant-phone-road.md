@@ -2223,7 +2223,9 @@ Written before the code, so a restart of the work reads it here. Each line is a 
   - A run whose every step is a top-level tell is light: every light run advances each pass, does not count in an event automation's waiting cap, is not replaced by a newer fire, and is the first to go at the fire limit. An event fire past the waiting cap keeps its top-level tell steps and is light. This keeps what a tell-only fire meant before, read from the body and not from a shape.
   - Away from the home a tell step ends refused at its turn. With no room it waits, logged once, until its window passes, then `timeout`.
   - A fire stored with an aggregate `tell` by the build before is told as it stands by a dated reader; one still waiting on its fill is told without its message.
-- **Still open in slice 4:** tells as steps (designed above); the log row's kind and the last run served; the judge's tree checks and the condition preview; the failure of a call inside a function (`call_failed` beyond the top frame) waits for calls.
+- **Tells as steps is built** as designed above, with these choices: lightness is a flag on the fire (`light`), set at admission and by the strip, so `admit` and `mayRun` stay pure; away from the home a tell is refused before its message is read; the dated reader keeps the old branch in the pass and tells a fire still waiting on its fill without its message, logging it once. Six tests that pinned a tell going ahead of an effect, or two tells merged, were rewritten to the new order. Not tested: the dated reader's fill case (one restart wide).
+- **An adversarial read of tells as steps (Sol, with probes) found four things; three are fixed with a test each:** a message that filled to nothing made the stored run unreadable (it is now told with no message); a function's leading tell was passed over on the pinned body alone, so an edit that moved a tell to the front while a run waited lost it (the fire now records the paths the lane told, `Fire.lane`); a tell past its window was still told when room came before the next pass (the window is checked first). By design: a restart starts a waiting tell's window again, as a held effect's. Not from this change, on the board: an event admitted again after it left the 256-member `fired` list is told again.
+- **Still open in slice 4 (Opus tier, Question 90):** the log row's kind and the last run served; the judge's tree checks and the condition preview; comment clean-up; the phase audits. The failure of a call inside a function (`call_failed` beyond the top frame) comes with calls.
 - **How the pass will run a tree** (in `advance`):
   - The automation's own list is the top frame and stays as it is: its records are made at admission, its turn is its first unended step, and a call's record stays open while its frame runs (today `enter` replaces it with the function's steps; it will keep it and end it when the frame ends, `done` or failed `call_failed` with the frame's first error).
   - Inside a frame `fire.active` names the step whose turn it is and nothing scans for it. A step's record is made at its turn. When a step ends, `moved(body, address, how, memory)` answers the next address, a catch entered, or the frame's end, and the frame keeps `failed` (first uncaught), `caught` by try address (what `e` reads), and `vars`.
@@ -2272,6 +2274,35 @@ Carried from Questions 82 and 83, both riding slice 4 on the Gateway and slice 5
 
 Carried from the 2.7e.1 red team, to decide when `wait` and branches arrive: the newer-setting rule ends any open set of an older fire, including one whose turn has not come. With only immediate steps that window is short. Behind a `wait` an older run's later set can sit for a long time, so "on, wait 30, off" must not lose its Off to another automation's On: the rule then has to compare when a step's turn comes, not when its fire began, and say whose fire a set inside a called function belongs to. Also: a pre-send path that can throw repeatedly should log once, and the full-queue refusal needs revisiting if one live run per automation ever changes.
 
+### How slice 5 is to be built: the editor's model for a tree
+
+Written on the Fable tier before the phone work (Question 90). The build is Opus-tier and follows this; each line is a ruling until the code says otherwise.
+
+- **The draft is a tree whose every card holds a key minted once.** `StepDraft` is `Do` (today's `ActionDraft`), `If` (a condition, a `then` list, an `otherwise` list), `Try` (a body, a `catch` list), `Wait` (minutes as typed), `Exit`, `Note`, and `Kept` (a `FunctionStep` cards do not draw: `let`, `throw`, a kind this build does not know, or a field a card cannot hold, such as a wait whose minutes is an expression). The key comes from the phone's ids when the draft is made from a record or a card is added, and is never a position, as a declared value's key already is. Every edit, every said-at and every text page names a card by key.
+- **Edits are pure functions over the tree, by key** (`assistant/StepTree.kt`): find, replace, remove, insert at a slot, move to a slot. Each answers the new list, or null where a cap refuses (`FUNCTION_STEPS_MAX` per list, `FUNCTION_STEPS_TOTAL_MAX`, `FUNCTION_DEPTH_MAX`, all generated). The caps only grey out "Add"; the Gateway judges the save.
+- **Cards draw one level**, as the phase design says: the list, an If with its two sides, a Try with its catch, Wait, Exit, a Note as a label line. A side that itself holds an If or a Try opens the whole body read-only with a line saying so, until the script exists (`cardsStanding`). A `Kept` card is listed, removable and saved as sent, at any depth, as a kept action is today.
+- **What cards draw is one projection:** `cardsDraw(steps, said, lastRun)` answers a flat list of rows, each with its own row key and depth: a step row (the card, its path, its issue, its last outcome), a side label ("Otherwise", "If it fails"), and an add slot naming where a new card lands. The composable draws rows and decides nothing.
+- **A card's path is derived, never stored:** `pathsOf(steps)` walks in the Gateway's order (an index, then side 0 or 1) and answers path by key. A refusal's `step` and `param`, a check's refusal, a hole's span and the last run's rows all arrive by path and are mapped to a key there. The Kotlin twin of the walk's path functions (`spelled`, `addressIn`, `byPath`) replays vectors generated from the TypeScript ones (`tests/fixtures/step-path/vectors.json`).
+- **What cards do not draw is re-encoded byte for byte.** `Kept` holds the decoded step and hands it back untouched; the generated preserve root keeps an unknown kind at every depth. The gate is a phone-encoded case with an unknown step inside an If's side and inside a Try's catch, decoded and encoded back to the same bytes, and a JVM test that editing a sibling card leaves a kept card's bytes alone.
+- **The stored form is chosen at the save:** every card a `Do` and no name is the flat list, as today. Anything else is a function record and a pointer. What a tree with no name is stored as is Question 91.
+- **"Changed" compares wire forms,** never drafts, since keys differ between two drafts of one record.
+- **Which cards are offered** is `serves.functions.statements` met with what cards draw. A Gateway that answers none offers `do` alone, and a body holding more opens read-only there.
+- **A condition** is one expression, edited on the text page in an expression mode (no braces, the Console's completions over the names in scope) with "true right now" from the condition preview op.
+- **Both settings** (Question 82) sit on the draft: "Keep trying for" for every automation, "Cool down" on the trigger form, an event's included.
+- **JVM tests:** tree edits keep every other key and refuse at each cap; `cardsDraw` over a body with both sides, a catch and a kept card; the path vectors; the byte-equal case; the save's choice of flat or function.
+
+## Question 91 - What is a tree with no name stored as? [asked 2026-11-26, awaiting the owner]
+
+An automation's own steps are stored flat, with no function record, and a flat list cannot hold an If. A function record's name must be at least one character. Question 75 said nothing asks for a name.
+
+Q: When the owner adds an If, a Try, a Wait or an Exit to steps that have no name, what is stored?
+
+- **A) A function with an empty name.** The Gateway lets a function's name be empty; such a function is private: never listed in the picker, never shared. The name field still reads "Name", and typing one makes it shareable, as today.
+- B) A name is asked for when the first such card is added.
+- C) The phone names it after the automation's sentence.
+
+Recommended A: it keeps "nothing asks for a name" and "unnamed is the automation's own steps", and B and C put names in the picker the owner never chose.
+
 ## Phase 2.7e.4 - Calls (slice 6)
 
 Design: Phase 2.7e above.
@@ -2279,6 +2310,23 @@ Design: Phase 2.7e above.
 6. **Calls** (Gateway M, phone M). A function calling another, the loop guards, the Run button under a call id, where a function used only by callers is edited.
 
 Gates: a loop refused at the save and held at the run; a callee failing outside a `try` while its caller sits inside one; an edit of a callee while a run waits inside it.
+
+### How the Calls engine is being built (slice 6, Gateway half)
+
+Written before the code (Fable block 1, Question 90). Each line is a ruling until the code says otherwise.
+
+- **A call is its own step kind:** `call { function, values? }`, the values keyed by the callee's value names, each a literal or an expression read in the caller's scope when the call's turn comes. It is not a `do` step: a `do` step's arguments are flat and capped at `STEP_ARGS_MAX`, and a call is never an effect. A future-kind fixture covers it at every depth, as each statement before it.
+- **The walk follows calls.** `reached(automation, functionOf)` descends through a `call` into its function's steps, each under its call's path, so the step path already names every call site and `stepMember` tells a function reached twice as two events. The descent carries the chain of function ids above it: a function already on the chain is answered as a call not followed, reason `loop`, and never entered. A cap on entries bounds a walk whatever the records hold.
+- **Frames nest by path.** `fire.frames` is keyed by call path already, and `siteAmong` picks the longest site above a step. A `call` at its turn reads its values through the read slot, then `enter` opens a frame at the call's own path, pinned as a pointer's frame is, holding the values it was given (`frame.values`). A pointer's literal values are copied into its frame the same way, so `scopeOf` reads a frame's values in one place.
+- **A callee's end is its call step's end.** `turn` ends the call's record `done`, or failed `call_failed` carrying the frame's first uncaught failure, and the caller's frame moves on through `moved` like any step: inside a `try` it jumps to the catch with `e.code` `call_failed`; outside it is remembered and the body carries on. The top frame's rule (the automation's own list) is unchanged.
+- **Loops are held twice.** At the save, the judge refuses a function whose calls reach itself through the held and incoming rows (`loop`, naming the function that closes it). At the run, entering a function whose id is already on the frames above fails the call `loop`, since a frame pins the version it entered and a later edit could close a loop the save never saw. A run holds at most `RUN_FRAMES_MAX` frames; one past that fails `loop` too.
+- **Scope:** a callee reads the trigger's names, its own declared values and its own variables. It reads nothing of its caller's but what the call passes. A call's values are checked as a pointer's are: every declared value is given by the call or by the trigger, by name and type for a literal; an expression is checked to parse against the caller's names.
+- **Users** are every automation pointing at a function and every function calling it (`usersOf`). A function only callers use is listed, kept and carried: the sweep, the delete at none, `moves`, a carry's choice and the outside-reach and danger asks all read users and reach through calls.
+- **The lane's leading tells stop at a call.** Only an automation's own leading tells and its pointed function's leading top-level steps are the lane's.
+- **An edit of a callee while a run waits inside it** changes nothing for that run: the frame pinned its version at entry. A run that has not yet entered takes the new one.
+- **Keep trying** is the setting of the automation that started the run, for every frame (already so since Question 82).
+- **Order of work:** the step kind with its fixture and the Kotlin ripple (compile only); the walk's descent with the chain; frames with values and the nested end; the run's loop guard and frame cap; the judge's loop and fit checks and `usersOf` through calls; tests for the three gates; then an adversarial read.
+- **Left for the Opus tier:** the Run button's op (`automation_run` under a call id, an automation fired once by hand with the names readable at any moment), and everything on the phone.
 
 ## Phase 2.7f - The script (Q57, Q58, Q60 to Q63, Q65)
 

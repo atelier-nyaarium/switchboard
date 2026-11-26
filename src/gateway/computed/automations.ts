@@ -24,6 +24,7 @@ import { commitChecked, type DurableStore, writeChecked } from "../../shared/dur
 import { errorName } from "../../shared/error-name.js";
 import {
 	AUTOMATION_ACTIONS,
+	AUTOMATION_MESSAGE_MAX,
 	AUTOMATIONS_MAX,
 	type Automation,
 	type AutomationAction,
@@ -105,7 +106,17 @@ import {
 import { holeScope } from "./automationScope.js";
 import { type Checkpoint, FIRED_MAX, own, restore, type State, versionKey } from "./automationState.js";
 import { FRESH_STEP, failedAs, isEnded, refusedUnsent, type Step, steered } from "./automationSteps.js";
-import { holeSpanOf, holeTextsOf, laneTellWhen, STEP_ISSUE_CODE, stepPlaceOf, tellPlan } from "./automationText.js";
+import {
+	holeSpanOf,
+	holeTextsOf,
+	isTell,
+	laneTells,
+	laneTellWhen,
+	ownTellPaths,
+	STEP_ISSUE_CODE,
+	stepPlaceOf,
+	type Tell,
+} from "./automationText.js";
 import { createAutomationValidity, FUNCTION_GONE, FUNCTION_UNREAD, STEP_UNFIT } from "./automationValidity.js";
 import { createAutomationWords, fieldsOf, type WatchedReading } from "./automationWords.js";
 import type { ComputedFields, DerivedField } from "./computedFields.js";
@@ -184,7 +195,6 @@ const callAt = (body: Automation, path: string): Call | null => {
 	return at ? visit<FlatEntry, Call | null>(at, { action: () => null, unfollowedCall: ({ call }) => call }) : null;
 };
 
-const hasSteps = (body: Automation): boolean => Object.keys(stepsOf(body)).length > 0;
 /** A walk whose write failed is retried after this. */
 const CLOCK_RETRY_MS = 30_000;
 /** Kept for a move back. */
@@ -432,12 +442,44 @@ export function createAutomations(deps: AutomationsDeps) {
 		});
 	};
 
-	/** As fired, else as read. */
+	/** Its automation's own tell, as written. */
+	const ownTell = (fire: Fire, path: string): Tell | null => {
+		const body = bodyOf(fire);
+		const action = body && siteIn(fire, path) === null ? actionAt(body, path) : undefined;
+		return action && isTell(action) ? action : null;
+	};
+
+	/** As read, else as fired; null while a tell's holes are unread. */
 	const actionOf = (fire: Fire, path: string): AutomationAction | null => {
 		const site = siteIn(fire, path);
 		if (site !== null) return fire.frames?.[site]?.resolved?.[path] ?? null;
+		const read = fire.resolved?.[path];
+		if (read) return read;
 		const body = bodyOf(fire);
-		return (body && actionAt(body, path)) ?? null;
+		const action = (body && actionAt(body, path)) ?? null;
+		if (!action || !isTell(action) || action.message === undefined) return action;
+		return hasHoles(action.message) ? null : { ...action, message: unescapedText(action.message) };
+	};
+
+	const unreadAt = (fire: Fire, path: string): boolean =>
+		siteIn(fire, path) === null ? ownTell(fire, path) !== null : writtenStep(fire, path) !== null;
+
+	const noteAt = (fire: Fire, path: string): string | null => {
+		const held = writtenStep(fire, path)?.step.args.message;
+		const written =
+			siteIn(fire, path) === null ? ownTell(fire, path)?.message : held?.kind === "literal" && held.value;
+		return typeof written === "string" && hasHoles(written) ? written : null;
+	};
+
+	/** A frame's leading tell the lane told when the fire was recorded, still one in the body it entered. */
+	const laneTold = (fire: Fire, path: string): boolean => {
+		const body = bodyOf(fire);
+		if (!body || !fire.lane?.includes(path) || siteIn(fire, path) === null) return false;
+		const pinned = (id: string): AutomationFunction | null => {
+			const frame = Object.values(fire.frames ?? {}).find((held) => held.function === id);
+			return (frame && frameFunction(frame)) ?? null;
+		};
+		return laneTells(body, pinned).some((tell) => tell.path === path);
 	};
 
 	const stepAt = (fire: Fire, path: string): AutomationEffect | null => {
@@ -455,7 +497,10 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	/** For a step's row: its action, else its own kind. */
 	const kindAt = (fire: Fire, path: string): string | undefined =>
-		actionOf(fire, path)?.kind ?? writtenStep(fire, path)?.step.action ?? treeStep(fire, path)?.kind;
+		actionOf(fire, path)?.kind ??
+		ownTell(fire, path)?.kind ??
+		writtenStep(fire, path)?.step.action ??
+		treeStep(fire, path)?.kind;
 
 	/** Inside an event trigger's cool-down, from its last admission. */
 	const coolingAt = (
@@ -495,6 +540,24 @@ export function createAutomations(deps: AutomationsDeps) {
 		return told;
 	};
 
+	/** The paths the lane tells itself, as its functions stand now. */
+	const laneOf = (body: Automation): string[] => laneTells(body, functionOf).map((tell) => tell.path);
+
+	/** A record per action, less the tells the lane tells itself. */
+	const runSteps = (body: Automation, lane: readonly string[] = laneOf(body)): Fire["steps"] =>
+		Object.fromEntries(Object.entries(stepsOf(body)).filter(([path]) => !lane.includes(path)));
+
+	/** Its own tells alone, a light run; null when it holds none. */
+	const tellsOnly = (fire: Fire, body: Automation | null): Fire | null => {
+		// Remove 2026-12-16 with the fire's `tell`.
+		if (fire.tell) return { ...fire, steps: {}, active: [] };
+		const own = body ? ownTellPaths(body) : new Set<string>();
+		const kept = Object.entries(fire.steps).filter(([path]) => own.has(path));
+		if (kept.length === 0) return null;
+		const { frames: _frames, ...rest } = fire;
+		return { ...rest, steps: Object.fromEntries(kept), active: [], light: true };
+	};
+
 	/** Records a fire for the run; false when nothing will run. */
 	const fire = (
 		work: Work,
@@ -503,9 +566,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		names: FireNames,
 		fields: Record<string, string>,
 	): boolean => {
-		const plan = tellPlan(record.body);
 		const fired = { automation: record.id, seq: at.seq, at: at.at };
-		const call = pointerOf(record.body);
 		const { trigger } = record.body;
 		// A crossing's or a value's is its checkpoint's.
 		const cool = trigger.kind === "event" ? (trigger.coolDownSec ?? 0) : 0;
@@ -517,38 +578,35 @@ export function createAutomations(deps: AutomationsDeps) {
 			if (cool > 0)
 				work.firedAt = { ...work.firedAt, [record.id]: { incarnation: record.incarnation, at: at.at } };
 		};
-		const home = deps.isHome();
-		if (plan.when !== null && !home) work.log = logged(work.log, fireRow(fired, "refused", NOT_HOME));
 		const told = Object.fromEntries(Object.entries(fields).map(([name, value]) => [name, clip(value)]));
-		const tell: Fire["tell"] =
-			plan.when === null || !home
-				? undefined
-				: plan.filling
-					? { when: plan.when, fields: told, fill: true }
-					: { when: plan.when, fields: withMessage(told, plan.messages.map(unescapedText)) };
-		const effects = hasSteps(record.body);
-		if (!tell && !effects) {
+		const lane = laneOf(record.body);
+		const steps = runSteps(record.body, lane);
+		if (Object.keys(steps).length === 0) {
 			// The lane tells it.
 			cooled();
 			return false;
 		}
+		const own = ownTellPaths(record.body);
+		const light = Object.keys(steps).every((path) => own.has(path));
 		const recorded: Fire = {
 			...fired,
 			member: at.member,
 			incarnation: record.incarnation,
 			revision: record.revision,
 			names,
-			steps: stepsOf(record.body),
+			steps,
 			active: [],
-			...(tell ? { tell } : {}),
-			...(call ? { fields: told } : {}),
+			fields: told,
+			...(light ? { light: true as const } : {}),
+			...(lane.length > 0 ? { lane } : {}),
 		};
-		const event = record.body.trigger.kind === "event";
+		const event = trigger.kind === "event";
 		const verdict = admit(work.fires, recorded, {
 			// Each event carries its own.
-			supersede: effects && !event,
+			supersede: !light && !event,
 			earlier: (member) => state.fires.some((stored) => stored.member === member),
 			...(event ? { waitingMax: WAITING_EVENTS_MAX } : {}),
+			tells: (held) => tellsOnly(held, held === recorded ? record.body : bodyOf(held)),
 		});
 		work.fires = verdict.fires;
 		for (const row of verdict.rows) work.log = logged(work.log, fireRow(row.fire, row.outcome, row.reason));
@@ -717,8 +775,6 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	/** The effect in flight. */
 	let running: { ref: StepRef; done: Promise<void> } | null = null;
-	/** The fill beside it. */
-	let filling: Promise<void> | null = null;
 	/** Read in flight. */
 	let reading: Promise<void> | null = null;
 	/** Answers kept until written. */
@@ -777,7 +833,9 @@ export function createAutomations(deps: AutomationsDeps) {
 		actionOf,
 		stepAt,
 		kindAt,
-		writtenStep,
+		unreadAt,
+		noteAt,
+		laneTold,
 		windowOf,
 		callAt,
 		ready: (action) => deps.actions?.ready(action as AutomationEffect) ?? true,
@@ -846,7 +904,6 @@ export function createAutomations(deps: AutomationsDeps) {
 		const {
 			next,
 			effect,
-			fill: toFill,
 			read: toRead,
 			queued,
 		} = automationPass.pass({
@@ -856,7 +913,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			recover: recovering,
 			answers: spent,
 			inFlight: isRunning,
-			busy: { effect: running !== null, fill: filling !== null, read: reading !== null },
+			busy: { effect: running !== null, read: reading !== null },
 		});
 		// An unlanded pass is retried whole, its claim with it.
 		if ((unwritten || canonicalJson(next) !== canonicalJson(state)) && !commit(next)) return;
@@ -868,7 +925,6 @@ export function createAutomations(deps: AutomationsDeps) {
 		}
 		// The claim's runner registers first.
 		if (effect) startEffect(effect);
-		if (toFill) startFill(toFill);
 		if (toRead) startRead(toRead);
 		if (queued) deps.onQueued?.();
 	}
@@ -910,18 +966,6 @@ export function createAutomations(deps: AutomationsDeps) {
 			true,
 		);
 		running = { ref, done };
-	}
-
-	function startFill(member: string): void {
-		const held = heldWork(member);
-		if (!held) return;
-		filling = launch(
-			() => fill(held.fire, held.body),
-			() => {
-				filling = null;
-			},
-			false,
-		);
 	}
 
 	function startRead(ref: StepRef): void {
@@ -1047,6 +1091,8 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	/** Read once, at start. */
 	async function readStep(fire: Fire, ref: StepRef): Promise<boolean> {
+		const own = ownTell(fire, ref.path);
+		if (own) return readOwnTell(fire, ref, own);
 		const steering = treeStep(fire, ref.path);
 		const frameSite = siteIn(fire, ref.path);
 		if (steering && steering.kind !== "do" && frameSite !== null) {
@@ -1178,19 +1224,20 @@ export function createAutomations(deps: AutomationsDeps) {
 		return true;
 	}
 
-	/** A message's holes; false when nothing moved. */
-	async function fill(fire: Fire, body: Automation): Promise<boolean> {
+	/** Its automation's own tell, its message filled. */
+	async function readOwnTell(fire: Fire, ref: StepRef, tell: Tell): Promise<boolean> {
 		const rows: RunRow[] = [];
-		const filled = fillerOf(fire, rows);
-		const written = tellPlan(body).messages;
-		const messages: string[] = [];
-		for (const message of written) messages.push(await filled(message, "tell_assistant"));
+		const filled = await fillerOf(fire, rows)(tell.message ?? "", tell.kind);
 		const log = rows.reduce(logged, state.log);
-		// The pump may have withdrawn it.
-		const held = state.fires.find((stored) => sameRun(stored, fire))?.tell;
-		if (!held?.fill) return rows.length > 0 && commit({ ...state, log });
-		const tell = { when: held.when, fields: withMessage(held.fields, messages, written) };
-		return commit({ ...state, fires: patched(fire.member, { tell }), log });
+		const current = state.fires.find((held) => sameRun(held, fire));
+		const step = current?.steps[ref.path];
+		if (!current || !step || isEnded(step)) return unwanted(rows, log, current, step);
+		const { message: _written, ...bare } = tell;
+		const message = filled.slice(0, AUTOMATION_MESSAGE_MAX);
+		// An empty fill tells with no message.
+		const read: Tell = message === "" ? bare : { ...bare, message };
+		const resolved = { ...current.resolved, [ref.path]: read };
+		return commit({ ...state, fires: patched(ref.member, { resolved }), log });
 	}
 
 	/** Outcomes in one write. */
@@ -1489,7 +1536,7 @@ export function createAutomations(deps: AutomationsDeps) {
 				const { trigger } = record.body;
 				// A cooling one counts the lane's own tells.
 				const cools = trigger.kind === "event" && (trigger.coolDownSec ?? 0) > 0;
-				const runs = hasSteps(record.body) || tellPlan(record.body).when !== null;
+				const runs = Object.keys(runSteps(record.body)).length > 0;
 				if ((!runs && !cools) || fired.includes(member)) continue;
 				fired.push(member);
 				fire(work, record, { member, seq: 0, at }, names, fieldsOf(names));
@@ -1510,7 +1557,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		},
 		/** Resolves when idle. */
 		async settled(): Promise<void> {
-			while (running || filling || reading) await Promise.all([running?.done, filling, reading]);
+			while (running || reading) await Promise.all([running?.done, reading]);
 		},
 		/** Event automations that woke the assistant. */
 		noteEvents(ids: readonly string[], at: number): void {
@@ -1554,7 +1601,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			stopped = true;
 			if (clock) deps.timers?.clearTimer(clock.handle());
 			clock = null;
-			while (running || filling || reading) await Promise.all([running?.done, filling, reading]);
+			while (running || reading) await Promise.all([running?.done, reading]);
 			landSpent();
 		},
 		/** Clear events, then drain; a repeat retries. */
@@ -1584,7 +1631,7 @@ export function createAutomations(deps: AutomationsDeps) {
 				if (trigger.kind !== "event" || trigger.source !== sourceId || !armed(record)) return [];
 				const cool = trigger.coolDownSec ?? 0;
 				const cooling = cool > 0 && coolingAt(state.firedAt, record, now, cool);
-				return [{ id: record.id, trigger, when: laneTellWhen(record.body), cooling }];
+				return [{ id: record.id, trigger, when: laneTellWhen(record.body, functionOf), cooling }];
 			});
 		},
 		log: (): readonly RunRow[] => state.log,

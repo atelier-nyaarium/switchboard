@@ -21,7 +21,9 @@ const ports: PassPorts = {
 	actionOf: () => action,
 	stepAt: () => action,
 	kindAt: () => action.kind,
-	writtenStep: () => null,
+	unreadAt: () => false,
+	noteAt: () => null,
+	laneTold: () => false,
 	windowOf: () => 600_000,
 	callAt: () => null,
 	ready: () => true,
@@ -67,7 +69,7 @@ const inputOf = (fire: Fire, overrides: Partial<PassInput> = {}): PassInput => (
 	recover: false,
 	answers: new Map(),
 	inFlight: () => false,
-	busy: { effect: false, fill: false, read: false },
+	busy: { effect: false, read: false },
 	...overrides,
 });
 
@@ -95,7 +97,7 @@ describe("automation pass", () => {
 	it("leaves a ready effect unclaimed while one is busy", () => {
 		const fire = fireOf({ attempts: 0 });
 
-		const result = createPass(ports).pass(inputOf(fire, { busy: { effect: true, fill: false, read: false } }));
+		const result = createPass(ports).pass(inputOf(fire, { busy: { effect: true, read: false } }));
 
 		expect(result.effect).toBeNull();
 		expect(result.next.fires[0]?.steps["0"]?.claimed).toBeUndefined();
