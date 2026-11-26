@@ -27,7 +27,7 @@ class VaultPlugin : PluginEntry {
 			val payload = action.payload ?: return@PluginActionHandler
 			val retract = runIsolated { wireJson.decodeFromJsonElement(VaultRetract.serializer(), payload) }.getOrNull()
 				?: return@PluginActionHandler
-			repo.vault.settleRequest(retract.requestId)
+			repo.vaultOps.onRetract(retract.requestId)
 		})
 		host.threadForgetHandlers.claim("vault:forget", ThreadForgetHandler { _, team -> repo.vault.forgetTeam(team) })
 		host.accountWipeHandlers.claim("vault:wipe", AccountWipeHandler { _ -> repo.vault.wipe() })

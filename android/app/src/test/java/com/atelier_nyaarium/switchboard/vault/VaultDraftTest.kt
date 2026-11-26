@@ -39,6 +39,14 @@ class VaultDraftTest {
 	)
 
 	@Test
+	fun aTitleHintAppearsUntilEitherTitleHasText() {
+		assertEquals(true, needsTitleHint("", ""))
+		assertEquals(true, needsTitleHint("  ", "\n"))
+		assertEquals(false, needsTitleHint("Public", ""))
+		assertEquals(false, needsTitleHint("", "Private"))
+	}
+
+	@Test
 	fun aReadableEntryClearsWhatTheDraftBlanksAndKeepsAnUntouchedValue() {
 		val opened = VaultManager(object : VaultStore {
 			override fun loadVault() = null

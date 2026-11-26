@@ -123,18 +123,20 @@ export function rememberable(key: string): boolean {
 	return key.length <= MAX_SELECTOR_LEN && selectorKey(key) === key;
 }
 
-/** Usable entries bound by enabled policies sharing the key's program; per entry, the first policy in order. */
+/** Sudo keys share one password. */
+const SHARED_PROGRAM = "sudo";
+
 export function answeringOf(
 	key: string,
 	policies: readonly AuthorizationPolicy[],
 	usable: (entryId: string) => boolean,
 ): VaultAnswering[] {
-	const program = keyProgram(key);
+	if (keyProgram(key) !== SHARED_PROGRAM) return [];
 	const byEntry = new Map<string, VaultAnswering>();
 	for (const policy of policies) {
 		const { entryId } = policy.binding;
 		if (!policy.enabled || byEntry.has(entryId)) continue;
-		if (!policy.selectorKeys.some((held) => keyProgram(held) === program)) continue;
+		if (!policy.selectorKeys.some((held) => keyProgram(held) === SHARED_PROGRAM)) continue;
 		if (!usable(entryId)) continue;
 		byEntry.set(entryId, { entryId, policy: { policyId: policy.id, policyRevision: policy.revision } });
 	}

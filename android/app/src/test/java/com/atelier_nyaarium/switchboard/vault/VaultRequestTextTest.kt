@@ -100,6 +100,28 @@ class VaultRequestTextTest {
 	}
 
 	@Test
+	fun takeoverExplainsThePolicyThatCoversTheRequest() {
+		val replacement = entry().copy(
+			request = VaultRequest.Entry(
+				entryId = "e1",
+				v = 1L,
+				requestId = "replacement",
+				operation = "gh auth login",
+				displayShape = "gh auth",
+				coveredShapes = listOf("gh auth login"),
+				sessionTarget = "evie-bot.0713b7",
+				deadlineAt = 10L,
+				replaces = "old",
+			),
+		)
+
+		assertEquals("Sakura Sudo now covers this.", takeoverNotice(replacement, "Sakura Sudo"))
+		assertEquals("A policy now covers this.", takeoverNotice(replacement, null))
+		assertNull(takeoverNotice(entry(), "Sakura Sudo"))
+		assertNull(takeoverNotice(typed("sudo apt upgrade"), "Sakura Sudo"))
+	}
+
+	@Test
 	fun theCountdownStepsFromHoursToSecondsAndReadsUrgentUnderTwoMinutes() {
 		assertEquals(Expiry("Expires in 19 h", false), expiresIn(20 * 3_600_000L - 1, now = 0L))
 		assertEquals(Expiry("Expires in 1 h", false), expiresIn(3_600_000L, now = 0L))

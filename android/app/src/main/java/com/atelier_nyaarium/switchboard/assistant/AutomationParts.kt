@@ -354,7 +354,9 @@ internal fun refusedHole(said: AutomationSaid?, action: Int, param: String, text
 
 /** Refused text. */
 internal fun saidText(draft: AutomationDraft, at: SaidAt): String = when (at) {
-	is SaidAt.Value -> (draft.runs as? RunsHead.Points)?.pointing?.values?.get(at.param).orEmpty()
+	is SaidAt.Value -> (draft.runs as? RunsHead.Points)?.pointing?.let { pointing ->
+		pointing.params.firstOrNull { it.param.name == at.param }?.let { pointing.values[it.key] }
+	}.orEmpty()
 	is SaidAt.Card -> (draft.actions.getOrNull(at.action) as? ActionDraft.Filled)?.values?.get(at.param).orEmpty()
 }
 
@@ -364,7 +366,7 @@ internal fun refusedField(said: AutomationSaid?, at: SaidAt, text: String): Stri
 
 private fun drawsField(draft: AutomationDraft, at: SaidAt, offer: AutomationOffer): Boolean = when (at) {
 	is SaidAt.Value -> offer.functions != null &&
-		(draft.runs as? RunsHead.Points)?.pointing?.params?.any { it.name == at.param } == true
+		(draft.runs as? RunsHead.Points)?.pointing?.params?.any { it.param.name == at.param } == true
 	is SaidAt.Card -> draft.runs !is RunsHead.Kept &&
 		(draft.actions.getOrNull(at.action) as? ActionDraft.Filled)?.let { card -> actionFields(card, offer).any { it.param?.name == at.param } } == true
 }

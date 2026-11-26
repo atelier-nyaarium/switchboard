@@ -13,12 +13,15 @@ import com.atelier_nyaarium.switchboard.proto.VaultRequest
 import com.atelier_nyaarium.switchboard.proto.VaultStoredEntry
 import com.atelier_nyaarium.switchboard.proto.VaultTypedWhy
 import com.atelier_nyaarium.switchboard.proto.VaultWriteResult
+import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.vault.ApprovalGate
 import com.atelier_nyaarium.switchboard.vault.EntryAnswered
 import com.atelier_nyaarium.switchboard.vault.NewSecretSeed
+import com.atelier_nyaarium.switchboard.vault.MATCH_PRESENCE_WINDOW_MS
 import com.atelier_nyaarium.switchboard.vault.SavedAnswer
 import com.atelier_nyaarium.switchboard.vault.TypedSave
 import com.atelier_nyaarium.switchboard.vault.VAULT_DECISION_ONCE
+import com.atelier_nyaarium.switchboard.vault.VAULT_UNLOCK_EVERY
 import com.atelier_nyaarium.switchboard.vault.VaultDraft
 import com.atelier_nyaarium.switchboard.vault.VaultManager
 import com.atelier_nyaarium.switchboard.vault.VaultRouterWriter
@@ -73,6 +76,29 @@ class VaultOpsTest {
 	}
 
 	@Test
+	fun aTypedEntryRefusalKeepsItsCardLineAndNamesTheNotice() = runBlocking {
+		val world = World()
+		val refusal = buildJsonObject {
+			put("ok", false)
+			put("refusal", buildJsonObject {
+				put("code", Protocol.Wire.VaultAnswerRefusalCode.UNUSABLE.wire)
+				put("unusable", Protocol.Wire.VaultUnusableCode.EMPTY.wire)
+			})
+		}
+		val ops = world.ops { _, _ -> ConsoleClient.ValueAnswer.Answered(refusal) }
+		val request = typed()
+		ops.onRequest(TEAM, request)
+		val pending = world.manager.request(request.requestId)!!
+
+		val outcome = ops.answerWithEntry(pending, entryAnswerOp(pending.requestId, "nyaarium", VAULT_DECISION_ONCE, null)!!) { true }
+
+		assertTrue(outcome is EntryAnswered.Stays)
+		val line = (outcome as EntryAnswered.Stays).line
+		assertFalse(line.startsWith("Sudo request"))
+		assertEquals("Sudo request: $line", world.state.value.notices.single().text)
+	}
+
+	@Test
 	fun withoutPresenceNoApprovalOfAnEntryIsSentRevealedOrSaved() = runBlocking {
 		val world = World()
 		world.hold("nyaarium", "Sakura Nyaarium", "hunter3")
@@ -112,7 +138,7 @@ class VaultOpsTest {
 	@Test
 	fun aTypedValueMatchesTheAnsweringSecretBeforeAnyOther() = runBlocking {
 		val world = World()
-		world.hold("a-twin", "A twin", "hunter3")
+		world.hold("a-twin", "Aardvark twin", "hunter3")
 		world.hold("nyaarium", "Sakura Nyaarium", "hunter3")
 		val ops = world.ops { _, _ -> ConsoleClient.ValueAnswer.Unreachable }
 		val answered = typed(answering = listOf(VaultAnswering("nyaarium", sudo)))
@@ -132,6 +158,121 @@ class VaultOpsTest {
 		assertTrue(form is TypedSave.Form)
 		assertEquals(GATEWAY, (form as TypedSave.Form).seed.gatewayId)
 		assertEquals("unheld", form.seed.value)
+	}
+
+	@Test
+	fun oneTypedMatchCoversOneMatchingApprovalForTheActiveRequest() = runBlocking {
+		val world = World()
+		world.approvalPolicy = VAULT_UNLOCK_EVERY
+		world.state.value = world.state.value.copy(biometricLock = true)
+		world.hold("nyaarium", "Sakura Nyaarium", "hunter3")
+		world.listed()
+		val refusal = buildJsonObject {
+			put("ok", false)
+			put("refusal", buildJsonObject {
+				put("code", Protocol.Wire.VaultAnswerRefusalCode.UNUSABLE.wire)
+				put("unusable", Protocol.Wire.VaultUnusableCode.EMPTY.wire)
+			})
+		}
+		val ops = world.ops { _, _ -> ConsoleClient.ValueAnswer.Answered(refusal) }
+		val request = typed(answering = listOf(VaultAnswering("nyaarium", sudo)))
+		ops.onRequest(TEAM, request)
+		val pending = world.manager.request(request.requestId)!!
+		var prompts = 0
+		val presence: suspend () -> Boolean = { prompts++; true }
+
+		AppLock.unlock()
+		try {
+			assertEquals(TypedSave.Matched("nyaarium"), ops.saveTyped(pending, "hunter3", presence))
+			val same = entryAnswerOp(pending.requestId, "nyaarium", VAULT_DECISION_ONCE, null)!!
+			assertTrue(ops.answerWithEntry(pending, same, presence) is EntryAnswered.Stays)
+			assertEquals(1, prompts)
+			// Spent by its use.
+			assertTrue(ops.answerWithEntry(pending, same, presence) is EntryAnswered.Stays)
+			assertEquals(2, prompts)
+
+			assertEquals(TypedSave.Matched("nyaarium"), ops.saveTyped(pending, "hunter3", presence))
+			val other = entryAnswerOp(pending.requestId, "other-secret", VAULT_DECISION_ONCE, null)!!
+			assertTrue(ops.answerWithEntry(pending, other, presence) is EntryAnswered.Stays)
+			assertEquals(4, prompts)
+
+			assertEquals(TypedSave.Matched("nyaarium"), ops.saveTyped(pending, "hunter3", presence))
+			ops.onRequest(TEAM, typed(id = "another-request"))
+			assertTrue(ops.answerWithEntry(pending, same, presence) is EntryAnswered.Stays)
+			assertEquals(6, prompts)
+
+			assertEquals(TypedSave.Matched("nyaarium"), ops.saveTyped(pending, "hunter3", presence))
+			ops.clearInMemory()
+			assertTrue(ops.answerWithEntry(pending, same, presence) is EntryAnswered.Stays)
+			assertEquals(8, prompts)
+
+			assertEquals(TypedSave.Matched("nyaarium"), ops.saveTyped(pending, "hunter3", presence))
+			AppLock.relock()
+			assertTrue(ops.answerWithEntry(pending, same, presence) is EntryAnswered.Stays)
+			assertEquals(10, prompts)
+		} finally {
+			AppLock.relock()
+		}
+	}
+
+	@Test
+	fun aMatchCarriesNothingPastARelockAChangedSecretAMinuteOrAPromptThatWasNeverOwed() = runBlocking {
+		val world = World()
+		world.approvalPolicy = VAULT_UNLOCK_EVERY
+		world.state.value = world.state.value.copy(biometricLock = true)
+		world.hold("nyaarium", "Sakura Nyaarium", "hunter3")
+		world.listed()
+		val refusal = buildJsonObject {
+			put("ok", false)
+			put("refusal", buildJsonObject {
+				put("code", Protocol.Wire.VaultAnswerRefusalCode.UNUSABLE.wire)
+				put("unusable", Protocol.Wire.VaultUnusableCode.EMPTY.wire)
+			})
+		}
+		val ops = world.ops { _, _ -> ConsoleClient.ValueAnswer.Answered(refusal) }
+		val request = typed(answering = listOf(VaultAnswering("nyaarium", sudo)))
+		ops.onRequest(TEAM, request)
+		val pending = world.manager.request(request.requestId)!!
+		val same = entryAnswerOp(pending.requestId, "nyaarium", VAULT_DECISION_ONCE, null)!!
+		var prompts = 0
+		val presence: suspend () -> Boolean = { prompts++; true }
+		suspend fun approve(): Int {
+			val before = prompts
+			assertTrue(ops.answerWithEntry(pending, same, presence) is EntryAnswered.Stays)
+			return prompts - before
+		}
+
+		AppLock.unlock()
+		try {
+			// Relocked and passed again.
+			assertEquals(TypedSave.Matched("nyaarium"), ops.saveTyped(pending, "hunter3", presence))
+			AppLock.relock()
+			AppLock.unlock()
+			assertEquals(1, approve())
+
+			// The secret's value moved.
+			assertEquals(TypedSave.Matched("nyaarium"), ops.saveTyped(pending, "hunter3", presence))
+			world.hold("nyaarium", "Sakura Nyaarium", "hunter4")
+			world.listed()
+			assertEquals(1, approve())
+
+			// Wall time stands still.
+			assertEquals(TypedSave.Matched("nyaarium"), ops.saveTyped(pending, "hunter4", presence))
+			world.elapsed += MATCH_PRESENCE_WINDOW_MS + 1
+			assertEquals(1, approve())
+
+			// Asked under no policy.
+			world.approvalPolicy = "off"
+			val loosened: suspend () -> Boolean = { world.approvalPolicy = VAULT_UNLOCK_EVERY; true }
+			assertEquals(TypedSave.Matched("nyaarium"), ops.saveTyped(pending, "hunter4", loosened))
+			assertEquals(1, approve())
+
+			// The plain case still carries.
+			assertEquals(TypedSave.Matched("nyaarium"), ops.saveTyped(pending, "hunter4", presence))
+			assertEquals(0, approve())
+		} finally {
+			AppLock.relock()
+		}
 	}
 
 	@Test
@@ -270,6 +411,10 @@ class VaultOpsTest {
 		val state = MutableStateFlow(ChatState())
 		val router = LinkedHashMap<String, VaultStoredEntry>()
 		var puts = 0
+		var now = 1_000_000L
+		/** Monotonic. */
+		var elapsed = 5_000L
+		var approvalPolicy = "off"
 		private val owner = Crypto.generateIdentity()
 		private val sealing = VaultSealing(
 			testBootstrap(domainId = "domain", owner = owner, contentKeyring = ContentKeyring().also { it.deriveOwned(owner, "domain", 1) }),
@@ -294,7 +439,7 @@ class VaultOpsTest {
 			override val writer = this@World.writer
 			override fun sealing(): VaultSealing = this@World.sealing
 			override val client: ConsoleClient? = null
-			override val gate = ApprovalGate({ "off" }, {}, { false }, { true })
+			override val gate = ApprovalGate({ approvalPolicy }, {}, { _, _, _ -> true }, { true }, now = { now })
 		}
 
 		fun ops(valueAnswer: suspend (String, ConsoleOp) -> ConsoleClient.ValueAnswer) = VaultOps(
@@ -304,6 +449,8 @@ class VaultOpsTest {
 			provision = ProvisionFence(),
 			valueAnswer = valueAnswer,
 			matching = Dispatchers.Unconfined,
+			now = { now },
+			elapsed = { elapsed },
 		)
 
 		suspend fun hold(id: String, title: String, value: String) {

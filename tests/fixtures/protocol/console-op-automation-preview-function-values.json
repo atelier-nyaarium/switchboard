@@ -1,0 +1,15 @@
+{
+	"kind": "automation_preview",
+	"trigger": {
+		"kind": "crossing",
+		"device": "ce:1c:44:06:3c:5d",
+		"measure": "temperature",
+		"direction": "below",
+		"threshold": 2,
+		"deadZone": 0.5,
+		"coolDownSec": 90
+	},
+	"text": "Warm {degrees} in {room}.",
+	"params": [{ "name": "degrees", "type": "number" }, { "name": "room", "type": "device" }],
+	"values": { "degrees": 21, "room": "aa:bb:cc:dd:ee:01" }
+}

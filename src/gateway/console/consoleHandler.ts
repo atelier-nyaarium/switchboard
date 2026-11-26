@@ -549,7 +549,7 @@ export function createConsoleDispatcher({
 				return requireAutomations().remove(op.automationId, op.baseRevision);
 
 			case "automation_preview":
-				return requireAutomations().preview(op.trigger, op.text);
+				return requireAutomations().preview(op.trigger, op.text, op.params, op.values);
 
 			case "assistant_safety":
 				return requireAssistant().setSafety(op.approveEverySend);

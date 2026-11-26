@@ -3,18 +3,22 @@ package com.atelier_nyaarium.switchboard.assistant
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
+import com.atelier_nyaarium.switchboard.proto.AutomationFunction
 import com.atelier_nyaarium.switchboard.proto.AutomationFunctionRow
 import com.atelier_nyaarium.switchboard.proto.AutomationFunctionServes
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationSaveRefusal
+import com.atelier_nyaarium.switchboard.proto.AssistantSource
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
 import com.atelier_nyaarium.switchboard.proto.FunctionParam
+import com.atelier_nyaarium.switchboard.proto.FunctionStep
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationSaveRecord
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationSaveRefusalCode
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.FunctionParamType
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.GivenType
 import com.atelier_nyaarium.switchboard.proto.FunctionReads
+import kotlinx.serialization.json.JsonPrimitive
 
 /** What a Gateway holds of functions. */
 internal data class FunctionOffer(val served: AutomationFunctionServes, val rows: List<AutomationFunctionRow>) {
@@ -38,42 +42,79 @@ internal sealed interface ValueSource {
 	data class Set(val text: String) : ValueSource
 
 	data object Unset : ValueSource
+
+	data class Mismatch(val gets: GivenType, val wants: String) : ValueSource
 }
 
 internal data class ValueRow(
-	val param: FunctionParam,
+	val name: String,
 	val type: TypeWord,
 	val source: ValueSource,
+	val param: FunctionParam? = null,
+	val index: Int? = null,
+	val issue: ParamIssue? = null,
 	/** A save's refusal here. */
 	val refused: String? = null,
+	val key: String? = null,
 )
+
+internal data class PlugChoice(val device: String, val label: String, val reference: FunctionValueReference? = null)
+
+internal fun plugChoices(functionParams: List<FunctionValueDraft>, offer: AutomationOffer): List<PlugChoice> =
+	functionParams
+		.filter { it.param.type == FunctionParamType.DEVICE.wire && it.param.name.isNotBlank() }
+		.map { PlugChoice(it.key, "${it.param.name} (value)", FunctionValueReference(it.key, it.param.name)) } +
+		offer.switches.map { PlugChoice(it.device, it.name) }
+
+internal fun storePlugChoice(action: ActionDraft, param: String, choice: PlugChoice): ActionDraft =
+	choice.reference?.let { withReference(action, param, it) } ?: withValue(action, param, choice.device)
+
+internal enum class ParamIssue { EMPTY, INVALID, DUPLICATE }
 
 private val NO_READS = FunctionReads(emptyList(), emptyList())
 
 /** Names a crossing gives in its measure. */
 private val MEASURED = setOf("value", "threshold")
 
-/** A crossing's sensor, read as a device. */
-private const val SENSOR = "device"
-
 /** `measure` is a crossing's; null otherwise. */
 internal fun givenWord(name: String, type: GivenType, measure: String?): TypeWord = when {
 	measure != null && type == GivenType.NUMBER && name in MEASURED -> TypeWord.Measure(measure)
-	// Display only; fit reads text.
-	measure != null && name == SENSOR -> TypeWord.Given(GivenType.DEVICE)
 	else -> TypeWord.Given(type)
 }
 
-/** One row per value the function takes. */
-internal fun valueRows(params: List<FunctionParam>, given: TriggerGiven, values: Map<String, String>, measure: String?): List<ValueRow> =
-	params.map { param ->
-		val gives = given.names.firstOrNull { it.name == param.name }
+internal fun valueRows(
+	params: List<FunctionParam>,
+	given: TriggerGiven,
+	values: Map<String, String>,
+	measure: String?,
+	reads: FunctionReads? = null,
+): List<ValueRow> {
+	val declared = params.map { it.name }.toSet()
+	val readRows = reads?.names.orEmpty().filter { it !in declared }.map { name ->
+		val gets = given.names.firstOrNull { it.name == name }?.type
+		ValueRow(name, gets?.let { givenWord(name, it, measure) } ?: TypeWord.Declared("text"), if (gets == null) ValueSource.Unset else ValueSource.FromTrigger)
+	}
+	val issues = paramIssues(params, given)
+	val paramRows = params.mapIndexed { index, param ->
+		val gets = given.names.firstOrNull { it.name == param.name }?.type
 		when {
-			gives != null -> ValueRow(param, givenWord(param.name, gives.type, measure), ValueSource.FromTrigger)
-			values[param.name].isNullOrBlank() -> ValueRow(param, TypeWord.Declared(param.type), ValueSource.Unset)
-			else -> ValueRow(param, TypeWord.Declared(param.type), ValueSource.Set(values.getValue(param.name)))
+			gets != null && gets == paramType(param.type) -> ValueRow(param.name, givenWord(param.name, gets, measure), ValueSource.FromTrigger, param, index, issues.getOrNull(index))
+			gets != null -> ValueRow(param.name, TypeWord.Declared(param.type), ValueSource.Mismatch(gets, param.type), param, index, issues.getOrNull(index))
+			values[param.name].isNullOrBlank() -> ValueRow(param.name, TypeWord.Declared(param.type), ValueSource.Unset, param, index, issues.getOrNull(index))
+			else -> ValueRow(param.name, TypeWord.Declared(param.type), ValueSource.Set(values.getValue(param.name)), param, index, issues.getOrNull(index))
 		}
 	}
+	return readRows + paramRows
+}
+
+private fun paramType(type: String): GivenType? = GivenType.entries.firstOrNull { it.wire == type }
+
+internal fun functionParamTypeText(type: String): String = when (type) {
+	FunctionParamType.DEVICE.wire -> "Device"
+	FunctionParamType.TEXT.wire -> "Text"
+	FunctionParamType.NUMBER.wire -> "Number"
+	else -> type
+}
 
 internal enum class ValueIssue { UNKNOWN_DEVICE, NOT_A_NUMBER }
 
@@ -94,12 +135,20 @@ internal sealed interface RunsIssue {
 
 	data class Unset(val name: String) : RunsIssue
 
+	data object NameWithValues : RunsIssue
+
+	data class BadParam(val name: String, val issue: ParamIssue) : RunsIssue
+
+	data object TooManyParams : RunsIssue
+
 	data class BadValue(val name: String, val issue: ValueIssue) : RunsIssue
 
 	data class Unfit(val fit: FitAnswer) : RunsIssue
 
 	/** Its name was cleared while others run it. */
 	data class SharedName(val users: Int) : RunsIssue
+
+	data class SharedUnfit(val users: Int) : RunsIssue
 
 	data class NameTooLong(val max: Int) : RunsIssue
 }
@@ -112,6 +161,36 @@ private fun stepIssue(steps: List<ActionDraft>, offer: AutomationOffer): RunsIss
 	return steps.withIndex().firstNotNullOfOrNull { (at, step) -> actionIssue(step, offer)?.let { RunsIssue.Step(at, it) } }
 }
 
+private fun stepIssue(steps: List<ActionDraft>, offer: AutomationOffer, params: List<FunctionValueDraft>): RunsIssue? {
+	if (steps.isEmpty()) return RunsIssue.NoSteps
+	val byKey = params.associateBy { it.key }
+	return steps.withIndex().firstNotNullOfOrNull { (at, step) ->
+		val filled = step as? ActionDraft.Filled
+		val refIssue = filled?.references?.values?.firstNotNullOfOrNull { reference ->
+			val value = byKey[reference.key]
+			when {
+				value == null -> "${reference.name} is no longer a value; pick again"
+				value.param.type != FunctionParamType.DEVICE.wire -> "${value.param.name} needs a Device value"
+				else -> null
+			}
+		}
+		(refIssue ?: actionIssue(step, offer, byKey.keys))?.let { RunsIssue.Step(at, it) }
+	}
+}
+
+private fun paramIssues(params: List<FunctionParam>, given: TriggerGiven): List<ParamIssue?> {
+	val nameCounts = params.filter { it.name.isNotBlank() }.groupingBy { it.name }.eachCount()
+	return params.map { param ->
+		when {
+			param.name.isBlank() -> ParamIssue.EMPTY
+			param.name.length > Protocol.Wire.FUNCTION_PARAM_NAME_MAX ||
+				!Regex(Protocol.Wire.FUNCTION_PARAM_NAME_PATTERN).matches(param.name) -> ParamIssue.INVALID
+			nameCounts[param.name] != 1 -> ParamIssue.DUPLICATE
+			else -> null
+		}
+	}
+}
+
 /** Null when edited. */
 internal fun runsIssue(
 	runs: RunsDraft,
@@ -120,37 +199,83 @@ internal fun runsIssue(
 	offer: AutomationOffer,
 	servedSteps: List<String>,
 	reads: FunctionReads?,
+	rows: List<AutomationRow> = emptyList(),
+	sources: List<AssistantSource> = emptyList(),
 ): RunsIssue? =
 	when (runs) {
 		is RunsDraft.Kept -> null
-		is RunsDraft.Flat -> stepIssue(runs.actions, offer) ?: if (runs.name.isBlank()) {
-			null
-		} else {
-			nameIssue(runs.name) ?: runs.actions.withIndex()
-				.firstOrNull { (_, action) -> action.kind !in servedSteps || stepOf(action, offer) == null }
-				?.let { RunsIssue.NotAStep(it.index) }
-		}
-		is RunsDraft.Pointing -> stepIssue(runs.steps, offer) ?: pointingIssue(runs, selfId, given, offer, reads)
+		is RunsDraft.Flat -> stepIssue(runs.actions, offer)
+		is RunsDraft.Pointing -> stepIssue(runs.steps, offer, runs.params) ?: pointingIssue(runs, selfId, given, offer, reads, rows, sources)
 	}
 
-private fun pointingIssue(runs: RunsDraft.Pointing, selfId: String, given: TriggerGiven, offer: AutomationOffer, reads: FunctionReads?): RunsIssue? {
+private fun pointingIssue(
+	runs: RunsDraft.Pointing,
+	selfId: String,
+	given: TriggerGiven,
+	offer: AutomationOffer,
+	reads: FunctionReads?,
+	rows: List<AutomationRow>,
+	sources: List<AssistantSource>,
+): RunsIssue? {
 	if (runs.name.isBlank()) {
 		val others = othersOf(runs, selfId, offer.functions)
 		if (sharedName(runs, others)) return RunsIssue.SharedName(others.size + 1)
+		if (runs.params.isNotEmpty() || runs.steps.any { (it as? ActionDraft.Filled)?.references?.isNotEmpty() == true }) return RunsIssue.NameWithValues
 		return runs.steps.withIndex().firstOrNull { (_, step) -> step is ActionDraft.Kept }?.let { RunsIssue.NotAStep(it.index) }
 	}
 	nameIssue(runs.name)?.let { return it }
-	for (row in valueRows(runs.params, given, runs.values, measure = null)) {
+	val wireParams = runs.wireParams()
+	val values = runs.valuesByName()
+	val bodyReads = functionBodyReads(runs, reads, offer)
+	runs.steps.withIndex().firstOrNull { (_, step) -> stepOf(step, offer, runs.params) == null }?.let { return RunsIssue.NotAStep(it.index) }
+	if (runs.params.size > Protocol.Wire.FUNCTION_PARAMS_MAX) return RunsIssue.TooManyParams
+	val paramIssues = paramIssues(wireParams, given)
+	paramIssues.forEachIndexed { index, issue -> if (issue != null) return RunsIssue.BadParam(wireParams.getOrNull(index)?.name.orEmpty(), issue) }
+	for (row in valueRows(wireParams, given, values, measure = null, reads = bodyReads)) {
 		when (val source = row.source) {
 			ValueSource.FromTrigger -> Unit
-			ValueSource.Unset -> return RunsIssue.Unset(row.param.name)
-			is ValueSource.Set -> valueIssue(row.param, source.text, offer)?.let { return RunsIssue.BadValue(row.param.name, it) }
+			is ValueSource.Mismatch -> Unit
+			ValueSource.Unset -> row.param?.let { return RunsIssue.Unset(it.name) }
+			is ValueSource.Set -> row.param?.let { param -> valueIssue(param, source.text, offer)?.let { return RunsIssue.BadValue(param.name, it) } }
 		}
 	}
-	val typed = runs.params.mapNotNull { param -> runs.values[param.name]?.let { functionValueOf(param, it) }?.let { param.name to it } }.toMap()
-	val fit = fitOf(given, runs.params, reads ?: NO_READS, typed)
-	return RunsIssue.Unfit(fit).takeIf { fit.hidden || fit.requires.isNotEmpty() || fit.wrong.isNotEmpty() }
+	val typed = wireParams.mapNotNull { param -> values[param.name]?.let { functionValueOf(param, it) }?.let { param.name to it } }.toMap()
+	val fit = fitOf(given, wireParams, bodyReads, typed)
+	if (fit.hidden || fit.requires.isNotEmpty() || fit.wrong.isNotEmpty()) return RunsIssue.Unfit(fit)
+	if (runs.mode == PointMode.SHARED && runs.original?.params != wireParams) {
+		val function = offer.functions?.row(runs.functionId)
+		val users = (function?.users ?: runs.others).filter { it != selfId }
+		val oldReads = functionBodyReadsOf(runs.original, function?.reads ?: reads, runs.original?.let(::written))
+		val unfit = users.any { id ->
+			val row = rows.firstOrNull { it.id == id } ?: return@any true
+			val pointer = written(row.automation).singleOrNull() as? AutomationAction.RunFunction ?: return@any true
+			val userDraft = automationDraftOf(row, EditContext(offer, sources)) ?: return@any true
+			val userValues = pointer.values.orEmpty().mapNotNull { (name, value) -> (value as? JsonPrimitive)?.let { name to it } }.toMap()
+			val userGiven = givenOf(userDraft, fieldsOf(userDraft, sources))
+			fun fits(params: List<FunctionParam>, reads: FunctionReads): Boolean {
+				if (!fitOf(userGiven, params, reads, userValues).fits) return false
+				val givenNames = userGiven.names.map { it.name }.toSet()
+				return params.none { param ->
+					param.type == FunctionParamType.DEVICE.wire && param.name !in givenNames &&
+						userValues[param.name]?.let { valueIssue(param, it.content, offer) != null } == true
+				}
+			}
+			val wasFit = runs.original?.let { fits(it.params, oldReads) } ?: false
+			val isFit = fits(wireParams, bodyReads)
+			wasFit && !isFit
+		}
+		if (unfit) return RunsIssue.SharedUnfit(users.size + 1)
+	}
+	return null
 }
+
+private fun functionBodyReads(runs: RunsDraft.Pointing, reads: FunctionReads?, offer: AutomationOffer): FunctionReads {
+	val steps = runs.steps.map { stepOf(it, offer, runs.params) }.takeIf { it.none { step -> step == null } }?.filterNotNull()
+	return functionBodyReadsOf(runs.original, reads, steps)
+}
+
+private fun functionBodyReadsOf(function: AutomationFunction?, reads: FunctionReads?, steps: List<FunctionStep>?): FunctionReads =
+	reads?.takeIf { function != null && steps == written(function) } ?: NO_READS
 
 /** What the Runs block draws. */
 internal data class RunsView(
@@ -172,15 +297,22 @@ internal data class RunsView(
 	val reachHeader: Boolean get() = reach.isNotEmpty()
 }
 
+internal fun canAddValue(view: RunsView): Boolean =
+	!view.kept && view.name.isNotBlank() && view.values.count { it.param != null } < Protocol.Wire.FUNCTION_PARAMS_MAX
+
 /** Cards draw own. */
 private fun blockIssue(issue: RunsIssue?): RunsIssue? = when (issue) {
 	null, RunsIssue.NoSteps, is RunsIssue.Step -> null
 	is RunsIssue.NotAStep,
 	is RunsIssue.Unset,
+	RunsIssue.NameWithValues,
+	is RunsIssue.BadParam,
 	is RunsIssue.BadValue,
 	is RunsIssue.Unfit,
 	is RunsIssue.SharedName,
+	is RunsIssue.SharedUnfit,
 	is RunsIssue.NameTooLong,
+	RunsIssue.TooManyParams,
 	-> issue
 }
 
@@ -193,21 +325,25 @@ internal fun runsView(
 	said: AutomationSaid? = null,
 ): RunsView? {
 	val functions = offer.functions ?: return null
-	val issue = blockIssue(draftRunsIssue(draft, fields, offer))
+ val issue = blockIssue(draftRunsIssue(draft, fields, offer, rows))
 	return when (val runs = draft.runsDraft()) {
-		is RunsDraft.Flat -> RunsView(runs.name, true, null, emptyList(), emptyList(), unique = false, makeUnique = false, kept = false, issue = issue)
+		is RunsDraft.Flat -> RunsView("", true, null, emptyList(), emptyList(), unique = false, makeUnique = false, kept = false, issue = issue)
 		is RunsDraft.Kept -> RunsView("", false, null, emptyList(), emptyList(), unique = false, makeUnique = false, kept = true, issue = null)
 		is RunsDraft.Pointing -> {
 			val others = othersOf(runs, draft.id, functions)
 			val shared = sharedName(runs, others)
 			val row = functions.row(runs.functionId)
+			val reads = functionBodyReads(runs, row?.reads, offer)
 			RunsView(
 				name = runs.name,
 				nameEditable = true,
 				usedBy = if (shared) others.size + 1 else null,
-				values = valueRows(runs.params, givenOf(draft, fields), runs.values, measureOf(draft)).map { row ->
-					val at = SaidAt.Value(row.param.name)
-					row.copy(refused = refusedField(said, at, saidText(draft, at)))
+				values = valueRows(runs.wireParams(), givenOf(draft, fields), runs.valuesByName(), measureOf(draft), reads).map { value ->
+					val at = SaidAt.Value(value.name)
+					value.copy(
+						refused = refusedField(said, at, saidText(draft, at)),
+						key = value.index?.let { runs.params.getOrNull(it)?.key },
+					)
 				},
 				reach = if (shared && row != null) reachLine(row, draft.id, rows) else emptyList(),
 				unique = runs.mode == PointMode.UNIQUE,
@@ -279,8 +415,14 @@ internal fun pickerChoices(given: TriggerGiven, functions: List<AutomationFuncti
 				.thenBy { it.id },
 		)
 		.map { row ->
-			val signature = row.function.params.map { param ->
-				param.name to (given.names.firstOrNull { it.name == param.name }?.let { givenWord(param.name, it.type, measure) } ?: TypeWord.Declared(param.type))
+			val params = row.function.params.associateBy { it.name }
+			val names = row.reads.names + row.function.params.map { it.name }.filter { it !in row.reads.names }
+			val signature = names.map { name ->
+				val source = given.names.firstOrNull { it.name == name }
+				val type = source?.let { givenWord(name, it.type, measure) }
+					?: params[name]?.let { TypeWord.Declared(it.type) }
+					?: TypeWord.Declared("text")
+				name to type
 			}
 			PickerRow(row, signature, row.users.size, current = row.id == current, invalid = row.invalid)
 		}

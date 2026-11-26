@@ -8,7 +8,9 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
+import com.atelier_nyaarium.switchboard.proto.FunctionParam
 import com.atelier_nyaarium.switchboard.proto.Protocol
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 
 /** `serves` rides the same answer as the rows. */
@@ -63,8 +65,10 @@ internal suspend fun ConsoleClient.automationPreview(
 	gatewayId: String,
 	trigger: AutomationTrigger,
 	text: String?,
+	params: List<FunctionParam>?,
+	values: JsonObject?,
 ): ConsoleAutomationPreviewResult? =
-	when (val answer = sendValueAnswer(gatewayId, ConsoleOp.AutomationPreview(trigger = trigger, text = text))) {
+	when (val answer = sendValueAnswer(gatewayId, ConsoleOp.AutomationPreview(trigger = trigger, text = text, params = params, values = values))) {
 		is ConsoleClient.ValueAnswer.Answered ->
 			runIsolated { wireJson.decodeFromJsonElement<ConsoleAutomationPreviewResult>(answer.result) }.getOrNull()
 		is ConsoleClient.ValueAnswer.Refused, is ConsoleClient.ValueAnswer.Undelivered, ConsoleClient.ValueAnswer.Unreachable -> null

@@ -28,6 +28,7 @@ internal fun <T> PickMenu(
 	trailingOf: (T) -> String? = { null },
 	enabled: Boolean = true,
 	enabledOf: (T) -> Boolean = { true },
+	placeholder: String? = null,
 ) {
 	var open by remember { mutableStateOf(false) }
 
@@ -42,7 +43,7 @@ internal fun <T> PickMenu(
 			readOnly = true,
 			enabled = enabled,
 			label = { Text(label) },
-			placeholder = { Text(if (choices.isEmpty()) "Nothing to pick" else "Choose one") },
+			placeholder = { Text(placeholder ?: if (choices.isEmpty()) "Nothing to pick" else "Choose one") },
 			trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = open) },
 			modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
 		)

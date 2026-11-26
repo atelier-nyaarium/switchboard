@@ -271,6 +271,8 @@ import {
 	FunctionParamSchema,
 	FunctionSchema,
 	FunctionStepSchema,
+	PARAM_NAME_MAX,
+	PARAM_NAME_RE,
 	STEP_ARGS_MAX,
 	StepArgSchema,
 } from "../src/shared/schemasFunction.js";
@@ -1371,6 +1373,8 @@ const wireConstants: ReadonlyArray<readonly [string, string | number]> = [
 	["FUNCTIONS_MAX", FUNCTIONS_MAX],
 	["FUNCTION_STEPS_MAX", FUNCTION_STEPS_MAX],
 	["FUNCTION_PARAMS_MAX", FUNCTION_PARAMS_MAX],
+	["FUNCTION_PARAM_NAME_PATTERN", PARAM_NAME_RE.source],
+	["FUNCTION_PARAM_NAME_MAX", PARAM_NAME_MAX],
 	["STEP_ARGS_MAX", STEP_ARGS_MAX],
 	["FUNCTION_NAME_MAX", FUNCTION_NAME_MAX],
 	["ASSISTANT_HOME_SEALED_MAX_BYTES", ASSISTANT_HOME_SEALED_MAX_BYTES],

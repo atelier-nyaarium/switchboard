@@ -1808,16 +1808,19 @@ describe("automations", () => {
 
 		it("refuses a pointer at a function it does not hold or one whose step it cannot run, and takes one it holds", () => {
 			const dir = fresh();
-			const fn = (id: string, action: string) => ({
+			const fn = (id: string, action: string, args: object = {}) => ({
 				id,
 				kind: "function",
 				revision: 1,
 				incarnation: id,
-				body: { name: id, params: [], steps: [{ kind: "do", action, args: {} }] },
+				body: { name: id, params: [], steps: [{ kind: "do", action, args }] },
 			});
 			fs.writeFileSync(
 				path.join(dir, "automations.json"),
-				JSON.stringify([fn("tell", "tell_assistant"), fn("odd", "launch_rocket")]),
+				JSON.stringify([
+					fn("tell", "tell_assistant", { when: { kind: "literal", value: "now" } }),
+					fn("odd", "launch_rocket"),
+				]),
 			);
 			const { automations } = world(dir).open();
 			const pointing = (function_: string): AutomationInput => ({

@@ -18,10 +18,14 @@ import com.atelier_nyaarium.switchboard.proto.AssistantWatcherRules
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationCondition
+import com.atelier_nyaarium.switchboard.proto.AutomationFunction
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
+import com.atelier_nyaarium.switchboard.proto.AutomationSaveFunction
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
+import com.atelier_nyaarium.switchboard.proto.FunctionParam
+import com.atelier_nyaarium.switchboard.proto.FunctionStep
 import com.atelier_nyaarium.switchboard.proto.PhoneStatusAnswer
 import com.atelier_nyaarium.switchboard.proto.PhoneStatusKey
 import com.atelier_nyaarium.switchboard.proto.VaultRemember
@@ -33,6 +37,7 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -168,7 +173,31 @@ class PhoneEncodedFixtureTest {
 			"a save that needs no go-ahead" to ConsoleOp.AutomationPut("hourly", edited[2].second.toAutomation(offer)!!, 0L),
 			"a preview of a text with holes" to
 				ConsoleOp.AutomationPreview(edited[0].second.toAutomation(offer)!!.trigger, text = "It is {value} at {device}."),
+			"a preview with function values" to ConsoleOp.AutomationPreview(
+				edited[0].second.toAutomation(offer)!!.trigger,
+				text = "The room is {room}.",
+				params = listOf(FunctionParam("room", "text")),
+				values = JsonObject(mapOf("room" to JsonPrimitive("Office"))),
+			),
 			"a preview of a trigger alone" to ConsoleOp.AutomationPreview(edited[2].second.toAutomation(offer)!!.trigger),
+			"a function save with a result name" to ConsoleOp.AutomationSave(
+				automationId = "notice",
+				automation = Automation(
+					enabled = true,
+					trigger = edited[2].second.toAutomation(offer)!!.trigger,
+					actions = listOf(AutomationAction.RunFunction("notice")),
+				),
+				automationBase = 2L,
+				function = AutomationSaveFunction.Edit(
+					id = "notice",
+					base = 1L,
+					body = AutomationFunction(
+						name = "Notice",
+						params = emptyList(),
+						steps = listOf(FunctionStep.Do(action = "tell_assistant", `as` = "result", args = JsonObject(mapOf("when" to literal("now"), "message" to literal("Done"))))),
+					),
+				),
+			),
 			"a sudo request answered with a secret, remembered into its policy" to
 				entryAnswerOp("req-1", "nyaarium", VAULT_DECISION_WINDOW, VaultRemember(policyId = "sakura-sudo"))!!,
 			"a sudo request answered with a secret, remembered as a new policy" to

@@ -4,8 +4,11 @@ import com.atelier_nyaarium.switchboard.assistant.CarryRefusal
 import com.atelier_nyaarium.switchboard.assistant.RunsIssue
 import com.atelier_nyaarium.switchboard.assistant.TypeWord
 import com.atelier_nyaarium.switchboard.assistant.ValueIssue
+import com.atelier_nyaarium.switchboard.assistant.ParamIssue
 import com.atelier_nyaarium.switchboard.proto.AutomationSaveRefusal
 import com.atelier_nyaarium.switchboard.proto.Protocol
+import com.atelier_nyaarium.switchboard.proto.VaultRequest
+import com.atelier_nyaarium.switchboard.vault.VaultPendingRequest
 
 // Every sentence a notice or a failed row shows lives here.
 
@@ -250,6 +253,9 @@ internal const val CANNOT_REMEMBER_LINE = "This command cannot be remembered."
 
 internal const val VAULT_UNLISTED = "Still reading your vault. Try again in a moment."
 
+internal fun vaultNoticeLine(request: VaultPendingRequest, sentence: String): String =
+	if (request.request is VaultRequest.Typed) "Sudo request: $sentence" else sentence
+
 internal fun addsToLine(policy: String?): String = if (policy != null) "Adds to $policy." else "Adds to its policy."
 
 internal fun newPolicyLine(name: String): String = "New policy $name."
@@ -393,7 +399,7 @@ internal fun automationSaveLine(
 		Protocol.Wire.AutomationSaveRefusalCode.UNWRITTEN -> "The Gateway could not save it. Try again."
 		Protocol.Wire.AutomationSaveRefusalCode.NEWER_AUTOMATION -> "Edit this automation in the newer app."
 		Protocol.Wire.AutomationSaveRefusalCode.NO_FREE_ID -> "This Gateway has no room for another copy of that function."
-		null -> "The Gateway refused it."
+		null -> refusal?.line ?: "The Gateway refused it."
 	}
 }
 
@@ -421,6 +427,9 @@ internal fun runsIssueLine(issue: RunsIssue): String = when (issue) {
 	is RunsIssue.Step -> issue.line
 	is RunsIssue.NotAStep -> "Step ${issue.index + 1} cannot run in a function."
 	is RunsIssue.Unset -> "Set a value for ${issue.name}."
+	RunsIssue.NameWithValues -> "Name it, or remove its values."
+	is RunsIssue.BadParam -> paramIssueLine(issue.issue)
+	RunsIssue.TooManyParams -> "A function takes at most ${Protocol.Wire.FUNCTION_PARAMS_MAX} values."
 	is RunsIssue.BadValue -> when (issue.issue) {
 		ValueIssue.UNKNOWN_DEVICE -> "Pick a device for ${issue.name} again."
 		ValueIssue.NOT_A_NUMBER -> "${issue.name} is a number."
@@ -431,7 +440,14 @@ internal fun runsIssueLine(issue: RunsIssue): String = when (issue) {
 		else -> issue.fit.wrong.joinToString(" ") { "This trigger gives ${it.name} as ${typeWordText(TypeWord.Given(it.gets)).lowercase()}." }
 	}
 	is RunsIssue.SharedName -> "Used by ${issue.users}. Make unique first."
+	is RunsIssue.SharedUnfit -> "Used by ${issue.users}. Make unique first."
 	is RunsIssue.NameTooLong -> "A function name holds at most ${issue.max} characters."
+}
+
+internal fun paramIssueLine(issue: ParamIssue): String = when (issue) {
+	ParamIssue.EMPTY -> "Name this value."
+	ParamIssue.INVALID -> "Use a lowercase name with letters, digits, and _."
+	ParamIssue.DUPLICATE -> "This name is used twice."
 }
 
 internal fun usedByLine(count: Int): String = "Used by $count"

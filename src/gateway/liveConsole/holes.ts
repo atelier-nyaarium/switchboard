@@ -27,18 +27,16 @@ type Found = { start: number; end: number; message: string } | null;
 
 function unreadable(node: ConsoleNode, names: ReadonlySet<string>, registry: ConsoleRegistry): Found {
 	const walk = (child: ConsoleNode | null): Found => (child ? unreadable(child, names, registry) : null);
-	/** A trigger's name shadows no entity. */
-	const entityOf = (target: ConsoleNode) =>
-		target.kind === "ident" && !names.has(target.name) ? registry.get(target.name, AUDIENCE) : null;
+	/** Entities shadow names. */
+	const entityOf = (target: ConsoleNode) => (target.kind === "ident" ? registry.get(target.name, AUDIENCE) : null);
 	switch (node.kind) {
 		case "literal":
 			return null;
 		case "ident": {
+			if (registry.get(node.name, AUDIENCE))
+				return { start: node.start, end: node.end, message: `name what to read of ${node.name}` };
 			if (names.has(node.name)) return null;
-			const message = registry.get(node.name, AUDIENCE)
-				? `name what to read of ${node.name}`
-				: `no name ${node.name} here`;
-			return { start: node.start, end: node.end, message };
+			return { start: node.start, end: node.end, message: `no name ${node.name} here` };
 		}
 		case "member": {
 			const entity = entityOf(node.target);

@@ -139,6 +139,11 @@
 		{ "file": "automation-trigger-interval.json", "schema": "AutomationTrigger", "expect": "pass" },
 		{ "file": "console-op-automation-put-actions.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "console-op-automation-preview-text.json", "schema": "ConsoleOp", "expect": "pass" },
+		{
+			"file": "console-op-automation-preview-function-values.json",
+			"schema": "ConsoleOp",
+			"expect": "pass"
+		},
 		{ "file": "automation-list-result-serves.json", "schema": "ConsoleAutomationListResult", "expect": "pass" },
 		{ "file": "automation-put-result-confirm.json", "schema": "ConsoleAutomationPutResult", "expect": "pass" },
 		{ "file": "automation-put-result-hole.json", "schema": "ConsoleAutomationPutResult", "expect": "pass" },
@@ -160,6 +165,7 @@
 		},
 		{ "file": "automation-action-run-function.json", "schema": "AutomationAction", "expect": "pass" },
 		{ "file": "automation-function.json", "schema": "AutomationFunction", "expect": "pass" },
+		{ "file": "function-step-as.json", "schema": "FunctionStep", "expect": "pass" },
 		{ "file": "automation-list-result-functions.json", "schema": "ConsoleAutomationListResult", "expect": "pass" },
 		{ "file": "console-op-automation-save.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "console-op-automation-save-copy.json", "schema": "ConsoleOp", "expect": "pass" },

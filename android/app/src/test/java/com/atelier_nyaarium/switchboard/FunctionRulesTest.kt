@@ -2,7 +2,17 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.assistant.ActionDraft
 import com.atelier_nyaarium.switchboard.assistant.FunctionLine
+import com.atelier_nyaarium.switchboard.assistant.FunctionValueDraft
+import com.atelier_nyaarium.switchboard.assistant.FunctionValueReference
+import com.atelier_nyaarium.switchboard.assistant.SwitchOffer
+import com.atelier_nyaarium.switchboard.assistant.RunsView
+import com.atelier_nyaarium.switchboard.assistant.ValueRow
+import com.atelier_nyaarium.switchboard.assistant.canAddValue
+import com.atelier_nyaarium.switchboard.assistant.functionParamTypeText
+import com.atelier_nyaarium.switchboard.assistant.plugChoices
+import com.atelier_nyaarium.switchboard.assistant.storePlugChoice
 import com.atelier_nyaarium.switchboard.assistant.PointMode
+import com.atelier_nyaarium.switchboard.assistant.ParamIssue
 import com.atelier_nyaarium.switchboard.assistant.RunsDraft
 import com.atelier_nyaarium.switchboard.assistant.RunsIssue
 import com.atelier_nyaarium.switchboard.assistant.SaveAnswer
@@ -34,10 +44,12 @@ import com.atelier_nyaarium.switchboard.proto.FunctionStep
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationSaveRecord
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationSaveRefusalCode
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.GivenType
+import com.atelier_nyaarium.switchboard.proto.Protocol
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -80,6 +92,8 @@ class FunctionRulesTest {
 		automationRow("plain", "Every day at 18:00", listOf(AutomationAction.DeviceSet(SANDBOX_SWITCH, "on"))),
 		automationRow("lost", "A newer build's", listOf(AutomationAction.RunFunction(function = "unread"))),
 	)
+	private fun valuesByName(runs: RunsDraft.Pointing, values: Map<String, String>): Map<String, String> =
+		runs.params.mapNotNull { row -> values[row.param.name]?.let { row.key to it } }.toMap()
 
 	@Test
 	fun eachValueSaysWhereItComesFromAndHowItsTypeReads() {
@@ -94,13 +108,13 @@ class FunctionRulesTest {
 		assertEquals(
 			listOf(
 				TypeWord.Measure("temperature") to ValueSource.FromTrigger,
-				TypeWord.Given(GivenType.DEVICE) to ValueSource.FromTrigger,
+				TypeWord.Declared("device") to ValueSource.Mismatch(GivenType.TEXT, "device"),
 				TypeWord.Declared("text") to ValueSource.Set("Bedroom"),
 				TypeWord.Declared("number") to ValueSource.Unset,
 			),
 			shown.map { it.type to it.source },
 		)
-		// The sensor reads as text, shows as a device.
+		// Sensor reads text.
 		assertEquals(GivenType.TEXT, given.names.single { it.name == "device" }.type)
 		assertEquals(listOf("reason", "id", "title", "url"), triggerGiven("event", eventFields = listOf("reason", "id")).eventFields)
 		// No measure known: the type's own word.
@@ -113,6 +127,44 @@ class FunctionRulesTest {
 	}
 
 	@Test
+	fun plugChoicesPutDeviceValuesBeforePlugsAndStoreReferencesByKey() {
+		val params = listOf(
+			FunctionValueDraft("lamp-key", FunctionParam("lamp", "device")),
+			FunctionValueDraft("room-key", FunctionParam("room", "text")),
+			FunctionValueDraft("fan-key", FunctionParam("fan", "device")),
+		)
+		val offer = FN_OFFER.copy(switches = listOf(SwitchOffer("plug-a", "Plug A"), SwitchOffer("plug-b", "Plug B")))
+		val choices = plugChoices(params, offer)
+		val empty = ActionDraft.Filled("device_set", mapOf("device" to "", "verb" to "on"))
+		val fromValue = storePlugChoice(empty, "device", choices.first()) as ActionDraft.Filled
+		val fromPlug = storePlugChoice(fromValue, "device", choices.last()) as ActionDraft.Filled
+
+		assertEquals(listOf("lamp (value)", "fan (value)", "Plug A", "Plug B"), choices.map { it.label })
+		assertEquals(mapOf("device" to FunctionValueReference("lamp-key", "lamp")), fromValue.references)
+		assertEquals("plug-b", fromPlug.values.getValue("device"))
+		assertTrue(fromPlug.references.isEmpty())
+	}
+
+	@Test
+	fun addValueRequiresANamedWritableFunctionBelowItsCap() {
+		val empty = RunsView("", true, null, emptyList(), emptyList(), unique = false, makeUnique = false, kept = false, issue = null)
+		val named = empty.copy(name = "Notify")
+		val full = named.copy(values = (1..Protocol.Wire.FUNCTION_PARAMS_MAX).map { index ->
+			ValueRow("v$index", TypeWord.Declared("text"), ValueSource.Unset, FunctionParam("v$index", "text"))
+		})
+
+		assertFalse(canAddValue(empty))
+		assertTrue(canAddValue(named))
+		assertFalse(canAddValue(full))
+		assertFalse(canAddValue(named.copy(kept = true)))
+	}
+
+	@Test
+	fun functionTypeWordsUseTheirDisplayLabels() {
+		assertEquals(listOf("Device", "Text", "Number"), listOf("device", "text", "number").map(::functionParamTypeText))
+	}
+
+	@Test
 	fun saveWaitsForWhatTheRunsBlockStillOwes() {
 		val blink = functionRow("blink", "Blink", listOf("mine"), params = listOf(FunctionParam("lamp", "device"), FunctionParam("times", "number")))
 		val pointing = pointedAt(RunsDraft.Flat(emptyList()), "mine", blink, FN_OFFER)
@@ -122,10 +174,10 @@ class FunctionRulesTest {
 		assertEquals(RunsIssue.NoSteps, issue(RunsDraft.Flat(emptyList())))
 		assertNull(issue(RunsDraft.Flat(listOf(ActionDraft.Filled("device_set", mapOf("device" to SANDBOX_SWITCH, "verb" to "on"))))))
 		val unknown = ActionDraft.Kept(AutomationAction.Unknown("chime", buildJsonObject { put("kind", "chime") }))
-		assertEquals(RunsIssue.NotAStep(0), issue(RunsDraft.Flat(listOf(unknown), name = "Chime")))
+		assertEquals(RunsIssue.NotAStep(0), issue(RunsDraft.Pointing("new", 0L, "Chime", emptyList(), listOf(unknown), emptyMap(), AutomationAction.RunFunction(function = "new"), PointMode.NEW, null, emptyList())))
 		assertEquals(RunsIssue.Unset("lamp"), issue(pointing))
-		assertEquals(RunsIssue.BadValue("times", ValueIssue.NOT_A_NUMBER), issue(pointing.copy(values = mapOf("lamp" to SANDBOX_SWITCH, "times" to "two"))))
-		assertNull(issue(pointing.copy(values = mapOf("lamp" to SANDBOX_SWITCH, "times" to "3"))))
+		assertEquals(RunsIssue.BadValue("times", ValueIssue.NOT_A_NUMBER), issue(pointing.copy(values = valuesByName(pointing, mapOf("lamp" to SANDBOX_SWITCH, "times" to "two")))))
+		assertNull(issue(pointing.copy(values = valuesByName(pointing, mapOf("lamp" to SANDBOX_SWITCH, "times" to "3")))))
 		// Clearing a shared name waits for Make unique.
 		val shared = pointedAt(RunsDraft.Flat(emptyList()), "mine", tooWarm, FN_OFFER).copy(name = "")
 		assertEquals(RunsIssue.SharedName(2), issue(shared))
@@ -135,6 +187,34 @@ class FunctionRulesTest {
 		val github = functionRow("wake", "Wake me", listOf("x"), reads = FunctionReads(listOf("event"), listOf("reason")))
 		val onEvent = triggerGiven("event", eventFields = listOf("subject"))
 		assertTrue(runsIssue(pointedAt(RunsDraft.Flat(emptyList()), "x", github, FN_OFFER), "x", onEvent, FN_OFFER, steps, github.reads) is RunsIssue.Unfit)
+	}
+
+	@Test
+	fun declaredNamesAreValidatedAndClearedValuesStayBlocked() {
+		val sole = functionRow("solo", "Solo", listOf("mine"), steps = listOf(plugStep("on")))
+		val base = pointedAt(RunsDraft.Flat(emptyList()), "mine", sole, FN_OFFER)
+		fun issue(params: List<FunctionParam>, name: String = "Solo") =
+			runsIssue(base.copy(name = name, params = params.mapIndexed { index, param ->
+				base.params.getOrNull(index)?.copy(param = param) ?: FunctionValueDraft("value-$index", param)
+			}), "mine", given, FN_OFFER, emptyList(), sole.reads)
+
+		assertEquals(RunsIssue.BadParam("", ParamIssue.EMPTY), issue(listOf(FunctionParam("", "text"))))
+		assertEquals(RunsIssue.BadParam("Lamp", ParamIssue.INVALID), issue(listOf(FunctionParam("Lamp", "text"))))
+		assertEquals(RunsIssue.BadParam("lamp", ParamIssue.DUPLICATE), issue(listOf(FunctionParam("lamp", "text"), FunctionParam("lamp", "number"))))
+		assertNull(issue(listOf(FunctionParam("device", "text"))))
+		assertTrue(issue(listOf(FunctionParam("device", "device"))) is RunsIssue.Unfit)
+		assertEquals(RunsIssue.TooManyParams, issue((1..9).map { FunctionParam("v$it", "text") }))
+		assertEquals(RunsIssue.NameWithValues, issue(listOf(FunctionParam("lamp", "device")), name = ""))
+	}
+
+	@Test
+	fun listedReadsComeFirstAndUseTheActualGivenType() {
+		val reads = FunctionReads(listOf("device", "value", "lamp"), emptyList())
+		val values = valueRows(listOf(FunctionParam("lamp", "device")), given, mapOf("lamp" to SANDBOX_SWITCH), "temperature", reads)
+
+		assertEquals(listOf("device", "value", "lamp"), values.map { it.name })
+		assertEquals(listOf(ValueSource.FromTrigger, ValueSource.FromTrigger), values.take(2).map { it.source })
+		assertEquals(TypeWord.Given(GivenType.TEXT), values.first().type)
 	}
 
 	@Test
@@ -158,12 +238,14 @@ class FunctionRulesTest {
 		val off = functionRow("off", "Everything off", listOf("e", "f", "g"))
 		val github = functionRow("wake", "Wake me", listOf("h", "i", "j", "k"), reads = FunctionReads(listOf("event"), listOf("reason")))
 		val asText = functionRow("text", "Says a value", listOf("l"), params = listOf(FunctionParam("value", "text")))
+		val readsDevice = functionRow("reads-device", "Device read", listOf("m"), reads = FunctionReads(listOf("device"), emptyList()))
 
-		val picked = pickerChoices(given, listOf(blink, notify, off, github, asText), measure = "temperature")
+		val picked = pickerChoices(given, listOf(blink, notify, off, github, asText, readsDevice), measure = "temperature")
 
-		assertEquals(listOf("off", "blink", "notify"), picked.map { it.function.id })
+		assertEquals(listOf("off", "blink", "notify", "reads-device"), picked.map { it.function.id })
 		assertEquals(listOf("room" to TypeWord.Declared("text"), "value" to TypeWord.Measure("temperature")), picked[2].signature)
 		assertEquals(3, picked[0].count)
+		assertEquals(listOf("device" to TypeWord.Given(GivenType.TEXT)), picked.first { it.function.id == "reads-device" }.signature)
 		// Current first, invalid marked.
 		val current = pickerChoices(given, listOf(off, blink.copy(invalid = "x")), measure = null, current = "blink")
 		assertEquals(listOf(Triple("blink", true, "x"), Triple("off", false, null)), current.map { Triple(it.function.id, it.current, it.invalid) })

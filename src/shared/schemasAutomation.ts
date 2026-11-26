@@ -36,6 +36,8 @@ export const KEEP_TRYING_MIN_MAX = 60;
 /** Number in the stored unit. */
 export const FunctionValueSchema = z.union([z.string().max(STEP_TEXT_MAX), z.number().finite()]);
 export type FunctionValue = z.infer<typeof FunctionValueSchema>;
+export const FunctionValuesSchema = z.record(z.string().regex(PARAM_NAME_RE), FunctionValueSchema);
+export type FunctionValues = z.infer<typeof FunctionValuesSchema>;
 
 export const SOURCE_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -123,7 +125,7 @@ export const AutomationActionSchema = z
 			kind: z.literal("run_function"),
 			function: z.string().regex(RULE_ID_RE),
 			/** Keyed by value name. */
-			values: z.record(z.string().regex(PARAM_NAME_RE), FunctionValueSchema).optional(),
+			values: FunctionValuesSchema.optional(),
 			/** Per-step window. */
 			keepTryingMin: z.number().int().min(KEEP_TRYING_MIN_MIN).max(KEEP_TRYING_MIN_MAX).optional(),
 			/** Only if trigger has none. */

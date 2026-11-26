@@ -23,10 +23,12 @@ import type {
 	ConsoleAutomationListResult,
 	ConsoleAutomationPreviewResult,
 	ConsoleAutomationPutResult,
+	FunctionValues,
 } from "../../shared/schemasAutomation.js";
 import type { ConsoleAutomationSaveResult } from "../../shared/schemasAutomationSave.js";
 import type { ContentEnvelope } from "../../shared/schemasContentKey.js";
 import type { DeviceConsoleOp, DeviceConsoleResult } from "../../shared/schemasDevices.js";
+import type { FunctionParam } from "../../shared/schemasFunction.js";
 import type { PhoneCapabilityAnswer } from "../../shared/schemasPhoneCapabilities.js";
 import type { HolderKey } from "../../shared/schemasPhoneHold.js";
 import type {
@@ -220,7 +222,12 @@ export interface AutomationConsoleHandlers {
 	save: (op: Omit<Extract<ConsoleOp, { kind: "automation_save" }>, "kind">) => ConsoleAutomationSaveResult;
 	remove: (automationId: string, base: number) => ConsoleAutomationDeleteResult;
 	/** `text` is a message whose holes to fill. */
-	preview: (trigger: AutomationTrigger, text?: string) => Promise<ConsoleAutomationPreviewResult>;
+	preview: (
+		trigger: AutomationTrigger,
+		text?: string,
+		params?: readonly FunctionParam[],
+		values?: FunctionValues,
+	) => Promise<ConsoleAutomationPreviewResult>;
 }
 
 export interface PolicyConsoleHandlers {

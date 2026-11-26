@@ -166,6 +166,8 @@ object Protocol {
 		const val FUNCTIONS_MAX: Int = 32
 		const val FUNCTION_STEPS_MAX: Int = 8
 		const val FUNCTION_PARAMS_MAX: Int = 8
+		const val FUNCTION_PARAM_NAME_PATTERN: String = "^[a-z][a-z0-9_]{0,31}\$"
+		const val FUNCTION_PARAM_NAME_MAX: Int = 32
 		const val STEP_ARGS_MAX: Int = 4
 		const val FUNCTION_NAME_MAX: Int = 80
 		const val ASSISTANT_HOME_SEALED_MAX_BYTES: Int = 65536
@@ -1529,6 +1531,10 @@ sealed class ConsoleOp {
 		val trigger: AutomationTrigger,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val text: String? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val params: List<FunctionParam>? = null,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val values: JsonObject? = null,
 	) : ConsoleOp()
 
 	@Serializable
@@ -2804,6 +2810,8 @@ sealed class FunctionStep {
 	@SerialName("do")
 	data class Do(
 		val action: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val `as`: String? = null,
 		val args: JsonObject,
 	) : FunctionStep()
 

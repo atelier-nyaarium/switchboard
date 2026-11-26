@@ -84,6 +84,13 @@ function stage() {
 	return { console, save };
 }
 
+const refusalOf = (answer: ReturnType<ReturnType<typeof stage>["save"]>) => {
+	if (answer.stored) return null;
+	const facts = { ...answer.refusal };
+	Reflect.deleteProperty(facts, "line");
+	return facts;
+};
+
 describe("the automation save op", () => {
 	it("answers both rows, and the list reads the same rows with every user and whether one moves", () => {
 		const { console, save } = stage();
@@ -149,17 +156,36 @@ describe("the automation save op", () => {
 			base: 0,
 		});
 
-		expect([inText, inExpression]).toEqual([
+		expect([refusalOf(inText), refusalOf(inExpression)]).toEqual([
 			{
-				stored: false,
-				refusal: { code: "hole", record: "function", path: "1", param: "message", start: 4, end: 11 },
+				code: "hole",
+				record: "function",
+				path: "1",
+				param: "message",
+				start: 4,
+				end: 11,
 			},
 			{
-				stored: false,
-				refusal: { code: "hole", record: "function", path: "0", param: "device", start: 0, end: 7 },
+				code: "hole",
+				record: "function",
+				path: "0",
+				param: "device",
+				start: 0,
+				end: 7,
 			},
 		]);
+		const refusalLines = [inText, inExpression].map((answer) => (answer.stored ? null : answer.refusal?.line));
+		expect(refusalLines.every((line) => typeof line === "string" && line.length > 0)).toBe(true);
 		expect(console.list()).toMatchObject({ automations: [], functions: [] });
+	});
+
+	it("answers a stale save with facts", () => {
+		const { save } = stage();
+		save("warm", pointing(hourly), 0, { id: "warm-up", body: warmUp([on]), base: 0 });
+
+		const stale = save("warm", { ...pointing(hourly), label: "Changed" }, 0);
+
+		expect(refusalOf(stale)).toMatchObject({ code: "moved", record: "automation", revision: 1 });
 	});
 
 	it("answers an older phone's put as before", () => {

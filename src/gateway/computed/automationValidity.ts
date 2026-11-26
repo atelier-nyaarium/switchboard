@@ -135,6 +135,7 @@ export function createAutomationValidity(
 
 	/** What a flat action of its kind is checked for. */
 	function stepIssue(fn: Pick<AutomationFunction, "params">, step: FunctionStep): StepIssue | null {
+		if (step.as !== undefined) return { message: "a step cannot keep its result yet" };
 		const kind = step.action;
 		if (!stepAction(kind)) return { message: "a step does what this Gateway cannot run" };
 		if (kind !== "tell_assistant" && !deps.actions) return { message: "this Gateway runs no such action" };

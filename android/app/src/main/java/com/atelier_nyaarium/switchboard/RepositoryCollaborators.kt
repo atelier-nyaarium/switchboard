@@ -5,6 +5,7 @@ import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
+import com.atelier_nyaarium.switchboard.proto.FunctionParam
 import com.atelier_nyaarium.switchboard.proto.ConsolePeekResult
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.Runbook
@@ -266,8 +267,8 @@ internal class ConsoleAutomationGateway(private val client: ConsoleClient) : Aut
 	override suspend fun delete(gatewayId: String, automationId: String, baseRevision: Long) =
 		client.automationDelete(gatewayId, automationId, baseRevision)
 
-	override suspend fun preview(gatewayId: String, trigger: AutomationTrigger, text: String?) =
-		client.automationPreview(gatewayId, trigger, text)
+	override suspend fun preview(gatewayId: String, trigger: AutomationTrigger, text: String?, params: List<FunctionParam>?, values: JsonObject?) =
+		client.automationPreview(gatewayId, trigger, text, params, values)
 
 	override suspend fun save(gatewayId: String, op: ConsoleOp.AutomationSave) = client.automationSave(gatewayId, op)
 }

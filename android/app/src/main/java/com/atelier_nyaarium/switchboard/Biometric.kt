@@ -22,11 +22,19 @@ fun hostActivity(): FragmentActivity? = LocalContext.current.fragmentActivity()
 private const val AUTHENTICATORS =
 	BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL
 
+private const val APP_LOCK_TITLE = "Unlock Switchboard"
+private const val APP_LOCK_SUBTITLE = "Authenticate to access your chats"
+
 fun deviceCanAuthenticate(activity: FragmentActivity): Boolean =
 	BiometricManager.from(activity).canAuthenticate(AUTHENTICATORS) == BiometricManager.BIOMETRIC_SUCCESS
 
 /** Show the biometric / device-credential prompt. Unlocks open if nothing is enrolled. */
-fun promptUnlock(activity: FragmentActivity, onResult: (Boolean) -> Unit): BiometricPrompt? {
+fun promptUnlock(
+	activity: FragmentActivity,
+	title: String = APP_LOCK_TITLE,
+	subtitle: String = APP_LOCK_SUBTITLE,
+	onResult: (Boolean) -> Unit,
+): BiometricPrompt? {
 	if (!deviceCanAuthenticate(activity)) {
 		onResult(true)
 		return null
@@ -40,8 +48,8 @@ fun promptUnlock(activity: FragmentActivity, onResult: (Boolean) -> Unit): Biome
 		},
 	)
 	val info = BiometricPrompt.PromptInfo.Builder()
-		.setTitle("Unlock Switchboard")
-		.setSubtitle("Authenticate to access your chats")
+		.setTitle(title)
+		.setSubtitle(subtitle)
 		.setAllowedAuthenticators(AUTHENTICATORS)
 		.build()
 	prompt.authenticate(info)
@@ -50,13 +58,17 @@ fun promptUnlock(activity: FragmentActivity, onResult: (Boolean) -> Unit): Biome
 
 /** Suspends until the user passes the biometric / device-credential prompt; returns false on cancel
  * or error. File-private: every gated action goes through requireOwnerPresent below. */
-private suspend fun promptBiometric(activity: FragmentActivity): Boolean =
+private suspend fun promptBiometric(activity: FragmentActivity, title: String, subtitle: String): Boolean =
 	suspendCancellableCoroutine { cont ->
-		val prompt = promptUnlock(activity) { ok -> if (cont.isActive) cont.resume(ok) }
+		val prompt = promptUnlock(activity, title, subtitle) { ok -> if (cont.isActive) cont.resume(ok) }
 		cont.invokeOnCancellation { prompt?.cancelAuthentication() }
 	}
 
 /** The one gate for owner-present actions (admit, revoke, approve, delete, dropping the lock).
  * Off-lock passes; on-lock requires the prompt, and no activity to prompt on is DENIED. */
-suspend fun requireOwnerPresent(lockOn: Boolean, activity: FragmentActivity?): Boolean =
-	!lockOn || (activity != null && promptBiometric(activity))
+suspend fun requireOwnerPresent(
+	lockOn: Boolean,
+	activity: FragmentActivity?,
+	title: String = APP_LOCK_TITLE,
+	subtitle: String = APP_LOCK_SUBTITLE,
+): Boolean = !lockOn || (activity != null && promptBiometric(activity, title, subtitle))

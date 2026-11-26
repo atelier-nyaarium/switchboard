@@ -4,6 +4,7 @@ import com.atelier_nyaarium.switchboard.assistant.ActionDraft
 import com.atelier_nyaarium.switchboard.assistant.AutomationOutcome
 import com.atelier_nyaarium.switchboard.assistant.AutomationSaid
 import com.atelier_nyaarium.switchboard.assistant.EditContext
+import com.atelier_nyaarium.switchboard.assistant.PointMode
 import com.atelier_nyaarium.switchboard.assistant.RunsIssue
 import com.atelier_nyaarium.switchboard.assistant.SaidAt
 import com.atelier_nyaarium.switchboard.assistant.draftRunsIssue
@@ -17,11 +18,13 @@ import com.atelier_nyaarium.switchboard.proto.FunctionReads
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationSaveRefusalCode
 import com.atelier_nyaarium.switchboard.assistant.FunctionsServed
+import com.atelier_nyaarium.switchboard.assistant.FunctionOffer
 import com.atelier_nyaarium.switchboard.assistant.functionsServed
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
 import com.atelier_nyaarium.switchboard.proto.AutomationServes
 import com.atelier_nyaarium.switchboard.assistant.FunctionLine
 import com.atelier_nyaarium.switchboard.assistant.RunsHead
+import com.atelier_nyaarium.switchboard.assistant.RunsDraft
 import com.atelier_nyaarium.switchboard.assistant.Served
 import com.atelier_nyaarium.switchboard.assistant.SourceFields
 import com.atelier_nyaarium.switchboard.assistant.ValueSource
@@ -34,10 +37,17 @@ import com.atelier_nyaarium.switchboard.assistant.functionSaveOf
 import com.atelier_nyaarium.switchboard.assistant.madeUnique
 import com.atelier_nyaarium.switchboard.assistant.offerOf
 import com.atelier_nyaarium.switchboard.assistant.pointedTo
+import com.atelier_nyaarium.switchboard.assistant.plusFunctionParam
 import com.atelier_nyaarium.switchboard.assistant.rowFunction
 import com.atelier_nyaarium.switchboard.assistant.runsView
 import com.atelier_nyaarium.switchboard.assistant.withFunctionName
 import com.atelier_nyaarium.switchboard.assistant.withFunctionValue
+import com.atelier_nyaarium.switchboard.assistant.uniqueFunctionName
+import com.atelier_nyaarium.switchboard.assistant.withFunctionParam
+import com.atelier_nyaarium.switchboard.assistant.withoutFunctionParam
+import com.atelier_nyaarium.switchboard.assistant.valuesByName
+import com.atelier_nyaarium.switchboard.assistant.wireParams
+import com.atelier_nyaarium.switchboard.assistant.withValue
 import com.atelier_nyaarium.switchboard.assistant.written
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
@@ -46,7 +56,13 @@ import com.atelier_nyaarium.switchboard.proto.AutomationSaveFunction
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.FunctionParam
+import com.atelier_nyaarium.switchboard.proto.FunctionStep
+import com.atelier_nyaarium.switchboard.proto.AutomationSwitchOffer
+import com.atelier_nyaarium.switchboard.proto.StepArg
+import com.atelier_nyaarium.switchboard.wireJson
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -62,15 +78,51 @@ class FunctionDraftTest {
 	private val plain = automationRow("mine", "My room above 26 °C", listOf(AutomationAction.DeviceSet(SANDBOX_SWITCH, "on")))
 	private val shared = automationRow("mine", "My room above 26 °C", listOf(AutomationAction.RunFunction(function = "too-warm")))
 	private val hall = automationRow("hall", "Hall above 28 °C", listOf(AutomationAction.RunFunction(function = "too-warm")))
+	private fun valueKey(draft: com.atelier_nyaarium.switchboard.assistant.AutomationDraft, name: String): String =
+		(draft.runsDraft() as RunsDraft.Pointing).params.single { it.param.name == name }.key
+	private fun expressionStep(name: String) = FunctionStep.Do(
+		action = "device_set",
+		args = JsonObject(mapOf(
+			"device" to buildJsonObject { put("kind", "expression"); put("text", name) },
+			"verb" to buildJsonObject { put("kind", "literal"); put("value", "on") },
+		)),
+	)
+	private fun twoDeviceValues(): Pair<com.atelier_nyaarium.switchboard.assistant.AutomationDraft, com.atelier_nyaarium.switchboard.assistant.AutomationOffer> {
+		val function = functionRow(
+			"two-devices",
+			"Two devices",
+			listOf("mine"),
+			params = listOf(FunctionParam("lamp", "device"), FunctionParam("lamp2", "device")),
+			steps = listOf(expressionStep("lamp"), expressionStep("lamp2")),
+		)
+		val offer = offerOf(
+			SANDBOX_SERVES.copy(switches = listOf(
+				AutomationSwitchOffer("switch-a", "Lamp A"),
+				AutomationSwitchOffer("switch-b", "Lamp B"),
+			)),
+			away = false,
+			functions = listOf(function),
+		)
+		val owner = AutomationRow(
+			"mine",
+			2L,
+			Automation(enabled = true, trigger = CROSSING, actions = listOf(AutomationAction.RunFunction(
+				"two-devices",
+				values = buildJsonObject { put("lamp", "switch-a"); put("lamp2", "switch-b") },
+			))),
+			"Mine",
+		)
+		return automationDraftOf(owner, EditContext(offer, emptyList()))!! to offer
+	}
 
 	@Test
 	fun aGatewayThatHoldsNoFunctionsOpensListsAndSavesAsToday() {
 		val draft = automationDraftOf(plain, older)!!
 		val today = automationEditing(AutomationSlot.Held("mine"), draft, none, offered = true, busy = false, gone = false, offer = older.offer)
 
-		assertEquals(RunsHead.Own(), draft.runs)
+		assertEquals(RunsHead.Own, draft.runs)
 		assertNull(runsView(draft, none, older.offer, listOf(plain)))
-		assertNull(functionSaveOf(draft, none, older.offer, confirmed = false) { "fn" })
+		assertNull(functionSaveOf(draft, none, older.offer, confirmed = false))
 		assertEquals(fittingAutomation(draft, none, older.offer) != null, today.save)
 		assertNull(rowFunction(shared, Served.Known(older.offer)))
 		assertEquals(FunctionLine.Named("Too warm", 2), rowFunction(shared, Served.Known(serving.offer)))
@@ -80,13 +132,23 @@ class FunctionDraftTest {
 	fun ownStepsBecomeAFunctionOnlyOnceNamed() {
 		val draft = automationDraftOf(plain, serving)!!
 
-		assertNull(functionSaveOf(draft, none, serving.offer, confirmed = false) { "fn-1" }!!.function)
-		val named = functionSaveOf(draft.withFunctionName("Lamp on"), none, serving.offer, confirmed = false) { "fn-1" }!!
+		assertNull(functionSaveOf(draft, none, serving.offer, confirmed = false)!!.function)
+		val namedDraft = draft.withFunctionName("Lamp on")
+		val pointing = namedDraft.runsDraft() as com.atelier_nyaarium.switchboard.assistant.RunsDraft.Pointing
+		assertEquals(listOf(PointMode.NEW, 0L), listOf(pointing.mode, pointing.base))
+		assertTrue(pointing.functionId.startsWith("fn-"))
+		assertEquals(pointing.functionId, (namedDraft.withFunctionName("Lamp on again").runsDraft() as com.atelier_nyaarium.switchboard.assistant.RunsDraft.Pointing).functionId)
+		val named = functionSaveOf(namedDraft, none, serving.offer, confirmed = false)!!
+		val retry = functionSaveOf(namedDraft, none, serving.offer, confirmed = false)!!
 		val made = named.function as AutomationSaveFunction.Edit
-		assertEquals(Triple("fn-1", 0L, "Lamp on"), Triple(made.id, made.base, made.body.name))
-		assertEquals(AutomationAction.RunFunction(function = "fn-1"), written(named.automation).single())
+		assertEquals(Triple(pointing.functionId, 0L, "Lamp on"), Triple(made.id, made.base, made.body.name))
+		assertEquals(made.id, (retry.function as AutomationSaveFunction.Edit).id)
+		assertEquals(AutomationAction.RunFunction(function = made.id), written(named.automation).single())
+		val cleared = namedDraft.withFunctionName("")
+		assertTrue(cleared.runsDraft() is com.atelier_nyaarium.switchboard.assistant.RunsDraft.Flat)
+		assertEquals(pointing.functionId, (cleared.withFunctionName("Again").runsDraft() as com.atelier_nyaarium.switchboard.assistant.RunsDraft.Pointing).functionId)
 		// A fresh body waits for a step.
-		assertNull(functionSaveOf(draft.freshBody(), none, serving.offer, confirmed = false) { "fn-2" })
+		assertNull(functionSaveOf(draft.freshBody(), none, serving.offer, confirmed = false))
 	}
 
 	@Test
@@ -95,9 +157,9 @@ class FunctionDraftTest {
 		val waiting = runsView(picked, none, serving.offer, listOf(plain))!!
 
 		assertEquals(listOf(ValueSource.Unset, ValueSource.Unset), waiting.values.map { it.source })
-		assertNull(functionSaveOf(picked, none, serving.offer, confirmed = false) { "fn" })
-		val set = picked.withFunctionValue("lamp", SANDBOX_SWITCH).withFunctionValue("times", "3")
-		val op = functionSaveOf(set, none, serving.offer, confirmed = false) { "fn" }!!
+		assertNull(functionSaveOf(picked, none, serving.offer, confirmed = false))
+		val set = picked.withFunctionValue(valueKey(picked, "lamp"), SANDBOX_SWITCH).withFunctionValue(valueKey(picked, "times"), "3")
+		val op = functionSaveOf(set, none, serving.offer, confirmed = false)!!
 		assertNull(op.function)
 		assertEquals(
 			buildJsonObject {
@@ -110,9 +172,200 @@ class FunctionDraftTest {
 		val sharing = automationDraftOf(shared, serving)!!
 		val view = runsView(sharing, none, serving.offer, listOf(shared, hall))!!
 		assertEquals(Triple(2, listOf("Hall above 28 °C"), true), Triple(view.usedBy, view.reach, view.makeUnique))
-		val unique = sharing.madeUnique()
+		val unique = sharing.madeUnique(serving.offer)
 		assertEquals(true, runsView(unique, none, serving.offer, listOf(shared, hall))!!.unique)
-		assertTrue(functionSaveOf(unique, none, serving.offer, confirmed = false) { "fn" }!!.function is AutomationSaveFunction.Copy)
+		assertEquals("Too warm.001", (unique.runsDraft() as com.atelier_nyaarium.switchboard.assistant.RunsDraft.Pointing).name)
+		val copy = functionSaveOf(unique, none, serving.offer, confirmed = false)!!.function as AutomationSaveFunction.Copy
+		assertEquals("Too warm.001", copy.body.name)
+		val renamedCopy = functionSaveOf(unique.withFunctionName("Warm again", serving.offer.functions), none, serving.offer, confirmed = false)!!.function as AutomationSaveFunction.Copy
+		assertEquals("Warm again", renamedCopy.body.name)
+	}
+
+	@Test
+	fun makeUniqueUsesTheOpenedNameAndLiveFunctionOffer() {
+		val copiedElsewhere = functionRow("copy", "Too warm.001", listOf("elsewhere"))
+		val live = serving.offer.copy(functions = FunctionOffer(SANDBOX_SERVES.functions!!, listOf(blink, tooWarm, copiedElsewhere)))
+		val cleared = automationDraftOf(shared, serving)!!.withFunctionName("", serving.offer.functions)
+		val unique = cleared.madeUnique(live)
+
+		assertEquals("Too warm.002", (unique.runsDraft() as RunsDraft.Pointing).name)
+	}
+
+	@Test
+	fun valueRowsKeepTheirValuesAndStepsAcrossANameCollisionAndSaveCurrentNames() {
+		val (opened, offer) = twoDeviceValues()
+		val secondKey = valueKey(opened, "lamp2")
+		val crossed = opened.withFunctionParam(secondKey, FunctionParam("lamp", "device"))
+		val renamed = crossed.withFunctionParam(secondKey, FunctionParam("lamp3", "device"))
+		val runs = renamed.runsDraft() as RunsDraft.Pointing
+
+		assertEquals(mapOf("lamp" to "switch-a", "lamp3" to "switch-b"), runs.valuesByName())
+		assertEquals(listOf("lamp", "lamp3"), runs.wireParams().map { it.name })
+		assertEquals(listOf("lamp", "lamp2"), runs.steps.map { step ->
+			(step as ActionDraft.Filled).references.getValue("device").name
+		})
+		assertEquals(listOf(runs.params[0].key, runs.params[1].key), runs.steps.map { step ->
+			(step as ActionDraft.Filled).references.getValue("device").key
+		})
+
+		val op = functionSaveOf(renamed, none, offer, confirmed = false)!!
+		val savedFunction = (op.function as AutomationSaveFunction.Edit).body
+		assertEquals(listOf("lamp", "lamp3"), savedFunction.params.map { it.name })
+		val deviceArg = wireJson.decodeFromJsonElement(StepArg.serializer(), (written(savedFunction)[1] as FunctionStep.Do).args.getValue("device"))
+		assertEquals(StepArg.Expression("lamp3"), deviceArg)
+		assertEquals(
+			buildJsonObject { put("lamp", "switch-a"); put("lamp3", "switch-b") },
+			(written(op.automation).single() as AutomationAction.RunFunction).values,
+		)
+	}
+
+	@Test
+	fun blankRowsKeepDistinctValuesAndReferences() {
+		val (opened, _) = twoDeviceValues()
+		val firstKey = valueKey(opened, "lamp")
+		val secondKey = valueKey(opened, "lamp2")
+		val draft = opened
+			.withFunctionParam(firstKey, FunctionParam("", "device"))
+			.withFunctionParam(secondKey, FunctionParam("", "device"))
+		val runs = draft.runsDraft() as RunsDraft.Pointing
+
+		assertEquals(setOf(firstKey, secondKey), runs.values.keys)
+		assertEquals(listOf(firstKey, secondKey), runs.steps.map { (it as ActionDraft.Filled).references.getValue("device").key })
+		assertNull(functionSaveOf(draft, none, draft.context.offer, confirmed = false))
+	}
+
+	@Test
+	fun removingAValueKeepsItsStepReferenceAndBlocksSave() {
+		val (opened, offer) = twoDeviceValues()
+		val secondKey = valueKey(opened, "lamp2")
+		val removed = opened.withoutFunctionParam(secondKey)
+		val runs = removed.runsDraft() as RunsDraft.Pointing
+
+		assertEquals(secondKey, (runs.steps[1] as ActionDraft.Filled).references.getValue("device").key)
+		assertEquals(RunsIssue.Step(1, "lamp2 is no longer a value; pick again"), draftRunsIssue(removed, none, offer))
+		assertNull(functionSaveOf(removed, none, offer, confirmed = false))
+	}
+
+	@Test
+	fun aRemovedValueIsNamedAsItStoodWhenRemoved() {
+		val (opened, _) = twoDeviceValues()
+		val secondKey = valueKey(opened, "lamp2")
+		val removed = opened.withFunctionParam(secondKey, FunctionParam("lamp3", "device")).withoutFunctionParam(secondKey)
+		val runs = removed.runsDraft() as RunsDraft.Pointing
+
+		assertEquals("lamp3", (runs.steps[1] as ActionDraft.Filled).references.getValue("device").name)
+	}
+
+	@Test
+	fun valueNamesAtThirtyTwoCharactersPassAndThirtyThreeAreRefused() {
+		val (opened, offer) = twoDeviceValues()
+		val secondKey = valueKey(opened, "lamp2")
+		val valid = opened.withFunctionParam(secondKey, FunctionParam("x".repeat(32), "device"))
+		val invalidName = "x".repeat(33)
+		val invalid = opened.withFunctionParam(secondKey, FunctionParam(invalidName, "device"))
+
+		assertNull(draftRunsIssue(valid, none, offer))
+		assertEquals(RunsIssue.BadParam(invalidName, com.atelier_nyaarium.switchboard.assistant.ParamIssue.INVALID), draftRunsIssue(invalid, none, offer))
+		assertNull(functionSaveOf(invalid, none, offer, confirmed = false))
+	}
+
+	@Test
+	fun editingStepsAndValuesOnASharedFunctionUsesTheEditedBodyReads() {
+		val original = functionRow(
+			"read",
+			"Read",
+			listOf("mine", "other"),
+			params = listOf(FunctionParam("old", "text")),
+			reads = FunctionReads(listOf("old"), emptyList()),
+			steps = listOf(FunctionStep.Do(action = "tell_assistant", args = JsonObject(mapOf("when" to literal("now"), "message" to literal("{old}"))))),
+		)
+		val offer = offerOf(SANDBOX_SERVES, away = false, functions = listOf(original))
+		val mine = AutomationRow("mine", 1L, Automation(enabled = true, trigger = CROSSING, actions = listOf(AutomationAction.RunFunction(
+			"read",
+			values = buildJsonObject { put("old", "old-value") },
+		))), "Mine")
+		val other = AutomationRow("other", 1L, Automation(enabled = true, trigger = CROSSING, actions = listOf(AutomationAction.RunFunction(
+			"read",
+			values = buildJsonObject { put("old", "old-value"); put("new", "new-value") },
+		))), "Other")
+		val opened = automationDraftOf(mine, EditContext(offer, emptyList()))!!
+		val oldKey = valueKey(opened, "old")
+		val edited = opened
+			.withFunctionParam(oldKey, FunctionParam("new", "text"))
+			.withFunctionValue(oldKey, "new-value")
+			.withAction(0) { withValue(it, "message", "Set") }
+
+		assertNull(draftRunsIssue(edited, none, offer, listOf(mine, other)))
+	}
+
+	@Test
+	fun aSharedDeviceEditRejectsAnotherUsersNonSwitchText() {
+		val original = functionRow("shared", "Shared", listOf("mine", "other"), params = listOf(FunctionParam("room", "text")))
+		val offer = offerOf(SANDBOX_SERVES, away = false, functions = listOf(original))
+		val mine = AutomationRow("mine", 1L, Automation(enabled = true, trigger = CROSSING, actions = listOf(AutomationAction.RunFunction(
+			"shared",
+			values = buildJsonObject { put("room", SANDBOX_SWITCH) },
+		))), "Mine")
+		val other = AutomationRow("other", 1L, Automation(enabled = true, trigger = AutomationTrigger.Time("18:00", emptyList(), "UTC"), actions = listOf(AutomationAction.RunFunction(
+			"shared",
+			values = buildJsonObject { put("room", "not-a-switch") },
+		))), "Other")
+		val opened = automationDraftOf(mine, EditContext(offer, emptyList()))!!
+		val key = valueKey(opened, "room")
+		val edited = opened.withFunctionParam(key, FunctionParam("room", "device"))
+
+		assertTrue(draftRunsIssue(edited, none, offer, listOf(mine, other)) is RunsIssue.SharedUnfit)
+	}
+
+	@Test
+	fun anOtherUserAlreadyUnfitDoesNotBlockAnUnrelatedValueEdit() {
+		val original = functionRow("shared", "Shared", listOf("mine", "other"), params = listOf(FunctionParam("lamp", "device")))
+		val offer = offerOf(SANDBOX_SERVES, away = false, functions = listOf(original))
+		val mine = AutomationRow("mine", 1L, Automation(enabled = true, trigger = CROSSING, actions = listOf(AutomationAction.RunFunction(
+			"shared",
+			values = buildJsonObject { put("lamp", SANDBOX_SWITCH) },
+		))), "Mine")
+		val other = AutomationRow("other", 1L, Automation(enabled = true, trigger = AutomationTrigger.Time("18:00", emptyList(), "UTC"), actions = listOf(AutomationAction.RunFunction(
+			"shared",
+			values = buildJsonObject { put("lamp", "not-a-switch"); put("note", "held") },
+		))), "Other")
+		val opened = automationDraftOf(mine, EditContext(offer, emptyList()))!!.plusFunctionParam()
+		val key = (opened.runsDraft() as RunsDraft.Pointing).params.last().key
+		val edited = opened.withFunctionParam(key, FunctionParam("note", "text")).withFunctionValue(key, "updated")
+
+		assertNull(draftRunsIssue(edited, none, offer, listOf(mine, other)))
+	}
+
+	@Test
+	fun numberedCopiesChooseTheFirstFreeSuffixAndKeepItWhole() {
+		assertEquals("Too warm.001", uniqueFunctionName("Too warm", listOf("Too warm")))
+		assertEquals("Too warm.002", uniqueFunctionName("Too warm.001", listOf("Too warm.001")))
+		assertEquals("Too warm.002", uniqueFunctionName("Too warm.003", listOf("Too warm.001", "Too warm.003")))
+		val long = "x".repeat(Protocol.Wire.FUNCTION_NAME_MAX + 12)
+		val shortened = uniqueFunctionName(long, emptyList())
+		assertEquals(Protocol.Wire.FUNCTION_NAME_MAX, shortened.length)
+		assertTrue(shortened.endsWith(".001"))
+		val full = (1..999).map { "Too warm.${it.toString().padStart(3, '0')}" }
+		assertEquals("Too warm", uniqueFunctionName("Too warm", full))
+	}
+
+	@Test
+	fun aSharedParameterEditChecksEveryOtherUsersOwnValues() {
+		val original = functionRow("shared", "Shared", listOf("mine", "other"), steps = listOf(plugStep("on")))
+		val offer = offerOf(SANDBOX_SERVES, away = false, functions = listOf(original))
+		val mine = AutomationRow("mine", 1L, Automation(enabled = true, trigger = CROSSING, actions = listOf(AutomationAction.RunFunction("shared", values = buildJsonObject { put("lamp", SANDBOX_SWITCH) }))), "Mine")
+		val other = AutomationRow("other", 1L, Automation(enabled = true, trigger = CROSSING, actions = listOf(AutomationAction.RunFunction("shared"))), "Other")
+		val rows = listOf(mine, other)
+		val adding = automationDraftOf(mine, EditContext(offer, emptyList()))!!.plusFunctionParam()
+		val key = (adding.runsDraft() as RunsDraft.Pointing).params.single().key
+		val draft = adding.withFunctionParam(key, FunctionParam("lamp", "device"))
+			.withFunctionValue(key, SANDBOX_SWITCH)
+		val issue = draftRunsIssue(draft, none, offer, rows)
+
+		assertTrue(issue is RunsIssue.SharedUnfit)
+		val supplied = other.copy(automation = other.automation.copy(actions = listOf(AutomationAction.RunFunction("shared", values = buildJsonObject { put("lamp", SANDBOX_SWITCH) }))))
+		assertNull(draftRunsIssue(draft, none, offer, listOf(mine, supplied)))
+		assertNull(draftRunsIssue(draft.madeUnique(offer), none, offer, rows))
 	}
 
 	@Test
@@ -124,8 +377,8 @@ class FunctionDraftTest {
 		val view = runsView(opened, none, live, listOf(shared, hall))!!
 
 		assertEquals(Triple(2, listOf("Hall above 28 °C"), true), Triple(view.usedBy, view.reach, view.makeUnique))
-		val cleared = opened.withFunctionName("")
-		assertNull(functionSaveOf(cleared, none, live, confirmed = false) { "fn" })
+		val cleared = opened.withFunctionName("", live.functions)
+		assertNull(functionSaveOf(cleared, none, live, confirmed = false))
 		assertTrue(runsView(cleared, none, live, listOf(shared, hall))!!.issue is RunsIssue.SharedName)
 	}
 
@@ -188,7 +441,7 @@ class FunctionDraftTest {
 		assertTrue(draftRunsIssue(blank, none, serving.offer) is RunsIssue.Step)
 		assertEquals(RunsIssue.NoSteps, draftRunsIssue(empty, none, serving.offer))
 		assertEquals(RunsIssue.NameTooLong(Protocol.Wire.FUNCTION_NAME_MAX), runsView(long, none, serving.offer, listOf(plain))!!.issue)
-		assertNull(functionSaveOf(long, none, serving.offer, confirmed = false) { "fn" })
+		assertNull(functionSaveOf(long, none, serving.offer, confirmed = false))
 	}
 
 	@Test
@@ -204,14 +457,14 @@ class FunctionDraftTest {
 
 	@Test
 	fun pickingTheCurrentFunctionOnlyClosesAndAnUnlistedOneCanBeRepointed() {
-		val set = automationDraftOf(plain, serving)!!.pointedTo(blink, serving.offer)
-			.withFunctionValue("lamp", SANDBOX_SWITCH).madeUnique().copy(picking = true)
+		val picked = automationDraftOf(plain, serving)!!.pointedTo(blink, serving.offer)
+		val set = picked.withFunctionValue(valueKey(picked, "lamp"), SANDBOX_SWITCH).madeUnique(serving.offer).copy(picking = true)
 
 		assertEquals(set.copy(picking = false), set.pointedTo(blink, serving.offer))
 		val lost = automationRow("lost", "Every day", listOf(AutomationAction.RunFunction(function = "unread")))
 		val kept = automationDraftOf(lost, serving)!!
 		assertTrue(runsView(kept, none, serving.offer, listOf(lost))!!.kept)
-		val sent = functionSaveOf(kept.pointedTo(tooWarm, serving.offer), none, serving.offer, confirmed = false) { "fn" }!!
+		val sent = functionSaveOf(kept.pointedTo(tooWarm, serving.offer), none, serving.offer, confirmed = false)!!
 		assertEquals(AutomationAction.RunFunction(function = "too-warm"), written(sent.automation).single())
 	}
 
@@ -230,7 +483,8 @@ class FunctionDraftTest {
 	@Test
 	fun aRefusalLandsOnTheValueOrFieldItNamesUntilThatTextChanges() {
 		val picked = automationDraftOf(plain, serving)!!.pointedTo(blink, serving.offer)
-			.withFunctionValue("lamp", SANDBOX_SWITCH).withFunctionValue("times", "3")
+			.let { it.withFunctionValue(valueKey(it, "lamp"), SANDBOX_SWITCH) }
+			.let { it.withFunctionValue(valueKey(it, "times"), "3") }
 		fun said(refusal: AutomationSaveRefusal): AutomationSaid {
 			val saved = AutomationSaved.Refused(automationSaveLine(AutomationSaveRefusalCode.INVALID, refusal, picked.id), at = refusedAtOf(refusal))
 			return (outcomeOf(saved, picked, deleting = false, serving) as AutomationOutcome.Said).said
@@ -240,7 +494,7 @@ class FunctionDraftTest {
 		val shown = runsView(picked, none, serving.offer, emptyList(), plug)!!.values.map { it.refused }
 		assertEquals(listOf(plug.line, null), shown)
 		assertNull(generalLine(plug, picked, serving.offer))
-		val retyped = picked.withFunctionValue("lamp", "aa:bb:cc:dd:ee:02")
+		val retyped = picked.withFunctionValue(valueKey(picked, "lamp"), "aa:bb:cc:dd:ee:02")
 		assertEquals(listOf(null, null), runsView(retyped, none, serving.offer, emptyList(), plug)!!.values.map { it.refused })
 
 		// A step's field.

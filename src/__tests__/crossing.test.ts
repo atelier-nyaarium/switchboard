@@ -31,6 +31,9 @@ const HOLES: AutomationHoles = {
 	evaluate: (source, names) => evaluateHole(source, names, REGISTRY),
 };
 const TEMP = refKey({ source: "device", device: FREEZER, key: "temperature" });
+const noEvent = async () => {
+	throw new Error("no source here");
+};
 
 function world() {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "thresholds-"));
@@ -167,9 +170,7 @@ describe("a crossing", () => {
 		const { automations } = world();
 		const { trigger } = above();
 		const deps = {
-			event: async () => {
-				throw new Error("no source here");
-			},
+			event: noEvent,
 			namesNow: automations.namesNow,
 			holes: () => HOLES,
 		};
@@ -182,7 +183,10 @@ describe("a crossing", () => {
 			device: "nowhere",
 		} as typeof trigger);
 
-		expect(shown).toMatchObject({
+		expect(shown).toEqual({
+			matched: 0,
+			of: 0,
+			matches: [],
 			names: [
 				{ name: "value", shown: "-18 C" },
 				{ name: "device", shown: "Freezer" },
@@ -194,6 +198,73 @@ describe("a crossing", () => {
 		expect(marked).toMatchObject({ hole: { start: 7, end: 11 } });
 		expect(marked.filled).toBeUndefined();
 		await expect(elsewhere).rejects.toThrow();
+	});
+
+	it("fills declared text values", async () => {
+		const { automations } = world();
+		const { trigger } = above();
+		const deps = { event: noEvent, namesNow: automations.namesNow, holes: () => HOLES };
+		const preview = await previewAutomation(
+			deps,
+			trigger,
+			"Set {degrees} degrees",
+			[{ name: "degrees", type: "text" }],
+			{ degrees: "21" },
+		);
+
+		expect(preview.names?.at(-1)).toEqual({ name: "degrees", shown: "21" });
+		expect(preview.filled).toBe("Set 21 degrees");
+		const unset = await previewAutomation(deps, trigger, "Set {degrees}", [{ name: "degrees", type: "text" }]);
+		expect(unset.names?.at(-1)).toEqual({ name: "degrees", shown: "not set" });
+		expect(unset.filled).toBe((await HOLES.fill("Set {degrees}", {})).text);
+	});
+
+	it("fills device values with switch names", async () => {
+		const { automations } = world();
+		const { trigger } = above();
+		const deps = {
+			event: noEvent,
+			namesNow: automations.namesNow,
+			holes: () => HOLES,
+			switchName: (device: string) => (device === FREEZER ? "Freezer" : null),
+		};
+		const preview = await previewAutomation(deps, trigger, "Warm {room}", [{ name: "room", type: "device" }], {
+			room: FREEZER,
+		});
+
+		expect(preview.names?.at(-1)).toEqual({ name: "room", shown: "Freezer" });
+		expect(preview.filled).toBe("Warm Freezer");
+	});
+
+	it("marks an unknown name with its span", async () => {
+		const { automations } = world();
+		const { trigger } = above();
+		const preview = await previewAutomation(
+			{ event: noEvent, namesNow: automations.namesNow, holes: () => HOLES },
+			trigger,
+			"Use {unknown}",
+			[{ name: "degrees", type: "number" }],
+			{ degrees: 21 },
+		);
+
+		expect(preview.hole).toMatchObject({ start: 5, end: 12 });
+		expect(preview.filled).toBeUndefined();
+	});
+
+	it("lets a trigger name win over a function value", async () => {
+		const { automations } = world();
+		const { trigger } = above();
+		const preview = await previewAutomation(
+			{ event: noEvent, namesNow: automations.namesNow, holes: () => HOLES },
+			trigger,
+			"At {value}",
+			[{ name: "value", type: "text" }],
+			{ value: "function value" },
+		);
+
+		expect(preview.names?.[0]).toEqual({ name: "value", shown: "-18 C" });
+		expect(preview.names?.at(-1)).toEqual({ name: "value", shown: "function value" });
+		expect(preview.filled).toBe("At -18 C");
 	});
 
 	it("refuses a number no sensor reads here, under any id its owner names", () => {

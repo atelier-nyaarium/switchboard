@@ -2,6 +2,7 @@ package com.atelier_nyaarium.switchboard.vault
 
 import com.atelier_nyaarium.switchboard.ChatState
 import com.atelier_nyaarium.switchboard.gatewayOf
+import com.atelier_nyaarium.switchboard.proto.VaultRequest
 import com.atelier_nyaarium.switchboard.runIsolated
 
 /** Under this the countdown reads in seconds and turns urgent. */
@@ -30,6 +31,13 @@ internal fun requestTitle(request: VaultPendingRequest, entryTitle: String?): St
 		programOf(request.operation) == "sudo" -> "Sudo request"
 		else -> "Password request"
 	}
+}
+
+internal fun takeoverNotice(request: VaultPendingRequest, policyName: String?): String? {
+	val replacement = request.request as? VaultRequest.Entry ?: return null
+	if (replacement.replaces == null) return null
+	val name = policyName?.trim()?.takeIf { it.isNotEmpty() } ?: "A policy"
+	return "$name now covers this."
 }
 
 /** What a window would cover. A typed value takes none, and an unknown set is not named. */

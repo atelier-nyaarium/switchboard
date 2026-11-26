@@ -98,15 +98,18 @@ export function composeAutomations(deps: AutomationStageDeps): AutomationStage {
 			put: (id, automation, base, confirmed) => automations.ownerPut(id, automation, base, confirmed),
 			save: (op) => automations.saveOp(op),
 			remove: (id, base) => automations.ownerRemove(id, base),
-			preview: (trigger, text) =>
+			preview: (trigger, text, params, values) =>
 				previewAutomation(
 					{
 						event: deps.previewEvent,
 						namesNow: (clocked) => automations.namesNow(clocked),
 						holes: () => deps.automations.holes?.(),
+						switchName: deps.automations.actions?.switchName,
 					},
 					trigger,
 					text,
+					params,
+					values,
 				),
 		},
 	};

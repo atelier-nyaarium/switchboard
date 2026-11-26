@@ -24,6 +24,7 @@ import com.atelier_nyaarium.switchboard.liveconsole.applyTo
 import com.atelier_nyaarium.switchboard.liveconsole.consoleAssist
 import com.atelier_nyaarium.switchboard.liveconsole.scanHoles
 import com.atelier_nyaarium.switchboard.proto.AutomationPreviewName
+import com.atelier_nyaarium.switchboard.proto.FunctionParam
 import com.atelier_nyaarium.switchboard.proto.ConsoleDescription
 import com.atelier_nyaarium.switchboard.proto.ConsoleEntityDescription
 import com.atelier_nyaarium.switchboard.proto.ConsoleMemberDescription
@@ -84,6 +85,22 @@ class HoleTextRulesTest {
 		assertEquals(listOf("1.8 °C", null, null, null), answered.map { it.shown })
 		assertEquals(listOf("time"), namesHere(offer, "time", null).map { it.name })
 		assertEquals(emptyList<Any>(), namesHere(offer.copy(triggers = emptyList()), "crossing", null))
+	}
+
+	@Test
+	fun functionValuesFollowTriggerNamesWithTheirTypeAndThisAutomationsValue() {
+		val offer = offerOf(SANDBOX_SERVES, away = false)
+		val names = namesHere(
+			offer,
+			"crossing",
+			null,
+			listOf(FunctionParam("lamp", "device"), FunctionParam("message", "text"), FunctionParam("target", "number")),
+			mapOf("lamp" to SANDBOX_SWITCH, "message" to "Good night", "target" to "26"),
+		)
+
+		assertEquals(listOf("value", "device", "measure", "threshold", "lamp", "message", "target"), names.map { it.name })
+		assertEquals(listOf("Device", "Text", "Number"), names.takeLast(3).map { it.description })
+		assertEquals(listOf("Desk lamp", "Good night", "26"), names.takeLast(3).map { it.shown })
 	}
 
 	@Test

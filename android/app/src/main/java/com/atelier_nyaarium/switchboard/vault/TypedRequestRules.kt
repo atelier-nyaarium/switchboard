@@ -139,6 +139,12 @@ private fun whyCode(request: VaultRequest.Typed): Protocol.Wire.VaultTypedWhyCod
 	request.why?.code?.let { code -> Protocol.Wire.VaultTypedWhyCode.entries.find { it.wire == code } }
 
 /** Entries with a value allowed there; ones that already answer first. */
+private const val SHARED_PROGRAM = "sudo"
+
+/** Honoured for sudo alone, whatever the Gateway's build. */
+internal fun answeringOf(typed: VaultRequest.Typed): List<VaultAnswering>? =
+	typed.answering?.takeIf { typed.displayShape.substringBefore(' ') == SHARED_PROGRAM }
+
 internal fun secretChoices(views: List<VaultEntryView>, gatewayId: String, answering: List<VaultAnswering>?): List<SecretChoice> {
 	val answers = answering.orEmpty().map { it.entryId }.toSet()
 	return views.grantableOn(gatewayId)
@@ -152,7 +158,7 @@ internal fun suggestedPick(answering: List<VaultAnswering>?, choices: List<Secre
 
 /** Pick, else suggestion. */
 internal fun pickOf(request: VaultRequest.Typed, state: TypedCardState, choices: List<SecretChoice>): SecretChoice? {
-	val id = if (state.touched) state.pick else suggestedPick(request.answering, choices)
+	val id = if (state.touched) state.pick else suggestedPick(answeringOf(request), choices)
 	return choices.firstOrNull { it.entryId == id }
 }
 
@@ -197,7 +203,7 @@ internal fun rememberHidden(request: VaultRequest.Typed): Boolean =
 internal fun rememberPlan(request: VaultRequest.Typed, pick: SecretChoice?, policyName: (String) -> String?): RememberPlan {
 	if (rememberHidden(request)) return RememberPlan.Hidden
 	pick ?: return RememberPlan.NoPick
-	val answering = request.answering.orEmpty().firstOrNull { it.entryId == pick.entryId }
+	val answering = answeringOf(request).orEmpty().firstOrNull { it.entryId == pick.entryId }
 	return if (answering != null) {
 		RememberPlan.AddTo(answering, policyName(answering.policy.policyId))
 	} else {
@@ -218,7 +224,9 @@ internal fun rememberCost(plan: RememberPlan, grants: List<VaultGrant>?): Int? {
 	return grants?.count { it.policy?.policyId == target }
 }
 
-internal fun rememberLine(plan: RememberPlan, cost: Int?): String? = when (plan) {
+internal fun rememberLine(plan: RememberPlan, cost: Int?, on: Boolean): String? {
+	if (!on && (plan is RememberPlan.AddTo || plan is RememberPlan.Create)) return null
+	return when (plan) {
 	RememberPlan.Hidden -> null
 	RememberPlan.NoPick -> PICK_SECRET_FIRST
 	is RememberPlan.AddTo -> {
@@ -231,6 +239,10 @@ internal fun rememberLine(plan: RememberPlan, cost: Int?): String? = when (plan)
 	}
 	is RememberPlan.Create -> newPolicyLine(plan.name)
 }
+}
+
+internal fun saveSecretLabel(request: VaultRequest.Typed): String =
+	if (cannotRemember(request)) "Save as a secret" else saveForLabel(request.displayShape)
 
 internal fun answerTiers(remember: Boolean): List<String> =
 	if (remember) listOf(VAULT_DECISION_ONCE, VAULT_DECISION_WINDOW, VAULT_DECISION_SESSION) else listOf(VAULT_DECISION_ONCE)
@@ -272,7 +284,7 @@ internal fun typedWhyLine(request: VaultRequest.Typed, facts: TypedCardFacts, fi
 
 internal fun typedCardView(request: VaultRequest.Typed, state: TypedCardState, facts: TypedCardFacts): TypedCardView {
 	val serves = servesEntryAnswer(request)
-	val choices = if (serves) secretChoices(facts.views, facts.gatewayId, request.answering) else emptyList()
+	val choices = if (serves) secretChoices(facts.views, facts.gatewayId, answeringOf(request)) else emptyList()
 	val mode = effectiveMode(state, choices)
 	val warning = if (request.runsAnything == true) runsAnythingLine(request.displayShape) else null
 	val why = typedWhyLine(request, facts, choices.isNotEmpty())
@@ -288,7 +300,7 @@ internal fun typedCardView(request: VaultRequest.Typed, state: TypedCardState, f
 			choices = null,
 			picked = null,
 			field = true,
-			switch = if (serves) SwitchView(saveForLabel(request.displayShape), saveSub, state.save, true) else null,
+			switch = if (serves) SwitchView(saveSecretLabel(request), saveSub, state.save, true) else null,
 			typeButton = false,
 			pickButton = choices.isNotEmpty(),
 			mainLabel = "Send",
@@ -301,7 +313,7 @@ internal fun typedCardView(request: VaultRequest.Typed, state: TypedCardState, f
 	val on = rememberOn(state, plan)
 	val switch = when (plan) {
 		RememberPlan.Hidden -> null
-		else -> SwitchView(rememberLabel(request.displayShape), rememberLine(plan, rememberCost(plan, facts.grants)), on, pick != null)
+		else -> SwitchView(rememberLabel(request.displayShape), rememberLine(plan, rememberCost(plan, facts.grants), on), on, pick != null)
 	}
 	return TypedCardView(
 		mode = mode,
@@ -328,7 +340,7 @@ internal fun switchEvent(mode: CardMode, on: Boolean): CardEvent =
 internal fun savesTyped(request: VaultRequest.Typed, state: TypedCardState): Boolean = state.save && servesEntryAnswer(request)
 
 internal fun mintFor(request: VaultRequest.Typed, state: TypedCardState, facts: TypedCardFacts): String? {
-	val choices = secretChoices(facts.views, facts.gatewayId, request.answering)
+	val choices = secretChoices(facts.views, facts.gatewayId, answeringOf(request))
 	val pick = pickOf(request, state, choices) ?: return null
 	val plan = rememberPlan(request, pick, facts.policyName)
 	return pick.entryId.takeIf { plan is RememberPlan.Create && rememberOn(state, plan) && it !in state.policyIds }
@@ -336,7 +348,7 @@ internal fun mintFor(request: VaultRequest.Typed, state: TypedCardState, facts: 
 
 /** Null without a pick. */
 internal fun approveOp(request: VaultRequest.Typed, state: TypedCardState, facts: TypedCardFacts, decision: String): ConsoleOp.VaultAnswerEntry? {
-	val pick = pickOf(request, state, secretChoices(facts.views, facts.gatewayId, request.answering)) ?: return null
+	val pick = pickOf(request, state, secretChoices(facts.views, facts.gatewayId, answeringOf(request))) ?: return null
 	val plan = rememberPlan(request, pick, facts.policyName)
 	val remember = if (rememberOn(state, plan)) rememberOf(plan, state.policyIds[pick.entryId]) ?: return null else null
 	return entryAnswerOp(request.requestId, pick.entryId, decision, remember)

@@ -43,6 +43,9 @@ internal fun ActionsSection(
 	asked: Boolean,
 	edit: ((AutomationDraft) -> AutomationDraft) -> Unit,
 ) {
+	val functionParams = (draft.runs as? RunsHead.Points)?.pointing?.params.orEmpty()
+	val valueNames = functionParams.filter { it.param.name.isNotBlank() }.map { it.key }.toSet()
+	val plugs = plugChoices(functionParams, offer)
 	draft.actions.forEachIndexed { index, action ->
 		OutlinedCard(Modifier.fillMaxWidth()) {
 			Column(Modifier.padding(start = 12.dp, end = 4.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -72,10 +75,12 @@ internal fun ActionsSection(
 								)
 								ActionParamKind.SWITCH -> PickMenu(
 									label = param.label,
-									choices = offer.switches,
-									picked = offer.switches.find { it.device == value },
-									labelOf = { it.name },
-									onPick = { picked -> set(param.name, picked.device) },
+									choices = plugs,
+									picked = action.references[param.name]?.let { reference ->
+										plugs.firstOrNull { it.reference?.key == reference.key } ?: PlugChoice(reference.key, "${reference.name} (value)", reference)
+									} ?: plugs.firstOrNull { it.reference == null && it.device == value },
+									labelOf = { it.label },
+									onPick = { picked -> edit { it.withAction(index) { held -> storePlugChoice(held, param.name, picked) } } },
 									enabled = enabled,
 								)
 								ActionParamKind.TEXT -> HoleField(
@@ -113,7 +118,7 @@ internal fun ActionsSection(
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
 					}
-					IssueLine(actionHint(action, offer))
+					IssueLine(actionHint(action, offer, valueNames))
 					IssueLine(actionWarning(action, offer))
 				}
 			}

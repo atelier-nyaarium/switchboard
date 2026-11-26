@@ -4,6 +4,8 @@ import com.atelier_nyaarium.switchboard.assistant.CarryRefusal
 import com.atelier_nyaarium.switchboard.proto.AutomationSaveRefusal
 import com.atelier_nyaarium.switchboard.proto.PolicyRefusal
 import com.atelier_nyaarium.switchboard.proto.Protocol
+import com.atelier_nyaarium.switchboard.proto.VaultRequest
+import com.atelier_nyaarium.switchboard.vault.VaultPendingRequest
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -22,6 +24,38 @@ class ReasonsTest {
 		assertEquals("Sending the message failed. (gremlins)", reasonSentence(Act.SENDING, "gremlins"))
 		assertEquals("Sending the message failed.", reasonSentence(Act.SENDING, null))
 		assertEquals("Sending the message failed.", reasonSentence(Act.SENDING, " "))
+	}
+
+	@Test
+	fun aTypedVaultNoticeNamesItsRequestWithoutChangingOtherRequests() {
+		val typed = VaultPendingRequest(
+			team = "domain.gateway.host",
+			request = VaultRequest.Typed(
+				v = 1L,
+				requestId = "typed",
+				operation = "sudo apt install sample",
+				displayShape = "sudo apt",
+				coveredShapes = listOf("sudo apt"),
+				sessionTarget = "host",
+				deadlineAt = Long.MAX_VALUE,
+			),
+			receivedAt = 0L,
+		)
+		val entry = typed.copy(
+			request = VaultRequest.Entry(
+				entryId = "entry",
+				v = 1L,
+				requestId = "entry-request",
+				operation = "sudo apt install sample",
+				displayShape = "sudo apt",
+				coveredShapes = listOf("sudo apt"),
+				sessionTarget = "host",
+				deadlineAt = Long.MAX_VALUE,
+			),
+		)
+
+		assertEquals("Sudo request: Try again.", vaultNoticeLine(typed, "Try again."))
+		assertEquals("Try again.", vaultNoticeLine(entry, "Try again."))
 	}
 
 	@Test
@@ -101,6 +135,8 @@ class ReasonsTest {
 		assertEquals(listOf(generic, generic), listOf(invalid(path = "id"), invalid(path = "label")))
 		assertEquals("no rule fits", invalid(path = "steps.0.device", record = "function", line = "no rule fits"))
 		assertEquals("no rule fits", invalid(record = "automation", line = "no rule fits"))
+		assertEquals("new refusal line", automationSaveLine(null, AutomationSaveRefusal(code = "new_code", line = "new refusal line")))
+		assertEquals("The Gateway refused it.", automationSaveLine(null, AutomationSaveRefusal(code = "new_code")))
 
 		assertTrue(carryRefusalLine(CarryRefusal.StepNotServed("tell_assistant", "Tell the assistant")).contains("Tell the assistant"))
 		assertTrue(!carryRefusalLine(CarryRefusal.StepNotServed("tell_assistant")).contains("tell_assistant"))

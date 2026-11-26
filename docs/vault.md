@@ -287,14 +287,40 @@ session holds a binding token. `vaultRun.ts` is the child run.
   and This session. Deny opens a `Steer` field whose note rides the refusal.
 - **A typed request answers with a held secret where it can** (`vault/TypedRequestRules.kt`, the
   card's every decision): the card says why the Gateway asks, offers the secrets allowed there,
-  answering ones first, and pre-picks the one the Gateway names. Remember adds the command to the
+  answering ones first, and pre-picks the one the Gateway names. The Gateway names one for a sudo
+  request alone, the secret that already answers sudo there; any other program opens with nothing
+  picked. Remember adds the command to the
   policy that secret answers, or makes one named after it, and says what that ends; only then do the
   30 min and This session tiers appear. `vault_answer_entry` carries the pick and the remember, and
   the Gateway converts the request. Typing instead, Save first passes presence, then matches the
   value against the held secrets in that order: a match lands the card on that secret, so the card
   shows what Approve will do; no match opens the vault's new-entry form with the value, both ids
   minted once, and its save matches the final value again before it writes. A refusal that keeps
-  the request stays on the card. `VaultOps` holds the presence gate for every approval of an entry.
+  the request stays on the card, and its notice names the request ("Sudo request: ..."), since the
+  notice outlives a closed card. `VaultOps` holds the presence gate for every approval of an entry.
+  - **The cost line follows Remember:** what Approve adds and ends is drawn only while Remember is
+    on (`rememberLine`). On a request that cannot be remembered, Type mode's switch saves the secret
+    alone and says so (`saveSecretLabel`).
+  - **One presence prompt for one approval** (`vault/MatchPresenceProof.kt`): under "Every
+    approval", the presence given before a typed value is matched also covers the Approve that
+    follows, for that request and that secret, once, within a minute. `VaultOps` holds at most one
+    proof, and `answerWithEntry` is its one reader. A proof is written only when "Every approval"
+    was already the rule before the prompt was asked and still is after the match, so a prompt that
+    was never owed carries nothing. It names the secret's revision as matched, the app lock's epoch
+    (`AppLock.epoch`, which moves at every relock) and a monotonic time, so a changed secret, a
+    relock passed some other way and a moved wall clock each spend it unused. Another secret
+    picked, another request arriving, the request settling or being taken over, a change of the
+    approvals setting and a re-provision drop it. A phone that cannot authenticate at all has no
+    prompt to carry: the gate passes there with or without a proof.
+  - **A secret is offered for sudo alone, whatever the Gateway says** (`answeringOf`): the card
+    honours a request's `answering` only when its shape's program is sudo, so a Gateway on an older
+    build cannot pre-pick a secret for another program.
+  - **A takeover says so:** an entry request that carries `replaces` shows one line under its title
+    naming the policy that came to cover it (`takeoverNotice`).
+  - **The new-entry form** says a title is needed while both are blank (`needsTitleHint`), and every
+    vault save clears its busy flag on every exit, a cancellation included (`withBusyState`).
+  - **The presence prompt for an approval** reads "Approve request" and "Confirm it's you."; the app
+    lock's own prompt keeps its text.
 - **The overlay is the same card:** `VaultPrompt` draws `VaultRequestCard`, the sheet's own body,
   over the app in front, in the system theme. It opens as a one-line banner; a tap expands it, a
   swipe parks it, and Go to session sits beside Deny. An entry approval there passes the same

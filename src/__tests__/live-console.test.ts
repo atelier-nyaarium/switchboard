@@ -325,6 +325,17 @@ describe("holes in an automation's text", () => {
 		expect(at("It is {if(true, radio, 0).listen()} now")).toBe("if(true, radio, 0).listen");
 	});
 
+	it("reads a name that is also an entity's as the entity, at the save as at the fire", async () => {
+		const shadowed = { sensors: { value: "mine" } };
+
+		expect(holeIssue("It is {sensors} now", ["sensors"], scope)).toMatchObject({ start: 7, end: 14 });
+		expect(holeIssue("{sensors.list.count()}", ["sensors"], scope)).toBeNull();
+		expect(await fillHoles("{sensors} {sensors.list.count()}", shadowed, scope)).toEqual({
+			text: "{?} 2",
+			failed: 1,
+		});
+	});
+
 	it("fills a name alone with its shown form, any other expression as one line, and a hole that fails with {?}", async () => {
 		const fill = async (text: string) => fillHoles(text, names, scope);
 

@@ -426,7 +426,7 @@ describe("what a typed request offers", () => {
 		revision: 3,
 	});
 
-	it("offers each usable entry an enabled policy binds under the key's program, once, with its first policy", () => {
+	it("offers each usable entry an enabled policy binds under sudo, once, with its first policy, and none for another program", () => {
 		const policies = [
 			held("a-sudo", "pw", ["sudo apt"]),
 			held("b-sudo", "pw", ["sudo setfacl"]),
@@ -440,9 +440,7 @@ describe("what a typed request offers", () => {
 			{ entryId: "pw", policy: { policyId: "a-sudo", policyRevision: 3 } },
 			{ entryId: "admin", policy: { policyId: "f-sudo", policyRevision: 3 } },
 		]);
-		expect(answeringOf("ssh other", policies, usable)).toEqual([
-			{ entryId: "deploy", policy: { policyId: "c-ssh", policyRevision: 3 } },
-		]);
+		expect(answeringOf("ssh other", policies, usable)).toEqual([]);
 		expect(answeringOf("git push", policies, usable)).toEqual([]);
 	});
 

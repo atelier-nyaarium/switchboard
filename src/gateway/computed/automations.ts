@@ -91,6 +91,7 @@ import {
 	natureOf,
 	runEffect,
 } from "./automationRunner.js";
+import { functionScopeOf } from "./automationScope.js";
 import { type Checkpoint, FIRED_MAX, own, restore, type State, versionKey } from "./automationState.js";
 import {
 	begun,
@@ -1137,14 +1138,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		const call = body && site !== null ? callAt(body, site) : null;
 		const fn = site === null ? undefined : fire.frames?.[site];
 		const params = fn ? (frameFunction(fn)?.params ?? []) : [];
-		const values = call?.values ?? {};
-		const scope: FireNames = {};
-		for (const param of params) {
-			if (!Object.hasOwn(values, param.name)) continue;
-			const value = values[param.name];
-			const shown = param.type === "device" ? deps.actions?.switchName(String(value)) : null;
-			scope[param.name] = shown ? { value, shown } : { value };
-		}
+		const scope = functionScopeOf(params, call?.values, deps.actions?.switchName);
 		return { ...scope, ...(fire.names ?? {}) };
 	};
 
@@ -1354,6 +1348,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			isHome: deps.isHome(),
 			issue: (body) => automationIssue(body),
 			callIssue,
+			functionIssue: (fn) => functionIssue(fn)?.message ?? null,
 			copyIdOf: (automationId, from) => derivedFunctionId("copy", automationId, from),
 			carryIdOf: (from) => derivedFunctionId("carry", "", from),
 			unreadAt: (id) => store.unreadOf(id, AUTOMATION_KIND) || store.unreadOf(id, FUNCTION_KIND),
@@ -1375,6 +1370,9 @@ export function createAutomations(deps: AutomationsDeps) {
 		}
 	};
 
+	const refusalWithLine = (refusal: AutomationSaveRefusal, reason: string): AutomationSaveRefusal =>
+		refusal.line === undefined ? { ...refusal, line: reason.slice(0, SAVE_LINE_MAX) } : refusal;
+
 	/** Every row lands, or none. */
 	function write(intent: AutomationIntent): AutomationWritten {
 		const held = records.list();
@@ -1383,7 +1381,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			return {
 				written: false,
 				reason: verdict.reason,
-				refusal: verdict.refusal,
+				refusal: refusalWithLine(verdict.refusal, verdict.reason),
 				...(verdict.confirm ? { confirm: verdict.confirm } : {}),
 			};
 		}
@@ -1395,7 +1393,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			return {
 				written: false,
 				reason: result.reason,
-				refusal: storeRefusal(result, verdict.writes[result.at]),
+				refusal: refusalWithLine(storeRefusal(result, verdict.writes[result.at]), result.reason),
 				...(result.record ? { record: result.record } : {}),
 				...(result.issue ? { issue: result.issue } : {}),
 			};
@@ -1433,13 +1431,14 @@ export function createAutomations(deps: AutomationsDeps) {
 						param: hole.param,
 						start: hole.start,
 						end: hole.end,
+						line: `the ${record} has an unresolved value`,
 					};
 				const { issue } = refusal;
 				if (!issue) return { code: "invalid", record, line: refusal.reason.slice(0, SAVE_LINE_MAX) };
 				const path = issue.path.join(".");
 				return issue.code === STEP_ISSUE_CODE
 					? { code: "invalid", record, path, line: issue.message.slice(0, SAVE_LINE_MAX) }
-					: { code: "invalid", record, path };
+					: { code: "invalid", record, path, line: `the ${record} is invalid` };
 			}
 			case "moved":
 				return refusal.record
@@ -1494,7 +1493,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			...(op.function ? { function: op.function } : {}),
 			confirmed: op.confirmed === true,
 		});
-		if (!saved.stored) return { stored: false, refusal: saved.refusal };
+		if (!saved.stored) return { stored: false, refusal: refusalWithLine(saved.refusal, saved.reason) };
 		const listed = listing();
 		const row = listed.automations.find((held) => held.id === saved.automation.id);
 		const pointer = pointerOf(saved.automation.body);

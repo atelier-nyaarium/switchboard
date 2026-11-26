@@ -73,8 +73,21 @@ internal data class NameHere(val name: String, val description: String, val show
 }
 
 /** The served row's names for the trigger kind, with what each holds once answered. */
-internal fun namesHere(offer: AutomationOffer, kind: String, answered: List<AutomationPreviewName>?): List<NameHere> =
-	offer.names(kind).map { served -> NameHere(served.name, served.description, answered?.find { it.name == served.name }?.shown) }
+internal fun namesHere(
+	offer: AutomationOffer,
+	kind: String,
+	answered: List<AutomationPreviewName>?,
+	params: List<com.atelier_nyaarium.switchboard.proto.FunctionParam> = emptyList(),
+	values: Map<String, String> = emptyMap(),
+): List<NameHere> {
+	val trigger = offer.names(kind).map { served -> NameHere(served.name, served.description, answered?.find { it.name == served.name }?.shown) }
+	val function = params.map { param ->
+		val value = values[param.name]
+		val shown = if (param.type == "device") offer.switches.find { it.device == value }?.name else value
+		NameHere(param.name, param.type.replaceFirstChar { it.uppercase() }, shown)
+	}
+	return trigger + function
+}
 
 /** Names a hole may use. */
 internal fun nameShapes(names: List<NameHere>, eventFields: List<String>): Map<String, VariableShape?> =

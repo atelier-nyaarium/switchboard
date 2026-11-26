@@ -7,10 +7,16 @@ import { TemperatureUnitSchema } from "./schemasAssistant.js";
 import { RecordThreadSchema } from "./schemasAssistantRecord.js";
 import { AssistantRuleOtherwiseSchema, AssistantRuleSchema, RULE_ID_RE } from "./schemasAssistantRules.js";
 import { SEND_DECISIONS, SEND_GUARDS, SEND_NOTE_MAX } from "./schemasAssistantSend.js";
-import { AUTOMATION_MESSAGE_MAX, AutomationSchema, AutomationTriggerSchema } from "./schemasAutomation.js";
+import {
+	AUTOMATION_MESSAGE_MAX,
+	AutomationSchema,
+	AutomationTriggerSchema,
+	FunctionValuesSchema,
+} from "./schemasAutomation.js";
 import { AutomationSaveOpShape } from "./schemasAutomationSave.js";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
 import { DEVICE_CONSOLE_OP_KINDS, DEVICE_CONSOLE_REQUESTS } from "./schemasDevices.js";
+import { FUNCTION_PARAMS_MAX, FunctionParamSchema } from "./schemasFunction.js";
 import { CONSOLE_LIMIT_MAX, ConsoleVariablesSchema } from "./schemasLiveConsole.js";
 import { PhoneCapabilityAnswerSchema } from "./schemasPhoneCapabilities.js";
 import { AuthorizationPolicySchema } from "./schemasPolicy.js";
@@ -377,6 +383,8 @@ export const ConsoleOpSchema = z
 			trigger: AutomationTriggerSchema,
 			/** A text whose holes to fill. */
 			text: z.string().max(AUTOMATION_MESSAGE_MAX).optional(),
+			params: z.array(FunctionParamSchema).max(FUNCTION_PARAMS_MAX).optional(),
+			values: FunctionValuesSchema.optional(),
 		}),
 		/** Gateway-local; survives release. */
 		z.object({ kind: z.literal("assistant_safety"), approveEverySend: z.boolean() }),

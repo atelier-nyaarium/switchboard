@@ -137,7 +137,7 @@ fun VaultRequestCard(
 		while (true) {
 			delay(if (deadlineAt - now < EXPIRY_SECONDS_BELOW_MS) 1_000 else 15_000)
 			now = System.currentTimeMillis()
-			repo.vault.sweepRequests(now)
+			repo.vaultOps.sweepRequests(now)
 		}
 	}
 	val typedRequest = request.request as? VaultRequest.Typed
@@ -145,6 +145,12 @@ fun VaultRequestCard(
 	val expiry = expiresIn(request.deadlineAt, now)
 
 	val gatewayId = remember(request.team) { runIsolated { gatewayOf(request.team) }.getOrNull() ?: "" }
+	val takeoverPolicyName = (request.request as? VaultRequest.Entry)
+		?.takeIf { it.replaces != null }
+		?.policy
+		?.policyId
+		?.let(policyNameOf(state.gateways, gatewayId))
+	val takeoverLine = takeoverNotice(request, takeoverPolicyName)
 	val grants by repo.vault.grants
 	val views = remember(revision) { repo.vaultOps.views() }
 	val facts = TypedCardFacts(gatewayId, views, grants[gatewayId], policyNameOf(state.gateways, gatewayId))
@@ -156,6 +162,7 @@ fun VaultRequestCard(
 	var revealed by remember(requestId) { mutableStateOf(false) }
 	val named = namesChoices(appLockAsks(state, unlocked), revealed)
 	fun on(event: CardEvent) {
+		if (event is CardEvent.Picked) repo.vaultOps.clearMatchProof()
 		card = card?.let { typedCardAfter(it, event) }
 	}
 	LaunchedEffect(requestId) {
@@ -175,13 +182,10 @@ fun VaultRequestCard(
 
 	/** Lands only on its card. */
 	fun launchOp(work: suspend (owns: () -> Boolean) -> Unit) {
-		busy = true
 		val sentFor = requestId
 		scope.launch {
-			try {
+			withBusyState({ busy = it }) {
 				work { ownsCard(sentFor, shownNow) }
-			} finally {
-				busy = false
 			}
 		}
 	}
@@ -227,11 +231,10 @@ fun VaultRequestCard(
 	suspend fun saveFromForm(draft: VaultDraft): String? {
 		val seed = card?.seed ?: return null
 		val sentFor = requestId
-		busy = true
-		try {
+		return withBusyState({ busy = it }) {
 			val saved = repo.vaultOps.saveAndAnswer(request, draft, seed) { present() }
-			if (!ownsCard(sentFor, shownNow)) return null
-			return when (saved) {
+			if (!ownsCard(sentFor, shownNow)) return@withBusyState null
+			when (saved) {
 				SavedAnswer.Declined -> null
 				is SavedAnswer.NotSaved -> saved.line
 				is SavedAnswer.Matched -> null.also { on(CardEvent.Landed(saved.entryId)) }
@@ -246,9 +249,7 @@ fun VaultRequestCard(
 					}
 				}
 			}
-		} finally {
-			busy = false
-		}
+	}
 	}
 
 	Surface(shape = RoundedCornerShape(28.dp), tonalElevation = 6.dp, modifier = modifier.fillMaxWidth(0.95f)) {
@@ -282,6 +283,9 @@ fun VaultRequestCard(
 						style = MaterialTheme.typography.labelSmall,
 						color = if (expiry.urgent) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
 					)
+				}
+				takeoverLine?.let {
+					Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				}
 				Text(requester(state, request), style = MaterialTheme.typography.titleSmall)
 				Text(

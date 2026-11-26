@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.RowScope
@@ -49,6 +50,7 @@ internal fun EditorScaffold(
 	leaving: LeaveAsking? = null,
 	/** Drawn after Save. */
 	menu: @Composable RowScope.() -> Unit = {},
+	scrollState: ScrollState? = null,
 	content: @Composable ColumnScope.() -> Unit,
 ) {
 	Scaffold(
@@ -72,7 +74,7 @@ internal fun EditorScaffold(
 		},
 	) { pad ->
 		Column(
-			Modifier.padding(pad).fillMaxSize().imePadding().verticalScroll(rememberScrollState())
+			Modifier.padding(pad).fillMaxSize().imePadding().verticalScroll(scrollState ?: rememberScrollState())
 				.padding(horizontal = 16.dp),
 			verticalArrangement = Arrangement.spacedBy(12.dp),
 			content = content,

@@ -14,7 +14,8 @@ export const STEP_ARGS_MAX = 4;
 export const FUNCTION_PARAM_TYPES = ["device", "text", "number"] as const;
 export type FunctionParamType = (typeof FUNCTION_PARAM_TYPES)[number];
 
-export const PARAM_NAME_RE = /^[a-z][a-z0-9_]{0,31}$/;
+export const PARAM_NAME_MAX = 32;
+export const PARAM_NAME_RE = new RegExp(`^[a-z][a-z0-9_]{0,${PARAM_NAME_MAX - 1}}$`);
 
 export const FunctionParamSchema = z
 	.strictObject({ name: z.string().regex(PARAM_NAME_RE), type: z.enum(FUNCTION_PARAM_TYPES) })
@@ -37,6 +38,7 @@ export const FunctionStepSchema = z
 		z.strictObject({
 			kind: z.literal("do"),
 			action: z.string().min(1).max(32),
+			as: z.string().regex(PARAM_NAME_RE).optional(),
 			args: z
 				.record(z.string().max(32), StepArgSchema)
 				.refine((args) => Object.keys(args).length <= STEP_ARGS_MAX, { message: "too many values" }),

@@ -479,8 +479,8 @@ describe("federation harness: vault requests", () => {
 			expect(await askpass(line, 200)).toMatchObject({ outcome: "pending" });
 			const typed = await nextRequest(seen + i);
 			expect(typed).toMatchObject({ kind: "typed", why });
-			const offered = typed.kind === "typed" ? typed.answering?.map((row) => row.entryId) : undefined;
-			expect(offered).toEqual(why.code === "binding_unusable" ? undefined : ["prod-ssh"]);
+			// Sudo alone offers entries.
+			expect(typed).not.toHaveProperty("answering");
 			await gatewayPost("/vault/withdraw", session, { requestId: typed.requestId });
 		}
 

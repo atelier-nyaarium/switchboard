@@ -877,6 +877,8 @@ Read as, and mocked in the Designer dock (`functions-automations-list.html`, `fu
 Q: Do the automations that move take a copy, or does the move stop and ask?
 A: They take a copy, as "Make unique" would give them. Nothing blocks.
 
+As built, one thing does: a carry whose derived id cannot be claimed is refused whole (`no_key`, `no_free_id`).
+
 > Compare a blink and GitHub trigger side by side.
 >
 > and A.
@@ -905,6 +907,8 @@ A: Yes. Each value the function takes shows its source in the "Runs" block: from
 > And looks good. If it is a source like GitHub, don't show it where Incompatible.
 
 Following from the two answers, the picker's "Incompatible triggers" group has nothing left to list: a value the trigger does not give is set on the automation, and a function bound to another source is hidden. The group leaves the card and would return only for a value that can be neither given nor written. Mocked: the picker and the editor updated, and `functions-runs-block.html` showing the block with every value from the trigger, with values set on the automation (one still to set, which Save waits for), and one function shared by two thermometers with a room each.
+
+As built, the group's cases are hidden rather than gone: a function reading a name the trigger lacks, such as `{value}` under a clock, and a declared value the trigger gives as another type, are left out of the picker as another source's event is.
 
 ## Question 70 - What happens to the rest of a run the Gateway's downtime interrupted?
 
@@ -1067,6 +1071,90 @@ A: In the Runs block. Every automation shows the block. An automation's own step
 
 Recommended: one place to name and rename, no dialog, the five live automations look the same until one is named, and it matches the stored form (named is a function record, unnamed is the automation's own steps).
 
+## Question 76 - How are a function's own values declared?
+
+Q: In the Runs block, or not on the phone until the script view?
+A: In the Runs block. A named function shows "+ Add value" under its value rows: a name, and a type from Device, Text and Number. The name and type belong to the function, and each automation using it sets its own value. On a shared function, adding a value the other users' triggers do not give is blocked with "Make unique first", since the Gateway would refuse the save as unfit for them. Mocked as `functions-values-a.html`, group "Phase 2.7e Functions".
+
+> A
+
+Recommended: without it nothing that needs a value set on the automation can be made, and two thermometers sharing one Notify with their own rooms is the case the owner asked for. The shared rule is the Gateway's own refusal shown early.
+
+## Question 77 - How does a step use a declared value?
+
+Q: Do a step's own fields offer the function's values, or text holes only for now?
+A: The step's own fields offer them. A plug menu lists the function's Device values above the real plugs, shown by name; a number field offers the Number values the same way; a text field takes `{name}` as a hole, as it already does. The step stores the value's name as an expression argument, which the Gateway resolves to that automation's own value when the step's turn comes.
+
+No action parameter is a number in this build, so a Number value is used through a text hole only.
+
+> A
+
+Recommended: a declared value no step can use is dead weight, and the Gateway already resolves a step argument that names a value.
+
+## Question 78 - A typed password matches a saved secret: answer at once, or show first?
+
+Q: With Save on, a typed password matches a secret already held. Does that secret answer at once, remembered, or does the card show what Approve will do first?
+A: Show first. The card lands on that secret with Remember on and its cost line ("Adds to Sakura Sudo. Ends 1 approval."), and the owner taps Approve. Supersedes the first decision that the matched secret answers by itself.
+
+> A
+
+Recommended: a tap does what the card says. The matched answer would add a command to a policy and end its timed approvals with nothing shown.
+
+## Question 79 - Which requests get a secret pre-picked with Remember on?
+
+Q: Any program whose first word a secret already answers, or sudo only?
+A: Sudo only. A sudo request pre-picks the secret that already answers sudo on that Gateway. Every other program opens with nothing picked.
+
+> A
+
+Recommended: one password answers every sudo command on a machine, which is not true of other programs (a password saved for one ssh host would be offered, Remember on, for another). A wrong suggestion with Remember on is one tap from binding the wrong secret to a command.
+
+## Question 80 - App lock on "Every approval": one approval, two presence prompts?
+
+Found by the emulator walk: a typed password with Save on asks for presence before it is compared with the held secrets, the card lands on the matched secret (Question 78), and Approve asks again.
+
+Q: One prompt for both, or keep both?
+A: One prompt covers both. The presence given for the match also covers the Approve that follows, for that request and that secret only, for one minute. Picking another secret, or waiting longer, asks again.
+
+> A
+
+Recommended: it is one approval, and "Every approval" should mean one prompt each. The carry is narrow: the same request, the same secret, one minute.
+
+## Question 81 - What is a unique copy called?
+
+Found by the emulator walk: "Make unique" keeps the name, so a save leaves two functions called "Too warm" that neither the list nor the picker can tell apart.
+
+Q: A numbered name, the word "copy", or the same name as built?
+A: A numbered name, as Blender does it. Make unique renames this automation's copy "Too warm.001", then ".002" for the next free one on that Gateway. The name sits in the field and can be changed before Save.
+
+> A
+
+Recommended: the copy is the owner's to rename either way, and a numbered name never leaves two rows that cannot be told apart. A plain number after the name would read as the list's user count.
+
+## Question 82 - Do steps with no name have "Keep trying for" and "Cool down"?
+
+Found by the alignment read: slice 3 stores both settings only on a pointer to a named function. An automation with its own steps always waits ten minutes and has no cool-down, against Questions 48 and 52, and the phone draws neither setting yet.
+
+Q: Every automation, or named only?
+A: Every automation has both, named or not, stored on the automation itself. The cost is accepted: an app build older than this one would drop them if it edited that automation.
+
+> A
+
+Recommended: it is what Questions 48 and 52 already answered, and how long a run keeps trying has nothing to do with whether its steps have a name.
+
+Follows from it, for the tree slices: the automation record gains `keepTryingMin`, an event trigger gains `coolDownSec` (zero by default, as Question 52 said), and `run_function` loses both while no function is stored anywhere. This is a second accepted exception to the wire rule.
+
+## Question 83 - Is "outside words leave the machine" still named at the save?
+
+Question 52's "Words" rule (a hole reading outside words inside something that leaves the machine is named at save) is built in no slice. Only IFTTT leaves the machine today, and an event automation that gains an IFTTT step already confirms once with "Send to IFTTT".
+
+Q: Add it to that confirm, or drop the rule?
+A: Add it to the confirm. When an IFTTT value reads the event's own words, the confirm's line says so ("Send to IFTTT, with the event's title"). No new dialog. It rides the tree slice on the Gateway.
+
+> A
+
+Recommended: a few lines on a confirm that already exists, at the one moment it matters that someone else's words are about to leave.
+
 ## Question 50 - Where does the flow map live?
 
 Q: A Map and List toggle at the top of Automations, its own menu entry, or only inside an automation's page?
@@ -1112,7 +1200,7 @@ The owner sent a screenshot of an integrations map from another of their project
   - **The Automations list:** each row is a trigger with its function beneath it, a small the function mark and the function's name. A count sits beside the name only when more than one thing uses the function. The List and Map switch and the row's switch stay.
   - **The editor:** "Do" becomes "Runs". It opens with the function as a block: its name, "Used by N" when above one, and an arrow that points the automation at another function. Under the block, one row per value the function takes: its name, its type and its source, either "from the trigger" or a value set on the automation (a menu for a device, a field for a text or a number). A value still to set reads "Set a value" and Save waits for it. When the function is shared, a panel reads "Changes here also apply to:" with the other users and "Make unique". Then the Cards and Script switch and the body. Removal stays in the top-right menu.
   - **The values set on an automation are the automation's own.** Only the function's body is shared, and "Used by N" speaks of the body.
-  - **The picker, "Run a function":** the subtitle is the trigger's sentence alone. "+ New function", a thin line, then every function this automation could run, each with its signature and its count. No "Fits this trigger" label. A function that takes another source's event, such as a GitHub event, is not listed. The "Incompatible triggers" group, with reasons worded "Requires event.", has nothing left to list and is off the card. Owner: "If it is a source like GitHub, don't show it where Incompatible."
+  - **The picker, "Run a function":** the subtitle is the trigger's sentence alone. "+ New function", a thin line, then every function this automation could run, each with its signature and its count. No "Fits this trigger" label. A function that takes another source's event, such as a GitHub event, is not listed. The "Incompatible triggers" group, with reasons worded "Requires event.", has nothing left to list and is off the card. Owner: "If it is a source like GitHub, don't show it where Incompatible." As built, a function reading a name the trigger lacks, or a declared value given as another type, is hidden the same way.
 - **"Not tested" shows only where a device is added** (the Found rows and the Pair with dialogue), never on Integrations or a device page. Owner: "actually get rid of not tested from the devices view. that's going to get annoying. ot only needs to be on the device additscreen".
 
 # Plan
@@ -1700,7 +1788,7 @@ Also seen, left: an interval's `{time}` prints in UTC; the sandbox's preview ref
 - **A run time kept in three places** (`checkpoint.firedAt`, `slot.firedAt`, `ran`): an edit, a move to a crossing and a clock edit each lost it differently. Closed by `ran` as the one place.
 - **A writer that does not hold its reader's bounds** (the outbox against `SourceEventSchema`): one instance found, with two more on the same road. Closed in `told` and in the reader.
 - **A bounded queue with no share per producer** (`admit` and `told` in `automations.ts`): round 1 (audit of slices 1 to 6) made a full outbox hold a tell and a waiting fire give up its place; round 2 (red team) found one busy automation filling the fires and quiet tells filling the outbox. Patched in place: one unstarted effects fire per automation, quiet events dropped for a `now` one. Round 3 (re-audit of those patches) found the patches themselves wrong three ways: the readiness hold stalled a whole fire through a Router outage, replacement ate a poll's earlier events, and its rows filled the log. Each was cut back to the smallest rule that holds (a start-only grace, a backlog-only replacement that spares events, a deduped row). This mechanism is not patched again here: the architecture step gets one admission rule for the fires and the outbox, with a share per automation, a priority, and per-effect progress so an unready effect can wait alone. **Closed by the architecture step:** `automationFires.ts` and `automationOutbox.ts` hold those rules as pure functions. The red team on it found timing gaps in the new wait (first round on that mechanism), not the share rule.
-- **An unread list folded into a definite answer** (readers of `GatewayList`, `Lookup` and `UsedBy` on the phone): first audit, a source's page spun or said "none" for an unread list; second audit, a delete of a row its list no longer held was refused as a moved home; red team, the remove dialogue said nothing watches a sensor whose list was unread, and an unread list let a put skip the move lock. Each patched at its reader; the lock no longer reads a list at all. `gateway-list-residue.test.ts` refuses `.orEmpty()` on a list but not a cast with a default. For the architecture step: every reader folds the answers in a `when` with no else, and the gate refuses the cast. **Closed by the architecture step:** the flattening accessors left main sources and `gateway-list-residue.test.ts` holds five rules with an empty allowlist. The red team on it still found four readers the rules could not see (a nullable `workdirOf` read as "must move", a failed read left as reading, unread peers mapped to none, an `is` test in an `any`); each was patched and the gate gained the `is` rule. What stays beyond a source gate: a function that names every case and returns the same definite value for two of them.
+- **An unread list folded into a definite answer** (readers of `GatewayList`, `Lookup` and `UsedBy` on the phone): first audit, a source's page spun or said "none" for an unread list; second audit, a delete of a row its list no longer held was refused as a moved home; red team, the remove dialogue said nothing watches a sensor whose list was unread, and an unread list let a put skip the move lock. Each patched at its reader; the lock reads no automation list. A function write does read its listed row's `moves`; it read an absent row as not moving (`saveWithFunction`), the same class again, and now takes the move lock at the assistant's home when the row is missing (`functionWriteMoves`). `gateway-list-residue.test.ts` refuses `.orEmpty()` on a list but not a cast with a default. For the architecture step: every reader folds the answers in a `when` with no else, and the gate refuses the cast. **Closed by the architecture step:** the flattening accessors left main sources and `gateway-list-residue.test.ts` holds five rules with an empty allowlist. The red team on it still found four readers the rules could not see (a nullable `workdirOf` read as "must move", a failed read left as reading, unread peers mapped to none, an `is` test in an `any`); each was patched and the gate gained the `is` rule. What stays beyond a source gate: a function that names every case and returns the same definite value for two of them.
 - **A run log that dedupes on too coarse a key** (`logged`): once per automation hid a second action's refusal; once per automation and action then hid every later replaced or crowded-out run, since those rows carry no action. Patched each time at the key. The next patch (a row with no action compared with the automation's latest row) logged a standing refusal on every fire. The rule it wanted is two kinds of row, named: a standing refusal, once per automation and action; a lost run, again once anything came between (`LOST_RUNS`).
 - **A guard on an unread or unusable state that also closes the owner's way out** (three fixes of one round, three mechanisms): the Location page hid the move to another Gateway with the in-place move; the home-only issue blocked the save that would remove the action; the peers prune waited on an offline Gateway and so held an untrust. Each cut back to refuse only the act the unknown makes unsafe. For any later fix of this kind: name the recovery path first and keep it.
 - **A value read from ambient state when it is used, not when it was entered** (the display unit in the automation editor; `automationServes` in `landed`): one instance each, both closed by carrying the value with what it belongs to (the draft, the copied entry). The architecture step found a third (a crossing converted with its number's unit read at save) and closed all three the same way: the draft carries its display unit, its crossing's stored unit, and the context it was minted with.
@@ -1725,14 +1813,14 @@ Asked, unanswered:
 
 ## Phase 2.7e - Functions: reusable bodies, ordered steps, branches and calls (Q48 to Q71)
 
-Fourth draft. The third was audited from five lenses (`plan-27e-v3-audit-synthesis.md` in the session scratchpad, 21 changes kept, every high finding checked against the code); they are folded in here. Not built. Builds named below: 8.14.83 (on the Gateway, the daemon and the phone today), N (functions, bodies still a list) and N+1 (the tree).
+Fourth draft. The third was audited from five lenses (`plan-27e-v3-audit-synthesis.md` in the session scratchpad, 21 changes kept, every high finding checked against the code); they are folded in here. Slices 1 to 3 are built. Builds named below: 8.14.87, the last release and the flat build the restore fixture is named for (`flat-8.14.87`); 8.14.83, the phone's last recorded install, whose `editable` rule the gates replay; N (functions, bodies still a list) and N+1 (the tree). The Gateway and the host daemon were restarted from the checkout on 2026-11-21, so they run slice 3's committed Gateway half while still reporting 8.14.87.
 
 The model, in the owner's words where they gave them:
 
 - **An automation is a trigger pointing at a function.** The trigger is the signature, the function is the body (Q65). Several triggers may point at one function, and a device may point at any function it fits (Q67).
 - **A function** holds a name, the values it takes with their types, and its steps.
 - **Users:** every automation pointing at a function and every function calling it. The editor shows the count and who else an edit reaches, and "Make unique" gives a user its own copy. A function with no users is deleted (Q67).
-- **Fit** is by name and type. The trigger fills what it gives; the automation sets the rest, and those values are the automation's own (Q69). A function that takes another source's event is not offered at all.
+- **Fit** is by name and type for a declared value. A value read off the body fits by name only, since `functionReads` gives names; typing those waits for the script's typing. The trigger fills what it gives; the automation sets the rest, and those values are the automation's own (Q69). A function that takes another source's event is not offered at all.
 - **The values a trigger gives:** an event gives `event`, typed from its source's declared fields, and `source`; a crossing gives `value`, `device`, `measure`, `threshold`; a value trigger gives `value` and `field`; a clock and an interval give `time`. A function's own values for these are read off its body (Q65). A value a caller or an automation supplies is declared, a name and a type: a device, a text or a number at first, a closed generated set.
 - **No "called" trigger.** A function used only by callers is a function (Q67).
 
@@ -1754,31 +1842,31 @@ The language of a body (Q53 to Q64). Cards and script are two views of it (Q57):
 - **A comment** is a stored step, so cards keep it as a label line (Q62).
 - **Natures:** an action declares `sets`, `sends` or `nudges` where it is defined (Q54). "Keep trying for" is the automation's setting, ten minutes by default, each action its own; a called function's steps use the setting of the automation that started the run.
 - **Downtime** (Q70): in progress means an attempt claimed with no answer landed. Such a step fails `no_answer` unless it is idempotent, which resumes inside its wait and fails `timeout` past it. A step between attempts resumes whatever its nature. A tell is atomic and never judged, `if` and an assignment read again, a call is judged by its innermost step, and a `wait` that ran out is over.
-- **Outside reach** is asked once per automation: when an event-triggered automation comes to reach, through its function and what that calls, anything beyond telling the assistant. A function's own edit asks it for every such automation it newly reaches, and asks the danger confirm for every user (Q52). Outside words reaching something that leaves the machine are named at the save.
+- **Outside reach** is asked once per automation: when an event-triggered automation comes to reach, through its function and what that calls, anything beyond telling the assistant. That includes an automation with another trigger becoming event-triggered while it reaches more than a tell. A function's own edit asks it for every such automation it newly reaches, and asks the danger confirm for every user (Q52). Outside words reaching something that leaves the machine are named in the IFTTT confirm (Question 83), which rides the tree slice; nothing builds it before then.
 - **A move** carries a function with its users that move; where users stay too, the movers take a copy (Q68).
 
 Design held for the phase:
 
-- **The wire rule:** a record or a kind a build re-encodes never gains a key that build does not know. What an older build cannot hold lives in a kind or a record it does not know. An answer may grow, since phones ignore keys they do not read.
+- **The wire rule:** a record or a kind a build re-encodes never gains a key that build does not know. What an older build cannot hold lives in a kind or a record it does not know. An answer may grow, since phones ignore keys they do not read. One accepted exception: the home record's `carried.functions`, which an 8.14.83 phone drops when it re-seals `opened.carried` while the home is not placed; the older-phone ruling covers what follows.
 - **Stored shape:**
   - Functions and automations are rows of one owner-record store, told apart by kind, with a cap per kind. One write lands both or neither, and a refusal sees both. An 8.14.83 Gateway keeps rows of a kind it does not know unread and untouched.
   - **The flat form stays legal.** An automation with its own list of plain actions is stored as today and read as an implicit private function. A function record and `run_function { function, values, keepTryingMin?, coolDownSec? }` are written only when one is needed: a shared body, a tree, a call, a named function. Nothing is converted at a start, so 8.14.83 keeps editing what it can draw, and a rollback silences only what was stored in the new form.
   - The judge refuses a flat put over a held `run_function`, with "Edit this in the newer app", and a body mixing `run_function` with other actions. `run_function` is served with a label and a parameter kind 8.14.83 cannot draw, so that phone labels the row and never offers the kind.
-  - A function: `name`, `params`, `steps`. Numbers are stored in the stored unit and shown in the owner's, as a crossing's are.
-  - A preserve root `Step`: `do { kind, args, as? }` whose arguments are each a literal or an expression, read when the step starts, so a step can act on a value the automation set; `if { when, then?, else? }`; `try { steps, catch }`; `exit`; `throw { text? }`; `let { name, value }`; `wait { minutes }`; `note { text }`. A later statement is a new step kind with its own future-kind fixture, checked at every depth.
-  - A function made from a flat automation takes an id derived under a key the Gateway holds, so a retried write or a rerun carry lands the same row, and no one else can guess it.
+  - A function: `name`, `params`, `steps`. A param is `{ name, type }`, strict. A declared number has no unit in N. A measure, if one comes, is a new `type` value, which round-trips since the Kotlin field is a String, and never a new key, since phone N re-encodes the param.
+  - A preserve root `Step`: `do { action, args, as? }` (`kind` is the discriminator) whose arguments are each a literal or an expression, read when the step starts, so a step can act on a value the automation set; `if { when, then?, else? }`; `try { steps, catch }`; `exit`; `throw { text? }`; `let { name, value }`; `wait { minutes }`; `note { text }`. A later statement is a new step kind with its own future-kind fixture, checked at every depth.
+  - A function named on the phone takes a phone-minted id (`fn-<uuid>`), as "+ New function" does. The Gateway's key derives only a copy's id (`copyIdOf`) and a carried function's (`carryIdOf`), so a rerun carry lands the same row and no one else can guess it.
 - **One Save is one op** carrying the automation and the function, a copy or a new one, each with the revision it was read at. It lands as one batch, and a refusal says which of the two moved. An older Gateway answers that it does not serve it.
 - **One walk** over every action an automation reaches, across its function and what that calls, in `src/shared`, given a way to read a function. Its callers: the fire, the lane's `decide` and `fireEvents`, validity, the danger confirm, outside reach, the home rule, `rulesOfAutomations`, the console's entity, and the phone's warnings. `run_function` is never an effect and has no runner. A residue test on both runtimes refuses a direct read of `actions` or `steps` outside it. It lands before any function is stored.
 - **The delete at none** is one rule in the judge, for the owner's intents: after an intent's own writes, every function left with no user is removed, repeating until nothing changes, and no function ever lands without one. A let-go and a carry delete no function; one they leave without users is kept unlisted for a fixed time before a sweep.
-- **Graph checks** (a call closing a loop, a pointer to a function that is gone, a change that stops a user fitting) live in the judge, for an owner's put alone, as a change against the held rows. A toggle never asks. A carry never refuses on the graph; what did not come with it lands unfit with its own line.
-- **A carry** takes functions by value: each function whose users all move, and a fresh copy with a new id for one whose users also stay, the pointers rewritten. The destination remaps an id it already holds, the same way on a rerun. Before a move the phone checks that the destination serves functions and every step kind carried, and refuses otherwise.
+- **Graph checks** (a call closing a loop, a pointer to a function that is gone, a change that stops a user fitting) live in the judge, for an owner's put alone, as a change against the held rows. A toggle never asks, and goes through whatever state its function is in, gone or unread included, landing as unfit. A carry never refuses on the graph; what did not come with it lands unfit with its own line.
+- **A carry** takes functions by value, the pointers rewritten. A carried function keeps its own id. It moves to a `carryIdOf` id only when the destination's id is held by an automation, by a function a staying or unread automation runs, or by another carried function, the same way on a rerun. A function at the destination that only moving automations run, or that nobody runs, is written over. The source keeps its own record for its staying users, so Question 68's outcome holds. A carry is refused whole only when a derived id cannot be claimed (`no_key`, `no_free_id`); that is not a graph check. Before a move the phone checks that the destination serves functions and every step kind carried, and refuses otherwise.
 - **A function write holds the move lock** when any of its users moves with the home.
-- **The engine:** a run holds frames keyed by step path, each with the function, incarnation and revision it runs and the steps of that revision, its variables, its first uncaught failure, and per step the word, the verdict, the attempts, the time and the side an If took; and a set of active steps, one in this phase, so side-by-side work later needs no new shape. A run is started once a step has landed or a wait or an attempt has begun; a started run is never evicted, at most one per automation is started, and waiting event fires are capped per automation. Frames, variables and step records are bounded per run.
-- **An edit and the runs in flight** (Q73): a run finishes on the version it started with. Each frame holds the steps it entered with, so an edit, a repoint or a delete of a function changes nothing under a run, and a frame entered after the save reads the new version. Switching the automation off stops its run, and the row then says what did not run, computed from the frames the run holds.
+- **The engine:** a run holds frames keyed by step path, each with the function, incarnation and revision it runs and the steps of that revision, its variables, its first uncaught failure, and per step the word, the verdict, the attempts, the time and the side an If took; and a set of active steps, one in this phase, so side-by-side work later needs no new shape. A run is started once its active list is not empty, as 2.7e.1 decided; a started run is never evicted, at most one per automation is started, and waiting event fires are capped per automation. Frames, variables and step records are bounded per run.
+- **An edit and the runs in flight** (Q73): a run finishes on the version it started with. Each frame holds the steps it entered with, so an edit, a repoint or a delete of a function changes nothing under a run, and a frame entered after the save reads the new version. Switching the automation off stops its run. Slice 3 logs one row, "it was switched off"; the row saying what did not run, computed from the frames the run holds, comes with slice 4's last run served.
 - **An attempt** has its own short bound, retries back off, and the runner takes whichever step fell due first. The device answers map to the words by one table keyed on the refusal code and the effect, with a vector per code; a hold that is no attempt sits beside them.
-- **A tell is a step.** The lane tells only an event automation's leading tells with no message, for a run the lane caused. Every other tell goes through the outbox under a member built from the automation, its incarnation, the key and the call-site path of every frame, so one function called twice tells twice. A tell with no room counts against "Keep trying for" and then fails `timeout`.
+- **A tell is a step.** From slice 4's "tells as steps", the lane tells only an event automation's leading tells with no message, for a run the lane caused. In slice 3, `laneTellWhen` takes every message-less tell of a flat list, leading or not, and never a function's tell; every function tell goes through the outbox, with `event` sent as its title only. So naming a live event automation such as gh-mentions changes its wake from the GitHub event to an "Automations" event carrying only the title, and the GitHub event lands quietly in its inbox. The owner was told on 2026-11-25 not to name the steps of a live GitHub automation until then. Every other tell goes through the outbox under a member built from the automation, its incarnation, the key and the call-site path of every frame, so one function called twice tells twice. A tell with no room counts against "Keep trying for" and then fails `timeout`.
 - **Loops:** a function may not call itself, directly or through others: refused at the save, held at the run by the chain every frame carries (`loop`), with a generated budget of calls per run.
-- **Served with the list:** an automation list answers the functions too: id, name, params with types, revision, users, and whether any user moves with the home. One fenced read lands both, so a count never disagrees with its rows.
+- **Served with the list:** an automation list answers the functions too, each row `{ id, revision, function, users, moves, reads, invalid? }`, and `serves.functions` is `{ max, steps, paramTypes }`. One fenced read lands both, so a count never disagrees with its rows.
 - **Fit** is one pure rule in `src/shared` with a Kotlin twin, both replaying one vector file; trigger names and their types are generated.
 - **Previews are their own ops:** a body's text with its values and the draft's trigger, and a condition's "true right now". A hole's address is a step path; the old index stays beside it for older phones.
 - **Cards** draw one level: a list, an If with two sides, a Try with its catch, Wait, Exit. A body past that opens read-only with a line saying so, until the script exists.
@@ -1786,7 +1874,7 @@ Design held for the phase:
 
 Built as four phases below (2.7e.1 to 2.7e.4), six slices in all, each ending green and each restoring the state the one before wrote, the Gateway's part deployed before the phone's.
 
-Gates that must exist: a restore test per slice over the previous slice's state; the walk residue test; the fit corpus on both runtimes; a fair-runner test with a held fake plug; phone-encoded nested unknown steps re-encoded byte-equal; a JVM test of 8.14.83's `editable`, `canRemove` and `actionLine` over a `run_function` row; a restore of the five live automations by both builds; after a function is stored, the four live wakes and the crossing still tell, and an IFTTT step inside a function still asks. No gate here sees the owner's real phone on a new row, the deploy order across real Gateways, or a real rollback.
+Gates that must exist: a restore test per slice over the previous slice's state; the walk residue test; the fit corpus on both runtimes; a fair-runner test with a held fake plug; phone-encoded nested unknown steps re-encoded byte-equal; a JVM test of the rule 8.14.83's `editable`, `canRemove` and `actionLine` apply to an action kind they cannot draw; a restore of the five live automations by this build, from the state the flat build (8.14.87) wrote; after a function is stored, the four live wakes and the crossing still tell, and an IFTTT step inside a function still asks. No gate here sees the owner's real phone on a new row, the deploy order across real Gateways, or a real rollback.
 
 Size: about 6,000 to 8,000 lines over both sides with tests.
 
@@ -1808,7 +1896,7 @@ Decided while building slice 1:
 - **An attempt is bounded at 15 seconds,** a bound each caller hands the device road; the road knows no surface. A connect has its own bound of five seconds in the Kasa transport and ends `unreachable` for every caller, so a Toggle to a dead plug ends at once and an On retries. A bound that passes while the op waits in the device queue, or before a connect gave up, is a hold; one that passes after the command was written is `no_answer`. An IFTTT attempt has the same 15 seconds, its vault read counted.
 - **Retries back off** from 5 to 60 seconds, counted from each answer. A hold takes its attempt back.
 - **Natures sit beside the runners** on the Gateway until the slice where the phone reads them, when they move to the action table.
-- **A step that only ever held** and runs out of its ten minutes ends `unreachable`. `timeout` is the word after a restart alone. A step that never began an attempt forgets its start at a restart.
+- **A step that only ever held** and runs out of its ten minutes ends `unreachable`. `timeout` is the word after a restart, and for a tell that found no room within its window. A step that never began an attempt forgets its start at a restart.
 - **At most 8 event fires not yet started per automation.** The newcomer past that has its run dropped and logged `suppressed` ("too many of its runs are waiting"), once until a run comes between. Its tell still goes, as a fire with no steps, while the queue has room.
 - **Each ended step logs one fixed phrase per word.** A stored fire that cannot be read logs one `uncertain` row, none when its automation id cannot be read, and the restore that dropped it writes once.
 - **A throw before anything was sent** (the engine itself, a hole read) is a hold. A throw from an action's port is `no_answer`, judged by nature like any attempt with no word back.
@@ -1856,14 +1944,14 @@ Design: Phase 2.7e above. Gateway L, phone L, the first app update (N).
 
 First steps, carried from the 2.7e.1 architecture pass:
 
-- **Seal `actions`, and `steps` as it is defined, in the type,** so a direct read does not compile on either runtime and the residue test shrinks to compiler-checked samples. Two probes first: whether a Kotlin data class's destructuring inherits a property's opt-in, and whether the schema's meta survives into the generated Kotlin.
+- **Seal `actions`, and `steps` as it is defined, in the type,** so a direct read does not compile on either runtime and the residue test shrinks to compiler-checked samples. Two probes first: whether a Kotlin data class's destructuring inherits a property's opt-in, and whether the schema's meta survives into the generated Kotlin. The seal landed in a8364263: the meta survives, and the codegen marks a sealed list `@property:OpensWalk`, an error-level opt-in.
 - **Pin a function's version in the fire's version table,** and make the retire rule Question 73's: a gone record retires, switching the automation off retires, a revision change retires only an unstarted fire.
 - **Split the reader:** `reached` follows calls; a one-level `written` serves the editor and hole addresses, which read syntax, not reach.
 - **Rename the log row** away from "run", which will mean a pinned run.
 
-3. **Functions as records.** The kinds in one store with a cap each, `run_function`, the Save op, users and the delete at none, fit and the values an automation sets, the judge's graph checks, outside reach and the danger confirm across users, the carry, the list answering functions, a run pinned to the steps it started with (Q73). Bodies are still a list of `do` steps. Phone N: the "Runs" block, the picker, "Make unique", the count on the list, as locked in the Designer. Pure rules, a JUnit each: `valueRows`, `valueIssue`, `runsIssue`, `functionLine`, `usersLine`, `reachLine`, `automationDeleteLine`.
+3. **Functions as records.** The kinds in one store with a cap each, `run_function`, the Save op, users and the delete at none, fit and the values an automation sets, the judge's graph checks, outside reach and the danger confirm across users, the carry, the list answering functions, a run pinned to the steps it started with (Q73). Bodies are still a list of `do` steps. Phone N: the "Runs" block, the picker, "Make unique", the count on the list, as locked in the Designer. Pure rules, a JUnit each: `valueRows`, `valueIssue`, `runsIssue`, `functionLine`, `usersCount`, `reachLine`, `automationDeleteTakes`; their sentences are `usedByLine` and `deleteTakesLine`.
 
-Gates: the fit corpus on both runtimes; a JVM test of 8.14.83's `editable`, `canRemove` and `actionLine` over a `run_function` row; a restore of the five live automations by both builds; after a function is stored, the four live wakes and the crossing still tell, and an IFTTT step inside a function still asks; the carry vectors.
+Gates: the fit corpus on both runtimes, all 13 cases; `UnreadableActionKindTest`, which replays the rule 8.14.83's `editable`, `canRemove` and `actionLine` applied, with this build's code on an invented kind, since 8.14.83's own code cannot run here, and no test yet pins this build's `drawn` false for the `function` and `values` param kinds; this build restoring both `flat-8.14.87` and the functions state, the flat build's read of the new state checked only as a key set; after a function is stored, four fake-source event automations and the crossing still tell (`federation-harness-functions.test.ts`), and an IFTTT step inside a function asks at the save (`automation-functions.test.ts`); the carry vectors, `pick` on both runtimes and `land` on the Gateway.
 
 ### Decided while building slice 3
 
@@ -1873,17 +1961,40 @@ The lead's rulings on the wire proposal's questions, and what the build found:
 - **A function gone or unreadable when its frame would be entered** ends that step refused with a fixed reason, never a throw.
 - **Caps:** 64 records across kinds, functions at most 32, 8 steps and 8 params a function.
 - **`call` is its own step kind in slice 6.** A `do` step never names `run_function`, which stays the automation's pointer.
-- **`run_function.values` are literals only** in this slice. A device value is an id checked against the offered switches at the save.
-- **`keepTryingMin`** is each step's own window, default 10. **`coolDownSec`** is the automation's cool-down only where the trigger carries none; beside a trigger's own it is refused `cool_down_twice`. Both keys are declared now, since a kind may not gain a key later. The phone draws neither in this slice.
-- **An older phone's home move** carries a `run_function` automation without its function: it lands unfit with its own line. Functions left behind stay unlisted for a named constant of 7 days.
+- **A `do` step declares an optional `as`** now, named as a param is, since a kind may not gain a key later. The step check refuses a step that carries one ("a step cannot keep its result yet") until the tree slice. Built.
+- **`run_function.values` are literals only** in this slice, a text or a number. A step's literal argument also takes a boolean. A device value is an id checked against the offered switches at the save.
+- **`keepTryingMin`** is each step's own window, default 10. **`coolDownSec`** is the automation's cool-down only where the trigger carries none; beside a trigger's own it is refused `cool_down_twice`. Both keys are declared now, since a kind may not gain a key later. The phone draws neither in this slice. Both live only on `run_function`, and an event trigger has no `coolDownSec`, so a flat event automation has no cool-down at all, against Question 52's "Rate". Question 82 settles it: both settings belong to every automation and move onto the automation record in the tree slice.
+- **An older phone's home move** carries a `run_function` automation without its function. Functions left behind stay unlisted for a named constant of 7 days, so a move back binds to the function the let-go kept and the automation is fit. It lands unfit with its own line (`FUNCTION_LEFT`) only when nothing was kept.
 - **The copy id's key** is in its own file, never logged or answered. The Gateway names a "Make unique" copy (`copyIdOf`) and the save answers the row.
 - **One id space across kinds:** an automation id held by a function, or the reverse, is refused `invalid`.
-- **Every save refusal is a code** (`AUTOMATION_SAVE_REFUSALS`), prose beside it for an older phone.
+- **Every save refusal is a code** (`AUTOMATION_SAVE_REFUSALS`), prose beside it for an older phone. Every refusal carries a `line`, the judge's or the store's own sentence where the code has no specific one (built). Phone N shows `line` for a code it does not know, since it is the older phone for every code later slices add.
 - **A function from a newer build** is held unread, counted in the caps, and its automation reads invalid with its own line (`FUNCTION_UNREAD`) and never fires.
-- **Outside reach asks for a flat automation too:** a new event-triggered automation that reaches more than a tell answers `confirm` once. 8.14.83 already handles `confirm`.
+- **Outside reach asks for a flat automation too:** a new event-triggered automation that reaches more than a tell answers `confirm` once, and so does one whose trigger becomes an event while it reaches more than a tell (built). 8.14.83 already handles `confirm`.
+- **A toggle goes through whatever state its function is in:** the judge skips the pointer checks for it and puts it unfit, so an automation a move left without its function can still be switched off. Built.
 - **The function list row carries `reads`,** since the phone has no grammar to compute them; the phone twins `triggerGiven` and `fitOf` only.
 
-Built: all seven Gateway steps (the store, `run_function` and the walk, fit, the judge, the engine with frames and `functionVersions`, the `automation_save` op and the list answer, the carry). Phone N is wired and under test. Steps 1 to 4 are committed.
+Built: all seven Gateway steps (the store, `run_function` and the walk, fit, the judge, the engine with frames and `functionVersions`, the `automation_save` op and the list answer, the carry) and phone N, all committed (b1fc3698, 999f4b23, cd294022, e482787e). The `as` key, the refusal `line`, the reach asked on a trigger becoming an event and the toggle are built and not yet committed.
+
+Phone N, as built:
+
+- **Clearing a function's name:** on a shared function it blocks Save with "Used by N. Make unique first."; on an unshared one the automation runs its own steps again.
+- **The picker** lists the current function first. A function reading a name the trigger lacks (`{value}` under a clock, or one answering `requires: ["event"]`), or a declared value the trigger gives as another type (`wrong`), is hidden, as another source's event is.
+- **The picker has no subtitle** for a new automation or an edited trigger: `pickerSubtitle` answers the stored sentence only while the trigger is the one opened, and the preview answer carries no sentence. Left as a gap.
+
+Phone N, built after the alignment read and not yet committed:
+
+- **A named function being edited is always the pointer form,** its id minted once when the name is first typed, so a retried save echoes under the create-echo rule. Clearing the name of an unshared function with no values and no value references returns it to its own steps.
+- **The phone shows a refusal's `line`** for a code it does not know.
+- **"+ Add value"** declares Device, Text and Number values in the Runs block (Question 76). A name is checked against the generated `PARAM_NAME` pattern and length, and an edit of a shared function's values checks every other user's own values.
+- **A plug parameter inside a function** offers the function's Device values, stored as an expression argument naming the value (Question 77). Any other expression, and a step with `as`, is kept as it was sent.
+- **No action parameter is a number** in this build, so a Number value is used through a text hole only.
+- **The preview op gains optional `params` and `values`,** so a text naming a declared value previews filled, and "Names here" lists the function's values after the trigger's names.
+- **"Make unique" names its copy** with the lowest free three-digit suffix on that Gateway (`uniqueFunctionName`, Question 81): "Too warm.001". The name sits in the field and can be changed before Save.
+- **A function write whose listed row is missing** takes the move lock at the assistant's home.
+
+Carried to slice 4: `enter` checks only that the function exists, never `functionIssue`. It matters once `as` means something: a fire queued across a rollback from a build that stores `as` would enter such a function and drop the result. Refuse at entry with the function's own line then.
+
+Carried to slice 6: `enter` deletes the call step's record, which `call_failed` will need back; frames and step records are bounded only by construction; `carriedFunctionsOf` follows only an automation's own pointer and must widen to the functions it calls.
 
 ### Bug Classes
 
@@ -1904,6 +2015,26 @@ From the adversarial read of the phone half (four lenses and a verifying synthes
 - **Phone C. The draft carries facts that belong to the listing.** Mechanism: `RunsDraft.Pointing` freezing a function's users and reads when minted. An edit could change another automation without the block showing it; the fit check judged edited steps by the stored ones. One change: read users from the live row, and trust the row's reads only over unedited steps.
 - **Phone D. Refusal sentences that ignore their facts.** Mechanism: `automationSaveLine` mapping by code alone. One change: it takes the automation's id and the refusal's record and path.
 
+All four are fixed in e482787e.
+
+From the second alignment read, after the values build (seven lenses and a verifying synthesis, eighteen confirmed). The first read's eight misalignments are closed in code.
+
+- **Phone C a second time: the draft against the listing's facts.** Mechanism: `pointingIssue` judging the other users of a shared function by the listing row's reads after a step edit, while its own fit already used the edited steps. Second patch at the same mechanism. For the architecture step: one place answers "what does this body read", from the draft's steps when they are edited and from the row only when they are not, and every check takes it from there.
+- **Phone E. A value identified by its name.** Mechanism: `withFunctionParam` renaming an automation's set values and its steps' references by name on every keystroke. A name that passes through another row's name, or two rows blank at once, merges their references and overwrites a value. One change: a value row has its own key, values and references hold the key, and names are resolved where the draft is drawn and saved.
+- **Gateway: a pointer that cannot be followed read as a step.** Mechanism: `asksOf` deciding prior reach from `reached`, which yields an unfollowable `run_function` pointer as an entry. First patch (first read): a trigger becoming an event. Second patch: a held pointer whose function is gone counted as reach, so the confirm was skipped. For the architecture step: the walk says which entries are resolved steps and which are pointers it could not follow, in the type, so no reader counts a pointer as a step.
+- **Brief error, mine:** the values brief had a declared value named like a trigger name block Save. Fit fills such a value from the trigger by design (Question 69), and the picker listed functions the Runs block then refused. The block is removed.
+- **Slips:** the text page's preview sent no function values; the shared-user check skipped a Device value's switch and blocked on a user already unfit; a save could newly point at a function whose own checks fail; "Make unique" named a copy from a cleared name and from the listing as it stood when the editor opened; two decisions sat inside composables.
+
+From the adversarial read of the second lap (six lenses and a verifying synthesis; the vault lens was triaged by hand, its report having been written under another name).
+
+- **The phone judges a draft against facts it does not hold (Phone C, a third time).** Mechanism: `functionBodyReadsOf` answering "reads nothing" for edited steps, since the phone has no grammar to compute reads, so the Runs block shows a clean fit for a save the Gateway refuses `unfit`; and a draft minted once, so a function changed elsewhere is saved under the screen that showed its old steps when only the automation was edited. Nothing is lost or skipped, since the Gateway judges the live body. For the architecture step, one change: the Gateway answers what a body reads and whether a save would land (a dry run of the save op), the phone reads that where it guesses today, and a draft whose function's revision moved is rebased or blocked.
+- **The checker and the evaluator read a name in opposite orders.** Mechanism: `unreadable` in `holes.ts` let a name in scope shadow an entity, while `evaluate.ts` resolves the entity first, so a function's value named `sensors` passed the save and read the entity at the fire. Closed: the checker resolves the entity first too, and a value named like one is refused where it is used. For the architecture step: one resolver both call.
+- **A proof that a boolean could mint (vault card).** Mechanism: the match's presence proof was written from `presence()` answering true, which is also what "no prompt was owed" answers; it named an entry id and wall time, and was dropped on a relock by an observer of a conflated flag. Closed: it is written only when "Every approval" stood before the prompt and after the match, and names the entry's revision, the app lock's epoch and a monotonic time.
+- **A newer phone trusting a field an older Gateway fills differently.** A Gateway before Question 79 offers `answering` for any program, and the card pre-picked that secret with Remember on. Closed on the phone too: `answeringOf` honours it for sudo alone.
+- **Left as they are:** a vault entry's delete and a grant's revoke take no presence prompt, as `docs/vault.md` states the gate's scope; a double Save inside one frame is not guarded beyond the disabled button; a phone on a Gateway still on the committed build draws a declared-value hole as refused in the preview until that Gateway is updated.
+
+Carried to slice 5: the phone's check of a function it would write never reads `servedSteps`, and passes a kept step holding `as`; the Gateway refuses both. Not reachable until a build stores `as`.
+
 ## Phase 2.7e.3 - The tree (slices 4 and 5)
 
 Design: Phase 2.7e above. The second app update (N+1).
@@ -1914,6 +2045,11 @@ Design: Phase 2.7e above. The second app update (N+1).
 Gates: the failure table's vectors; phone-encoded nested unknown steps re-encoded byte-equal; a run in a `wait` survives 64 newer fires; one function reached twice tells twice.
 
 First step, carried from the 2.7e.1 architecture pass: take the pump's pass out as a pure function of the state, the answers and the clock, with the active list as the authority for whose turn it is, and drop the fill slot.
+
+Carried from Questions 82 and 83, both riding slice 4 on the Gateway and slice 5 on the phone:
+
+- **"Keep trying for" and "Cool down" belong to every automation** (Question 82). The automation record gains `keepTryingMin`, an event trigger gains `coolDownSec` (zero by default), and `run_function` loses both, while no function is stored on any live Gateway. The phone draws both settings for an automation with its own steps and for a named one alike. An app build older than this one drops them if it edits that automation; that cost is accepted.
+- **Outside words are named in the IFTTT confirm** (Question 83). When an IFTTT value reads the event's own words, the confirm's line says so ("Send to IFTTT, with the event's title"). No new dialogue.
 
 Carried from the 2.7e.1 red team, to decide when `wait` and branches arrive: the newer-setting rule ends any open set of an older fire, including one whose turn has not come. With only immediate steps that window is short. Behind a `wait` an older run's later set can sit for a long time, so "on, wait 30, off" must not lose its Off to another automation's On: the rule then has to compare when a step's turn comes, not when its fire began, and say whose fire a set inside a called function belongs to. Also: a pre-send path that can throw repeatedly should log once, and the full-queue refusal needs revisiting if one live run per automation ever changes.
 

@@ -17,6 +17,7 @@ import com.atelier_nyaarium.switchboard.vault.CardEvent
 import com.atelier_nyaarium.switchboard.vault.CardMode
 import com.atelier_nyaarium.switchboard.vault.EntryAnswered
 import com.atelier_nyaarium.switchboard.vault.NewSecretSeed
+import com.atelier_nyaarium.switchboard.vault.answeringOf
 import com.atelier_nyaarium.switchboard.vault.TypedCardFacts
 import com.atelier_nyaarium.switchboard.vault.TypedCardState
 import com.atelier_nyaarium.switchboard.vault.VAULT_DECISION_ONCE
@@ -151,6 +152,17 @@ class TypedRequestRulesTest {
 	}
 
 	@Test
+	fun anAnsweringSecretIsHonouredForSudoAlone() {
+		val offered = listOf(VaultAnswering("nyaarium", sudo))
+		val ssh = typed(answering = offered).copy(operation = "/usr/bin/ssh host-b", displayShape = "ssh host-b", coveredShapes = listOf("ssh host-b"))
+		val view = typedCardView(ssh, typedCardStart(ssh), facts())
+
+		assertNull(answeringOf(ssh))
+		assertNull(view.picked)
+		assertEquals(offered, answeringOf(typed(answering = offered)))
+	}
+
+	@Test
 	fun withoutOneSuggestionNothingIsPickedAndALostPickIsNoPick() {
 		val request = typed(answering = listOf(VaultAnswering("nyaarium", sudo), VaultAnswering("old-pass", sudo)))
 		val unpicked = typedCardView(request, typedCardStart(request), facts())
@@ -174,6 +186,28 @@ class TypedRequestRulesTest {
 		val one = typedCardView(request, typedCardStart(request), facts()).switch?.sub
 		assertNotNull(unread)
 		assertTrue(setOf(unread, none, one).size == 3)
+	}
+
+	@Test
+	fun rememberCostLineFollowsTheSwitch() {
+		val request = typed(answering = listOf(VaultAnswering("nyaarium", sudo)))
+		val start = typedCardStart(request)
+		assertNotNull(typedCardView(request, start, facts()).switch?.sub)
+
+		val off = typedCardAfter(start, CardEvent.Remember(false))
+		val view = typedCardView(request, off, facts())
+		assertFalse(view.switch!!.on)
+		assertNull(view.switch.sub)
+	}
+
+	@Test
+	fun cannotRememberSwitchNamesSavingOnlyTheSecret() {
+		val request = typed(cannotRemember = true, answering = listOf(VaultAnswering("nyaarium", sudo)))
+		val state = typedCardAfter(typedCardStart(request), CardEvent.TypeInstead)
+		val switch = typedCardView(request, state, facts()).switch!!
+
+		assertEquals("Save as a secret", switch.label)
+		assertNotNull(switch.sub)
 	}
 
 	@Test

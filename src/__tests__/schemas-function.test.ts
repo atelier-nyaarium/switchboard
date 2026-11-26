@@ -49,4 +49,18 @@ describe("a function record", () => {
 
 		expect(STEP_ARGS_MAX).toBe(widest);
 	});
+
+	it("holds an optional result name by the parameter rule", () => {
+		const body = {
+			name: "Warm up",
+			params: [],
+			steps: [{ ...on, as: "result" }],
+		};
+
+		expect([
+			FunctionSchema.safeParse(body).success,
+			FunctionSchema.safeParse({ ...body, steps: [{ ...on, as: "Result" }] }).success,
+			FunctionSchema.safeParse({ ...body, steps: [{ ...on, as: "a".repeat(33) }] }).success,
+		]).toEqual([true, false, false]);
+	});
 });

@@ -13,7 +13,7 @@ import {
 	type CarriedFunction,
 	canonicalAutomation,
 } from "../../shared/schemasAutomation.js";
-import type { AutomationSaveRefusal } from "../../shared/schemasAutomationSave.js";
+import { type AutomationSaveRefusal, SAVE_LINE_MAX } from "../../shared/schemasAutomationSave.js";
 import { type AutomationFunction, FunctionSchema } from "../../shared/schemasFunction.js";
 import type { OwnerRecord, OwnerWrite } from "../ownerRecords.js";
 import { type CallIssue, NO_SWITCH } from "./automationValidity.js";
@@ -60,6 +60,8 @@ export interface AutomationJudgeView {
 	issue: (body: Automation) => string | null;
 	/** Fit and the switches its values name. */
 	callIssue: (body: Automation, fn: AutomationFunction) => CallIssue | null;
+	/** Its first step issue. */
+	functionIssue: (fn: AutomationFunction) => string | null;
 	/** Null without a key. */
 	copyIdOf: (automationId: string, from: string) => string | null;
 	/** Null without a key. */
@@ -84,7 +86,7 @@ export const movesWithHome = (body: Automation): boolean => body.trigger.kind ==
 const refused = (reason: string, refusal: AutomationSaveRefusal): AutomationVerdict => ({
 	kind: "refused",
 	reason,
-	refusal,
+	refusal: refusal.line === undefined ? { ...refusal, line: reason.slice(0, SAVE_LINE_MAX) } : refusal,
 });
 
 const put = (id: string, body: unknown, base: number, revive = false, unfit = false): OwnerWrite => ({
@@ -134,13 +136,14 @@ const labelOf = (kind: string): string =>
 	Object.hasOwn(AUTOMATION_ACTIONS, kind) ? AUTOMATION_ACTIONS[kind as AutomationActionKind].label : kind;
 
 /** New dangerous actions; for an event user, all new reach. */
-function asksOf(next: Reached[], held: Reached[] | null, event: boolean): string[] {
+function asksOf(next: Reached[], held: Reached[] | null, event: boolean, heldWasEvent: boolean): string[] {
 	const known = new Set((held ?? []).map(dangerKey).filter((key) => key !== null));
 	const danger = next.filter((at) => {
 		const key = dangerKey(at);
 		return key !== null && !known.has(key);
 	});
-	const toldOnly = (held ?? []).every((at) => at.kind === "tell_assistant");
+	const prior = (held ?? []).filter((at) => !("action" in at && at.action.kind === "run_function"));
+	const toldOnly = !heldWasEvent || prior.every((at) => at.kind === "tell_assistant");
 	const reach = event && toldOnly ? next.filter((at) => at.kind !== "tell_assistant") : [];
 	return [...danger, ...reach].map((at) => labelOf(at.kind));
 }
@@ -171,7 +174,7 @@ function judgeSave(
 		const body = FunctionSchema.safeParse(sent.body);
 		if (!body.success) {
 			const path = body.error.issues[0]?.path.join(".") ?? "";
-			return refused(body.error.issues[0]?.message ?? "not valid", { code: "invalid", record: "function", path });
+			return refused("the function is invalid", { code: "invalid", record: "function", path });
 		}
 		if (sent.as === "copy") {
 			const pointer = pointerOf(next);
@@ -217,11 +220,12 @@ function judgeSave(
 	const pointer = pointerOf(next);
 	if (pointer?.coolDownSec !== undefined && "coolDownSec" in next.trigger)
 		return refused("its trigger cools down already", { code: "cool_down_twice", record: "automation" });
+	const toggle = !sent && onlyEnabledMoved(next, held?.body);
 
 	const functionNext = (id: string): AutomationFunction | null =>
 		fnWrite?.id === id ? fnWrite.body : (functionAt(id)?.body ?? null);
 	const functionHeld = (id: string): AutomationFunction | null => functionAt(id)?.body ?? null;
-	if (pointer && !functionNext(pointer.function)) {
+	if (!toggle && pointer && !functionNext(pointer.function)) {
 		return view.unreadAt(pointer.function)
 			? refused("a newer build wrote that function", {
 					code: "newer_function",
@@ -230,8 +234,13 @@ function judgeSave(
 				})
 			: refused("the function it runs is gone", { code: "unknown_function", id: pointer.function });
 	}
+	// Fresh pointers need sound functions.
+	if (!toggle && pointer && pointer.function !== heldPointer?.function && fnWrite?.id !== pointer.function) {
+		const stored = functionAt(pointer.function);
+		const line = stored ? view.functionIssue(stored.body) : null;
+		if (line) return refused(line, { code: "invalid", record: "function", id: pointer.function });
+	}
 
-	const toggle = !sent && onlyEnabledMoved(next, held?.body);
 	// Includes other users of an edited function.
 	const users = [
 		{ id: intent.id, body: next, held: held?.body ?? null },
@@ -277,14 +286,19 @@ function judgeSave(
 
 	if (!intent.confirmed) {
 		const labels = users.flatMap(({ body, held: before }) =>
-			asksOf(reached(body, functionNext), before ? reached(before, functionHeld) : null, movesWithHome(body)),
+			asksOf(
+				reached(body, functionNext),
+				before ? reached(before, functionHeld) : null,
+				movesWithHome(body),
+				before?.trigger.kind === "event",
+			),
 		);
 		if (labels.length > 0) {
 			const confirm = [...new Set(labels)];
 			return {
 				kind: "refused",
 				reason: "confirm what it does",
-				refusal: { code: "confirm", labels: confirm },
+				refusal: { code: "confirm", labels: confirm, line: "confirm what it does" },
 				confirm,
 			};
 		}
@@ -294,7 +308,7 @@ function judgeSave(
 	const writes: OwnerWrite[] = fnWrite
 		? [putFunction(fnWrite.id, fnWrite.body, fnWrite.base, fnWrite.revive ? { revive: true } : {})]
 		: [];
-	writes.push(put(intent.id, next, intent.base));
+	writes.push(put(intent.id, next, intent.base, false, toggle));
 	return { kind: "writes", writes: [...writes, ...unused(view, intent.id, next)], dropped: [] };
 }
 

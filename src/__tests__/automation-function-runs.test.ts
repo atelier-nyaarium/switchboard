@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { openAutomationPair } from "../gateway/compose/composeAutomations.js";
+import { composeAutomations } from "../gateway/compose/composeAutomations.js";
 import type { Attempt } from "../gateway/computed/automationRunner.js";
 import { NEWER_SET, STEP_UNFIT, VALUE_UNREAD } from "../gateway/computed/automations.js";
 import { FUNCTION_GONE, FUNCTION_UNREAD } from "../gateway/computed/automationValidity.js";
@@ -54,7 +54,7 @@ function world() {
 	const effects: string[] = [];
 	let answer: (effect: string) => Attempt = () => ({ word: "done" });
 	const open = () =>
-		openAutomationPair({
+		composeAutomations({
 			dataDir: dir,
 			newIncarnation: () => `a${++n}`,
 			now: () => clock,
@@ -82,12 +82,16 @@ function world() {
 					},
 				},
 			},
-		}).automations;
-	let automations = open();
+			offers: () => ({ numbers: [], switches: [] }),
+			previewEvent: async () => ({ preview: { matched: 0, of: 0, matches: [] }, names: null }),
+		});
+	let stage = open();
+	let automations = stage.automations;
 	const save = (
 		body: AutomationInput,
 		steps: AutomationFunctionInput["steps"],
 		bases: { automation: number; function: number } = { automation: 0, function: 0 },
+		params: AutomationFunctionInput["params"] = room,
 	) =>
 		automations.save({
 			id: "warm",
@@ -96,7 +100,7 @@ function world() {
 			function: {
 				as: "edit",
 				id: "warm-up",
-				body: { name: "Warm up", params: room, steps },
+				body: { name: "Warm up", params, steps },
 				base: bases.function,
 			},
 			confirmed: true,
@@ -111,7 +115,8 @@ function world() {
 	const restartWith = (edit: (rows: { id: string; kind: string; body: unknown }[]) => object[]) => {
 		const file = path.join(dir, "automations.json");
 		fs.writeFileSync(file, JSON.stringify(edit(JSON.parse(fs.readFileSync(file, "utf8")))));
-		automations = open();
+		stage = open();
+		automations = stage.automations;
 	};
 	return {
 		dir,
@@ -120,6 +125,9 @@ function world() {
 		later,
 		rows,
 		restartWith,
+		get console() {
+			return stage.console;
+		},
 		get automations() {
 			return automations;
 		},
@@ -133,6 +141,23 @@ function world() {
 const unreachable = (): Attempt => ({ word: "unreachable" });
 
 describe("a run through a function", () => {
+	it("fills a declared number through a hole in the fire and preview", async () => {
+		const w = world();
+		const params = [{ name: "count", type: "number" as const }];
+		const body: AutomationInput = {
+			enabled: true,
+			trigger: event,
+			actions: [{ kind: "run_function", function: "warm-up", values: { count: 42 } }],
+		};
+		w.save(body, [ifttt("bell", "Count {count}")], undefined, params);
+
+		w.automations.fireEvents([{ automation: "warm", key: "number", names: {} }], w.at());
+		await w.automations.settled();
+		const preview = await w.console.preview(event, "Count {count}", params, { count: 42 });
+
+		expect([w.effects, preview.filled]).toEqual([["ifttt:bell:Count 42"], "Count 42"]);
+	});
+
 	it("runs its steps in order, each reading its values when it starts", async () => {
 		const w = world();
 		w.save(pointing(hourly), [turn("on"), ifttt("bell", "{room} is on")]);

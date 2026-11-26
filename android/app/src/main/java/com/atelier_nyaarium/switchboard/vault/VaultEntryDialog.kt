@@ -98,7 +98,7 @@ internal fun VaultEntryForm(
 	var busy by remember { mutableStateOf(false) }
 	var notice by remember { mutableStateOf<String?>(null) }
 	var confirmDelete by remember { mutableStateOf(false) }
-	val titled = publicTitle.isNotBlank() || privateTitle.isNotBlank()
+	val titled = !needsTitleHint(publicTitle, privateTitle)
 
 	Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
 		Column(
@@ -128,6 +128,9 @@ internal fun VaultEntryForm(
 				label = { Text("Private title") },
 				modifier = Modifier.fillMaxWidth(),
 			)
+			if (needsTitleHint(publicTitle, privateTitle)) {
+				Text("Give it a title.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+			}
 			OutlinedTextField(
 				value = privateDescription,
 				onValueChange = { privateDescription = it },
@@ -197,26 +200,23 @@ internal fun VaultEntryForm(
 				Button(
 					enabled = titled && !busy,
 					onClick = hapticClick {
-						busy = true
 						// Changing or clearing a stored value passes the gate, as a reveal does.
 						val touchesValue = existing?.hasValue == true && value != null
 						scope.launch {
-							if (touchesValue && !repo.vaultOps.ownerPresent(activity)) {
-								busy = false
-								return@launch
+							withBusyState({ busy = it }) {
+								if (touchesValue && !repo.vaultOps.ownerPresent(activity)) return@withBusyState
+								notice = saveDraft(
+									VaultDraft(
+										id = entryId,
+										publicTitle = publicTitle,
+										publicDescription = publicDescription,
+										privateTitle = privateTitle,
+										privateDescription = privateDescription,
+										value = value,
+										gateways = gateways,
+									),
+								)
 							}
-							notice = saveDraft(
-								VaultDraft(
-									id = entryId,
-									publicTitle = publicTitle,
-									publicDescription = publicDescription,
-									privateTitle = privateTitle,
-									privateDescription = privateDescription,
-									value = value,
-									gateways = gateways,
-								),
-							)
-							busy = false
 						}
 					},
 				) { Text(if (busy) "Saving..." else "Save") }
@@ -233,11 +233,11 @@ internal fun VaultEntryForm(
 				TextButton(
 					onClick = hapticClick {
 						confirmDelete = false
-						busy = true
 						scope.launch {
-							notice = vaultSaveLine(repo.vaultOps.delete(entryId))
-							busy = false
-							if (notice == null) onClose()
+							withBusyState({ busy = it }) {
+								notice = vaultSaveLine(repo.vaultOps.delete(entryId))
+								if (notice == null) onClose()
+							}
 						}
 					},
 				) { Text("Delete", color = MaterialTheme.colorScheme.error) }

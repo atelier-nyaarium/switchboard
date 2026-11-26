@@ -13,6 +13,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val TAKEOVER_AFTER_MS = 20_000L
+private const val TAKEOVER_TAIL = "hold tailscale"
 
 /**
  * The `emulator` build type's entry point.
@@ -76,10 +77,10 @@ class SandboxApp : Application() {
 					value = "hunter3",
 					gateways = gateways.take(1),
 				),
-				// Same value; the answering secret wins.
+				// Ties favor answering secrets.
 				com.atelier_nyaarium.switchboard.vault.VaultDraft(
 					id = "setfacl-twin",
-					publicTitle = "sudo setfacl",
+					publicTitle = "Another sudo secret",
 					value = "hunter3",
 					gateways = gateways.take(1),
 				),
@@ -137,10 +138,11 @@ class SandboxApp : Application() {
 			shape: String = key,
 			runsAnything: Boolean? = null,
 			cannotRemember: Boolean? = null,
+			tail: String = "hold containerd.io docker-ce docker-ce-cli",
 		) = com.atelier_nyaarium.switchboard.proto.VaultRequest.Typed(
 			v = 1L,
 			requestId = id,
-			operation = "/usr/bin/$shape hold containerd.io docker-ce docker-ce-cli",
+			operation = "/usr/bin/$shape $tail",
 			displayShape = shape,
 			coveredShapes = listOf(shape),
 			sessionTarget = "host.demo",
@@ -152,8 +154,12 @@ class SandboxApp : Application() {
 		)
 		val requests = listOf(
 			typed("sandbox-sudo-suggested", answering = answering),
-			typed("sandbox-sudo-open"),
-			typed("sandbox-sudo-off", com.atelier_nyaarium.switchboard.proto.VaultTypedWhy(code = "policy_off", policyId = "old", policyName = "Sakura Old")),
+			typed("sandbox-sudo-open", tail = "unhold docker-ce"),
+			typed(
+				"sandbox-sudo-off",
+				com.atelier_nyaarium.switchboard.proto.VaultTypedWhy(code = "policy_off", policyId = "old", policyName = "Sakura Old"),
+				tail = "showhold",
+			),
 			typed(
 				"sandbox-sudo-unusable",
 				com.atelier_nyaarium.switchboard.proto.VaultTypedWhy(
@@ -163,15 +169,19 @@ class SandboxApp : Application() {
 					entryId = "gone-key",
 					unusable = "missing",
 				),
+				tail = "hold nvidia-driver-560",
 			),
-			typed("sandbox-sudo-bash", shape = "sudo bash", runsAnything = true),
-			typed("sandbox-sudo-unrememberable", cannotRemember = true),
-			typed("sandbox-sudo-older", why = null),
-			typed("sandbox-sudo-refused", answering = answering),
-			typed("sandbox-sudo-takeover", answering = answering),
+			typed("sandbox-sudo-bash", shape = "sudo bash", runsAnything = true, tail = "-c 'apt-get update'"),
+			typed("sandbox-sudo-unrememberable", cannotRemember = true, tail = "auto libssl3"),
+			typed("sandbox-sudo-older", why = null, tail = "manual curl"),
+			typed("sandbox-sudo-refused", answering = answering, tail = "hold linux-image-generic"),
+			typed("sandbox-sudo-takeover", answering = answering, tail = TAKEOVER_TAIL),
 		)
 		for (request in requests) repo.vaultOps.onRequest(session, request)
-		repo.vaultOps.onRequest("${session.substringBefore('.')}.unlisted.host.worker", typed("sandbox-sudo-none"))
+		repo.vaultOps.onRequest(
+			"${session.substringBefore('.')}.unlisted.host.worker",
+			typed("sandbox-sudo-none", tail = "hold grub-pc"),
+		)
 		// A policy comes to cover it.
 		CoroutineScope(Dispatchers.Main + CoroutineExceptionHandler { _, _ -> }).launch {
 			delay(TAKEOVER_AFTER_MS)
@@ -181,7 +191,7 @@ class SandboxApp : Application() {
 					entryId = "sakura-nyaarium",
 					v = 1L,
 					requestId = "sandbox-sudo-taken",
-					operation = "/usr/bin/$key hold containerd.io docker-ce docker-ce-cli",
+					operation = "/usr/bin/$key $TAKEOVER_TAIL",
 					displayShape = key,
 					coveredShapes = listOf(key),
 					sessionTarget = "host.demo",

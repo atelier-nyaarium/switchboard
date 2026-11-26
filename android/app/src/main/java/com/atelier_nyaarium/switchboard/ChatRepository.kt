@@ -79,8 +79,9 @@ class ChatRepository(
 	internal val approvalGate = com.atelier_nyaarium.switchboard.vault.ApprovalGate(
 		policy = { store.vaultUnlock },
 		persist = { store.vaultUnlock = it },
-		authenticate = { activity -> requireOwnerPresent(true, activity) },
+		authenticate = { activity, title, subtitle -> requireOwnerPresent(true, activity, title, subtitle) },
 		lockOn = { store.biometricLock },
+		onPolicyChanged = { vaultOps.clearMatchProof() },
 	)
 
 	internal val planeFetches = java.util.concurrent.ConcurrentHashMap<String, PlaneFetch>()
@@ -247,7 +248,8 @@ class ChatRepository(
 	)
 
 	val vaultRouter = com.atelier_nyaarium.switchboard.vault.VaultRouterWriter { op, opId ->
-		client().postOwnerOp(ownerOps.sign(op, opId)) ?: error("owner op post failed")
+		if (isSandbox) sandboxVaultOwnerOp(vault, op, ambient.now())
+		else client().postOwnerOp(ownerOps.sign(op, opId)) ?: error("owner op post failed")
 	}
 
 	internal val repoScope = CoroutineScope(
@@ -323,7 +325,7 @@ class ChatRepository(
 
 	internal val clearedOnReprovision: List<ClearsOnReprovision>
 		get() = listOf(
-			this, board, vault, assistantSends, assistantActs, runbookOps, runbooks, presence, trust, drain, playback, phoneHoldOps, phoneCapabilityOps, composedRequests,
+			this, board, vault, vaultOps, assistantSends, assistantActs, runbookOps, runbooks, presence, trust, drain, playback, phoneHoldOps, phoneCapabilityOps, composedRequests,
 			windowOps, symbolViews, windowRequests, rawFileOps, fileOps, deviceOps, liveConsoleOps, automationOps, routineOps, policyOps,
 			gatewayEnroll.setups,
 		)
@@ -443,6 +445,8 @@ class ChatRepository(
 		provision = provision,
 		valueAnswer = if (isSandbox) ::sandboxVaultAnswer else null,
 		policyWritten = { gatewayId -> repoScope.launch { policyOps.refresh(gatewayId) } },
+		now = ambient.now,
+		elapsed = { android.os.SystemClock.elapsedRealtime() },
 	)
 	internal val runbookOps = RunbookOps(state = _state, host = ChatRepositoryRunbookHost(this), provision = provision)
 
@@ -610,6 +614,7 @@ class ChatRepository(
 		sandboxSeeder.seedSandboxVault(drafts)
 
 	fun setBiometricLock(enabled: Boolean) {
+		if (enabled) vaultOps.clearMatchProof()
 		store.biometricLock = enabled
 		_state.update { it.copy(biometricLock = enabled) }
 	}

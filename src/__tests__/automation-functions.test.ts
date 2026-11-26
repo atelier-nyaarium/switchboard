@@ -4,13 +4,29 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openAutomationPair } from "../gateway/compose/composeAutomations.js";
-import type { SavedFunction } from "../gateway/computed/automationJudge.js";
+import {
+	type AutomationIntent,
+	type AutomationJudgeView,
+	judgeAutomationWrite,
+	type SavedFunction,
+} from "../gateway/computed/automationJudge.js";
 import { FUNCTION_UNREAD, NO_SWITCH } from "../gateway/computed/automationValidity.js";
 import { evaluateHole, fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
+import type { OwnerRecord } from "../gateway/ownerRecords.js";
 import { unknown } from "../shared/expressions.js";
-import type { AutomationInput, AutomationTrigger } from "../shared/schemasAutomation.js";
-import type { AutomationFunctionInput, StepArg } from "../shared/schemasFunction.js";
+import {
+	type Automation,
+	type AutomationInput,
+	AutomationSchema,
+	type AutomationTrigger,
+} from "../shared/schemasAutomation.js";
+import {
+	AUTOMATION_SAVE_REFUSALS,
+	type AutomationSaveRefusalCode,
+	SAVE_LINE_MAX,
+} from "../shared/schemasAutomationSave.js";
+import { type AutomationFunctionInput, FunctionSchema, type StepArg } from "../shared/schemasFunction.js";
 
 const REGISTRY = createConsoleRegistry([]);
 const roots: string[] = [];
@@ -98,7 +114,145 @@ function open(home = true, seed: object[] = [], keyFile?: string) {
 	};
 }
 
-const refusalOf = (saved: ReturnType<ReturnType<typeof open>["save"]>) => (saved.stored ? null : saved.refusal);
+const refusalOf = (saved: ReturnType<ReturnType<typeof open>["save"]>) => {
+	if (saved.stored) return null;
+	const refusal = { ...saved.refusal };
+	delete refusal.line;
+	return refusal;
+};
+
+describe("save refusal lines", () => {
+	it("gives every judge refusal a bounded sentence", () => {
+		const record = <T>(id: string, kind: string, body: T): OwnerRecord<T> => ({
+			id,
+			kind,
+			revision: 1,
+			incarnation: id,
+			body,
+		});
+		const automationRecord = (id: string, body: AutomationInput): OwnerRecord<Automation> =>
+			record(id, "automation", AutomationSchema.parse(body));
+		const view = (patch: Partial<AutomationJudgeView> = {}): AutomationJudgeView => ({
+			held: [],
+			functions: [],
+			unreadAutomations: 0,
+			isHome: true,
+			issue: () => null,
+			callIssue: () => null,
+			functionIssue: () => null,
+			copyIdOf: () => "copy-0",
+			carryIdOf: () => "carry-0",
+			unreadAt: () => false,
+			...patch,
+		});
+		const saveIntent = (
+			id: string,
+			body: unknown,
+			options: Partial<Omit<Extract<AutomationIntent, { kind: "save" }>, "kind" | "id" | "body">> = {},
+		): AutomationIntent => ({ kind: "save", id, body, base: 0, confirmed: false, ...options });
+		const refusal = (intent: AutomationIntent, held: AutomationJudgeView) => {
+			const verdict = judgeAutomationWrite(intent, held);
+			if (verdict.kind !== "refused") throw new Error("expected refusal");
+			return verdict.refusal;
+		};
+		const savedFunction = record("fn", "function", FunctionSchema.parse(fn([tell])));
+		const functionPointer = (id = "fn") => ({ kind: "run_function" as const, function: id });
+		const badFunction = {
+			as: "edit" as const,
+			id: "fn",
+			base: 0,
+			body: { name: "Bad", params: [], steps: [{ kind: "wait", minutes: 1 }] },
+		};
+		const copyBody = FunctionSchema.parse(fn([tell]));
+		const copyIntent = (from = "source") =>
+			saveIntent("copy-job", pointing(hourly, from), {
+				function: { as: "copy", from, fromBase: 1, body: copyBody },
+			});
+		const source = record("source", "function", copyBody);
+		const eventReach: AutomationInput = {
+			enabled: true,
+			trigger: event,
+			actions: [{ kind: "device_set", device: PLUG, verb: "on" }],
+		};
+		const refusals = [
+			refusal(saveIntent("bad", pointing(hourly, "fn"), { function: badFunction }), view()),
+			refusal(
+				saveIntent("mixed", {
+					...pointing(hourly, "fn"),
+					actions: [functionPointer(), { kind: "tell_assistant", when: "now" }],
+				}),
+				view(),
+			),
+			refusal(
+				{
+					kind: "owner_put",
+					id: "old",
+					body: { ...pointing(hourly, "fn"), actions: [{ kind: "tell_assistant", when: "now" }] },
+					base: 1,
+				},
+				view({ held: [automationRecord("old", pointing(hourly, "fn"))] }),
+			),
+			refusal(copyIntent("missing"), view()),
+			refusal(
+				saveIntent("cool", {
+					enabled: true,
+					trigger: {
+						kind: "crossing",
+						device: PLUG,
+						measure: "temperature",
+						direction: "above",
+						threshold: 1,
+						deadZone: 1,
+						coolDownSec: 30,
+					},
+					actions: [{ kind: "run_function", function: "fn", coolDownSec: 60 }],
+				}),
+				view(),
+			),
+			refusal(saveIntent("later", pointing(hourly, "later")), view({ unreadAt: (id) => id === "later" })),
+			refusal(saveIntent("gone", pointing(hourly, "gone")), view()),
+			refusal(
+				saveIntent("unfit", pointing(hourly, "fn")),
+				view({ functions: [savedFunction], callIssue: () => ({ kind: "unfit" }) }),
+			),
+			refusal(saveIntent("away", { ...eventReach }, { confirmed: true }), view({ isHome: false })),
+			refusal(saveIntent("reach", eventReach), view()),
+			refusal(copyIntent(), view({ copyIdOf: () => null })),
+			refusal(
+				copyIntent(),
+				view({
+					functions: [source],
+					copyIdOf: (_automationId, id) =>
+						id === "source" ? "copy-0" : `copy-${Number(id.slice("copy-".length)) + 1}`,
+					unreadAt: (id) => id.startsWith("copy-"),
+				}),
+			),
+		];
+		const judgeCodes = new Set<AutomationSaveRefusalCode>([
+			"gone",
+			"invalid",
+			"unfit",
+			"unknown_function",
+			"mixed",
+			"newer_app",
+			"not_home",
+			"confirm",
+			"cool_down_twice",
+			"newer_function",
+			"no_key",
+			"no_free_id",
+		]);
+
+		expect(refusals.map((held) => held.code).sort()).toEqual(
+			AUTOMATION_SAVE_REFUSALS.filter((code) => judgeCodes.has(code)).sort(),
+		);
+		expect(
+			refusals.every(
+				(held) => held.line !== undefined && held.line.length > 0 && held.line.length <= SAVE_LINE_MAX,
+			),
+		).toBe(true);
+	});
+});
 
 describe("an automation that runs a function", () => {
 	it("lands with a new function in one write, and names the record that moved when either is stale", () => {
@@ -231,6 +385,27 @@ describe("an automation that runs a function", () => {
 		]);
 	});
 
+	it("points nothing new at a function whose own step no longer holds, and leaves its user to edit and toggle", () => {
+		const { automations, save, unplug } = open();
+		const literal = { kind: "do", action: "device_set", args: { device: lit(PLUG), verb: lit("on") } } as const;
+		save("first", pointing(hourly, "steps"), 0, { as: "edit", id: "steps", body: fn([literal]), base: 0 });
+		unplug();
+
+		const fresh = save("second", pointing(hourly, "steps"), 0);
+		const edited = save("first", pointing({ kind: "interval", everyMin: 30 }, "steps"), 1);
+		const off = automations.ownerPut(
+			"first",
+			{ ...pointing({ kind: "interval", everyMin: 30 }, "steps"), enabled: false },
+			2,
+		);
+
+		expect([refusalOf(fresh), edited.stored, off.stored]).toEqual([
+			{ code: "invalid", record: "function", id: "steps" },
+			true,
+			true,
+		]);
+	});
+
 	it("lets a toggle through on an automation that no longer fits, and refuses any other edit of it", () => {
 		const row = (id: string, kind: string, body: object) => ({ id, kind, revision: 1, incarnation: id, body });
 		const degrees = [...room, { name: "degrees", type: "number" as const }];
@@ -247,6 +422,26 @@ describe("an automation that runs a function", () => {
 		const relabelled = save("d", { ...pointing(hourly, "warm-up", { room: PLUG }), enabled: false, label: "D" }, 2);
 
 		expect([toggled.stored, refusalOf(relabelled)]).toEqual([true, { code: "unfit", automations: ["d"] }]);
+	});
+
+	it("toggles automations with gone or unread functions and refuses relabels", () => {
+		const row = (id: string, kind: string, body: object) => ({ id, kind, revision: 1, incarnation: id, body });
+		const goneBody = pointing(hourly, "missing");
+		const gone = open(true, [row("gone", "automation", goneBody)]);
+		const goneOff = gone.automations.ownerPut("gone", { ...goneBody, enabled: false }, 1);
+		const goneOn = gone.automations.ownerPut("gone", goneBody, 2);
+		const goneRelabel = gone.automations.ownerPut("gone", { ...goneBody, label: "Changed" }, 3);
+		const unreadBody = pointing(hourly, "later");
+		const unread = open(true, [
+			row("later", "function", { name: "Later", params: [], steps: [{ kind: "wait", minutes: 5 }] }),
+			row("unread", "automation", unreadBody),
+		]);
+		const unreadOff = unread.automations.ownerPut("unread", { ...unreadBody, enabled: false }, 1);
+		const unreadOn = unread.automations.ownerPut("unread", unreadBody, 2);
+		const unreadRelabel = unread.automations.ownerPut("unread", { ...unreadBody, label: "Changed" }, 3);
+
+		expect([goneOff.stored, goneOn.stored, goneRelabel.stored]).toEqual([true, true, false]);
+		expect([unreadOff.stored, unreadOn.stored, unreadRelabel.stored]).toEqual([true, true, false]);
 	});
 
 	it("asks once for every user an edit newly reaches outside, and for a dangerous step whatever triggers it", () => {
@@ -294,6 +489,72 @@ describe("an automation that runs a function", () => {
 			true,
 			{ code: "confirm", labels: ["Send to IFTTT"] },
 		]);
+	});
+
+	describe("outside reach confirmation", () => {
+		it("asks when a missing event function is restored with outside reach", () => {
+			const row = (id: string, kind: string, body: object) => ({ id, kind, revision: 1, incarnation: id, body });
+			const { save } = open(true, [row("lost", "automation", pointing(event, "steps", { room: PLUG }))]);
+			const body = pointing(event, "steps", { room: PLUG });
+			const function_ = { as: "edit" as const, id: "steps", body: fn([on], room), base: 0 };
+
+			const prompted = save("lost", body, 1, function_, false);
+			const confirmed = save("lost", body, 1, function_);
+
+			expect([refusalOf(prompted), confirmed.stored]).toEqual([
+				{ code: "confirm", labels: ["Switch a plug"] },
+				true,
+			]);
+		});
+
+		it("asks when a non-event automation becomes event-triggered with outside reach", () => {
+			const { save } = open();
+			save("clock", pointing(hourly, "steps", { room: PLUG }), 0, {
+				as: "edit",
+				id: "steps",
+				body: fn([on], room),
+				base: 0,
+			});
+
+			const promoted = save("clock", pointing(event, "steps", { room: PLUG }), 1, undefined, false);
+
+			expect(refusalOf(promoted)).toMatchObject({ code: "confirm", labels: ["Switch a plug"] });
+		});
+
+		it("lets an event automation toggle without asking again", () => {
+			const { automations, save } = open();
+			const body: AutomationInput = {
+				enabled: true,
+				trigger: event,
+				actions: [{ kind: "tell_assistant", when: "now" }],
+			};
+			save("told", body, 0);
+
+			const off = automations.ownerPut("told", { ...body, enabled: false }, 1);
+			const onAgain = automations.ownerPut("told", body, 2);
+
+			expect([off.stored, onAgain.stored]).toEqual([true, true]);
+		});
+
+		it("does not ask again when an event automation keeps its outside reach", () => {
+			const { save } = open();
+			save("event", pointing(event, "steps", { room: PLUG }), 0, {
+				as: "edit",
+				id: "steps",
+				body: fn([on], room),
+				base: 0,
+			});
+
+			const relabelled = save(
+				"event",
+				{ ...pointing(event, "steps", { room: PLUG }), label: "Changed" },
+				1,
+				undefined,
+				false,
+			);
+
+			expect(relabelled.stored).toBe(true);
+		});
 	});
 
 	it("writes a function an event automation runs only at the assistant's home", () => {
@@ -370,17 +631,50 @@ describe("an automation that runs a function", () => {
 			].map(refusalOf);
 
 			expect(refused).toEqual([
-				{ code: "hole", record: "function", path: "0", param: "device", start: 0, end: 6 },
-				{ code: "invalid", record: "function", path: "steps.0.colour", line: "it takes no colour" },
+				{
+					code: "hole",
+					record: "function",
+					path: "0",
+					param: "device",
+					start: 0,
+					end: 6,
+				},
+				{ code: "invalid", record: "function", path: "steps.0.colour" },
 				{
 					code: "invalid",
 					record: "function",
 					path: "steps.0.verb",
-					line: "sideways is not one of its values",
 				},
-				{ code: "invalid", record: "function", path: "steps.0.device", line: NO_SWITCH },
-				{ code: "invalid", record: "automation", path: "values.room", line: NO_SWITCH },
+				{ code: "invalid", record: "function", path: "steps.0.device" },
+				{ code: "invalid", record: "automation", path: "values.room" },
 			]);
+		});
+
+		it("refuses a step result name on save and leaves a stored one unarmed", () => {
+			const assigned = { ...on, as: "result" };
+			const { automations, save } = open();
+			const refused = save("warm", pointing(hourly, "warm-up", { room: PLUG }), 0, {
+				as: "edit",
+				id: "warm-up",
+				body: fn([assigned], room),
+				base: 0,
+			});
+			const row = (id: string, kind: string, body: object) => ({ id, kind, revision: 1, incarnation: id, body });
+			const stored = open(true, [
+				row("later", "function", fn([assigned], room)),
+				row("event", "automation", pointing(event, "later", { room: PLUG })),
+			]);
+
+			expect([refusalOf(refused), automations.list()]).toEqual([
+				{
+					code: "invalid",
+					record: "function",
+					path: "steps.0",
+				},
+				[],
+			]);
+			expect(stored.automations.invalidOf("event")).not.toBeNull();
+			expect(stored.automations.eventsOf("github")).toEqual([]);
 		});
 
 		it("lets an edit of a shared function through when another user's plug went before it", () => {
@@ -438,8 +732,8 @@ describe("an automation that runs a function", () => {
 			].map(refusalOf);
 
 			expect(refused).toEqual([
-				{ code: "invalid", record: "automation", line: automations.invalidOf("flat") },
-				{ code: "invalid", record: "automation", path: "values.room", line: automations.invalidOf("warm") },
+				{ code: "invalid", record: "automation" },
+				{ code: "invalid", record: "automation", path: "values.room" },
 			]);
 			expect(automations.invalidOf("flat")).toBe(NO_SWITCH);
 		});

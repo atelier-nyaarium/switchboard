@@ -2,17 +2,23 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.assistant.ActionDraft
 import com.atelier_nyaarium.switchboard.assistant.EditContext
+import com.atelier_nyaarium.switchboard.assistant.FunctionValueDraft
+import com.atelier_nyaarium.switchboard.assistant.FunctionValueReference
 import com.atelier_nyaarium.switchboard.assistant.PointMode
 import com.atelier_nyaarium.switchboard.assistant.SourceFields
 import com.atelier_nyaarium.switchboard.assistant.automationDraftOf
 import com.atelier_nyaarium.switchboard.assistant.functionSaveOf
 import com.atelier_nyaarium.switchboard.assistant.offerOf
+import com.atelier_nyaarium.switchboard.assistant.pointedAt
 import com.atelier_nyaarium.switchboard.proto.AutomationSwitchOffer
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationListResult
 import kotlinx.serialization.json.jsonPrimitive
 import com.atelier_nyaarium.switchboard.assistant.RunsDraft
 import com.atelier_nyaarium.switchboard.assistant.runsDraftOf
 import com.atelier_nyaarium.switchboard.assistant.saveOpOf
+import com.atelier_nyaarium.switchboard.assistant.stepDraftOf
+import com.atelier_nyaarium.switchboard.assistant.stepOf
+import com.atelier_nyaarium.switchboard.assistant.withReference
 import com.atelier_nyaarium.switchboard.assistant.withValue
 import com.atelier_nyaarium.switchboard.assistant.written
 import com.atelier_nyaarium.switchboard.proto.Automation
@@ -55,15 +61,11 @@ class RunsDraftTest {
 		values = buildJsonObject { put("lamp", SANDBOX_SWITCH) },
 		keepTryingMin = 5L,
 	)
-	private var minted = 0
-
-	private fun fresh() = "fn-${++minted}"
-
 	private fun open(actions: List<AutomationAction>) =
 		runsDraftOf("mine", Automation(enabled = true, trigger = CROSSING, actions = actions), listOf(blink), FN_OFFER)
 
 	private fun save(runs: RunsDraft): ConsoleOp.AutomationSave? =
-		saveOpOf("mine", 2L, runs, FN_OFFER, confirmed = false, freshFunctionId = ::fresh) { actions ->
+		saveOpOf("mine", 2L, runs, FN_OFFER, confirmed = false) { actions ->
 			Automation(enabled = true, trigger = CROSSING, actions = actions)
 		}
 
@@ -73,8 +75,10 @@ class RunsDraftTest {
 
 		assertEquals(listOf("other"), runs.others)
 		assertTrue(runs.steps[0] is ActionDraft.Filled)
-		assertTrue(runs.steps[1] is ActionDraft.Kept)
-		val op = save(runs.copy(values = runs.values + ("times" to "3")))!!
+		val lamp = runs.params.single { it.param.name == "lamp" }
+		assertEquals(mapOf("device" to FunctionValueReference(lamp.key, "lamp")), (runs.steps[1] as ActionDraft.Filled).references)
+		val timesKey = runs.params.single { it.param.name == "times" }.key
+		val op = save(runs.copy(values = runs.values + (timesKey to "3")))!!
 
 		assertNull(op.function)
 		val sent = written(op.automation).single() as AutomationAction.RunFunction
@@ -108,17 +112,29 @@ class RunsDraftTest {
 		assertNull(save(own)!!.function)
 		assertEquals(listOf<AutomationAction>(AutomationAction.DeviceSet(SANDBOX_SWITCH, "on")), written(save(own)!!.automation))
 
-		val named = save(own.copy(name = " Lamp on "))!!
-		val made = named.function as AutomationSaveFunction.Edit
-		assertEquals(Triple("fn-1", 0L, "Lamp on"), Triple(made.id, made.base, made.body.name))
-		assertEquals(listOf(plugStep("on")), written(made.body))
-		assertEquals(AutomationAction.RunFunction(function = "fn-1"), written(named.automation).single())
-
 		// Sole user: the steps come back as its own.
-		val sole = (open(listOf(pointer)) as RunsDraft.Pointing).copy(others = emptyList(), steps = listOf(ActionDraft.Filled("device_set", mapOf("device" to SANDBOX_SWITCH, "verb" to "on"))))
-		assertEquals(listOf<AutomationAction>(AutomationAction.DeviceSet(SANDBOX_SWITCH, "on")), written(save(sole.copy(name = ""))!!.automation))
+		val soleRow = functionRow("solo", "Solo", listOf("mine"), steps = listOf(plugStep("on")))
+		val sole = pointedAt(RunsDraft.Flat(emptyList()), "mine", soleRow, FN_OFFER).copy(name = "")
+		assertEquals(listOf<AutomationAction>(AutomationAction.DeviceSet(SANDBOX_SWITCH, "on")), written(save(sole)!!.automation))
 		// Shared: nothing is built.
-		assertNull(save((open(listOf(pointer)) as RunsDraft.Pointing).copy(name = "")))
+		val sharedRow = functionRow("shared", "Shared", listOf("mine", "other"), steps = listOf(plugStep("on")))
+		assertNull(save(pointedAt(RunsDraft.Flat(emptyList()), "mine", sharedRow, FN_OFFER).copy(name = "")))
+	}
+
+	@Test
+	fun aPlugValueExpressionDrawsAndWritesBackButOtherExpressionsAndAsStayKept() {
+		val params = listOf(FunctionValueDraft("lamp-row", FunctionParam("lamp", "device")))
+		val drawn = stepDraftOf(expression, FN_OFFER, params) as ActionDraft.Filled
+		assertEquals(mapOf("device" to FunctionValueReference("lamp-row", "lamp")), drawn.references)
+		assertEquals(expression, stepOf(drawn, FN_OFFER, params))
+		val unknown = expression.copy(args = JsonObject(mapOf(
+			"device" to buildJsonObject { put("kind", "expression"); put("text", "missing") },
+			"verb" to literal("toggle"),
+		)))
+		assertTrue(stepDraftOf(unknown, FN_OFFER, params) is ActionDraft.Kept)
+		assertTrue(stepDraftOf(expression.copy(`as` = "result"), FN_OFFER, params) is ActionDraft.Kept)
+		val edited = withReference(ActionDraft.Filled("device_set", mapOf("device" to SANDBOX_SWITCH, "verb" to "toggle")), "device", FunctionValueReference("lamp-row", "lamp"))
+		assertEquals(expression, stepOf(edited, FN_OFFER, params))
 	}
 
 	@Test
@@ -141,6 +157,6 @@ class RunsDraftTest {
 		val offer = offerOf(SANDBOX_SERVES.copy(switches = listOf(AutomationSwitchOffer(room, "Room"))), away = false, functions = listed.functions)
 		val draft = automationDraftOf(row, EditContext(offer, emptyList()))!!
 
-		assertNull(functionSaveOf(draft, SourceFields(emptyList()), offer, confirmed = false) { "fn" }!!.function)
+		assertNull(functionSaveOf(draft, SourceFields(emptyList()), offer, confirmed = false)!!.function)
 	}
 }

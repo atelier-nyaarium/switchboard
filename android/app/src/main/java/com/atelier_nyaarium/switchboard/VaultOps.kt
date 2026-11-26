@@ -31,8 +31,11 @@ import com.atelier_nyaarium.switchboard.vault.VaultPendingRequest
 import com.atelier_nyaarium.switchboard.vault.VaultRouterWriter
 import com.atelier_nyaarium.switchboard.vault.VaultSaveOutcome
 import com.atelier_nyaarium.switchboard.vault.VaultSealing
+import com.atelier_nyaarium.switchboard.vault.answeringOf
 import com.atelier_nyaarium.switchboard.vault.entryAnswerOp
 import com.atelier_nyaarium.switchboard.vault.entryAnswerOutcome
+import com.atelier_nyaarium.switchboard.vault.MatchPresenceProof
+import com.atelier_nyaarium.switchboard.vault.consumeMatchPresenceProof
 import com.atelier_nyaarium.switchboard.vault.matchingSecret
 import com.atelier_nyaarium.switchboard.vault.refusedAnswerLine
 import com.atelier_nyaarium.switchboard.vault.rememberOf
@@ -73,8 +76,13 @@ internal class VaultOps(
 	private val policyWritten: (String) -> Unit = {},
 	/** Off the main thread. */
 	private val matching: CoroutineDispatcher = Dispatchers.Default,
-) {
+	private val now: () -> Long,
+	/** Monotonic; ages a presence proof. */
+	private val elapsed: () -> Long,
+) : ClearsOnReprovision {
 	private val manager get() = collaborators.vault
+	private val proofLock = Any()
+	private var matchProof: MatchPresenceProof? = null
 
 	// One list in flight, so answers land in order.
 	private val refreshMutex = Mutex()
@@ -92,7 +100,7 @@ internal class VaultOps(
 
 	/** Lists after the held revision, and again from zero when the Router fell behind. */
 	suspend fun refreshNow(): Boolean = refreshMutex.withLock {
-		manager.sweepRequests()
+		sweepRequests()
 		val generation = manager.generation
 		val since = manager.routerRevision.takeIf { it > 0 }
 		val first = list(since) ?: return false
@@ -157,8 +165,30 @@ internal class VaultOps(
 
 	/** The plugin's handler; duplicates are dropped by the manager. An unstored one is logged there. */
 	fun onRequest(team: String, request: VaultRequest) {
-		manager.addRequest(team, request)
+		synchronized(proofLock) {
+			matchProof = null
+			manager.addRequest(team, request)
+		}
 	}
+
+	fun onRetract(requestId: String) {
+		synchronized(proofLock) {
+			matchProof = null
+			manager.settleRequest(requestId)
+		}
+	}
+
+	fun sweepRequests(at: Long = now()): Boolean = synchronized(proofLock) {
+		val changed = manager.sweepRequests(at)
+		if (changed) matchProof = null
+		changed
+	}
+
+	fun clearMatchProof() {
+		synchronized(proofLock) { matchProof = null }
+	}
+
+	override suspend fun clearInMemory() = clearMatchProof()
 
 	fun pendingRequest(requestId: String): VaultPendingRequest? = manager.request(requestId)
 
@@ -176,6 +206,7 @@ internal class VaultOps(
 		typedValue: String? = null,
 		note: String? = null,
 	): Boolean {
+		clearMatchProof()
 		if (decision != VAULT_DECISION_DENY && pending.entryId != null && !presence()) return false
 		return repoScope.async { answerNow(pending, decision, typedValue, note) }.await()
 	}
@@ -186,19 +217,53 @@ internal class VaultOps(
 		return matchingSecret(typed, candidates)
 	}
 
+	/** "Every approval", lock on and passed. */
+	private fun presenceCarries(): Boolean =
+		state.value.biometricLock && AppLock.unlocked.value && collaborators.gate.matchPresenceBridgeEnabled()
+
 	/** Presence precedes matching. */
 	suspend fun saveTyped(pending: VaultPendingRequest, typed: String, presence: suspend () -> Boolean): TypedSave {
+		clearMatchProof()
 		val request = pending.request as? VaultRequest.Typed ?: return TypedSave.Declined
+		// Owed before asked.
+		val owed = presenceCarries()
+		val lockEpoch = AppLock.epoch
 		if (!presence()) return TypedSave.Declined
 		if (!manager.listed) return TypedSave.Refused(VAULT_UNLISTED)
 		val gatewayId = runIsolated { gatewayOf(pending.team) }.getOrNull() ?: return TypedSave.Refused(Line.VAULT_NO_GATEWAY.text)
-		val match = withContext(matching) { matchFor(typed, gatewayId, request.answering) }
-		return match?.let(TypedSave::Matched) ?: TypedSave.Form(NewSecretSeed(typed, gatewayId, newEntryId(), newPolicyId()))
+		val revisions = views().associate { it.id to it.revision }
+		val match = withContext(matching) { matchFor(typed, gatewayId, answeringOf(request)) }
+		if (match != null) {
+			synchronized(proofLock) {
+				val revision = revisions[match]
+				if (owed && revision != null && lockEpoch == AppLock.epoch && presenceCarries() && manager.request(pending.requestId) != null) {
+					matchProof = MatchPresenceProof(pending.requestId, match, revision, lockEpoch, elapsed())
+				}
+			}
+			return TypedSave.Matched(match)
+		}
+		return TypedSave.Form(NewSecretSeed(typed, gatewayId, newEntryId(), newPolicyId()))
 	}
 
 	/** Needs presence first. */
 	suspend fun answerWithEntry(pending: VaultPendingRequest, op: ConsoleOp.VaultAnswerEntry, presence: suspend () -> Boolean): EntryAnswered {
-		if (!presence()) return EntryAnswered.Declined
+		val reuse = synchronized(proofLock) {
+			val decision = consumeMatchPresenceProof(
+				matchProof,
+				pending.requestId,
+				op.entryId,
+				manager.stored(op.entryId)?.clear?.revision,
+				AppLock.epoch,
+				elapsed(),
+				appLockEngaged = state.value.biometricLock && !AppLock.unlocked.value,
+			)
+			matchProof = decision.remaining
+			decision.reuse &&
+				pending.requestId == op.requestId &&
+				manager.request(pending.requestId) != null &&
+				presenceCarries()
+		}
+		if (!reuse && !presence()) return EntryAnswered.Declined
 		return repoScope.async { answerWithEntryNow(pending, op) }.await()
 	}
 
@@ -209,12 +274,13 @@ internal class VaultOps(
 		seed: NewSecretSeed,
 		presence: suspend () -> Boolean,
 	): SavedAnswer {
+		clearMatchProof()
 		if (!presence()) return SavedAnswer.Declined
 		return repoScope.async {
 			val request = pending.request as? VaultRequest.Typed ?: return@async SavedAnswer.NotSaved(ENTRY_REFUSED)
 			if (!manager.listed) return@async SavedAnswer.NotSaved(VAULT_UNLISTED)
 			// Match the final value.
-			withContext(matching) { matchFor(draft.value.orEmpty(), seed.gatewayId, request.answering) }
+			withContext(matching) { matchFor(draft.value.orEmpty(), seed.gatewayId, answeringOf(request)) }
 				?.let { return@async SavedAnswer.Matched(it) }
 			val outcome = save(draft.copy(id = seed.entryId))
 			if (outcome !is VaultSaveOutcome.Applied) return@async SavedAnswer.NotSaved(vaultSaveLine(outcome) ?: Line.VAULT_UNREACHABLE.text)
@@ -228,7 +294,7 @@ internal class VaultOps(
 
 	private suspend fun answerWithEntryNow(pending: VaultPendingRequest, op: ConsoleOp.VaultAnswerEntry): EntryAnswered {
 		val key = "vault:${pending.requestId}"
-		fun stays(line: String) = EntryAnswered.Stays(line).also { report(line, key) }
+		fun stays(line: String) = EntryAnswered.Stays(line).also { report(vaultNoticeLine(pending, line), key) }
 		val client = collaborators.client
 		if (client == null && valueAnswer == null) return stays(Line.VAULT_NOT_CONNECTED.text)
 		val began = provision.capture()
@@ -247,17 +313,17 @@ internal class VaultOps(
 		}
 		when (outcome) {
 			is EntryAnswered.Answered -> {
-				manager.settleRequest(pending.requestId)
+				settleRequest(pending.requestId)
 				state.update { it.withoutNoticeKey(key) }
 				provision.land(began) { manager.recordAnswer(pending) }
 				refreshGrantsNow(gatewayId)
 				if (op.remember != null) policyWritten(gatewayId)
 			}
 			is EntryAnswered.Gone -> {
-				manager.settleRequest(pending.requestId)
+				settleRequest(pending.requestId)
 				outcome.line?.let { report(it, key) } ?: state.update { it.withoutNoticeKey(key) }
 			}
-			is EntryAnswered.Stays -> report(outcome.line, key)
+			is EntryAnswered.Stays -> report(vaultNoticeLine(pending, outcome.line), key)
 			EntryAnswered.Declined -> Unit
 		}
 		return outcome
@@ -269,8 +335,9 @@ internal class VaultOps(
 		typedValue: String?,
 		note: String?,
 	): Boolean {
+		clearMatchProof()
 		val key = "vault:${pending.requestId}"
-		fun report(line: String) = this.report(line, key)
+		fun report(line: String) = this.report(vaultNoticeLine(pending, line), key)
 		val client = collaborators.client
 		if (client == null && valueAnswer == null) return false.also { report(Line.VAULT_NOT_CONNECTED.text) }
 		val began = provision.capture()
@@ -298,7 +365,7 @@ internal class VaultOps(
 			}
 			return false
 		}
-		manager.settleRequest(pending.requestId)
+		settleRequest(pending.requestId)
 		if (answer is ConsoleClient.ValueAnswer.Refused) {
 			report(reasonSentence(Act.VAULT_ANSWER, answer.reason))
 			return false
@@ -315,6 +382,11 @@ internal class VaultOps(
 		}
 		if (result.ok && decision != VAULT_DECISION_DENY) refreshGrantsNow(gatewayId)
 		return result.ok
+	}
+
+	private fun settleRequest(requestId: String) = synchronized(proofLock) {
+		matchProof = null
+		manager.settleRequest(requestId)
 	}
 
 	fun refreshGrants() {

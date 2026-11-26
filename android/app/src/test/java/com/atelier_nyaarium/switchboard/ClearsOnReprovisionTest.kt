@@ -47,6 +47,7 @@ class ClearsOnReprovisionTest {
 				"presence",
 				"trust",
 				"drain",
+				"vaultOps",
 				"playback",
 				"phoneHoldOps",
 				"phoneCapabilityOps",

@@ -26,6 +26,9 @@ data class VaultDraft(
 	override fun toString(): String = "VaultDraft(id=$id, gateways=$gateways)"
 }
 
+internal fun needsTitleHint(publicTitle: String, privateTitle: String): Boolean =
+	publicTitle.isBlank() && privateTitle.isBlank()
+
 sealed interface VaultSaveOutcome {
 	data class Applied(val id: String) : VaultSaveOutcome
 

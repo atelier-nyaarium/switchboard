@@ -3,6 +3,7 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.assistant.AutomationDraft
 import com.atelier_nyaarium.switchboard.assistant.AutomationOffer
 import com.atelier_nyaarium.switchboard.assistant.AutomationOutcome
+import com.atelier_nyaarium.switchboard.assistant.FunctionOffer
 import com.atelier_nyaarium.switchboard.assistant.AutomationSaid
 import com.atelier_nyaarium.switchboard.assistant.AutomationSlot
 import com.atelier_nyaarium.switchboard.assistant.EditContext
@@ -11,7 +12,6 @@ import com.atelier_nyaarium.switchboard.assistant.SaidAt
 import com.atelier_nyaarium.switchboard.assistant.SaveAnswer
 import com.atelier_nyaarium.switchboard.assistant.fittingAutomation
 import com.atelier_nyaarium.switchboard.assistant.refusedAtOf
-import com.atelier_nyaarium.switchboard.assistant.freshFunctionId
 import com.atelier_nyaarium.switchboard.assistant.functionSaveOf
 import com.atelier_nyaarium.switchboard.assistant.holeSpanOf
 import com.atelier_nyaarium.switchboard.assistant.movedAutomation
@@ -27,6 +27,7 @@ import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationServes
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
+import com.atelier_nyaarium.switchboard.proto.FunctionParam
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationDeleteResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
@@ -35,6 +36,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.serialization.json.JsonObject
 
 /** A Gateway's rows, and the kinds it says it holds. */
 internal data class AutomationListing(
@@ -64,7 +66,13 @@ internal interface AutomationGateway {
 	suspend fun save(gatewayId: String, op: ConsoleOp.AutomationSave): ConsoleAutomationSaveResult
 
 	/** `text` is a message whose holes to fill. */
-	suspend fun preview(gatewayId: String, trigger: AutomationTrigger, text: String?): ConsoleAutomationPreviewResult?
+	suspend fun preview(
+		gatewayId: String,
+		trigger: AutomationTrigger,
+		text: String?,
+		params: List<FunctionParam>? = null,
+		values: JsonObject? = null,
+	): ConsoleAutomationPreviewResult?
 }
 
 internal interface AutomationHost {
@@ -87,6 +95,11 @@ private sealed interface Written<out T> {
 }
 
 internal const val HOME_MOVED = "The assistant moved to another Gateway"
+
+internal fun functionWriteMoves(bodies: List<Automation?>, gatewayId: String, home: String?, functions: FunctionOffer?): Boolean =
+	bodies.filterNotNull().any { body ->
+		movesWithHome(body) || pointerOf(body)?.let { id -> functions?.row(id)?.let { it.moves } ?: (gatewayId == home) } == true
+	}
 
 /** A gateway answer, never a Boolean. */
 internal sealed interface AutomationSaved {
@@ -160,7 +173,11 @@ internal class AutomationOps(
 			val fields = fieldsOf(sent, heard.sources)
 			// Functions only where served.
 			if (heard.offer.functions != null) {
-				functionSaveOf(sent, fields, heard.offer, confirmed, ::freshFunctionId)
+				val rows = when (val answer = state.value.gateways.entry(key.gatewayId)?.automations) {
+					is GatewayList.Listed -> answer.rows
+					GatewayList.Unread, GatewayList.NotServed, GatewayList.Unreachable, null -> emptyList()
+				}
+				functionSaveOf(sent, fields, heard.offer, confirmed, rows)
 					?.let { saveWithFunction(key.gatewayId, it, sent.original, heard.offer) }
 					?: AutomationSaved.Refused("Not a complete automation")
 			} else {
@@ -172,9 +189,8 @@ internal class AutomationOps(
 
 	/** A function write moves when any of its users does. */
 	private suspend fun saveWithFunction(gatewayId: String, op: ConsoleOp.AutomationSave, stored: Automation?, offer: AutomationOffer): AutomationSaved {
-		val functionMoves = listOfNotNull(op.automation, stored).any { body ->
-			movesWithHome(body) || pointerOf(body)?.let { offer.functions?.row(it)?.moves } == true
-		}
+		val home = assistantGateway(state.value)
+		val functionMoves = functionWriteMoves(listOf(op.automation, stored), gatewayId, home, offer.functions)
 		return when (val written = write(gatewayId, functionMoves) { it.save(gatewayId, op) }) {
 			Written.Moved -> AutomationSaved.Refused(HOME_MOVED)
 			Written.Unreachable -> AutomationSaved.Unreachable
@@ -320,10 +336,16 @@ internal class AutomationOps(
 		AutomationSaved.Unreachable -> GATEWAY_UNREACHABLE
 	}
 
-	suspend fun preview(gatewayId: String, trigger: AutomationTrigger, text: String? = null): ConsoleAutomationPreviewResult? {
+	suspend fun preview(
+		gatewayId: String,
+		trigger: AutomationTrigger,
+		text: String? = null,
+		params: List<FunctionParam>? = null,
+		values: JsonObject? = null,
+	): ConsoleAutomationPreviewResult? {
 		val client = host.gateway ?: return null
 		if (gatewayId.isBlank()) return null
-		return attempt { client.preview(gatewayId, trigger, text) }
+		return attempt { client.preview(gatewayId, trigger, text, params, values) }
 	}
 
 	private fun saved(answer: ConsoleAutomationPutResult): AutomationSaved = when {

@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -10,12 +11,17 @@ import kotlinx.coroutines.flow.StateFlow
 internal object AppLock {
 	private val _unlocked = MutableStateFlow(false)
 	val unlocked: StateFlow<Boolean> = _unlocked
+	private val relocks = AtomicInteger(0)
+
+	/** Moves at every relock. */
+	val epoch: Int get() = relocks.get()
 
 	fun unlock() {
 		_unlocked.value = true
 	}
 
 	fun relock() {
+		relocks.incrementAndGet()
 		_unlocked.value = false
 	}
 }

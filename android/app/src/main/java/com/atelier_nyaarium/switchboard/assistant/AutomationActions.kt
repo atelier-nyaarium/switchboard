@@ -90,7 +90,11 @@ internal fun actionOfferOf(row: AutomationActionOffer): ActionOffer = ActionOffe
 internal sealed interface ActionDraft {
 	val kind: String
 
-	data class Filled(override val kind: String, val values: Map<String, String>) : ActionDraft
+	data class Filled(
+		override val kind: String,
+		val values: Map<String, String>,
+		val references: Map<String, FunctionValueReference> = emptyMap(),
+	) : ActionDraft
 
 	/** One the editor cannot draw whole, kept as sent. */
 	data class Kept(val action: AutomationAction) : ActionDraft {
@@ -125,7 +129,7 @@ private fun paramIssue(param: ParamOffer, value: String, offer: AutomationOffer)
 private fun unnamed(action: ActionDraft.Filled, row: ActionOffer): Boolean =
 	action.values.any { (key, value) -> value.isNotBlank() && row.param(key) == null }
 
-private fun issueOf(action: ActionDraft, offer: AutomationOffer, blanks: Boolean): String? = when (action) {
+private fun issueOf(action: ActionDraft, offer: AutomationOffer, blanks: Boolean, valueNames: Set<String>): String? = when (action) {
 	is ActionDraft.Kept -> null
 	is ActionDraft.Filled -> {
 		val row = offer.action(action.kind)
@@ -133,31 +137,42 @@ private fun issueOf(action: ActionDraft, offer: AutomationOffer, blanks: Boolean
 			row == null -> "This Gateway no longer offers it"
 			unnamed(action, row) -> "This Gateway no longer offers part of it"
 			else -> row.params.firstNotNullOfOrNull { param ->
+				val reference = action.references[param.name]
+				if (reference != null) {
+					when {
+						param.kind != PARAM_SWITCH -> "${param.label} cannot use a value"
+						reference.key !in valueNames -> "${reference.name} is no longer a value; pick again"
+						else -> null
+					}
+				} else {
 				val value = action.values[param.name].orEmpty()
 				if (!blanks && value.isBlank()) null else paramIssue(param, value, offer)
+				}
 			}
 		}
 	}
 }
 
-internal fun actionIssue(action: ActionDraft, offer: AutomationOffer): String? = issueOf(action, offer, blanks = true)
+internal fun actionIssue(action: ActionDraft, offer: AutomationOffer, valueNames: Set<String> = emptySet()): String? =
+	issueOf(action, offer, blanks = true, valueNames = valueNames)
 
 /** Silent about a parameter that is still blank. */
-internal fun actionHint(action: ActionDraft, offer: AutomationOffer): String? = issueOf(action, offer, blanks = false)
+internal fun actionHint(action: ActionDraft, offer: AutomationOffer, valueNames: Set<String> = emptySet()): String? =
+	issueOf(action, offer, blanks = false, valueNames = valueNames)
 
 /** One field an action draws; `param` null is a value its row no longer names. */
-internal data class ParamView(val param: ParamOffer?, val name: String, val value: String)
+internal data class ParamView(val param: ParamOffer?, val name: String, val value: String, val reference: FunctionValueReference? = null)
 
 /** The row's parameters, then each stray value. */
 internal fun actionFields(action: ActionDraft.Filled, offer: AutomationOffer): List<ParamView> {
 	val row = offer.action(action.kind)
-	val named = row?.params.orEmpty().map { ParamView(it, it.name, action.values[it.name].orEmpty()) }
+	val named = row?.params.orEmpty().map { ParamView(it, it.name, action.values[it.name].orEmpty(), action.references[it.name]) }
 	val stray = action.values.filter { (key, value) -> value.isNotBlank() && row?.param(key) == null }
 	return named + stray.map { (key, value) -> ParamView(null, key, value) }
 }
 
 internal fun withoutValue(action: ActionDraft, name: String): ActionDraft = when (action) {
-	is ActionDraft.Filled -> action.copy(values = action.values - name)
+	is ActionDraft.Filled -> action.copy(values = action.values - name, references = action.references - name)
 	is ActionDraft.Kept -> action
 }
 
@@ -182,7 +197,7 @@ internal fun actionWarning(action: ActionDraft, offer: AutomationOffer): String?
 /** A blank optional parameter is left out; null when the action does not read back or would drop a value. */
 internal fun actionOf(action: ActionDraft, offer: AutomationOffer): AutomationAction? = when (action) {
 	is ActionDraft.Kept -> action.action
-	is ActionDraft.Filled -> offer.action(action.kind)?.takeUnless { unnamed(action, it) }?.let { row ->
+	is ActionDraft.Filled -> offer.action(action.kind)?.takeUnless { unnamed(action, it) || action.references.isNotEmpty() }?.let { row ->
 		val json = buildJsonObject {
 			put(KIND, action.kind)
 			for (param in row.params) {
@@ -213,7 +228,12 @@ internal fun addableActions(offer: AutomationOffer, held: List<ActionDraft>): Li
 	if (held.size >= MAX_ACTIONS) emptyList() else offer.actions.filter { freshAction(it.kind, offer) != null }
 
 internal fun withValue(action: ActionDraft, param: String, value: String): ActionDraft = when (action) {
-	is ActionDraft.Filled -> action.copy(values = action.values + (param to value))
+	is ActionDraft.Filled -> action.copy(values = action.values + (param to value), references = action.references - param)
+	is ActionDraft.Kept -> action
+}
+
+internal fun withReference(action: ActionDraft, param: String, reference: FunctionValueReference): ActionDraft = when (action) {
+	is ActionDraft.Filled -> action.copy(values = action.values + (param to ""), references = action.references + (param to reference))
 	is ActionDraft.Kept -> action
 }
 

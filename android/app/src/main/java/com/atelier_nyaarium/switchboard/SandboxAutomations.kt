@@ -50,7 +50,9 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
+import java.util.Locale
 
 private const val AUTOMATION_ROUND_TRIP_MS = 400L
 private const val OLDER_GATEWAY = "unknown op automation_put"
@@ -139,6 +141,8 @@ private const val KIND = "kind"
 
 private const val IFTTT = "ifttt_trigger"
 
+private fun fahrenheit(celsius: Double): String = String.format(Locale.ROOT, "%.1f", celsius * 9 / 5 + 32)
+
 /** Root, then member. */
 private val NAME_READ = Regex("[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)?")
 
@@ -183,8 +187,9 @@ private fun every(count: Long, unit: String): String = if (count == 1L) "Every $
 internal fun sandboxSentence(automation: Automation): String {
 	val trigger = when (val held = automation.trigger) {
 		is AutomationTrigger.Event -> held
-		is AutomationTrigger.Crossing ->
-			return "Outside thermometer temperature goes ${held.direction} ${held.threshold} °C"
+		is AutomationTrigger.Crossing -> {
+			return "Outside thermometer temperature goes ${held.direction} ${fahrenheit(held.threshold)} °F"
+		}
 		is AutomationTrigger.Time -> {
 			val days = held.weekdays.sorted()
 			val named = if (days.size == 7) "Every day" else days.joinToString(", ") { SANDBOX_DAYS[(it - 1).toInt()] }
@@ -285,8 +290,11 @@ internal class SandboxAutomationGateway(
 			)),
 			"blink" to (1L to AutomationFunction(
 				name = "Blink",
-				params = listOf(FunctionParam("lamp", "device"), FunctionParam("times", "number")),
-				steps = listOf(step("device_set", "device" to StepArg.Expression("lamp"), "verb" to StepArg.Literal(JsonPrimitive("toggle")))),
+				params = listOf(FunctionParam("lamp", "device"), FunctionParam("message", "text")),
+				steps = listOf(
+					step("device_set", "device" to StepArg.Expression("lamp"), "verb" to StepArg.Literal(JsonPrimitive("toggle"))),
+					step("tell_assistant", "when" to StepArg.Literal(JsonPrimitive("now")), "message" to StepArg.Literal(JsonPrimitive("{message}"))),
+				),
 			)),
 		)
 	}
@@ -320,7 +328,8 @@ internal class SandboxAutomationGateway(
 				evening(),
 				pointing("warm-room", AutomationTrigger.Crossing(SANDBOX_SENSOR, "temperature", "above", 26.0, 0.5, 1_800L), "too-warm"),
 				pointing("warm-hall", AutomationTrigger.Crossing(SANDBOX_SENSOR, "temperature", "above", 28.0, 0.5, 1_800L), "too-warm"),
-				pointing("blink-evening", AutomationTrigger.Time("19:00", (1L..7L).toList(), "America/Los_Angeles"), "blink", mapOf("lamp" to SANDBOX_SWITCH)),
+				pointing("blink-evening", AutomationTrigger.Time("19:00", (1L..7L).toList(), "America/Los_Angeles"), "blink", mapOf("lamp" to SANDBOX_SWITCH, "message" to "Good night")),
+				pointing("blink-morning", AutomationTrigger.Time("07:00", (1L..7L).toList(), "America/Los_Angeles"), "blink", mapOf("lamp" to SANDBOX_SWITCH, "message" to "Good morning")),
 			)
 		}
 	}
@@ -381,7 +390,15 @@ internal class SandboxAutomationGateway(
 			return refusing(AutomationSaveRefusal(code = "confirm", labels = asks))
 		}
 		landed?.let { (id, body) -> bodies[id] = body }
-		val row = AutomationRow(op.automationId, revision + 1, automation, sandboxSentence(automation), lastRanAt = held?.lastRanAt)
+		val clocked = automation.trigger is AutomationTrigger.Time || automation.trigger is AutomationTrigger.Interval
+		val row = AutomationRow(
+			op.automationId,
+			revision + 1,
+			automation,
+			sandboxSentence(automation),
+			lastRanAt = held?.lastRanAt,
+			nextRunAt = (held?.nextRunAt ?: now() + HOUR_MS).takeIf { clocked && automation.enabled },
+		)
 		shelves[gatewayId] = if (held == null) shelf(gatewayId) + row else shelf(gatewayId).map { if (it.id == op.automationId) row else it }
 		// Deleted at none.
 		val running = shelf(gatewayId).mapNotNull { pointerOf(it.automation) }.toSet()
@@ -441,7 +458,13 @@ internal class SandboxAutomationGateway(
 		val kind = (wireJson.encodeToJsonElement(AutomationTrigger.serializer(), automation.trigger).jsonObject[KIND] as? JsonPrimitive)?.content.orEmpty()
 		val events = SourceFields(SANDBOX_FIELD_SPECS).fields.takeIf { kind == TRIGGER_EVENT }
 		val values = pointer.values.orEmpty().mapNotNull { (name, value) -> (value as? JsonPrimitive)?.let { name to it } }.toMap()
-		return fitOf(triggerGiven(kind, eventFields = events), function.params, sandboxReads(function), values).fits
+		val given = triggerGiven(kind, eventFields = events)
+		if (!fitOf(given, function.params, sandboxReads(function), values).fits) return false
+		val fromTrigger = given.names.map { it.name }.toSet()
+		return function.params.filter { it.type == "device" && it.name !in fromTrigger }.all { param ->
+			val device = values[param.name]?.contentOrNull ?: return@all false
+			SANDBOX_SERVES.switches.any { it.device == device }
+		}
 	}
 
 	override suspend fun put(
@@ -492,7 +515,7 @@ internal class SandboxAutomationGateway(
 			AutomationPreviewName("source", "GitHub notifications"),
 		)
 		is AutomationTrigger.Crossing -> listOf(
-			AutomationPreviewName("value", "1.8 °C"),
+			AutomationPreviewName("value", "${fahrenheit(1.8)} °F"),
 			AutomationPreviewName("device", "Outside thermometer"),
 			AutomationPreviewName("measure", "Temperature"),
 			AutomationPreviewName("threshold", "${trigger.threshold} °C"),
@@ -515,10 +538,20 @@ internal class SandboxAutomationGateway(
 	}
 
 	/** Matches titles by each value; a text fills only a hole that is one name. */
-	override suspend fun preview(gatewayId: String, trigger: AutomationTrigger, text: String?): ConsoleAutomationPreviewResult? {
+	override suspend fun preview(
+		gatewayId: String,
+		trigger: AutomationTrigger,
+		text: String?,
+		params: List<FunctionParam>?,
+		values: JsonObject?,
+	): ConsoleAutomationPreviewResult? {
 		pause()
 		if (gatewayId == SANDBOX_NEVER_REGISTERED || gatewayId == SECOND_SANDBOX_GATEWAY) return null
-		val names = namesOf(trigger)
+		val names = namesOf(trigger) + params.orEmpty().map { param ->
+			val value = (values?.get(param.name) as? JsonPrimitive)?.contentOrNull.orEmpty()
+			val shown = if (param.type == "device") SANDBOX_SERVES.switches.find { it.device == value }?.name ?: value else value
+			AutomationPreviewName(param.name, shown)
+		}
 		val parts = text?.let(::scanHoles).orEmpty()
 		val unread = parts.filterIsInstance<HolePart.Hole>().firstOrNull { hole ->
 			!hole.closed || names.none { it.name == hole.source.trim() }

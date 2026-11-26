@@ -1,0 +1,9 @@
+{
+	"kind": "do",
+	"action": "device_set",
+	"as": "result",
+	"args": {
+		"device": { "kind": "literal", "value": "aa:bb:cc:dd:ee:01" },
+		"verb": { "kind": "literal", "value": "on" }
+	}
+}

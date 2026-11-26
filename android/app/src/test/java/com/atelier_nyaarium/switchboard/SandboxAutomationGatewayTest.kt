@@ -8,10 +8,14 @@ import com.atelier_nyaarium.switchboard.proto.AutomationSaveFunction
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.FunctionStep
+import com.atelier_nyaarium.switchboard.proto.FunctionParam
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SandboxAutomationGatewayTest {
@@ -99,10 +103,109 @@ class SandboxAutomationGatewayTest {
 		val idle = gateway.list(EMPTY_GATEWAY)
 
 		assertEquals(listOf("value"), rows.getValue("too-warm").reads.names)
-		assertEquals(listOf("lamp"), rows.getValue("blink").reads.names)
+		assertEquals(listOf("lamp", "message"), rows.getValue("blink").reads.names)
 		assertEquals(false, rows.getValue("too-warm").moves)
 		// Today's road.
 		assertEquals(listOf(null, null), listOf(idle.serves?.functions, idle.functions))
+	}
+
+	@Test
+	fun theSandboxShowsOwnerUnitsAndPreviewFillsAFunctionValue() = runBlocking {
+		val gateway = gateway()
+		val crossing = Automation(enabled = true, trigger = CROSSING, actions = listOf(AutomationAction.TellAssistant("now")))
+		val preview = gateway.preview(
+			"sandbox",
+			AutomationTrigger.Time("18:00", emptyList(), "UTC"),
+			"Good {message}",
+			listOf(FunctionParam("message", "text")),
+			buildJsonObject { put("message", "evening") },
+		)
+		val warmHall = gateway.rows("sandbox").single { it.id == "warm-hall" }
+		val temperature = gateway.preview("sandbox", warmHall.automation.trigger, "It is {value}.")
+		val previewValue = temperature?.names?.single { it.name == "value" }?.shown
+
+		assertEquals("Outside thermometer temperature goes above 78.8 °F", sandboxSentence(crossing))
+		assertEquals("Good evening", preview?.filled)
+		assertEquals("35.2 °F", previewValue)
+		assertEquals("It is 35.2 °F.", temperature?.filled)
+		assertEquals(previewValue?.takeLast(2), warmHall.sentence.takeLast(2))
+	}
+
+	@Test
+	fun aFunctionEditRefusesWhenAnotherUserWouldLoseARequiredValue() = runBlocking {
+		val gateway = gateway()
+		val warm = gateway.rows("sandbox").single { it.id == "warm-room" }
+		val body = AutomationFunction(
+			"Too warm",
+			listOf(FunctionParam("room", "text")),
+			listOf(FunctionStep.Do(action = "tell_assistant", args = JsonObject(mapOf("when" to literal("now"), "message" to literal("It is {room}."))))),
+		)
+		val answer = gateway.save(
+			"sandbox",
+			ConsoleOp.AutomationSave(
+				automationId = warm.id,
+				automation = warm.automation,
+				automationBase = warm.revision,
+				function = AutomationSaveFunction.Edit("too-warm", body, 2L),
+			),
+		)
+
+		assertEquals("unfit", answer.refusal?.code)
+		assertTrue(answer.refusal?.automations.orEmpty().contains("warm-hall"))
+	}
+
+	@Test
+	fun droppingFunctionParamsAndSavingAClockPreservesItsNextRun() = runBlocking {
+		val gateway = gateway()
+		val blink = gateway.rows("sandbox").single { it.id == "blink-evening" }
+		val withoutValues = AutomationFunction(
+			"Blink",
+			emptyList(),
+			listOf(FunctionStep.Do(action = "tell_assistant", args = JsonObject(mapOf("when" to literal("now"), "message" to literal("Done"))))),
+		)
+		val functionAnswer = gateway.save(
+			"sandbox",
+			ConsoleOp.AutomationSave(
+				automationId = blink.id,
+				automation = blink.automation,
+				automationBase = blink.revision,
+				function = AutomationSaveFunction.Edit("blink", withoutValues, 1L),
+			),
+		)
+		val clock = gateway.rows("sandbox").single { it.id == "evening" }
+		val clockAnswer = gateway.save(
+			"sandbox",
+			ConsoleOp.AutomationSave(
+				automationId = clock.id,
+				automation = clock.automation,
+				automationBase = clock.revision,
+			),
+		)
+
+		assertTrue(functionAnswer.stored)
+		assertEquals(emptyList<FunctionParam>(), functionAnswer.function?.function?.params)
+		assertEquals(clock.nextRunAt, clockAnswer.automation?.nextRunAt)
+	}
+
+	@Test
+	fun aUniqueFunctionCopyKeepsTheNameChosenOnThePhone() = runBlocking {
+		val gateway = gateway()
+		val warm = gateway.rows("sandbox").single { it.id == "warm-room" }
+		val source = gateway.list("sandbox").functions.orEmpty().single { it.id == "too-warm" }
+		val copy = source.function.copy(name = "Too warm.001")
+		val answer = gateway.save(
+			"sandbox",
+			ConsoleOp.AutomationSave(
+				automationId = warm.id,
+				automation = warm.automation,
+				automationBase = warm.revision,
+				function = AutomationSaveFunction.Copy(source.id, source.revision, copy),
+			),
+		)
+
+		assertTrue(answer.stored)
+		assertEquals("Too warm.001", answer.function?.function?.name)
+		assertTrue(gateway.list("sandbox").functions.orEmpty().any { it.function.name == "Too warm.001" })
 	}
 
 	@Test

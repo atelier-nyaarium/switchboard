@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard.assistant
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -25,20 +26,29 @@ import com.atelier_nyaarium.switchboard.deleteTakesLine
 import com.atelier_nyaarium.switchboard.keptRow
 import com.atelier_nyaarium.switchboard.homeDisplayUnit
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
+import com.atelier_nyaarium.switchboard.proto.FunctionParam
 import com.atelier_nyaarium.switchboard.rememberEdit
+import kotlinx.serialization.json.JsonObject
 import kotlinx.coroutines.delay
 
 private const val PREVIEW_DEBOUNCE_MS = 400L
 
 /** Debounced trigger read. */
 @Composable
-internal fun previewRead(ops: AutomationOps, gatewayId: String, trigger: AutomationTrigger?, text: String?): PreviewRead {
+internal fun previewRead(
+	ops: AutomationOps,
+	gatewayId: String,
+	trigger: AutomationTrigger?,
+	text: String?,
+	params: List<FunctionParam>? = null,
+	values: JsonObject? = null,
+): PreviewRead {
 	var read by remember(gatewayId) { mutableStateOf(PreviewRead()) }
-	LaunchedEffect(gatewayId, trigger, text) {
+	LaunchedEffect(gatewayId, trigger, text, params, values) {
 		read = PreviewRead()
 		val asked = trigger ?: return@LaunchedEffect
 		delay(PREVIEW_DEBOUNCE_MS)
-		val answer = ops.preview(gatewayId, asked, text)
+		val answer = ops.preview(gatewayId, asked, text, params, values)
 		read = PreviewRead(answer, failed = answer == null)
 	}
 	return read
@@ -78,6 +88,7 @@ internal fun AutomationEditorPage(
 		MirroredDraft(session.draft) { next -> ops.edits.edit(key, open.opening) { next } }
 	}
 	var draft by typed
+	val editorScroll = remember(key, open.opening) { ScrollState(0) }
 	val heard = context.over(draft.context)
 	val offer = heard.offer
 	val sources = heard.sources
@@ -85,9 +96,12 @@ internal fun AutomationEditorPage(
 	val fields = fieldsOf(draft, sources)
 	val gone = lookup == Lookup.Gone
 	val busy = session.busy
-	val can = automationEditing(slot, draft, fields, triggerOffered(draft, sources, offer), busy, gone, offer)
+	val rows = automationGroups(state.gateways, state.assistantHome).firstOrNull { it.gatewayId == gatewayId }?.rows.orEmpty()
+	val can = automationEditing(slot, draft, fields, triggerOffered(draft, sources, offer), busy, gone, offer, rows)
 	val trigger = askedTrigger(draft, fields, sources, offer)
-	val triggerRead = previewRead(ops, gatewayId, trigger, null)
+	val pointing = draft.runsDraft() as? RunsDraft.Pointing
+	val previewScope = functionPreviewScopeOf(draft.runsDraft())
+	val triggerRead = previewRead(ops, gatewayId, trigger, null, previewScope?.params, previewScope?.values)
 	var confirmingDelete by remember(key) { mutableStateOf(false) }
 	var asking by remember(key) { mutableStateOf<AutomationSaid.Confirm?>(null) }
 	LaunchedEffect(busy, session.said) { asking = (session.said as? AutomationSaid.Confirm)?.takeUnless { busy } }
@@ -108,7 +122,6 @@ internal fun AutomationEditorPage(
 		)
 		return
 	}
-	val rows = automationGroups(state.gateways, state.assistantHome).firstOrNull { it.gatewayId == gatewayId }?.rows.orEmpty()
 	val runs = runsView(draft, fields, offer, rows, session.said)
 
 	val ref = draft.text
@@ -118,13 +131,17 @@ internal fun AutomationEditorPage(
 		val consoles by repo.liveConsoleOps.state.collectAsState()
 		val console = consoles[gatewayId]
 		LaunchedEffect(gatewayId) { repo.command { liveConsoleOps.open(gatewayId) } }
-		val names = namesHere(offer, draft.trigger.kind, triggerRead.answer?.names)
+		val names = namesHere(offer, draft.trigger.kind, triggerRead.answer?.names, pointing?.wireParams().orEmpty(), pointing?.valuesByName().orEmpty())
 		HoleTextEditor(
 			title = textOf.label,
 			value = shownText,
 			max = textOf.max ?: Int.MAX_VALUE,
 			names = names,
-			preview = textPreviewOf(shownText, trigger != null, previewRead(ops, gatewayId, trigger.takeIf { hasHole(shownText) }, previewText(shownText))),
+			preview = textPreviewOf(
+				shownText,
+				trigger != null,
+				previewRead(ops, gatewayId, trigger.takeIf { hasHole(shownText) }, previewText(shownText), previewScope?.params, previewScope?.values),
+			),
 			refused = refusedHole(session.said, ref.action, ref.param, shownText),
 			description = console?.description,
 			ids = console?.ids,
@@ -144,6 +161,7 @@ internal fun AutomationEditorPage(
 		onBack = onBack,
 		leaving = open.leaving,
 		menu = { if (slot is AutomationSlot.Held) RemoveMenu("Delete automation", enabled = can.delete) { confirmingDelete = true } },
+		scrollState = editorScroll,
 	) {
 		Text("When", style = MaterialTheme.typography.labelLarge)
 		TriggerSection(draft, offer, sources, fields, zone, can.edit, triggerRead, edit)
@@ -157,7 +175,7 @@ internal fun AutomationEditorPage(
 				offer = offer,
 				enabled = can.edit,
 				said = session.said,
-				textRead = { text -> previewRead(ops, gatewayId, trigger.takeIf { text != null }, text) },
+				textRead = { text -> previewRead(ops, gatewayId, trigger.takeIf { text != null }, text, previewScope?.params, previewScope?.values) },
 				asked = trigger != null,
 				edit = edit,
 			)

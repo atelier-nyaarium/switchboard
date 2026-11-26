@@ -12,11 +12,13 @@ class ApprovalGateTest {
 	private var prompts = 0
 	private var answer = true
 	private var lockOn = true
+	private var promptTitle = ""
+	private var promptSubtitle = ""
 
 	private fun gate() = ApprovalGate(
 		policy = { policy },
 		persist = { policy = it },
-		authenticate = { prompts++; answer },
+		authenticate = { _, title, subtitle -> prompts++; promptTitle = title; promptSubtitle = subtitle; answer },
 		lockOn = { lockOn },
 		now = { clock },
 	)
@@ -44,6 +46,14 @@ class ApprovalGateTest {
 		answer = false
 		assertFalse(gate.require(null))
 		assertEquals(4, prompts)
+	}
+
+	@Test
+	fun approvalUsesItsOwnPromptText() = runBlocking {
+		policy = VAULT_UNLOCK_EVERY
+		assertTrue(gate().require(null))
+		assertEquals(VAULT_PRESENCE_TITLE, promptTitle)
+		assertEquals(VAULT_PRESENCE_SUBTITLE, promptSubtitle)
 	}
 
 	@Test

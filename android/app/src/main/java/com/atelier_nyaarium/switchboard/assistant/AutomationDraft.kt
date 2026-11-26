@@ -116,7 +116,9 @@ internal data class AutomationDraft(
 	/** Unit its numbers are typed in. */
 	val display: String? = null,
 	/** Its own, or a function's head; `actions` are the cards. */
-	val runs: RunsHead = RunsHead.Own(),
+	val runs: RunsHead = RunsHead.Own,
+	/** Function ID survives edits. */
+	val newFunctionId: String? = null,
 	/** The function picker is open. */
 	val picking: Boolean = false,
 ) {
@@ -279,14 +281,12 @@ internal fun givenOf(draft: AutomationDraft, fields: SourceFields): TriggerGiven
 internal fun measureOf(draft: AutomationDraft): String? = (draft.trigger as? TriggerDraft.Crossing)?.measure?.takeIf { it.isNotBlank() }
 
 /** What blocks Save in its Runs block; null where functions are not served. */
-internal fun draftRunsIssue(draft: AutomationDraft, fields: SourceFields, offer: AutomationOffer): RunsIssue? {
+internal fun draftRunsIssue(draft: AutomationDraft, fields: SourceFields, offer: AutomationOffer, rows: List<AutomationRow> = emptyList()): RunsIssue? {
 	val functions = offer.functions ?: return null
 	val runs = draft.runsDraft()
 	// Edited steps: Gateway judges.
-	val reads = (runs as? RunsDraft.Pointing)?.let { pointing ->
-		functions.row(pointing.functionId)?.takeIf { stepsUnedited(pointing, it, offer) }?.reads
-	}
-	return runsIssue(runs, draft.id, givenOf(draft, fields), offer, functions.served.steps, reads)
+	val reads = (runs as? RunsDraft.Pointing)?.let { pointing -> functions.row(pointing.functionId)?.reads }
+	return runsIssue(runs, draft.id, givenOf(draft, fields), offer, functions.served.steps, reads, rows, draft.context.sources)
 }
 
 /** The save op; null when unservable or unwritable. */
@@ -295,12 +295,12 @@ internal fun functionSaveOf(
 	fields: SourceFields,
 	offer: AutomationOffer,
 	confirmed: Boolean,
-	freshFunctionId: () -> String,
+	rows: List<AutomationRow> = emptyList(),
 ): ConsoleOp.AutomationSave? {
 	if (offer.functions == null) return null
 	val built = draft.builtTrigger(offer) ?: return null
-	if (draft.conditions.any { fields.issueOf(it) != null } || draftRunsIssue(draft, fields, offer) != null) return null
-	return saveOpOf(draft.id, draft.revision, draft.runsDraft(), offer, confirmed, freshFunctionId) { actions ->
+	if (draft.conditions.any { fields.issueOf(it) != null } || draftRunsIssue(draft, fields, offer, rows) != null) return null
+	return saveOpOf(draft.id, draft.revision, draft.runsDraft(), offer, confirmed) { actions ->
 		Automation(label = draft.original?.label, enabled = draft.enabled, trigger = built, actions = actions)
 	}
 }
@@ -339,9 +339,6 @@ internal fun sourceChoices(sources: List<AssistantSource>, held: String): List<S
 
 internal data class AutomationEditing(val edit: Boolean, val save: Boolean, val delete: Boolean)
 
-/** Never sent. */
-private const val PROBE_ID = "probe"
-
 /** An unfit draft stays editable. */
 internal fun automationEditing(
 	slot: AutomationSlot,
@@ -351,12 +348,13 @@ internal fun automationEditing(
 	busy: Boolean,
 	gone: Boolean,
 	offer: AutomationOffer,
+	rows: List<AutomationRow> = emptyList(),
 ): AutomationEditing {
 	val edit = !busy && !gone
 	return AutomationEditing(
 		edit = edit,
 		save = edit && offered && if (offer.functions != null) {
-			functionSaveOf(draft, fields, offer, confirmed = false) { PROBE_ID } != null
+			functionSaveOf(draft, fields, offer, confirmed = false, rows = rows) != null
 		} else {
 			fittingAutomation(draft, fields, offer) != null
 		},

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,6 +31,7 @@ import com.atelier_nyaarium.switchboard.FUNCTION_UNLISTED
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.FunctionParamType
 import com.atelier_nyaarium.switchboard.runsIssueLine
+import com.atelier_nyaarium.switchboard.paramIssueLine
 import com.atelier_nyaarium.switchboard.typeWordText
 import com.atelier_nyaarium.switchboard.usedByLine
 
@@ -56,7 +58,7 @@ internal fun RunsBlock(view: RunsView, offer: AutomationOffer, enabled: Boolean,
 		} else {
 			OutlinedTextField(
 				value = view.name,
-				onValueChange = { typed -> edit { it.withFunctionName(typed) } },
+				onValueChange = { typed -> edit { it.withFunctionName(typed, offer.functions) } },
 				placeholder = { Text("Name") },
 				singleLine = true,
 				enabled = enabled && view.nameEditable,
@@ -70,6 +72,9 @@ internal fun RunsBlock(view: RunsView, offer: AutomationOffer, enabled: Boolean,
 	}
 	view.invalid?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
 	for (row in view.values) ValueRowView(row, offer, enabled, edit)
+	if (canAddValue(view)) {
+		TextButton(onClick = hapticClick { edit { it.plusFunctionParam() } }, enabled = enabled) { Text("+ Add value") }
+	}
 	if (view.makeUnique || view.unique) {
 		OutlinedCard(Modifier.fillMaxWidth()) {
 			Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -78,7 +83,7 @@ internal fun RunsBlock(view: RunsView, offer: AutomationOffer, enabled: Boolean,
 				} else {
 					if (view.reachHeader) Text(REACHES_HEADER, style = MaterialTheme.typography.bodySmall, color = dim)
 					for (sentence in view.reach) Text(sentence, style = MaterialTheme.typography.bodyMedium)
-					TextButton(onClick = hapticClick { edit { it.madeUnique() } }, enabled = enabled) { Text("Make unique") }
+					TextButton(onClick = hapticClick { edit { it.madeUnique(offer) } }, enabled = enabled) { Text("Make unique") }
 				}
 			}
 		}
@@ -89,28 +94,60 @@ internal fun RunsBlock(view: RunsView, offer: AutomationOffer, enabled: Boolean,
 @Composable
 private fun ValueRowView(row: ValueRow, offer: AutomationOffer, enabled: Boolean, edit: ((AutomationDraft) -> AutomationDraft) -> Unit) {
 	val dim = MaterialTheme.colorScheme.onSurfaceVariant
-	val name = row.param.name
+	val param = row.param
+	val name = row.name
 	Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 		Column(Modifier.weight(0.4f)) {
-			Text(name, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
-			Text(typeWordText(row.type), style = MaterialTheme.typography.labelSmall, color = dim)
+			if (param == null) {
+				Text(name, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
+				Text(typeWordText(row.type), style = MaterialTheme.typography.labelSmall, color = dim)
+			} else {
+				OutlinedTextField(
+					value = name,
+					onValueChange = { typed -> edit { it.withFunctionParam(row.key.orEmpty(), param.copy(name = typed)) } },
+					placeholder = { Text("name") },
+					singleLine = true,
+					isError = row.issue != null,
+					enabled = enabled,
+					modifier = Modifier.fillMaxWidth(),
+				)
+				PickMenu(
+					label = "Type",
+					choices = FunctionParamType.entries,
+					picked = FunctionParamType.entries.find { it.wire == param.type },
+					labelOf = { functionParamTypeText(it.wire) },
+					onPick = { type -> edit { it.withFunctionParam(row.key.orEmpty(), param.copy(type = type.wire)) } },
+					enabled = enabled,
+				)
+				IconButton(onClick = hapticClick { edit { it.withoutFunctionParam(row.key.orEmpty()) } }, enabled = enabled) {
+					Icon(Icons.Default.Close, contentDescription = "Remove value")
+				}
+				row.issue?.let { Text(paramIssueLine(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+			}
 		}
 		Column(Modifier.weight(0.6f)) {
 			val set = (row.source as? ValueSource.Set)?.text.orEmpty()
 			when {
 				row.source == ValueSource.FromTrigger -> Text("from the trigger", style = MaterialTheme.typography.bodySmall, color = dim)
-				row.param.type == FunctionParamType.DEVICE.wire -> PickMenu(
-					label = "Set a value",
+				row.source is ValueSource.Mismatch -> Text(
+					"Trigger gives ${typeWordText(TypeWord.Given(row.source.gets)).lowercase()}; needs ${row.source.wants}.",
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.error,
+				)
+				param == null -> Text("not given", style = MaterialTheme.typography.bodySmall, color = dim)
+				param.type == FunctionParamType.DEVICE.wire -> PickMenu(
+					label = "Device",
 					choices = offer.switches,
 					picked = offer.switches.find { it.device == set },
 					labelOf = { it.name },
-					onPick = { picked -> edit { it.withFunctionValue(name, picked.device) } },
+					onPick = { picked -> row.key?.let { key -> edit { it.withFunctionValue(key, picked.device) } } },
 					enabled = enabled,
+					placeholder = "Set a value",
 				)
 				else -> OutlinedTextField(
 					value = set,
-					onValueChange = { typed -> edit { it.withFunctionValue(name, typed) } },
-					placeholder = { Text("Set a value") },
+					onValueChange = { typed -> row.key?.let { key -> edit { it.withFunctionValue(key, typed) } } },
+					label = { Text(functionParamTypeText(param.type)) },
 					singleLine = true,
 					keyboardOptions = EXACT_KEYBOARD,
 					enabled = enabled,

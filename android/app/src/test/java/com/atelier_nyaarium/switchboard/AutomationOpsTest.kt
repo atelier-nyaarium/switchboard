@@ -19,12 +19,18 @@ import com.atelier_nyaarium.switchboard.assistant.TriggerDraft
 import com.atelier_nyaarium.switchboard.proto.AutomationFunctionServes
 import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
 import com.atelier_nyaarium.switchboard.proto.AutomationServes
+import com.atelier_nyaarium.switchboard.proto.FunctionParam
+import kotlinx.serialization.json.JsonObject
 import com.atelier_nyaarium.switchboard.assistant.EditContext
+import com.atelier_nyaarium.switchboard.assistant.FunctionOffer
 import com.atelier_nyaarium.switchboard.assistant.automationDraftOf
 import com.atelier_nyaarium.switchboard.assistant.offerOf
+import com.atelier_nyaarium.switchboard.assistant.functionPreviewScopeOf
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -71,6 +77,7 @@ class AutomationOpsTest {
 		/** Answered in place of a write. */
 		val answers = ArrayDeque<ConsoleAutomationPutResult>()
 		var deletes = 0
+		val previews = mutableListOf<Triple<String?, List<FunctionParam>?, JsonObject?>>()
 
 		override suspend fun list(gatewayId: String): AutomationListing {
 			val listed = shelves[gatewayId].orEmpty()
@@ -119,8 +126,10 @@ class AutomationOpsTest {
 			return ConsoleAutomationDeleteResult(deleted = true)
 		}
 
-		override suspend fun preview(gatewayId: String, trigger: AutomationTrigger, text: String?): ConsoleAutomationPreviewResult? =
-			ConsoleAutomationPreviewResult(matched = 1L, of = 3L, matches = emptyList(), filled = text)
+		override suspend fun preview(gatewayId: String, trigger: AutomationTrigger, text: String?, params: List<FunctionParam>?, values: JsonObject?): ConsoleAutomationPreviewResult? {
+			previews += Triple(text, params, values)
+			return ConsoleAutomationPreviewResult(matched = 1L, of = 3L, matches = emptyList(), filled = text)
+		}
 
 		val saves = mutableListOf<ConsoleOp.AutomationSave>()
 
@@ -183,6 +192,21 @@ class AutomationOpsTest {
 		assertEquals(AutomationSaved.Refused("stale") to 1, missing)
 		assertEquals(listOf(AutomationSaved.Refused(HOME_MOVED), AutomationSaved.Refused("stale")), blind)
 		assertEquals(listOf(true, true, true), stays.map { it is AutomationSaved.Stored })
+	}
+
+	@Test
+	fun aFunctionWriteLocksAtHomeWhenItsListedRowIsMissing() {
+		val pointer = Automation(enabled = true, trigger = AutomationTrigger.Interval(60L), actions = listOf(AutomationAction.RunFunction("held")))
+		val event = pointer.copy(trigger = AutomationTrigger.Event("github", emptyList()))
+		val listed = functionRow("held", "Held", listOf("clock"))
+		val noMoves = FunctionOffer(SANDBOX_SERVES.functions!!, listOf(listed))
+		val moves = FunctionOffer(SANDBOX_SERVES.functions!!, listOf(listed.copy(moves = true)))
+
+		assertTrue(functionWriteMoves(listOf(pointer), "sakura", "sakura", null))
+		assertFalse(functionWriteMoves(listOf(pointer), "mikan", "sakura", null))
+		assertFalse(functionWriteMoves(listOf(pointer), "sakura", "sakura", noMoves))
+		assertTrue(functionWriteMoves(listOf(pointer), "sakura", "sakura", moves))
+		assertTrue(functionWriteMoves(listOf(event), "mikan", "sakura", null))
 	}
 
 	@Test
@@ -412,6 +436,28 @@ class AutomationOpsTest {
 
 		assertEquals(AutomationSaved.Stored(null), runBlocking { ops.delete("sakura", "review", 1L, automation()) })
 		assertEquals(1L, runBlocking { ops.preview("sakura", automation().trigger) }?.matched)
+	}
+
+	@Test
+	fun aTextHolePreviewReceivesTheFunctionValues() = runBlocking {
+		val function = functionRow("notice", "Notice", listOf("review"), params = listOf(FunctionParam("room", "text")))
+		val functions = AutomationFunctionServes(32L, listOf("tell_assistant"), listOf("device", "text", "number"))
+		val offer = offerOf(SERVES.copy(functions = functions), away = false, functions = listOf(function))
+		val pointer = Automation(enabled = true, trigger = automation().trigger, actions = listOf(AutomationAction.RunFunction(
+			"notice",
+			values = buildJsonObject { put("room", "Bedroom") },
+		)))
+		val draft = automationDraftOf(automationRow(automation = pointer), EditContext(offer, emptyList()))!!
+		val scope = functionPreviewScopeOf(draft.runsDraft())!!
+		val fake = FakeGateway()
+		val ops = AutomationOps(admitting("sakura"), Host(fake))
+
+		ops.preview("sakura", pointer.trigger, "We are in {room}.", scope.params, scope.values)
+
+		assertEquals(
+			Triple("We are in {room}.", listOf(FunctionParam("room", "text")), buildJsonObject { put("room", "Bedroom") }),
+			fake.previews.single(),
+		)
 	}
 
 	@Test
