@@ -1895,6 +1895,15 @@ From the adversarial read of the Gateway half (six lenses and a verifying synthe
 - **E. The function form lacks the flat form's checks.** Mechanism: validity and the save check different subsets, and fit's event names differ from the fire's. A carried function with a refused hole armed; a device value was never checked against the switches (a ruling not built); a hole in a device arg filled with the shown name; `event.url` and `event.id` read as hidden; a crossing's `device`, a sensor name, was typed as a switch. One change: one `stepIssue` read at the save and on every read, and one table of what an event gives.
 - **Slips:** a newer set did not end an older function step not yet resolved (high); a move in place treated the home's own event automations as arriving; the call's cool-down measured from the last finished run; store refusals guessing their code; the function key minted inside the preflight and written over when unreadable; the console entity not following the function; the danger key differing between flat and step forms; no restore test for the plan's cross-build gate.
 
+All sixteen are fixed and committed. A second read of the fix round found the in-place move's bypass writing the carried body over a function a staying automation runs (class B again, through the fix); fixed with three smaller items.
+
+From the adversarial read of the phone half (four lenses and a verifying synthesis, fifteen confirmed). For a Gateway that does not serve functions nothing changed; every finding is behind `offer.functions` or carried functions.
+
+- **Phone A. An unread list read as a decision, with nothing reading it.** Mechanism: `functionsServed` on the move road, a page that never refreshes the automation list, so a move carrying functions was refused "Still reading" for ever. One change: the move gate reads its target itself.
+- **Phone B. Inner-page state outside the mirror's keys.** Mechanism: the editor's `MirroredDraft` keys against what `inner` closes; the message page was keyed by hand and the picker was not, so system Back did not close it. One change: one projection of what `inner` closes, used as the key.
+- **Phone C. The draft carries facts that belong to the listing.** Mechanism: `RunsDraft.Pointing` freezing a function's users and reads when minted. An edit could change another automation without the block showing it; the fit check judged edited steps by the stored ones. One change: read users from the live row, and trust the row's reads only over unedited steps.
+- **Phone D. Refusal sentences that ignore their facts.** Mechanism: `automationSaveLine` mapping by code alone. One change: it takes the automation's id and the refusal's record and path.
+
 ## Phase 2.7e.3 - The tree (slices 4 and 5)
 
 Design: Phase 2.7e above. The second app update (N+1).
