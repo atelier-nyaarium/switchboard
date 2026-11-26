@@ -10,7 +10,6 @@ import {
 	pointerOf,
 	type RunFunction,
 	reached,
-	siteOf,
 	steering,
 	visit,
 	type WalkStep,
@@ -61,6 +60,7 @@ import {
 	finished,
 	frameKey,
 	type StepRef,
+	siteIn,
 	started,
 	stepKey,
 	stepsOf,
@@ -388,7 +388,7 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	/** Through the walk. */
 	const writtenStep = (fire: Fire, path: string): WalkStep<"do"> | null => {
-		const site = siteOf(path);
+		const site = siteIn(fire, path);
 		const frame = site === null ? undefined : fire.frames?.[site];
 		const body = bodyOf(fire);
 		const fn = frame ? frameFunction(frame) : null;
@@ -404,7 +404,7 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	/** As fired, else as read. */
 	const actionOf = (fire: Fire, path: string): AutomationAction | null => {
-		const site = siteOf(path);
+		const site = siteIn(fire, path);
 		if (site !== null) return fire.frames?.[site]?.resolved?.[path] ?? null;
 		const body = bodyOf(fire);
 		return (body && actionAt(body, path)) ?? null;
@@ -421,7 +421,7 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	/** Call window, else default. */
 	const windowOf = (fire: Fire, path: string): number => {
-		const site = siteOf(path);
+		const site = siteIn(fire, path);
 		const body = bodyOf(fire);
 		if (site === null || !body) return KEEP_TRYING_MS;
 		return (callAt(body, site)?.keepTryingMin ?? KEEP_TRYING_MIN_DEFAULT) * 60_000;
@@ -702,8 +702,8 @@ export function createAutomations(deps: AutomationsDeps) {
 		const body = bodyOf(fire) as Automation;
 		const unsound = entryIssue(body, record.id, record.body);
 		if (unsound !== null) return { refused: unsound };
-		const inner = reached(body, (id) => (id === record.id ? record.body : null)).filter(
-			(at) => siteOf(at.path) === path,
+		const inner = reached(body, (id) => (id === record.id ? record.body : null)).filter((at) =>
+			at.path.startsWith(`${path}.`),
 		);
 		const { [path]: _call, ...steps } = fire.steps;
 		for (const at of inner) steps[at.path] = FRESH_STEP;
@@ -882,7 +882,7 @@ export function createAutomations(deps: AutomationsDeps) {
 	/** Call values over names. */
 	const scopeOf = (fire: Fire, at: Pick<WalkStep, "path">): FireNames => {
 		const body = bodyOf(fire);
-		const site = siteOf(at.path);
+		const site = siteIn(fire, at.path);
 		const call = body && site !== null ? callAt(body, site) : null;
 		const fn = site === null ? undefined : fire.frames?.[site];
 		const params = fn ? (frameFunction(fn)?.params ?? []) : [];
@@ -911,7 +911,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		const log = rows.reduce(logged, state.log);
 		const current = state.fires.find((held) => held.member === ref.member);
 		const step = current?.steps[ref.path];
-		const site = siteOf(ref.path);
+		const site = siteIn(fire, ref.path);
 		const frame = site === null ? undefined : current?.frames?.[site];
 		if (!current || !step || isEnded(step) || !frame || site === null)
 			return rows.length > 0 && commit({ ...state, log });
@@ -1015,7 +1015,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		const filled = fillerOf(fire, rows);
 		const texts: Record<string, string> = {};
 		// Read at start.
-		const written = siteOf(ref.path) === null ? holeTextsOf([effect]) : [];
+		const written = siteIn(fire, ref.path) === null ? holeTextsOf([effect]) : [];
 		for (const { param, text } of written) {
 			const params: readonly AutomationActionParam[] = spec.params;
 			const max = params.find((held) => held.name === param)?.max ?? EFFECT_TEXT_MAX;

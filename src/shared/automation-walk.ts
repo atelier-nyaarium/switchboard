@@ -35,6 +35,8 @@ export interface WalkAction {
 export interface WalkStep<K extends StepKind = StepKind> {
 	reach: "step";
 	path: string;
+	/** Its call's path. */
+	site: string;
 	/** In its own list. */
 	index: number;
 	/** In its function's body. */
@@ -98,59 +100,38 @@ export type Side = (typeof SIDES)[number];
 /** Within one body: indexes and sides, ending on an index. */
 export type Address = readonly (number | Side)[];
 
-/** One per side, in `SIDES` order. */
-const LETTERS = ["t", "e", "b", "c"] as const;
-const letterOf = (side: Side): string => LETTERS[SIDES.indexOf(side)] as string;
-const LETTER_SIDES = new Map<string, Side>(SIDES.map((side) => [letterOf(side), side]));
+/** A step's first list is 0, its second 1. */
+export const sideNumber = (side: Side): 0 | 1 => (side === "then" || side === "try" ? 0 : 1);
 
-/** A token per index; a letter names the side entered. A bare token before another is a call. */
-export const STEP_PATH_RE = /^(\d+[tebc]?\.)*\d+$/;
-
-const tokensOf = (address: Address): string[] => {
-	const tokens: string[] = [];
-	for (const segment of address) {
-		if (typeof segment === "number") tokens.push(String(segment));
-		else tokens[tokens.length - 1] += letterOf(segment);
-	}
-	return tokens;
-};
-
-/** A frame per call, outermost first. */
-export const pathOf = (frames: readonly Address[]): string => frames.flatMap(tokensOf).join(".");
-
-/** Null when it is no path. */
-export const framesOf = (path: string): Address[] | null => {
-	if (!STEP_PATH_RE.test(path)) return null;
-	const frames: (number | Side)[][] = [[]];
-	for (const token of path.split(".")) {
-		const side = LETTER_SIDES.get(token.slice(-1));
-		(frames.at(-1) as (number | Side)[]).push(Number.parseInt(token, 10));
-		if (side) (frames.at(-1) as (number | Side)[]).push(side);
-		else frames.push([]);
-	}
-	return frames.slice(0, -1);
-};
+/** Numbers alone: a call, an index and a side each read as one. */
+export const STEP_PATH_RE = /^\d+(\.\d+)*$/;
 
 /** A step of the body the call at `site` runs. */
-export const within = (site: string, address: Address): string => `${site}.${tokensOf(address).join(".")}`;
+export const within = (site: string, address: Address): string =>
+	[site, ...address.map((segment) => (typeof segment === "number" ? segment : sideNumber(segment)))].join(".");
 
-/** Call path or null. */
-export const siteOf = (path: string): string | null => {
-	const frames = framesOf(path);
-	return frames && frames.length > 1 ? pathOf(frames.slice(0, -1)) : null;
+/** The call a step runs under: the longest of `sites` above it. */
+export const siteAmong = (path: string, sites: Iterable<string>): string | null => {
+	let found: string | null = null;
+	for (const site of sites) {
+		if (path.startsWith(`${site}.`) && (found === null || site.length > found.length)) found = site;
+	}
+	return found;
 };
 
-/** Where a step sits in its own body. */
-export const addressOf = (path: string): Address | null => framesOf(path)?.at(-1) ?? null;
-
-const rank = (segment: number | Side): number => (typeof segment === "number" ? segment : SIDES.indexOf(segment));
+/** Its numbers below `site`; the body they address names the sides. */
+export const below = (path: string, site: string): number[] =>
+	path
+		.slice(site.length + 1)
+		.split(".")
+		.map(Number);
 
 /** Written order: a step before what it holds. */
 export const byPath = (a: string, b: string): number => {
-	const left = (framesOf(a) ?? []).flat();
-	const right = (framesOf(b) ?? []).flat();
+	const left = a.split(".").map(Number);
+	const right = b.split(".").map(Number);
 	for (let at = 0; at < Math.min(left.length, right.length); at++) {
-		const order = rank(left[at] as number | Side) - rank(right[at] as number | Side);
+		const order = (left[at] as number) - (right[at] as number);
 		if (order !== 0) return order;
 	}
 	return left.length - right.length;
@@ -168,6 +149,7 @@ export function reached(automation: Walked, functionOf?: FunctionOf): WalkEntry[
 		return stepsIn(open(fn.steps), []).map(({ address, step }) => ({
 			reach: "step",
 			path: within(path, address),
+			site: path,
 			index: address.at(-1) as number,
 			address,
 			step,

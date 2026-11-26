@@ -41,6 +41,29 @@ const sideOf = (step: TreeStep, side: Side): readonly TreeStep[] | undefined => 
 	}
 };
 
+/** A step's lists, first then second. */
+const SIDES_OF: Readonly<Record<string, readonly [Side, Side]>> = { if: ["then", "else"], try: ["try", "catch"] };
+
+/** A path's numbers below its call, read against the body they address. Null where they name no step. */
+export const addressIn = (body: readonly TreeStep[], numbers: readonly number[]): Address | null => {
+	const address: (number | Side)[] = [];
+	let list: readonly TreeStep[] | undefined = body;
+	for (let at = 0; at < numbers.length; at += 2) {
+		const index = numbers[at] as number;
+		const step: TreeStep | undefined = list?.[index];
+		if (!step) return null;
+		address.push(index);
+		if (at + 1 === numbers.length) return address;
+		const side: Side | undefined = Object.hasOwn(SIDES_OF, step.kind)
+			? SIDES_OF[step.kind]?.[numbers[at + 1] as number]
+			: undefined;
+		if (!side) return null;
+		address.push(side);
+		list = sideOf(step, side);
+	}
+	return null;
+};
+
 /** `base` is empty or ends on a side. */
 const listAt = (body: readonly TreeStep[], base: Address): readonly TreeStep[] | null => {
 	let list: readonly TreeStep[] | undefined = body;

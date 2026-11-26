@@ -1210,6 +1210,15 @@ A: Pass only when the phone has no screen lock at all. Any other reason refuses 
 
 Recommended: with no screen lock the phone is already open to whoever holds it, and every other reason is a moment where the lock should hold.
 
+## Question 89 - How does a step's position read once steps nest?
+
+A position shows in the console's run rows, in a save refusal and in a run's stored state. Today it reads `0.1`: the automation's action 0, the function's step 1.
+
+Q: Numbers with a side letter (`0.2t.1`), numbers only (`0.2.0.1`), or words (`0.2.then.1`)?
+A: Numbers only. The first side of an If or a Try is `0`, the second (else, catch) is `1`.
+
+> B sounds simple.
+
 ## Question 50 - Where does the flow map live?
 
 Q: A Map and List toggle at the top of Automations, its own menu entry, or only inside an automation's page?
@@ -2167,7 +2176,7 @@ Written before the code, so a restart of the work reads it here. Each line is a 
 - **The frame walk is its own pure module** (`automationFrames.ts`): given a function's steps, a frame (the path whose turn it is, its variables, its first uncaught failure, the error a catch holds) and how the current step ended, it answers the next path or how the frame ended. The failure table's vectors drive this function alone, with no pump. Nothing scans `steps` to find a turn: `fire.active` is the authority, moved only by the walk's answer.
 - **A step's record is made when its turn comes,** so a side not taken and steps skipped by a jump hold no record, and "what did not run" is the body minus the records.
 - **Built so far:** the pass moved out byte for byte (`automationPass.ts`, with `withMessage` as one more port, and `untold` and `droppedRows` exported for `dropOwned` and `watchSensors`); the frame walk and its sixteen vectors (`automationFrames.ts`, `moved` and `entered`), not yet called by the pass.
-- **The path is built** (`pathOf`, `framesOf`, `siteOf`, `addressOf`, `within`, `byPath`, `STEP_PATH_RE` in the walk, `step-path.test.ts`), spelled the short way (`0.2t.1`) until Question 89 is answered; the spelling lives in `tokensOf` and `framesOf` alone. Today's `0` and `0.1` read as before. Its Kotlin twin and shared vectors come with the phone slice.
+- **The path is built, numbers only (Question 89):** `within`, `siteAmong`, `below`, `byPath` and `STEP_PATH_RE` in the walk, `siteIn` for a fire, `addressIn` in the frames module to name the sides against a body, `step-path.test.ts`. A string alone no longer says which call a step runs under, so every reader asks the fire's frames or the walk entry's `site`. The stored shape is what it was before sides. Its Kotlin twin and shared vectors come with the phone slice.
 - **The kinds are declared, and nothing runs them yet:** `FunctionStepSchema` holds `if`, `try`, `exit`, `throw`, `let`, `wait` and `note`, recursive, with `FUNCTION_STEPS_TOTAL_MAX` (32) across depths and `FUNCTION_DEPTH_MAX` (4). `reached` yields every step at every depth with its `address`, and `steering(answer)` gives a reader one answer for the seven kinds that act on nothing themselves (a kind added later joins `STEERING` by hand, so its readers stop compiling). Each kind's entry in `STEPS` answers "cannot run" until its engine part lands, so a save refuses a tree and an entry refuses a call into one. `serves.functions.steps` lists the actions a `do` step may name, not statement kinds; the phone learns which statements a Gateway runs from a key of its own, to be added with the engine.
 - **How the pass will run a tree** (next to build, in `advance`):
   - The automation's own list is the top frame and stays as it is: its records are made at admission, its turn is its first unended step, and a call's record stays open while its frame runs (today `enter` replaces it with the function's steps; it will keep it and end it when the frame ends, `done` or failed `call_failed` with the frame's first error).
@@ -2182,7 +2191,7 @@ Written before the code, so a restart of the work reads it here. Each line is a 
 - **Key names:** an `if` is stored `{ when, steps?, else? }`, not `then`: an object literal that defines `then` trips the linter's thenable rule at every place a step is written, and `steps` is already a `try`'s guarded side. The side is still called "then" in an address. `when`, `else` and `catch` are Kotlin keywords, which the codegen backticks.
 - **The failure table is a Gateway-only corpus** (`tests/fixtures/automation-frames/failure-table.json`), named so that the cross-runtime vectors inventory, which forces every `vectors.json` through Kotlin, does not claim it.
 - **Step kinds** in `FunctionStepSchema`, recursive: `if { when, then?, else? }` (`when` is one expression), `try { steps, catch }`, `exit`, `throw { text? }`, `let { name, value }`, `wait { minutes }`, `note { text }`. A list holds at most `FUNCTION_STEPS_MAX`; a function holds at most a generated total across depths and a generated depth. Unknown kinds stay preserved at every depth.
-- **The path** is typed in the walk (a list of segments: a step's index, a side, a call boundary) with one encoder and decoder; its spelling is Question 89's. `siteOf`, `byPath` and the phone's twin read segments, never the string.
+- **The path** is numbers alone (Question 89). In code a step's place in its body is an `Address` of indexes and named sides; the walk spells it under its call, and reading one back needs the fire's frames (which call) and the body (which side).
 - **What a failure is:** `{ code, message }` with `code` one of `refused`, `unreachable`, `no_answer`, `unread`, `timeout`, `thrown`, `call_failed`, `loop`. A step's ended word maps to a code by one table. Outside a `try` it is noted on the frame (the first one stays) and the body carries on; inside one the walk jumps to the `catch` with `e` bound; a failure inside a `catch` is judged by what encloses the `try`. `throw` outside any `try` ends the frame failed. `exit` ends it with whatever was noted.
 - **Reads are steps of the read slot:** an `if`'s condition, a `let`'s value, a `wait`'s minutes and a `do` step's arguments are each read once when the step's turn comes, through the one async read the pump already has. A condition or value that cannot be read is the failure `unread`.
 - **`as`** keeps what an action gives. None of today's three actions gives anything, so the catalogue row says so (`gives` absent) and a save refuses `as` on them with its own line; the key and the frame's variable slot exist for the action that will.
@@ -2196,7 +2205,7 @@ First step, carried from the 2.7e.1 architecture pass: take the pump's pass out 
 Order of work for slice 4, each a child of its board card (`bd_57a7ad81b206819572775b4c9ba5682d`):
 
 1. The pump's pass as a pure function; the active list decides whose turn it is; no fill slot.
-2. The step path with sides: one typed path in the walk, spelled per Question 89 (asked 2026-11-26, recommendation `0.2t.1`), a Kotlin twin, shared vectors.
+2. The step path with sides: one typed path in the walk, numbers only per Question 89 (`0.2.0.1`), a Kotlin twin, shared vectors.
 3. The step kinds `if`, `try`, `exit`, `throw`, `let`, `wait`, `note` in the schema, a future-kind fixture at every depth.
 4. The frame walk and the failure table with its vectors; conditions, variables, `as`, `wait`.
 5. Tells as steps.

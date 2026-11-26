@@ -1,7 +1,7 @@
 // A fired trigger's step progress.
 
 import { z } from "zod";
-import { byPath, reached, visit } from "../../shared/automation-walk.js";
+import { byPath, reached, siteAmong, visit } from "../../shared/automation-walk.js";
 import { type Automation, AutomationActionSchema, TELL_WHEN } from "../../shared/schemasAutomation.js";
 import { BEHIND, CROWDED, REPLACED, TOO_MANY } from "./automationLog.js";
 import { type AutomationEffect, isEffect, natureOf } from "./automationRunner.js";
@@ -101,6 +101,10 @@ export interface StepRef {
 }
 
 export const stepKey = (ref: StepRef): string => `${ref.member}#${ref.path}`;
+
+/** The call a step runs under; null for the automation's own step. */
+export const siteIn = (fire: Pick<Fire, "frames">, path: string): string | null =>
+	siteAmong(path, Object.keys(fire.frames ?? {}));
 
 /** A step whose attempt may go, and when it fell due. */
 export interface Runnable {

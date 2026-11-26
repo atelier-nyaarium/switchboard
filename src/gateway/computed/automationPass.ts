@@ -1,7 +1,6 @@
 // One pass of the pump: the next state, and the work to start.
 
 import type { RunFunction, WalkStep } from "../../shared/automation-walk.js";
-import { siteOf } from "../../shared/automation-walk.js";
 import { AUTOMATION_ACTIONS, type Automation, type AutomationAction } from "../../shared/schemasAutomation.js";
 import { hasHoles } from "../../shared/text-holes.js";
 import {
@@ -17,6 +16,7 @@ import {
 	outdatedSets,
 	type Runnable,
 	type StepRef,
+	siteIn,
 	stepKey,
 	switchOf,
 	turnOf,
@@ -131,7 +131,7 @@ export function createPass(ports: PassPorts): {
 
 	/** A call names its function. */
 	const whereAt = (fire: Fire, path: string): RowWhere => {
-		const site = siteOf(path) ?? path;
+		const site = siteIn(fire, path) ?? path;
 		const body = ports.bodyOf(fire);
 		return {
 			step: path,
@@ -269,7 +269,7 @@ export function createPass(ports: PassPorts): {
 			fire = { ...withStep(fire, path, step), active: [path] };
 			if (step.claimed) return { fire, log };
 			const body = ports.bodyOf(fire);
-			const call = body && siteOf(path) === null ? ports.callAt(body, path) : null;
+			const call = body && siteIn(fire, path) === null ? ports.callAt(body, path) : null;
 			if (call) {
 				const entered = ports.enter(fire, path, call);
 				if (!("refused" in entered)) {
@@ -282,7 +282,7 @@ export function createPass(ports: PassPorts): {
 				continue;
 			}
 			const window = ports.windowOf(fire, path);
-			const site = siteOf(path);
+			const site = siteIn(fire, path);
 			const action = ports.actionOf(fire, path);
 			if (site !== null && !action && ports.writtenStep(fire, path)) {
 				at.unread.push({ member: fire.member, path });

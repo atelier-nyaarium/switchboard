@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { byPath, reached, siteOf, steering, visit, type WalkEntry } from "../shared/automation-walk.js";
+import { byPath, reached, siteAmong, steering, visit, type WalkEntry } from "../shared/automation-walk.js";
 import { AutomationSchema } from "../shared/schemasAutomation.js";
 import { FunctionSchema } from "../shared/schemasFunction.js";
 
@@ -54,8 +54,8 @@ describe("the walk's step path", () => {
 		const followed = cases.find((vector) => vector.reached.some((row) => row.reach === "step")) as Case;
 		const paths = walkOf(followed).map((at) => at.path);
 
-		expect(paths.map(siteOf)).toEqual(["0", "0"]);
-		expect(siteOf("3")).toBeNull();
+		expect(paths.map((path) => siteAmong(path, ["0"]))).toEqual(["0", "0"]);
+		expect(siteAmong("3", ["0"])).toBeNull();
 		expect(["10", "2.1", "2", "2.0", "1"].sort(byPath)).toEqual(["1", "2", "2.0", "2.1", "10"]);
 	});
 });
