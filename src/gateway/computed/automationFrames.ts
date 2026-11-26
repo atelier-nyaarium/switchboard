@@ -1,5 +1,7 @@
 // How a frame moves through a body's tree.
 
+import type { Address, Side } from "../../shared/automation-walk.js";
+
 export const FAILURE_CODES = [
 	"refused",
 	"unreachable",
@@ -17,11 +19,7 @@ export interface Failure {
 	message: string;
 }
 
-export const SIDES = ["then", "else", "try", "catch"] as const;
-export type Side = (typeof SIDES)[number];
-
-/** Indexes and sides, ending on an index. */
-export type Address = readonly (number | Side)[];
+export type { Address, Side } from "../../shared/automation-walk.js";
 
 /** What the walk reads of a step. `steps` is an if's first side and a try's guarded one. */
 export interface TreeStep {

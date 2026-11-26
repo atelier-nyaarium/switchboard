@@ -1,6 +1,7 @@
 // One step's attempts and its end, decided from its nature and the words it heard.
 
 import { z } from "zod";
+import { STEP_PATH_RE } from "../../shared/automation-walk.js";
 import { KEEP_TRYING_MIN_DEFAULT } from "../../shared/schemasAutomation.js";
 import type { RunRow } from "./automationLog.js";
 
@@ -32,8 +33,8 @@ export const retries = (nature: Nature, word: AttemptWord): boolean => RETRIED[n
 /** `ended`: closed by a build that kept no word. */
 export const VERDICTS = ["done", "failed", "ended"] as const;
 
-/** Call site, then index. */
-export const StepPathSchema = z.string().regex(/^\d+(\.\d+)*$/);
+/** The walk owns its spelling. */
+export const StepPathSchema = z.string().regex(STEP_PATH_RE);
 
 export const StepSchema = z.strictObject({
 	/** Begun; a hold is taken back off. */
