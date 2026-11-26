@@ -433,7 +433,7 @@ internal fun typeWordText(word: TypeWord): String = when (word) {
 internal fun runsIssueLine(issue: RunsIssue): String = when (issue) {
 	RunsIssue.NoSteps -> "Add a step first."
 	is RunsIssue.Step -> issue.line
-	is RunsIssue.NotAStep -> "Step ${issue.index + 1} cannot run in a function."
+	is RunsIssue.NotAStep -> "One step cannot run in a function."
 	is RunsIssue.Unset -> "Set a value for ${issue.name}."
 	RunsIssue.NameWithValues -> "Name it, or remove its values."
 	is RunsIssue.BadParam -> paramIssueLine(issue.issue)

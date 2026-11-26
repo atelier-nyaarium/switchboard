@@ -5,6 +5,7 @@ import com.atelier_nyaarium.switchboard.assistant.AutomationDraft
 import com.atelier_nyaarium.switchboard.assistant.EditContext
 import com.atelier_nyaarium.switchboard.assistant.IntervalUnit
 import com.atelier_nyaarium.switchboard.assistant.TriggerDraft
+import com.atelier_nyaarium.switchboard.assistant.StepDraft
 import com.atelier_nyaarium.switchboard.assistant.offerOf
 import com.atelier_nyaarium.switchboard.proto.AppOpenAnswer
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeSealed
@@ -119,7 +120,7 @@ class PhoneEncodedFixtureTest {
 	private val offer = offerOf(SANDBOX_SERVES, away = false)
 
 	private fun draft(trigger: TriggerDraft, vararg actions: ActionDraft) =
-		AutomationDraft("a", trigger, actions.toList(), enabled = true, revision = 0L, EditContext(offer, emptyList()), display = "F")
+		AutomationDraft("a", trigger, actions.mapIndexed { index, action -> StepDraft.Do("action-$index", action) }, enabled = true, revision = 0L, EditContext(offer, emptyList()), display = "F")
 
 	/** What the editor saves, typed as an owner types it. */
 	private val edited = listOf(

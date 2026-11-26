@@ -7,6 +7,7 @@ import com.atelier_nyaarium.switchboard.assistant.EditContext
 import com.atelier_nyaarium.switchboard.assistant.PointMode
 import com.atelier_nyaarium.switchboard.assistant.RunsIssue
 import com.atelier_nyaarium.switchboard.assistant.SaidAt
+import com.atelier_nyaarium.switchboard.assistant.StepDraft
 import com.atelier_nyaarium.switchboard.assistant.draftRunsIssue
 import com.atelier_nyaarium.switchboard.assistant.generalLine
 import com.atelier_nyaarium.switchboard.assistant.outcomeOf
@@ -198,11 +199,11 @@ class FunctionDraftTest {
 
 		assertEquals(mapOf("lamp" to "switch-a", "lamp3" to "switch-b"), runs.valuesByName())
 		assertEquals(listOf("lamp", "lamp3"), runs.wireParams().map { it.name })
-		assertEquals(listOf("lamp", "lamp2"), runs.steps.map { step ->
-			(step as ActionDraft.Filled).references.getValue("device").name
+		assertEquals(listOf("lamp", "lamp2"), runs.steps.filterIsInstance<StepDraft.Do>().map { step ->
+			(step.action as ActionDraft.Filled).references.getValue("device").name
 		})
-		assertEquals(listOf(runs.params[0].key, runs.params[1].key), runs.steps.map { step ->
-			(step as ActionDraft.Filled).references.getValue("device").key
+		assertEquals(listOf(runs.params[0].key, runs.params[1].key), runs.steps.filterIsInstance<StepDraft.Do>().map { step ->
+			(step.action as ActionDraft.Filled).references.getValue("device").key
 		})
 
 		val op = functionSaveOf(renamed, none, offer, confirmed = false)!!
@@ -227,7 +228,7 @@ class FunctionDraftTest {
 		val runs = draft.runsDraft() as RunsDraft.Pointing
 
 		assertEquals(setOf(firstKey, secondKey), runs.values.keys)
-		assertEquals(listOf(firstKey, secondKey), runs.steps.map { (it as ActionDraft.Filled).references.getValue("device").key })
+		assertEquals(listOf(firstKey, secondKey), runs.steps.filterIsInstance<StepDraft.Do>().map { (it.action as ActionDraft.Filled).references.getValue("device").key })
 		assertNull(functionSaveOf(draft, none, draft.context.offer, confirmed = false))
 	}
 
@@ -238,8 +239,8 @@ class FunctionDraftTest {
 		val removed = opened.withoutFunctionParam(secondKey)
 		val runs = removed.runsDraft() as RunsDraft.Pointing
 
-		assertEquals(secondKey, (runs.steps[1] as ActionDraft.Filled).references.getValue("device").key)
-		assertEquals(RunsIssue.Step(1, "lamp2 is no longer a value; pick again"), draftRunsIssue(removed, none, offer))
+		assertEquals(secondKey, ((runs.steps[1] as StepDraft.Do).action as ActionDraft.Filled).references.getValue("device").key)
+		assertEquals(RunsIssue.Step(runs.steps[1].key, "lamp2 is no longer a value; pick again"), draftRunsIssue(removed, none, offer))
 		assertNull(functionSaveOf(removed, none, offer, confirmed = false))
 	}
 
@@ -250,7 +251,7 @@ class FunctionDraftTest {
 		val removed = opened.withFunctionParam(secondKey, FunctionParam("lamp3", "device")).withoutFunctionParam(secondKey)
 		val runs = removed.runsDraft() as RunsDraft.Pointing
 
-		assertEquals("lamp3", (runs.steps[1] as ActionDraft.Filled).references.getValue("device").name)
+		assertEquals("lamp3", ((runs.steps[1] as StepDraft.Do).action as ActionDraft.Filled).references.getValue("device").name)
 	}
 
 	@Test
@@ -327,7 +328,8 @@ class FunctionDraftTest {
 
 	@Test
 	fun theBlockLeavesCardIssuesToTheCardsWhileSaveStillWaits() {
-		val blank = automationDraftOf(plain, serving)!!.withAction(0) { ActionDraft.Filled("device_set", emptyMap()) }
+		val opened = automationDraftOf(plain, serving)!!
+		val blank = opened.withAction(opened.steps[0].key) { ActionDraft.Filled("device_set", emptyMap()) }
 		val empty = automationDraftOf(plain, serving)!!.freshBody()
 		val long = automationDraftOf(plain, serving)!!.withFunctionName("x".repeat(Protocol.Wire.FUNCTION_NAME_MAX + 1))
 
@@ -393,7 +395,7 @@ class FunctionDraftTest {
 
 		// A step's field.
 		val step = said(AutomationSaveRefusal(code = "invalid", record = "function", path = "steps.0.device", line = "its values do not fit what it does"))
-		assertEquals("its values do not fit what it does", refusedField(step, SaidAt.Card(0, "device"), SANDBOX_SWITCH))
+		assertEquals("its values do not fit what it does", refusedField(step, SaidAt.Card(picked.steps[0].key, "device"), SANDBOX_SWITCH))
 		assertNull(generalLine(step, picked, serving.offer))
 		val whole = said(AutomationSaveRefusal(code = "invalid", record = "function", path = "steps.0"))
 		assertEquals(whole.line, generalLine(whole, picked, serving.offer))

@@ -7,6 +7,7 @@ import com.atelier_nyaarium.switchboard.assistant.EditContext
 import com.atelier_nyaarium.switchboard.assistant.PointMode
 import com.atelier_nyaarium.switchboard.assistant.RunsDraft
 import com.atelier_nyaarium.switchboard.assistant.SaidAt
+import com.atelier_nyaarium.switchboard.assistant.StepDraft
 import com.atelier_nyaarium.switchboard.assistant.checkAfter
 import com.atelier_nyaarium.switchboard.assistant.checkedFor
 import com.atelier_nyaarium.switchboard.assistant.movedFor
@@ -18,7 +19,7 @@ import com.atelier_nyaarium.switchboard.assistant.offerOf
 import com.atelier_nyaarium.switchboard.assistant.outcomeOf
 import com.atelier_nyaarium.switchboard.assistant.reloadedFunction
 import com.atelier_nyaarium.switchboard.assistant.saveAllowedAfterCheck
-import com.atelier_nyaarium.switchboard.assistant.stepOf
+import com.atelier_nyaarium.switchboard.assistant.stepOfDraft
 import com.atelier_nyaarium.switchboard.assistant.valuesByName
 import com.atelier_nyaarium.switchboard.assistant.withValue
 import com.atelier_nyaarium.switchboard.assistant.written
@@ -95,7 +96,7 @@ class AutomationCheckTest {
 			path = "0",
 			param = "message",
 		)
-		val fieldDraft = draft.copy(actions = listOf(toldDraft("now", "Hi")))
+		val fieldDraft = draft.copy(steps = listOf(StepDraft.Do(draft.steps.single().key, toldDraft("now", "Hi"))))
 		val invalid = refused(
 			Protocol.Wire.AutomationSaveRefusalCode.INVALID.wire,
 			Protocol.Wire.AutomationSaveRecord.FUNCTION.wire,
@@ -114,7 +115,7 @@ class AutomationCheckTest {
 			checkSaidOf(hole, fieldDraft, context)?.let { it::class },
 		)
 		val field = checkSaidOf(invalid, fieldDraft, context) as AutomationSaid.Field
-		assertEquals(SaidAt.Card(0, "message"), field.at)
+		assertEquals(SaidAt.Card(fieldDraft.steps.single().key, "message"), field.at)
 		assertEquals("Hi", field.text)
 	}
 
@@ -182,7 +183,7 @@ class AutomationCheckTest {
 	@Test
 	fun reloadUsesTheListedBodyAndKeepsOnlyValuesWithMatchingNameAndType() {
 		val runs = draft.runsDraft() as RunsDraft.Pointing
-		val edited = draft.withRuns(runs.copy(steps = listOf(withValue(runs.steps.single(), "verb", "off"))))
+		val edited = draft.withRuns(runs.copy(steps = listOf((runs.steps.single() as StepDraft.Do).let { it.copy(action = withValue(it.action, "verb", "off")) })))
 		val changed = oldFunction.copy(
 			revision = 8L,
 			function = AutomationFunction(
@@ -198,7 +199,7 @@ class AutomationCheckTest {
 		assertEquals(8L to "New name", reloadedRuns.base to reloadedRuns.name)
 		assertEquals(PointMode.SHARED, reloadedRuns.mode)
 		assertEquals(mapOf("room" to "Bedroom"), reloadedRuns.valuesByName())
-		assertEquals(written(changed.function), reloadedRuns.steps.map { stepOf(it, offer, reloadedRuns.params) })
+		assertEquals(written(changed.function), reloadedRuns.steps.map { stepOfDraft(it, offer, reloadedRuns.params) })
 	}
 
 	@Test

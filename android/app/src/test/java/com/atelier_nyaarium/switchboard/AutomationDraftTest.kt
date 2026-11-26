@@ -17,6 +17,7 @@ import com.atelier_nyaarium.switchboard.assistant.NumberOffer
 import com.atelier_nyaarium.switchboard.assistant.PreviewRead
 import com.atelier_nyaarium.switchboard.assistant.Served
 import com.atelier_nyaarium.switchboard.assistant.SourceFields
+import com.atelier_nyaarium.switchboard.assistant.StepDraft
 import com.atelier_nyaarium.switchboard.assistant.SwitchOffer
 import com.atelier_nyaarium.switchboard.assistant.TextPreview
 import com.atelier_nyaarium.switchboard.assistant.TriggerChoice
@@ -67,9 +68,11 @@ import com.atelier_nyaarium.switchboard.assistant.previewHead
 import com.atelier_nyaarium.switchboard.assistant.producesText
 import com.atelier_nyaarium.switchboard.assistant.ranText
 import com.atelier_nyaarium.switchboard.assistant.refusedHole
+import com.atelier_nyaarium.switchboard.assistant.refusedHoleOf
 import com.atelier_nyaarium.switchboard.assistant.sourceChoices
 import com.atelier_nyaarium.switchboard.assistant.testsOf
 import com.atelier_nyaarium.switchboard.assistant.textPreviewOf
+import com.atelier_nyaarium.switchboard.assistant.unkeyed
 import com.atelier_nyaarium.switchboard.assistant.triggerDraftOf
 import com.atelier_nyaarium.switchboard.assistant.triggerHint
 import com.atelier_nyaarium.switchboard.assistant.triggerIssue
@@ -114,6 +117,7 @@ private val fields = SourceFields(SPECS)
 private const val SENSOR = "ce:1c"
 private const val PLUG = "aa:bb"
 private const val ZONE = "America/Los_Angeles"
+private const val EVENT_ACTION_KEY = "event-action"
 
 private val FULL = AutomationOffer(
 	triggers = offerOf(SANDBOX_SERVES, away = false).triggers.filter { it.kind != "value" },
@@ -156,7 +160,7 @@ private fun event(vararg conditions: AutomationCondition, tell: String = "now", 
 )
 
 private fun eventDraft(vararg conditions: AutomationCondition) =
-	AutomationDraft("a", TriggerDraft.Event("github", conditions.toList()), listOf(toldDraft("now")), true, 0L, HERE)
+	AutomationDraft("a", TriggerDraft.Event("github", conditions.toList()), listOf(StepDraft.Do(EVENT_ACTION_KEY, toldDraft("now"))), true, 0L, HERE)
 
 private val quietly: (ActionDraft) -> ActionDraft = { toldDraft("quietly") }
 
@@ -219,7 +223,8 @@ class AutomationDraftTest {
 	@Test
 	fun anEditKeepsWhatTheEditorDoesNotShow() {
 		val held = event(reason("mention")).copy(label = "Kept", actions = listOf(future, AutomationAction.TellAssistant("now")))
-		val draft = automationDraftOf(row("a", held, revision = 3L), HERE)!!.withAction(1, quietly)
+		val opened = automationDraftOf(row("a", held, revision = 3L), HERE)!!
+		val draft = opened.withAction(opened.steps[1].key, quietly)
 
 		val saved = draft.toAutomation(LEGACY)!!
 
@@ -269,7 +274,8 @@ class AutomationDraftTest {
 
 	@Test
 	fun aRefusedSaveOffersWhatIsHeldAsksForAGoAheadOrMarksTheHoleItFailedOn() {
-		val draft = automationDraftOf(row("a", event(reason("mention")), revision = 2L), HERE)!!.withAction(0, quietly)
+		val opened = automationDraftOf(row("a", event(reason("mention")), revision = 2L), HERE)!!
+		val draft = opened.withAction(opened.steps[0].key, quietly)
 		val newer = row("a", event(reason("review_requested")), revision = 5L)
 		val refused = AutomationSaved.Refused("revision 5 is stored", newer)
 		val span = AutomationHoleSpan(0L, "message", 3L, 6L)
@@ -277,11 +283,15 @@ class AutomationDraftTest {
 		val save = outcomeOf(refused, draft, false, HERE) as AutomationOutcome.Offer
 		val delete = outcomeOf(refused, draft, deleting = true, HERE) as AutomationOutcome.Offer
 		val asks = outcomeOf(AutomationSaved.Refused("confirm", confirm = listOf("Send to IFTTT")), draft, false, HERE)
-		val hole = outcomeOf(AutomationSaved.Refused("no name x here", hole = span), draft, false, HERE)
+		val hole = outcomeOf(AutomationSaved.Refused("no name x here", hole = refusedHoleOf(span)), draft, false, HERE)
 
 		assertEquals(5L, save.draft.revision)
 		assertEquals(listOf(reason("mention")), save.draft.conditions)
-		assertEquals(automationDraftOf(newer, HERE), delete.draft)
+		val expectedDelete = automationDraftOf(newer, HERE)!!
+		assertEquals(
+			expectedDelete.copy(steps = unkeyed(expectedDelete.steps)),
+			delete.draft.copy(steps = unkeyed(delete.draft.steps)),
+		)
 		assertEquals(AutomationOutcome.Done, outcomeOf(AutomationSaved.Stored(newer), draft, false, HERE))
 		assertEquals(AutomationOutcome.Said("no"), outcomeOf(AutomationSaved.Refused("no"), draft, false, HERE))
 		assertEquals(
@@ -289,7 +299,7 @@ class AutomationDraftTest {
 			outcomeOf(AutomationSaved.Refused("same", row("a", event(), revision = 2L)), draft, false, HERE),
 		)
 		assertEquals(AutomationOutcome.Said(AutomationSaid.Confirm(listOf("Send to IFTTT"))), asks)
-		assertEquals(AutomationOutcome.Said(AutomationSaid.Hole(0, "message", 3, 6, "no name x here", "")), hole)
+		assertEquals(AutomationOutcome.Said(AutomationSaid.Hole(draft.steps[0].key, "message", 3, 6, "no name x here", "")), hole)
 	}
 
 	@Test
@@ -297,7 +307,7 @@ class AutomationDraftTest {
 		val opened = automationDraftOf(row("a", event(reason("mention"))), HERE)!!
 
 		assertEquals(false, opened.changedFrom(opened))
-		assertEquals(true, opened.withAction(0, quietly).changedFrom(opened))
+		assertEquals(true, opened.withAction(opened.steps[0].key, quietly).changedFrom(opened))
 		assertEquals(true, opened.withCondition(fields).changedFrom(opened))
 		assertEquals(true, opened.withSource("other").changedFrom(opened))
 	}
@@ -532,7 +542,7 @@ class AutomationPartsTest {
 			doesText(leftBehind, Served.Known(away)).split(" · "),
 		)
 		assertEquals("Switch a plug: Desk lamp, On · Tell the assistant: Now", doesText(leftBehind, Served.Known(FULL)))
-		assertEquals(emptyList<ActionOffer>(), addableActions(FULL, List(8) { toldDraft("now") }))
+		assertEquals(emptyList<ActionOffer>(), addableActions(FULL, List(8) { index -> StepDraft.Do("action-$index", toldDraft("now")) }))
 	}
 
 	@Test
@@ -560,7 +570,7 @@ class AutomationPartsTest {
 		assertEquals(emptyList<String>(), newAutomationGateways(registry, all, AssistantHome.Unread))
 		val unlisted = registry.withEntry("older") { it.copy(automations = GatewayList.Unread) }
 		assertEquals(all, newAutomationGateways(unlisted, all, placed("sakura")))
-		assertEquals("crossing" to listOf("device_set"), there.trigger.kind to there.actions.map { it.kind })
+		assertEquals("crossing" to listOf("device_set"), there.trigger.kind to there.steps.map { (it as StepDraft.Do).action.kind })
 		assertNull(newAutomationDraft(EditContext(offerOf(null, away = true), emptyList()), ZONE))
 	}
 
@@ -744,17 +754,19 @@ class AutomationPartsTest {
 	@Test
 	fun aValueItsRowNoLongerNamesIsDrawnStrayAndClearedInPlace() {
 		val told = toldDraft("now", "Hi")
-		val draft = eventDraft().withAction(0) { told }
-		val cleared = draft.withAction(0) { withoutValue(it, "message") }
+		val opened = eventDraft()
+		val draft = opened.withAction(opened.steps.single().key) { told }
+		val cleared = draft.withAction(draft.steps.single().key) { withoutValue(it, "message") }
 		val retired = FULL.copy(actions = FULL.actions.filter { it.kind != "tell_assistant" })
+		val key = draft.steps.single().key
 
 		assertEquals(listOf("when" to true, "message" to false), actionFields(told, LEGACY).map { it.name to (it.param != null) })
 		assertEquals(null, draft.toAutomation(LEGACY))
-		assertEquals(null, actionIssue(cleared.actions.single(), LEGACY))
+		assertEquals(null, actionIssue((cleared.steps.single() as StepDraft.Do).action, LEGACY))
 		assertEquals(AutomationAction.TellAssistant("now"), cleared.toAutomation(LEGACY)?.let(::written)?.single())
 		assertEquals(true, actionFields(told, FULL).all { it.param != null })
 		assertEquals(told, withoutValue(told, "voice"))
-		assertEquals(listOf(false, true, true), listOf(canRemove(draft, 0, FULL), canRemove(draft, 0, retired), canRemove(draft.plusAction(told), 0, FULL)))
+		assertEquals(listOf(false, true, true), listOf(canRemove(draft, key, FULL), canRemove(draft, key, retired), canRemove(draft.plusAction(told), key, FULL)))
 	}
 
 	@Test
@@ -777,16 +789,16 @@ class AutomationPartsTest {
 		assertEquals("{valu}: no name valu here", holeLine(text, "no name valu here", 6, 12))
 		assertEquals("missing }", holeLine(text, "missing }", 40, 50))
 		assertEquals(listOf("{value}", "It is {value}", "It is {value}"), listOf("", "It is", "It is ").map { withHole(it, "value") })
-		val refused = AutomationSaid.Hole(1, "value2", 0, 4, "no", "{x} here")
+		val refused = AutomationSaid.Hole("key-1", "value2", 0, 4, "no", "{x} here")
 		assertEquals(
 			listOf(refused, null, null, null),
-			listOf(Triple(1, "value2", "{x} here"), Triple(0, "value2", "{x} here"), Triple(1, "value1", "{x} here"), Triple(1, "value2", "{y} here"))
+			listOf(Triple("key-1", "value2", "{x} here"), Triple("key-0", "value2", "{x} here"), Triple("key-1", "value1", "{x} here"), Triple("key-1", "value2", "{y} here"))
 				.map { (at, param, text) -> refusedHole(refused, at, param, text) },
 		)
-		val kept = eventDraft().copy(actions = listOf(ActionDraft.Kept(future)))
-		val messaged = eventDraft().copy(actions = listOf(toldDraft("now", "{x} here")))
-		val onKept = AutomationSaid.Hole(0, "message", 0, 3, "no name x", "")
-		val onField = AutomationSaid.Hole(0, "message", 0, 3, "no name x", "{x} here")
+		val kept = eventDraft().copy(steps = listOf(StepDraft.Do(EVENT_ACTION_KEY, ActionDraft.Kept(future))))
+		val messaged = eventDraft().copy(steps = listOf(StepDraft.Do(EVENT_ACTION_KEY, toldDraft("now", "{x} here"))))
+		val onKept = AutomationSaid.Hole(EVENT_ACTION_KEY, "message", 0, 3, "no name x", "")
+		val onField = AutomationSaid.Hole(EVENT_ACTION_KEY, "message", 0, 3, "no name x", "{x} here")
 		val shown = { said: AutomationSaid?, draft: AutomationDraft, offer: AutomationOffer -> generalLine(said, draft, offer) != null }
 		assertEquals(
 			listOf(true, false, true, true, false),

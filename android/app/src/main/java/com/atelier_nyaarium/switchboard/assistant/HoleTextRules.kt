@@ -16,8 +16,8 @@ import com.atelier_nyaarium.switchboard.proto.AutomationPreviewName
 import com.atelier_nyaarium.switchboard.proto.ConsoleDescription
 import com.atelier_nyaarium.switchboard.proto.ConsoleIds
 
-/** Text slot by action and parameter. */
-internal data class TextRef(val action: Int, val param: String)
+/** Text slot by its card's key and parameter. */
+internal data class TextRef(val key: String, val param: String)
 
 private val ESCAPED = setOf('{', '}', '\\')
 private const val EVENT_NAME = "event"
@@ -25,13 +25,13 @@ private val EVENT_OWN = listOf("id", "title", "url")
 
 /** Null when the action or text is gone. */
 internal fun textParam(draft: AutomationDraft, ref: TextRef, offer: AutomationOffer): ParamOffer? {
-	val action = draft.actions.getOrNull(ref.action) as? ActionDraft.Filled ?: return null
+	val action = (findStep(draft.steps, ref.key) as? StepDraft.Do)?.action as? ActionDraft.Filled ?: return null
 	return offer.action(action.kind)?.param(ref.param)?.takeIf { it.kind == PARAM_TEXT }
 }
 
 /** Null where `textParam` is. */
 internal fun textAt(draft: AutomationDraft, ref: TextRef, offer: AutomationOffer): String? {
-	val action = draft.actions.getOrNull(ref.action) as? ActionDraft.Filled ?: return null
+	val action = (findStep(draft.steps, ref.key) as? StepDraft.Do)?.action as? ActionDraft.Filled ?: return null
 	return textParam(draft, ref, offer)?.let { action.values[it.name].orEmpty() }
 }
 

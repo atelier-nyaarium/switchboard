@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard.assistant
 
+import com.atelier_nyaarium.switchboard.parseDecimal
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
@@ -122,10 +123,11 @@ internal fun valueIssue(param: FunctionParam, text: String, offer: AutomationOff
 internal sealed interface RunsIssue {
 	data object NoSteps : RunsIssue
 
-	data class Step(val index: Int, val line: String) : RunsIssue
+	/** On the card at `key`. */
+	data class Step(val key: String, val line: String) : RunsIssue
 
-	/** Cannot be a function's step. */
-	data class NotAStep(val index: Int) : RunsIssue
+	/** The card at `key` cannot be a function's step. */
+	data class NotAStep(val key: String) : RunsIssue
 
 	data class Unset(val name: String) : RunsIssue
 
@@ -146,27 +148,40 @@ internal sealed interface RunsIssue {
 private fun nameIssue(name: String): RunsIssue? =
 	RunsIssue.NameTooLong(Protocol.Wire.FUNCTION_NAME_MAX).takeIf { name.trim().length > Protocol.Wire.FUNCTION_NAME_MAX }
 
-private fun stepIssue(steps: List<ActionDraft>, offer: AutomationOffer): RunsIssue? {
-	if (steps.isEmpty()) return RunsIssue.NoSteps
-	return steps.withIndex().firstNotNullOfOrNull { (at, step) -> actionIssue(step, offer)?.let { RunsIssue.Step(at, it) } }
-}
-
-private fun stepIssue(steps: List<ActionDraft>, offer: AutomationOffer, params: List<FunctionValueDraft>): RunsIssue? {
-	if (steps.isEmpty()) return RunsIssue.NoSteps
-	val byKey = params.associateBy { it.key }
-	return steps.withIndex().firstNotNullOfOrNull { (at, step) ->
-		val filled = step as? ActionDraft.Filled
-		val refIssue = filled?.references?.values?.firstNotNullOfOrNull { reference ->
+/** What a card itself lacks; values are read only in a function. */
+private fun cardIssue(step: StepDraft, offer: AutomationOffer, params: List<FunctionValueDraft>?): String? = when (step) {
+	is StepDraft.Do -> {
+		val byKey = params.orEmpty().associateBy { it.key }
+		val refIssue = (step.action as? ActionDraft.Filled)?.references?.values?.firstNotNullOfOrNull { reference ->
 			val value = byKey[reference.key]
 			when {
+				params == null -> null
 				value == null -> "${reference.name} is no longer a value; pick again"
 				value.param.type != FunctionParamType.DEVICE.wire -> "${value.param.name} needs a Device value"
 				else -> null
 			}
 		}
-		(refIssue ?: actionIssue(step, offer, byKey.keys))?.let { RunsIssue.Step(at, it) }
+		refIssue ?: actionIssue(step.action, offer, byKey.keys)
 	}
+	is StepDraft.If -> "Its condition is needed".takeIf { step.condition.isBlank() }
+	is StepDraft.Wait -> "Minutes as a number".takeIf { parseDecimal(step.minutes.trim()) == null }
+	is StepDraft.Try, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept -> null
 }
+
+private fun stepIssue(steps: List<StepDraft>, offer: AutomationOffer, params: List<FunctionValueDraft>? = null): RunsIssue? {
+	if (steps.isEmpty()) return RunsIssue.NoSteps
+	return everyStep(steps).firstNotNullOfOrNull { step -> cardIssue(step, offer, params)?.let { RunsIssue.Step(step.key, it) } }
+}
+
+/** A card the function cannot hold. */
+private fun unwritable(steps: List<StepDraft>, offer: AutomationOffer, params: List<FunctionValueDraft>): StepDraft? =
+	everyStep(steps).firstOrNull { step ->
+		when (step) {
+			is StepDraft.Do -> stepOf(step.action, offer, params) == null
+			is StepDraft.If, is StepDraft.Try, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept ->
+				false
+		}
+	}
 
 private fun paramIssues(params: List<FunctionParam>, given: TriggerGiven): List<ParamIssue?> {
 	val nameCounts = params.filter { it.name.isNotBlank() }.groupingBy { it.name }.eachCount()
@@ -190,7 +205,7 @@ internal fun runsIssue(
 ): RunsIssue? =
 	when (runs) {
 		is RunsDraft.Kept -> null
-		is RunsDraft.Flat -> stepIssue(runs.actions, offer)
+		is RunsDraft.Flat -> stepIssue(runs.steps, offer)
 		is RunsDraft.Pointing -> stepIssue(runs.steps, offer, runs.params) ?: pointingIssue(runs, selfId, given, offer)
 	}
 
@@ -203,13 +218,16 @@ private fun pointingIssue(
 	if (runs.name.isBlank()) {
 		val others = othersOf(runs, selfId, offer.functions)
 		if (sharedName(runs, others)) return RunsIssue.SharedName(others.size + 1)
-		if (runs.params.isNotEmpty() || runs.steps.any { (it as? ActionDraft.Filled)?.references?.isNotEmpty() == true }) return RunsIssue.NameWithValues
-		return runs.steps.withIndex().firstOrNull { (_, step) -> step is ActionDraft.Kept }?.let { RunsIssue.NotAStep(it.index) }
+		if (runs.params.isNotEmpty() || doings(runs.steps).any { (it.action as? ActionDraft.Filled)?.references?.isNotEmpty() == true }) {
+			return RunsIssue.NameWithValues
+		}
+		return everyStep(runs.steps).firstOrNull { step -> !(step is StepDraft.Do && step.action is ActionDraft.Filled) }
+			?.let { RunsIssue.NotAStep(it.key) }
 	}
 	nameIssue(runs.name)?.let { return it }
 	val wireParams = runs.wireParams()
 	val values = runs.valuesByName()
-	runs.steps.withIndex().firstOrNull { (_, step) -> stepOf(step, offer, runs.params) == null }?.let { return RunsIssue.NotAStep(it.index) }
+	unwritable(runs.steps, offer, runs.params)?.let { return RunsIssue.NotAStep(it.key) }
 	if (runs.params.size > Protocol.Wire.FUNCTION_PARAMS_MAX) return RunsIssue.TooManyParams
 	val paramIssues = paramIssues(wireParams, given)
 	paramIssues.forEachIndexed { index, issue -> if (issue != null) return RunsIssue.BadParam(wireParams.getOrNull(index)?.name.orEmpty(), issue) }
@@ -395,19 +413,35 @@ internal sealed interface SaveAnswer {
 /** The function it points at. */
 internal fun pointerOf(automation: Automation): String? = (written(automation).singleOrNull() as? AutomationAction.RunFunction)?.function
 
-/** A hole on the drawn cards, by the step's index. */
-internal fun holeSpanOf(hole: SaveAnswer.Hole): AutomationHoleSpan? {
-	val at = hole.path?.toLongOrNull() ?: return null
-	return AutomationHoleSpan(action = at, param = hole.param ?: return null, start = hole.start ?: return null, end = hole.end ?: return null)
+/** Where a refusal lands, as the Gateway names it; the editor maps a step's path to its card. */
+internal sealed interface RefusedAt {
+	data class Value(val param: String) : RefusedAt
+
+	data class Step(val path: String, val param: String) : RefusedAt
 }
 
+/** A refused hole, by the step's path. */
+internal data class RefusedHole(val path: String, val param: String, val start: Int, val end: Int)
+
+internal fun refusedHoleOf(hole: SaveAnswer.Hole): RefusedHole? {
+	val path = hole.path?.takeIf { it.isNotEmpty() } ?: return null
+	return RefusedHole(path, hole.param ?: return null, hole.start?.toInt() ?: return null, hole.end?.toInt() ?: return null)
+}
+
+/** An older put names its action by index. */
+internal fun refusedHoleOf(span: AutomationHoleSpan): RefusedHole =
+	RefusedHole("${span.action}", span.param, span.start.toInt(), span.end.toInt())
+
 /** A row or field it names. */
-internal fun refusedAtOf(refusal: AutomationSaveRefusal): SaidAt? {
+internal fun refusedAtOf(refusal: AutomationSaveRefusal): RefusedAt? {
 	if (refusal.code != AutomationSaveRefusalCode.INVALID.wire) return null
+	val step = refusal.step
+	val param = refusal.param
+	if (step != null && param != null) return RefusedAt.Step(step, param)
 	val parts = refusal.path?.split(".") ?: return null
 	return when {
-		parts.size == 2 && parts[0] == VALUES -> SaidAt.Value(parts[1])
-		parts.size == 3 && parts[0] == STEPS -> parts[1].toIntOrNull()?.let { SaidAt.Card(it, parts[2]) }
+		parts.size == 2 && parts[0] == VALUES -> RefusedAt.Value(parts[1])
+		parts.size == 3 && parts[0] == STEPS -> parts[1].takeIf { it.toIntOrNull() != null }?.let { RefusedAt.Step(it, parts[2]) }
 		else -> null
 	}
 }

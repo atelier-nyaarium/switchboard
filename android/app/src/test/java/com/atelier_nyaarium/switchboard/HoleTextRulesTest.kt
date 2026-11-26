@@ -5,6 +5,7 @@ import com.atelier_nyaarium.switchboard.assistant.EditContext
 import com.atelier_nyaarium.switchboard.assistant.AutomationSaid
 import com.atelier_nyaarium.switchboard.assistant.TextPreview
 import com.atelier_nyaarium.switchboard.assistant.TextRef
+import com.atelier_nyaarium.switchboard.assistant.StepDraft
 import com.atelier_nyaarium.switchboard.assistant.TriggerDraft
 import com.atelier_nyaarium.switchboard.assistant.holeAssist
 import com.atelier_nyaarium.switchboard.assistant.holeAt
@@ -170,25 +171,29 @@ class HoleTextRulesTest {
 		val draft = AutomationDraft(
 			"a",
 			TriggerDraft.Interval("1", com.atelier_nyaarium.switchboard.assistant.IntervalUnit.HOURS),
-			listOf(toldDraft("now", "Hi"), iftttDraft("door", value2 = "two"), plugDraft("aa", "on")),
+			listOf(
+				StepDraft.Do("tell", toldDraft("now", "Hi")),
+				StepDraft.Do("ifttt", iftttDraft("door", value2 = "two")),
+				StepDraft.Do("plug", plugDraft("aa", "on")),
+			),
 			enabled = true,
 			revision = 0L,
 			EditContext(offer, emptyList()),
 		)
-		val at = { action: Int, param: String -> textAt(draft, TextRef(action, param), offer) }
-		val named = { action: Int, param: String -> textParam(draft, TextRef(action, param), offer)?.let { it.label to it.max } }
+		val at = { key: String, param: String -> textAt(draft, TextRef(key, param), offer) }
+		val named = { key: String, param: String -> textParam(draft, TextRef(key, param), offer)?.let { it.label to it.max } }
 
 		assertEquals(
 			listOf("Hi", null, "two", null, null, null),
-			listOf(at(0, "message"), at(0, "value1"), at(1, "value2"), at(1, "event"), at(2, "verb"), at(9, "message")),
+			listOf(at("tell", "message"), at("tell", "value1"), at("ifttt", "value2"), at("ifttt", "event"), at("plug", "verb"), at("missing", "message")),
 		)
-		assertEquals(listOf("Message" to 1_000, "Value 2" to 500, null), listOf(named(0, "message"), named(1, "value2"), named(0, "when")))
-		assertNull(textAt(draft, TextRef(0, "message"), offerOf(null, away = false)))
+		assertEquals(listOf("Message" to 1_000, "Value 2" to 500, null), listOf(named("tell", "message"), named("ifttt", "value2"), named("tell", "when")))
+		assertNull(textAt(draft, TextRef("tell", "message"), offerOf(null, away = false)))
 	}
 
 	@Test
 	fun theMarkedSpanIsThePreviewsElseTheSavesAndStaysInsideTheText() {
-		val saved = AutomationSaid.Hole(0, "message", 6, 13, "no", text)
+		val saved = AutomationSaid.Hole("tell", "message", 6, 13, "no", text)
 
 		assertEquals(6 until 13, refusedSpan(text, TextPreview.Plain, saved))
 		assertEquals(17 until 24, refusedSpan(text, TextPreview.Refused("missing }", 17, 90), saved))

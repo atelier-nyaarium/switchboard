@@ -349,15 +349,15 @@ internal fun confirmBody(labels: List<String>): String {
 }
 
 /** The refused hole, while its text stands. */
-internal fun refusedHole(said: AutomationSaid?, action: Int, param: String, text: String): AutomationSaid.Hole? =
-	(said as? AutomationSaid.Hole)?.takeIf { it.action == action && it.param == param && it.text == text }
+internal fun refusedHole(said: AutomationSaid?, key: String, param: String, text: String): AutomationSaid.Hole? =
+	(said as? AutomationSaid.Hole)?.takeIf { it.key == key && it.param == param && it.text == text }
 
 /** Refused text. */
 internal fun saidText(draft: AutomationDraft, at: SaidAt): String = when (at) {
 	is SaidAt.Value -> (draft.runs as? RunsHead.Points)?.pointing?.let { pointing ->
 		pointing.params.firstOrNull { it.param.name == at.param }?.let { pointing.values[it.key] }
 	}.orEmpty()
-	is SaidAt.Card -> (draft.actions.getOrNull(at.action) as? ActionDraft.Filled)?.values?.get(at.param).orEmpty()
+	is SaidAt.Card -> ((findStep(draft.steps, at.key) as? StepDraft.Do)?.action as? ActionDraft.Filled)?.values?.get(at.param).orEmpty()
 }
 
 /** Refusal while text stands. */
@@ -368,7 +368,9 @@ private fun drawsField(draft: AutomationDraft, at: SaidAt, offer: AutomationOffe
 	is SaidAt.Value -> offer.functions != null &&
 		(draft.runs as? RunsHead.Points)?.pointing?.params?.any { it.param.name == at.param } == true
 	is SaidAt.Card -> draft.runs !is RunsHead.Kept &&
-		(draft.actions.getOrNull(at.action) as? ActionDraft.Filled)?.let { card -> actionFields(card, offer).any { it.param?.name == at.param } } == true
+		((findStep(draft.steps, at.key) as? StepDraft.Do)?.action as? ActionDraft.Filled)?.let { card ->
+			actionFields(card, offer).any { it.param?.name == at.param }
+		} == true
 }
 
 /** What no field draws. */
@@ -377,7 +379,7 @@ internal fun generalLine(said: AutomationSaid?, draft: AutomationDraft, offer: A
 	// Its block draws it.
 	is AutomationSaid.FunctionMoved -> null
 	is AutomationSaid.Hole ->
-		holeLine(said.text, said.line, said.start, said.end).takeIf { textParam(draft, TextRef(said.action, said.param), offer) == null }
+		holeLine(said.text, said.line, said.start, said.end).takeIf { textParam(draft, TextRef(said.key, said.param), offer) == null }
 	is AutomationSaid.Field -> said.line.takeUnless { drawsField(draft, said.at, offer) }
 	is AutomationSaid.Line, is AutomationSaid.Note, is AutomationSaid.Confirm -> said.line
 }

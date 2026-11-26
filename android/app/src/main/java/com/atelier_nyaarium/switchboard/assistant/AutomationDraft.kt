@@ -108,7 +108,8 @@ internal sealed interface AutomationSlot {
 internal data class AutomationDraft(
 	val id: String,
 	val trigger: TriggerDraft,
-	val actions: List<ActionDraft>,
+	/** The cards, each by its key. */
+	val steps: List<StepDraft>,
 	val enabled: Boolean,
 	val revision: Long,
 	/** Survives a restart. */
@@ -120,16 +121,16 @@ internal data class AutomationDraft(
 	val text: TextRef? = null,
 	/** Unit its numbers are typed in. */
 	val display: String? = null,
-	/** Its own, or a function's head; `actions` are the cards. */
+	/** Its own, or a function's head; `steps` are the cards. */
 	val runs: RunsHead = RunsHead.Own,
 	/** Function ID survives edits. */
 	val newFunctionId: String? = null,
 	/** The function picker is open. */
 	val picking: Boolean = false,
 ) {
-	fun runsDraft(): RunsDraft = runsOf(runs, actions)
+	fun runsDraft(): RunsDraft = runsOf(runs, steps)
 
-	fun withRuns(next: RunsDraft): AutomationDraft = headOf(next).let { (head, cards) -> copy(runs = head, actions = cards) }
+	fun withRuns(next: RunsDraft): AutomationDraft = headOf(next).let { (head, cards) -> copy(runs = head, steps = cards) }
 
 	private val event: TriggerDraft.Event? get() = trigger as? TriggerDraft.Event
 
@@ -181,13 +182,19 @@ internal data class AutomationDraft(
 	fun onInterval(change: (TriggerDraft.Interval) -> TriggerDraft.Interval): AutomationDraft =
 		(trigger as? TriggerDraft.Interval)?.let { copy(trigger = change(it)) } ?: this
 
-	fun withAction(at: Int, change: (ActionDraft) -> ActionDraft): AutomationDraft =
-		copy(actions = actions.mapIndexed { index, held -> if (index == at) change(held) else held })
+	/** The card at `key` changed. */
+	fun withStep(key: String, change: (StepDraft) -> StepDraft): AutomationDraft = copy(steps = replacedStep(steps, key, change))
 
-	fun plusAction(action: ActionDraft): AutomationDraft =
-		if (actions.size >= MAX_ACTIONS) this else copy(actions = actions + action)
+	/** The action of the card at `key` changed. */
+	fun withAction(key: String, change: (ActionDraft) -> ActionDraft): AutomationDraft =
+		withStep(key) { step -> if (step is StepDraft.Do) step.copy(action = change(step.action)) else step }
 
-	fun minusAction(at: Int): AutomationDraft = copy(actions = actions.filterIndexed { index, _ -> index != at })
+	/** Unchanged where a cap refuses it. */
+	fun plusStep(slot: Slot, step: StepDraft): AutomationDraft = insertedStep(steps, slot, step)?.let { copy(steps = it) } ?: this
+
+	fun plusAction(action: ActionDraft): AutomationDraft = plusStep(Slot(null, null, steps.size), StepDraft.Do(freshKey(), action))
+
+	fun minusStep(key: String): AutomationDraft = copy(steps = removedStep(steps, key))
 
 	/** Null while the trigger cannot be saved. */
 	fun builtTrigger(offer: AutomationOffer): AutomationTrigger? {
@@ -200,13 +207,14 @@ internal data class AutomationDraft(
 	/** Null while the trigger or an action cannot be saved. */
 	fun toAutomation(offer: AutomationOffer): Automation? {
 		val built = builtTrigger(offer) ?: return null
+		val actions = steps.map { (it as? StepDraft.Do)?.action ?: return null }
 		if (actions.isEmpty() || actions.any { actionIssue(it, offer) != null }) return null
 		val written = actions.map { actionOf(it, offer) ?: return null }
 		return Automation(label = original?.label, enabled = enabled, trigger = built, actions = written)
 	}
 
 	fun changedFrom(opened: AutomationDraft): Boolean =
-		trigger != opened.trigger || actions != opened.actions || enabled != opened.enabled || runs != opened.runs
+		trigger != opened.trigger || unkeyed(steps) != unkeyed(opened.steps) || enabled != opened.enabled || runs != opened.runs
 }
 
 /** A crossing of that device's first number; null when not offered. */
@@ -237,7 +245,7 @@ internal fun newAutomationDraft(
 	return AutomationDraft(
 		id = "auto-${java.util.UUID.randomUUID()}",
 		trigger = trigger,
-		actions = listOf(action),
+		steps = listOf(StepDraft.Do(freshKey(), action)),
 		enabled = true,
 		revision = 0L,
 		context = context,
@@ -259,7 +267,7 @@ internal fun automationDraftOf(row: AutomationRow, context: EditContext, display
 	val draft = AutomationDraft(
 		id = row.id,
 		trigger = trigger,
-		actions = written(row.automation).map { action -> actionDraftOf(action, offer) },
+		steps = written(row.automation).map { action -> StepDraft.Do(freshKey(), actionDraftOf(action, offer)) },
 		enabled = row.automation.enabled,
 		revision = row.revision,
 		context = context,
@@ -440,7 +448,8 @@ internal sealed interface AutomationSaid {
 
 	/** A text's hole the Gateway cannot keep. */
 	data class Hole(
-		val action: Int,
+		/** The card's key. */
+		val key: String,
 		val param: String,
 		val start: Int,
 		val end: Int,
@@ -498,8 +507,14 @@ internal sealed interface SaidAt {
 	/** A function value's row. */
 	data class Value(val param: String) : SaidAt
 
-	/** A card's field. */
-	data class Card(val action: Int, val param: String) : SaidAt
+	/** A card's field, by the card's key. */
+	data class Card(val key: String, val param: String) : SaidAt
+}
+
+/** Null for a step no card holds. */
+internal fun saidAtOf(at: RefusedAt, draft: AutomationDraft): SaidAt? = when (at) {
+	is RefusedAt.Value -> SaidAt.Value(at.param)
+	is RefusedAt.Step -> keyAt(draft.steps, at.path)?.let { SaidAt.Card(it, at.param) }
 }
 
 internal sealed interface AutomationOutcome {
@@ -521,8 +536,8 @@ internal fun outcomeOf(
 		AutomationSaved.Unreachable -> AutomationOutcome.Said("That Gateway could not be reached")
 		is AutomationSaved.Refused -> {
 			val held = saved.heldRow?.takeIf { it.id == draft.id && it.revision != draft.revision && editable(it, context.offer) }
-			val hole = saved.hole
-			val at = saved.at
+			val hole = saved.hole?.let { refused -> keyAt(draft.steps, refused.path)?.let { key -> key to refused } }
+			val at = saved.at?.let { saidAtOf(it, draft) }
 			val moved = reloadable(draft.runsDraft()).takeIf { saved.functionMoved }
 			when {
 				moved != null -> AutomationOutcome.Said(AutomationSaid.FunctionMoved(moved))
@@ -530,12 +545,12 @@ internal fun outcomeOf(
 				at != null -> AutomationOutcome.Said(AutomationSaid.Field(at, saved.reason, saidText(draft, at)))
 				hole != null -> AutomationOutcome.Said(
 					AutomationSaid.Hole(
-						hole.action.toInt(),
-						hole.param,
-						hole.start.toInt(),
-						hole.end.toInt(),
+						hole.first,
+						hole.second.param,
+						hole.second.start,
+						hole.second.end,
 						saved.reason,
-						(draft.actions.getOrNull(hole.action.toInt()) as? ActionDraft.Filled)?.values?.get(hole.param).orEmpty(),
+						saidText(draft, SaidAt.Card(hole.first, hole.second.param)),
 					),
 				)
 				held == null -> AutomationOutcome.Said(saved.reason)

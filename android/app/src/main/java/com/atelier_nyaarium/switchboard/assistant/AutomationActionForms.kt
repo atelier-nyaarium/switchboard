@@ -46,23 +46,30 @@ internal fun ActionsSection(
 	val functionParams = (draft.runs as? RunsHead.Points)?.pointing?.params.orEmpty()
 	val valueNames = functionParams.filter { it.param.name.isNotBlank() }.map { it.key }.toSet()
 	val plugs = plugChoices(functionParams, offer)
-	draft.actions.forEachIndexed { index, action ->
+	for (step in draft.steps) {
+		val key = step.key
+		val action = (step as? StepDraft.Do)?.action
 		OutlinedCard(Modifier.fillMaxWidth()) {
 			Column(Modifier.padding(start = 12.dp, end = 4.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 				Row(verticalAlignment = Alignment.CenterVertically) {
-					Text(offer.labelOf(action.kind), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-					IconButton(onClick = hapticClick { edit { it.minusAction(index) } }, enabled = enabled && canRemove(draft, index, offer)) {
-						Icon(Icons.Default.Close, contentDescription = "Remove action")
+					Text(cardLabel(step, offer), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+					IconButton(onClick = hapticClick { edit { it.minusStep(key) } }, enabled = enabled && canRemove(draft, key, offer)) {
+						Icon(Icons.Default.Close, contentDescription = "Remove step")
 					}
 				}
 				Column(Modifier.padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-					val set: (String, String) -> Unit = { param, value -> edit { it.withAction(index) { held -> withValue(held, param, value) } } }
+					val set: (String, String) -> Unit = { param, value -> edit { it.withAction(key) { held -> withValue(held, param, value) } } }
 					when (action) {
+						null -> Text(
+							"This app cannot edit this step yet. It is kept as it is.",
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
 						is ActionDraft.Filled -> for (field in actionFields(action, offer)) {
 							val param = field.param
 							val value = field.value
 							if (param == null) {
-								StrayValue(field, enabled) { edit { it.withAction(index) { held -> withoutValue(held, field.name) } } }
+								StrayValue(field, enabled) { edit { it.withAction(key) { held -> withoutValue(held, field.name) } } }
 								continue
 							}
 							when (param.paramKind) {
@@ -80,7 +87,7 @@ internal fun ActionsSection(
 										plugs.firstOrNull { it.reference?.key == reference.key } ?: PlugChoice(reference.key, "${reference.name} (value)", reference)
 									} ?: plugs.firstOrNull { it.reference == null && it.device == value },
 									labelOf = { it.label },
-									onPick = { picked -> edit { it.withAction(index) { held -> storePlugChoice(held, param.name, picked) } } },
+									onPick = { picked -> edit { it.withAction(key) { held -> storePlugChoice(held, param.name, picked) } } },
 									enabled = enabled,
 								)
 								ActionParamKind.TEXT -> HoleField(
@@ -89,8 +96,8 @@ internal fun ActionsSection(
 									multiline = param.lines,
 									enabled = enabled,
 									preview = textPreviewOf(value, asked, textRead(previewText(value).takeIf { asked })),
-									refused = refusedHole(said, index, param.name, value),
-									onOpen = { edit { it.copy(text = TextRef(index, param.name)) } },
+									refused = refusedHole(said, key, param.name, value),
+									onOpen = { edit { it.copy(text = TextRef(key, param.name)) } },
 								)
 								ActionParamKind.WORD -> OutlinedTextField(
 									value = value,
@@ -103,7 +110,7 @@ internal fun ActionsSection(
 								)
 								ActionParamKind.FUNCTION, ActionParamKind.VALUES, null -> Unit
 							}
-							IssueLine(refusedField(said, SaidAt.Card(index, param.name), value))
+							IssueLine(refusedField(said, SaidAt.Card(key, param.name), value))
 						}
 						is ActionDraft.Kept -> Text(
 							"This app cannot edit this action. It is kept as it is.",
@@ -111,20 +118,22 @@ internal fun ActionsSection(
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
 					}
-					if (offer.dangerous(action.kind)) {
+					if (action != null && offer.dangerous(action.kind)) {
 						Text(
 							"Asks once when saved.",
 							style = MaterialTheme.typography.bodySmall,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
 					}
-					IssueLine(actionHint(action, offer, valueNames))
-					IssueLine(actionWarning(action, offer))
+					if (action != null) {
+						IssueLine(actionHint(action, offer, valueNames))
+						IssueLine(actionWarning(action, offer))
+					}
 				}
 			}
 		}
 	}
-	AddAction(addableActions(offer, draft.actions), enabled) { kind ->
+	AddAction(addableActions(offer, draft.steps), enabled) { kind ->
 		edit { held -> freshAction(kind, offer)?.let(held::plusAction) ?: held }
 	}
 }

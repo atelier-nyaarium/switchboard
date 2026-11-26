@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.assistant.ActionDraft
+import com.atelier_nyaarium.switchboard.assistant.StepDraft
 import com.atelier_nyaarium.switchboard.assistant.EditContext
 import com.atelier_nyaarium.switchboard.assistant.FunctionValueDraft
 import com.atelier_nyaarium.switchboard.assistant.FunctionValueReference
@@ -72,9 +73,9 @@ class RunsDraftTest {
 	fun anUnchangedPointerSavesItsOwnValuesAndLeavesTheFunctionAlone() {
 		val runs = open(listOf(pointer)) as RunsDraft.Pointing
 
-		assertTrue(runs.steps[0] is ActionDraft.Filled)
+		assertTrue((runs.steps[0] as StepDraft.Do).action is ActionDraft.Filled)
 		val lamp = runs.params.single { it.param.name == "lamp" }
-		assertEquals(mapOf("device" to FunctionValueReference(lamp.key, "lamp")), (runs.steps[1] as ActionDraft.Filled).references)
+		assertEquals(mapOf("device" to FunctionValueReference(lamp.key, "lamp")), ((runs.steps[1] as StepDraft.Do).action as ActionDraft.Filled).references)
 		val timesKey = runs.params.single { it.param.name == "times" }.key
 		val op = save(runs.copy(values = runs.values + (timesKey to "3")))!!
 
@@ -91,7 +92,8 @@ class RunsDraftTest {
 	@Test
 	fun anEditedBodyIsAnEditAndAKeptStepGoesBackAsItCame() {
 		val runs = open(listOf(pointer)) as RunsDraft.Pointing
-		val edited = runs.copy(steps = listOf(withValue(runs.steps[0], "verb", "off"), runs.steps[1]))
+		val first = runs.steps[0] as StepDraft.Do
+		val edited = runs.copy(steps = listOf(first.copy(action = withValue(first.action, "verb", "off")), runs.steps[1]))
 
 		val function = save(edited)!!.function as AutomationSaveFunction.Edit
 		assertEquals("blink" to 3L, function.id to function.base)

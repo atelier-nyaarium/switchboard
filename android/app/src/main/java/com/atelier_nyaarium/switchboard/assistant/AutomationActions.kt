@@ -176,10 +176,11 @@ internal fun withoutValue(action: ActionDraft, name: String): ActionDraft = when
 	is ActionDraft.Kept -> action
 }
 
-/** The last action stays until its kind is gone. */
-internal fun canRemove(draft: AutomationDraft, at: Int, offer: AutomationOffer): Boolean {
-	val action = draft.actions.getOrNull(at) ?: return false
-	return draft.actions.size > 1 || offer.action(action.kind) == null
+/** The last card stays until its kind is gone. */
+internal fun canRemove(draft: AutomationDraft, key: String, offer: AutomationOffer): Boolean {
+	val step = findStep(draft.steps, key) ?: return false
+	val gone = step is StepDraft.Do && offer.action(step.action.kind) == null
+	return everyStep(draft.steps).size > 1 || gone
 }
 
 /** Does nothing here: needs the home. */
@@ -224,7 +225,7 @@ internal fun freshAction(kind: String, offer: AutomationOffer): ActionDraft? {
 	return ActionDraft.Filled(kind, values)
 }
 
-internal fun addableActions(offer: AutomationOffer, held: List<ActionDraft>): List<ActionOffer> =
+internal fun addableActions(offer: AutomationOffer, held: List<StepDraft>): List<ActionOffer> =
 	if (held.size >= MAX_ACTIONS) emptyList() else offer.actions.filter { freshAction(it.kind, offer) != null }
 
 internal fun withValue(action: ActionDraft, param: String, value: String): ActionDraft = when (action) {

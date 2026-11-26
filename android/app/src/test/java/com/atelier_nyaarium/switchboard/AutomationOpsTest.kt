@@ -32,7 +32,9 @@ import com.atelier_nyaarium.switchboard.assistant.automationDraftOf
 import com.atelier_nyaarium.switchboard.assistant.offerOf
 import com.atelier_nyaarium.switchboard.assistant.functionPreviewScopeOf
 import com.atelier_nyaarium.switchboard.assistant.RunsDraft
-import com.atelier_nyaarium.switchboard.assistant.stepOf
+import com.atelier_nyaarium.switchboard.assistant.StepDraft
+import com.atelier_nyaarium.switchboard.assistant.stepOfDraft
+import com.atelier_nyaarium.switchboard.assistant.refusedHoleOf
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -261,12 +263,12 @@ class AutomationOpsTest {
 		fake.answers += ConsoleAutomationPutResult(false, 0L, reason = "confirm", confirm = listOf("Send to IFTTT"))
 		fake.answers += ConsoleAutomationPutResult(false, 0L, reason = "no")
 		ops.commit(key, shown, confirmed = false)
-		ops.edits.edit(key, shown) { it.copy(text = TextRef(0, "message")) }
+		ops.edits.edit(key, shown) { draft -> draft.copy(text = TextRef(draft.steps[0].key, "message")) }
 		val kept = said()
-		ops.edits.edit(key, shown) { it.withAction(0) { toldDraft("quietly") } }
+		ops.edits.edit(key, shown) { draft -> draft.withAction(draft.steps[0].key) { toldDraft("quietly") } }
 		val dropped = said()
 		ops.commit(key, shown, confirmed = false)
-		ops.edits.edit(key, shown) { it.withAction(0) { toldDraft("now") } }
+		ops.edits.edit(key, shown) { draft -> draft.withAction(draft.steps[0].key) { toldDraft("now") } }
 
 		assertEquals(AutomationSaid.Confirm(listOf("Send to IFTTT")), kept)
 		assertNull(dropped)
@@ -288,7 +290,7 @@ class AutomationOpsTest {
 
 		assertEquals(SERVES, state.value.gateways.entry("sakura")?.automationServes)
 		assertEquals(listOf("Send to IFTTT"), asks.confirm)
-		assertEquals(AutomationHoleSpan(0L, "message", 3L, 6L), hole.hole)
+		assertEquals(refusedHoleOf(AutomationHoleSpan(0L, "message", 3L, 6L)), hole.hole)
 		assertEquals(listOf(false, false, true), fake.confirmed)
 	}
 
@@ -568,7 +570,7 @@ class AutomationOpsTest {
 
 		assertTrue(result is EditOutcome.Stays)
 		assertEquals(4L to "Changed", landed.base to landed.name)
-		assertEquals(listOf(plugStep("off")), landed.steps.map { stepOf(it, context.offer, landed.params) })
+		assertEquals(listOf(plugStep("off")), landed.steps.map { stepOfDraft(it, context.offer, landed.params) })
 		assertTrue(session.said is AutomationSaid.Note)
 		ops.edits.edit(key, opening) { it.copy(enabled = !it.enabled) }
 		assertEquals(null, ops.edits.state.value.held.getValue(key).said)
@@ -616,7 +618,8 @@ class AutomationOpsTest {
 		fun commit(context: EditContext): EditOutcome<AutomationDraft, AutomationSaid>? {
 			val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
 			ops.edits.show(key)
-			val draft = automationDraftOf(fake.shelves.getValue("sakura").single(), context)!!.withAction(0) { toldDraft("quietly") }
+			val opened = automationDraftOf(fake.shelves.getValue("sakura").single(), context)!!
+			val draft = opened.withAction(opened.steps[0].key) { toldDraft("quietly") }
 			val shown = ops.edits.open(key, draft)!!
 			return runBlocking { ops.commit(key, shown, confirmed = false) }
 		}
@@ -636,13 +639,14 @@ class AutomationOpsTest {
 		fake.shelves["sakura"] = listOf(automationRow(revision = 5L))
 		val ops = AutomationOps(admitting("sakura"), Host(fake))
 		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
-		val stale = automationDraftOf(automationRow(revision = 2L), HERE)!!.withAction(0) { toldDraft("quietly") }
+		val opened = automationDraftOf(automationRow(revision = 2L), HERE)!!
+		val stale = opened.withAction(opened.steps[0].key) { toldDraft("quietly") }
 		ops.edits.show(key)
 		val shown = ops.edits.open(key, stale)!!
 
 		assertTrue(ops.commit(key, shown, confirmed = false) is EditOutcome.Stays)
 		val offered = ops.edits.state.value.held.getValue(key)
-		assertEquals(5L to listOf<Any>(toldDraft("quietly")), offered.draft.revision to offered.draft.actions)
+		assertEquals(5L to listOf<Any>(toldDraft("quietly")), offered.draft.revision to offered.draft.steps.filterIsInstance<StepDraft.Do>().map { it.action })
 		assertEquals(EditOutcome.Done, ops.commit(key, shown, confirmed = false))
 		assertEquals(EditState<AutomationDraftKey, AutomationDraft, AutomationSaid>(), ops.edits.state.value)
 	}
@@ -687,14 +691,14 @@ class AutomationOpsTest {
 		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
 		ops.edits.show(key)
 		val shown = ops.edits.open(key, automationDraftOf(automationRow(), HERE)!!)!!
-		ops.edits.edit(key, shown) { it.withAction(0) { toldDraft("now", "Hi") }.copy(text = TextRef(0, "message")) }
+		ops.edits.edit(key, shown) { draft -> draft.withAction(draft.steps[0].key) { toldDraft("now", "Hi") }.copy(text = TextRef(draft.steps[0].key, "message")) }
 
 		val first = ops.edits.askLeave()
 		val held = ops.edits.state.value.held.getValue(key).draft
 		val second = ops.edits.askLeave()
 
 		assertEquals(listOf(false, false), listOf(first, second))
-		assertEquals(null to listOf<Any>(toldDraft("now", "Hi")), held.text to held.actions)
+		assertEquals(null to listOf<Any>(toldDraft("now", "Hi")), held.text to held.steps.filterIsInstance<StepDraft.Do>().map { it.action })
 		assertEquals(key, ops.edits.state.value.leaving?.key)
 	}
 
@@ -704,7 +708,7 @@ class AutomationOpsTest {
 		val key = AutomationDraftKey("sakura", AutomationSlot.Held("review"))
 		ops.edits.show(key)
 		val shown = ops.edits.open(key, automationDraftOf(automationRow(), HERE)!!)!!
-		ops.edits.edit(key, shown) { it.withAction(0) { toldDraft("now", "Hi") }.copy(picking = true) }
+		ops.edits.edit(key, shown) { draft -> draft.withAction(draft.steps[0].key) { toldDraft("now", "Hi") }.copy(picking = true) }
 		val openKey = ops.edits.page(ops.edits.state.value.held.getValue(key).draft)
 
 		val first = ops.edits.askLeave()
@@ -713,7 +717,7 @@ class AutomationOpsTest {
 
 		assertEquals(listOf(false, false), listOf(first, second))
 		assertFalse(held.picking)
-		assertEquals(listOf<Any>(toldDraft("now", "Hi")), held.actions)
+		assertEquals(listOf<Any>(toldDraft("now", "Hi")), held.steps.filterIsInstance<StepDraft.Do>().map { it.action })
 		assertTrue(openKey != null && ops.edits.page(held) == null)
 		assertEquals(key, ops.edits.state.value.leaving?.key)
 	}
@@ -725,7 +729,7 @@ class AutomationOpsTest {
 		ops.edits.show(key)
 		val shown = ops.edits.open(key, automationDraftOf(automationRow(), HERE)!!)!!
 
-		ops.edits.edit(key, shown) { it.withAction(0) { toldDraft("quietly") } }
+		ops.edits.edit(key, shown) { draft -> draft.withAction(draft.steps[0].key) { toldDraft("quietly") } }
 
 		assertFalse(ops.edits.askLeave())
 	}

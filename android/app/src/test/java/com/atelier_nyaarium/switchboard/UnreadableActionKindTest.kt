@@ -4,6 +4,7 @@ import com.atelier_nyaarium.switchboard.assistant.ActionDraft
 import com.atelier_nyaarium.switchboard.assistant.ActionOffer
 import com.atelier_nyaarium.switchboard.assistant.EditContext
 import com.atelier_nyaarium.switchboard.assistant.ParamOffer
+import com.atelier_nyaarium.switchboard.assistant.StepDraft
 import com.atelier_nyaarium.switchboard.assistant.actionLine
 import com.atelier_nyaarium.switchboard.assistant.actionOf
 import com.atelier_nyaarium.switchboard.assistant.addableActions
@@ -65,16 +66,18 @@ class UnreadableActionKindTest {
 	fun anActionThisBuildCannotDrawIsKeptLabelledNeverOfferedAndSavedAsSent() {
 		val alone = row(unread)
 		val draft = automationDraftOf(alone, EditContext(served, emptyList()))!!
+		val card = draft.steps.single() as StepDraft.Do
 
-		assertTrue(draft.actions.single() is ActionDraft.Kept)
+		assertTrue(card.action is ActionDraft.Kept)
 		assertEquals("Run a function", actionLine(unread, served))
 		assertTrue(editable(alone, served))
-		assertTrue(addableActions(served, draft.actions).none { it.kind == kind })
+		assertTrue(addableActions(served, draft.steps).none { it.kind == kind })
 		// The only action stays while its Gateway still offers it.
-		assertFalse(canRemove(draft, 0, served))
-		assertTrue(canRemove(automationDraftOf(row(AutomationAction.TellAssistant("now"), unread), EditContext(served, emptyList()))!!, 1, served))
+		assertFalse(canRemove(draft, card.key, served))
+		val multiple = automationDraftOf(row(AutomationAction.TellAssistant("now"), unread), EditContext(served, emptyList()))!!
+		assertTrue(canRemove(multiple, multiple.steps[1].key, served))
 
-		assertEquals(raw, jsonOf(actionOf(draft.actions.single(), served)!!))
+		assertEquals(raw, jsonOf(actionOf(card.action, served)!!))
 		assertEquals(raw, jsonOf(written(draft.toAutomation(served)!!).single()))
 	}
 

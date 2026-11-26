@@ -170,12 +170,12 @@ internal fun AutomationEditorPage(
 				trigger != null,
 				previewRead(ops, gatewayId, trigger.takeIf { hasHole(shownText) }, previewText(shownText), previewScope?.params, previewScope?.values),
 			),
-			refused = refusedHole(said, ref.action, ref.param, shownText),
+			refused = refusedHole(said, ref.key, ref.param, shownText),
 			description = console?.description,
 			ids = console?.ids,
 			shapes = nameShapes(names, fields.fields),
 			enabled = can.edit,
-			onChange = { text -> edit { it.withAction(ref.action) { held -> withValue(held, ref.param, text) } } },
+			onChange = { text -> edit { it.withAction(ref.key) { held -> withValue(held, ref.param, text) } } },
 			onBack = { edit { it.copy(text = null) } },
 		)
 		return

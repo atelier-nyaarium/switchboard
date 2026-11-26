@@ -14,6 +14,7 @@ import com.atelier_nyaarium.switchboard.assistant.storePlugChoice
 import com.atelier_nyaarium.switchboard.assistant.PointMode
 import com.atelier_nyaarium.switchboard.assistant.ParamIssue
 import com.atelier_nyaarium.switchboard.assistant.RunsDraft
+import com.atelier_nyaarium.switchboard.assistant.StepDraft
 import com.atelier_nyaarium.switchboard.assistant.RunsIssue
 import com.atelier_nyaarium.switchboard.assistant.SaveAnswer
 import com.atelier_nyaarium.switchboard.assistant.TypeWord
@@ -172,9 +173,9 @@ class FunctionRulesTest {
 		fun issue(runs: RunsDraft) = runsIssue(runs, "mine", given, offer)
 
 		assertEquals(RunsIssue.NoSteps, issue(RunsDraft.Flat(emptyList())))
-		assertNull(issue(RunsDraft.Flat(listOf(ActionDraft.Filled("device_set", mapOf("device" to SANDBOX_SWITCH, "verb" to "on"))))))
-		val unknown = ActionDraft.Kept(AutomationAction.Unknown("chime", buildJsonObject { put("kind", "chime") }))
-		assertEquals(RunsIssue.NotAStep(0), issue(RunsDraft.Pointing("new", 0L, "Chime", emptyList(), listOf(unknown), emptyMap(), AutomationAction.RunFunction(function = "new"), PointMode.NEW, null)))
+		assertNull(issue(RunsDraft.Flat(listOf(StepDraft.Do("plug", ActionDraft.Filled("device_set", mapOf("device" to SANDBOX_SWITCH, "verb" to "on")))))))
+		val unknown = StepDraft.Do("unknown", ActionDraft.Kept(AutomationAction.Unknown("chime", buildJsonObject { put("kind", "chime") })))
+		assertEquals(RunsIssue.NotAStep("unknown"), issue(RunsDraft.Pointing("new", 0L, "Chime", emptyList(), listOf(unknown), emptyMap(), AutomationAction.RunFunction(function = "new"), PointMode.NEW, null)))
 		assertEquals(RunsIssue.Unset("lamp"), issue(pointing))
 		assertEquals(RunsIssue.BadValue("times", ValueIssue.NOT_A_NUMBER), issue(pointing.copy(values = valuesByName(pointing, mapOf("lamp" to SANDBOX_SWITCH, "times" to "two")))))
 		assertNull(issue(pointing.copy(values = valuesByName(pointing, mapOf("lamp" to SANDBOX_SWITCH, "times" to "3")))))

@@ -8,12 +8,13 @@ import com.atelier_nyaarium.switchboard.assistant.AutomationSaid
 import com.atelier_nyaarium.switchboard.assistant.AutomationSlot
 import com.atelier_nyaarium.switchboard.assistant.EditContext
 import com.atelier_nyaarium.switchboard.assistant.fieldsOf
-import com.atelier_nyaarium.switchboard.assistant.SaidAt
 import com.atelier_nyaarium.switchboard.assistant.SaveAnswer
 import com.atelier_nyaarium.switchboard.assistant.fittingAutomation
 import com.atelier_nyaarium.switchboard.assistant.refusedAtOf
 import com.atelier_nyaarium.switchboard.assistant.functionSaveOf
-import com.atelier_nyaarium.switchboard.assistant.holeSpanOf
+import com.atelier_nyaarium.switchboard.assistant.RefusedAt
+import com.atelier_nyaarium.switchboard.assistant.RefusedHole
+import com.atelier_nyaarium.switchboard.assistant.refusedHoleOf
 import com.atelier_nyaarium.switchboard.assistant.movedAutomation
 import com.atelier_nyaarium.switchboard.assistant.movesWithHome
 import com.atelier_nyaarium.switchboard.assistant.pointerOf
@@ -26,7 +27,6 @@ import com.atelier_nyaarium.switchboard.assistant.over
 import com.atelier_nyaarium.switchboard.assistant.outcomeOf
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationFunctionRow
-import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationServes
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
@@ -117,8 +117,8 @@ internal sealed interface AutomationSaved {
 		val reason: String,
 		val heldRow: AutomationRow? = null,
 		val confirm: List<String> = emptyList(),
-		val hole: AutomationHoleSpan? = null,
-		val at: SaidAt? = null,
+		val hole: RefusedHole? = null,
+		val at: RefusedAt? = null,
 		val functionMoved: Boolean = false,
 	) : AutomationSaved
 
@@ -144,7 +144,7 @@ internal fun automationSavedOf(
 		)
 		is SaveAnswer.Hole -> AutomationSaved.Refused(
 			automationSaveLine(Protocol.Wire.AutomationSaveRefusalCode.HOLE, answer.refusal),
-			hole = holeSpanOf(read),
+			hole = refusedHoleOf(read),
 		)
 		is SaveAnswer.Refused -> AutomationSaved.Refused(
 			automationSaveLine(read.code, read.refusal, id),
@@ -408,7 +408,7 @@ internal class AutomationOps(
 			answer.reason ?: "This Gateway holds a different copy",
 			answer.row,
 			answer.confirm.orEmpty(),
-			answer.hole,
+			answer.hole?.let(::refusedHoleOf),
 		)
 	}
 
