@@ -144,6 +144,12 @@ const WORD_REASONS: Readonly<Record<Exclude<StepWord, "done">, string>> = {
 	timeout: "it ran out of time",
 };
 
+/** What a failed step's frame is told. */
+export const failureOf = (step: Step): { code: Exclude<StepWord, "done">; message: string } => {
+	const word = step.word === undefined || step.word === "done" ? "unreachable" : step.word;
+	return { code: word, message: WORD_REASONS[word] };
+};
+
 /** How an ended step logs. */
 export function endedOutcome(word: StepWord | undefined): { outcome: RunRow["outcome"]; reason?: string } {
 	if (word === "done") return { outcome: "ran" };

@@ -1,6 +1,6 @@
 // One pass of the pump: the next state, and the work to start.
 
-import type { RunFunction, WalkStep } from "../../shared/automation-walk.js";
+import { below, type RunFunction, type WalkStep, within } from "../../shared/automation-walk.js";
 import { AUTOMATION_ACTIONS, type Automation, type AutomationAction } from "../../shared/schemasAutomation.js";
 import { hasHoles } from "../../shared/text-holes.js";
 import {
@@ -14,14 +14,15 @@ import {
 	nextEffect,
 	nextFill,
 	outdatedSets,
+	pathsOf,
 	type Runnable,
 	type StepRef,
 	siteIn,
 	stepKey,
 	switchOf,
-	turnOf,
 	withStep,
 } from "./automationFires.js";
+import { addressIn, type Ended, moved, type TreeStep } from "./automationFrames.js";
 import { NOT_HOME } from "./automationJudge.js";
 import { fireRow, logged, type RowWhere, type RunRow } from "./automationLog.js";
 import { type Dropped, QUEUE_FULL, stepMember, told } from "./automationOutbox.js";
@@ -33,6 +34,8 @@ import {
 	dueAt,
 	endedOutcome,
 	expired,
+	FRESH_STEP,
+	failureOf,
 	heard,
 	isEnded,
 	type Nature,
@@ -56,6 +59,8 @@ export interface Answer {
 export interface PassPorts {
 	retireOf(fire: Fire): RunRow | null;
 	enter(fire: Fire, path: string, call: RunFunction): Fire | { refused: string };
+	/** The steps the frame at `site` runs. */
+	frameBody(fire: Fire, site: string): readonly TreeStep[] | null;
 	bodyOf(fire: Fire): Automation | null;
 	actionOf(fire: Fire, path: string): AutomationAction | null;
 	stepAt(fire: Fire, path: string): AutomationEffect | null;
@@ -96,6 +101,7 @@ type Tell = Extract<AutomationAction, { kind: "tell_assistant" }>;
 
 export const NEWER_SET = "a newer setting of this switch landed first";
 export const FRAME_UNREAD = "the function it ran could not be read";
+export const CALL_FAILED = "a step in it failed";
 export const untold = ({ tell: _tell, waiting: _waiting, ...rest }: Fire): Fire => rest;
 
 /** `unowned` takes the rest. */
@@ -249,6 +255,47 @@ export function createPass(ports: PassPorts): {
 		return { fires, log, ran, landedSets };
 	};
 
+	/** Moves past an ended step. In a frame the active step leads; the automation's own list is scanned. */
+	const turn = (start: Fire, held: RunRow[], now: number): { fire: Fire; log: RunRow[]; path: string | null } => {
+		let fire = start;
+		let log = held;
+		for (;;) {
+			const active = fire.active[0];
+			const step = active === undefined ? undefined : fire.steps[active];
+			if (active !== undefined && step && !isEnded(step)) return { fire, log, path: active };
+			const site = active === undefined ? null : siteIn(fire, active);
+			const frame = site === null ? undefined : fire.frames?.[site];
+			if (active === undefined || !step || site === null || !frame) {
+				const own = pathsOf(fire).find(
+					(path) => siteIn(fire, path) === null && !isEnded(fire.steps[path] as Step),
+				);
+				if (own === undefined) return { fire, log, path: null };
+				fire = { ...fire, active: [own] };
+				continue;
+			}
+			const body = ports.frameBody(fire, site);
+			const address = body ? addressIn(body, below(active, site)) : null;
+			const how: Ended = step.verdict === "done" ? { how: "done" } : { how: "failed", failure: failureOf(step) };
+			const went = body && address ? moved(body, address, how, { failed: frame.failed }) : null;
+			const frames = went ? { ...fire.frames, [site]: { ...frame, ...went.memory } } : fire.frames;
+			if (went && "to" in went.move) {
+				const to = within(site, went.move.to);
+				fire = { ...fire, steps: { ...fire.steps, [to]: fire.steps[to] ?? FRESH_STEP }, active: [to], frames };
+				continue;
+			}
+			// The frame ended, and its call with it.
+			const reason = went === null ? FRAME_UNREAD : "failure" in went.move ? CALL_FAILED : null;
+			const call = fire.steps[site];
+			if (!call || isEnded(call)) {
+				fire = { ...fire, frames, active: [] };
+				continue;
+			}
+			const ended = reason === null ? heard(call, null, "done", now) : refusedUnsent(call);
+			fire = { ...withStep(fire, site, ended), frames, active: [site] };
+			if (reason !== null) log = logged(log, endedRow(fire, site, ended, reason));
+		}
+	};
+
 	/** To the step whose turn it is. */
 	const advance = (
 		start: Fire,
@@ -264,12 +311,23 @@ export function createPass(ports: PassPorts): {
 	): { fire: Fire; log: RunRow[] } => {
 		let { log } = held;
 		let fire = start;
-		for (let path = turnOf(fire); path !== null; path = turnOf(fire)) {
+		for (;;) {
+			const next = turn(fire, log, at.now);
+			({ fire, log } = next);
+			const path = next.path;
+			if (path === null) break;
 			const step = begun(clamped(fire.steps[path] as Step, at.now), at.now);
-			fire = { ...withStep(fire, path, step), active: [path] };
+			fire = withStep(fire, path, step);
 			if (step.claimed) return { fire, log };
 			const body = ports.bodyOf(fire);
 			const call = body && siteIn(fire, path) === null ? ports.callAt(body, path) : null;
+			if (call && fire.frames?.[path]) {
+				// Its frame is open with no step active.
+				const ended = refusedUnsent(step);
+				fire = withStep(fire, path, ended);
+				log = logged(log, endedRow(fire, path, ended, FRAME_UNREAD));
+				continue;
+			}
 			if (call) {
 				const entered = ports.enter(fire, path, call);
 				if (!("refused" in entered)) {

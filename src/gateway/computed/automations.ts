@@ -13,6 +13,8 @@ import {
 	steering,
 	visit,
 	type WalkStep,
+	within,
+	written,
 } from "../../shared/automation-walk.js";
 import { canonicalJson } from "../../shared/canonical-json.js";
 import { chainedTimer } from "../../shared/chained-timer.js";
@@ -41,7 +43,12 @@ import {
 	type ConsoleAutomationSaveResult,
 	SAVE_LINE_MAX,
 } from "../../shared/schemasAutomationSave.js";
-import { type AutomationFunction, FUNCTIONS_MAX, FunctionSchema } from "../../shared/schemasFunction.js";
+import {
+	type AutomationFunction,
+	FUNCTIONS_MAX,
+	FunctionSchema,
+	type FunctionStep,
+} from "../../shared/schemasFunction.js";
 import { hasHoles, unescapedText, unreadText } from "../../shared/text-holes.js";
 import {
 	createOwnerRecords,
@@ -67,6 +74,7 @@ import {
 	switchOf,
 	WAITING_EVENTS_MAX,
 } from "./automationFires.js";
+import { entered } from "./automationFrames.js";
 import {
 	AUTOMATION_KIND,
 	type AutomationIntent,
@@ -693,7 +701,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		return issue === null ? null : fireRow(fire, "refused", issue);
 	};
 
-	/** Function steps replace the call. */
+	/** Opens the frame on its first step; the call's record stays. */
 	const enter = (fire: Fire, path: string, call: Call): Fire | { refused: string } => {
 		const record = store.get(call.function);
 		if (!record || !isFunctionRecord(record))
@@ -702,17 +710,28 @@ export function createAutomations(deps: AutomationsDeps) {
 		const body = bodyOf(fire) as Automation;
 		const unsound = entryIssue(body, record.id, record.body);
 		if (unsound !== null) return { refused: unsound };
-		const inner = reached(body, (id) => (id === record.id ? record.body : null)).filter((at) =>
-			at.path.startsWith(`${path}.`),
-		);
-		const { [path]: _call, ...steps } = fire.steps;
-		for (const at of inner) steps[at.path] = FRESH_STEP;
-		return { ...fire, steps, active: [], frames: { ...fire.frames, [path]: frame } };
+		const first = entered(written(record.body));
+		if (!("to" in first)) return { refused: FRAME_UNREAD };
+		const to = within(path, first.to);
+		return {
+			...fire,
+			steps: { ...fire.steps, [to]: FRESH_STEP },
+			active: [to],
+			frames: { ...fire.frames, [path]: frame },
+		};
+	};
+
+	/** The steps a frame runs. */
+	const frameBody = (fire: Fire, site: string): readonly FunctionStep[] | null => {
+		const frame = fire.frames?.[site];
+		const fn = frame ? frameFunction(frame) : null;
+		return fn ? written(fn) : null;
 	};
 
 	const automationPass = createPass({
 		retireOf,
 		enter,
+		frameBody,
 		bodyOf,
 		actionOf,
 		stepAt,

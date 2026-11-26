@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { byPath, reached, siteAmong, visit } from "../../shared/automation-walk.js";
 import { type Automation, AutomationActionSchema, TELL_WHEN } from "../../shared/schemasAutomation.js";
+import { FAILURE_CODES } from "./automationFrames.js";
 import { BEHIND, CROWDED, REPLACED, TOO_MANY } from "./automationLog.js";
 import { type AutomationEffect, isEffect, natureOf } from "./automationRunner.js";
 import { claimed, FRESH_STEP, isEnded, type Nature, type Step, StepPathSchema, StepSchema } from "./automationSteps.js";
@@ -37,12 +38,16 @@ const FireBase = {
 	waiting: z.literal(true).optional(),
 };
 
+export const FailureSchema = z.strictObject({ code: z.enum(FAILURE_CODES), message: z.string().max(200) });
+
 export const FrameSchema = z.strictObject({
 	function: z.string(),
 	incarnation: z.string(),
 	revision: z.number().int().positive(),
 	/** Pinned at start. */
 	resolved: z.record(StepPathSchema, AutomationActionSchema).optional(),
+	/** The first failure nothing caught. */
+	failed: FailureSchema.optional(),
 });
 export type Frame = z.infer<typeof FrameSchema>;
 
@@ -137,7 +142,8 @@ export const withStep = (fire: Fire, path: string, step: Step): Fire => ({
 
 export const claimedPaths = (fire: Fire): string[] => pathsOf(fire).filter((path) => fire.steps[path]?.claimed);
 
-const hasOpenSteps = (fire: Fire): boolean => turnOf(fire) !== null;
+/** A call's record stays open while its function runs. */
+const hasOpenSteps = (fire: Fire): boolean => Object.values(fire.steps).some((step) => !isEnded(step));
 
 export const finished = (fire: Fire): boolean => !fire.tell && !hasOpenSteps(fire);
 

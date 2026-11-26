@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { composeAutomations } from "../gateway/compose/composeAutomations.js";
 import { QUEUE_FULL, QUEUE_MAX_EVENTS } from "../gateway/computed/automationOutbox.js";
+import { CALL_FAILED } from "../gateway/computed/automationPass.js";
 import type { Attempt } from "../gateway/computed/automationRunner.js";
 import { NEWER_SET, STEP_UNFIT, VALUE_UNREAD } from "../gateway/computed/automations.js";
 import { FUNCTION_GONE, FUNCTION_UNREAD, NO_SWITCH } from "../gateway/computed/automationValidity.js";
@@ -203,8 +204,9 @@ describe("a run through a function", () => {
 			["device_set", "refused", VALUE_UNREAD],
 			["device_set", "refused", STEP_UNFIT],
 			["device_set", "ran", undefined],
+			["run_function", "refused", CALL_FAILED],
 		]);
-		expect(w.where()).toEqual(["0.0", "0.1", "0.2", "0.3"].map((step) => [step, "warm-up"]));
+		expect(w.where()).toEqual(["0.0", "0.1", "0.2", "0.3", "0"].map((step) => [step, "warm-up"]));
 	});
 
 	it("refuses to save a body that steers, at any depth", () => {
@@ -233,6 +235,7 @@ describe("a run through a function", () => {
 		expect(w.rows()).toEqual([
 			["device_set", "ran", undefined],
 			["device_set", "refused", NO_SWITCH],
+			["run_function", "refused", CALL_FAILED],
 			["run_function", "refused", NO_SWITCH],
 		]);
 	});
@@ -295,7 +298,10 @@ describe("a run through a function", () => {
 		}
 
 		expect([short.effects.length, long.effects.length]).toEqual([1, 2]);
-		expect(short.rows()).toEqual([["device_set", "refused", "it could not be reached"]]);
+		expect(short.rows()).toEqual([
+			["device_set", "refused", "it could not be reached"],
+			["run_function", "refused", CALL_FAILED],
+		]);
 		expect(long.rows()).toEqual([]);
 	});
 
@@ -307,7 +313,10 @@ describe("a run through a function", () => {
 		await w.later(60_000);
 
 		expect(w.effects).toEqual([`${PLUG}:on`, `${PLUG}:on`]);
-		expect(w.rows()).toEqual([["device_set", "refused", "it could not be reached"]]);
+		expect(w.rows()).toEqual([
+			["device_set", "refused", "it could not be reached"],
+			["run_function", "refused", CALL_FAILED],
+		]);
 	});
 
 	it("counts the call's cool-down from admission, so a failing run still cools down", async () => {

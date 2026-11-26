@@ -16,6 +16,7 @@ const body = AutomationSchema.parse({
 const ports: PassPorts = {
 	retireOf: () => null,
 	enter: (fire) => fire,
+	frameBody: () => null,
 	bodyOf: () => body,
 	actionOf: () => action,
 	stepAt: () => action,
