@@ -1,6 +1,7 @@
 import { canonicalJson } from "../../shared/canonical-json.js";
 import { roundTo } from "../../shared/field-types.js";
 import { elementOf } from "../../shared/script-types.js";
+import { JOIN_KEYS, waitedOf } from "../../shared/task-values.js";
 
 export class ConsoleError extends Error {
 	constructor(
@@ -16,7 +17,14 @@ type Receiver = "list" | "object" | "collection" | "none";
 export interface Builtin {
 	name: string;
 	receiver: Receiver;
-	params: readonly { name: string; check: (value: unknown) => boolean; type: string; optional?: boolean }[];
+	/** `rest`: last param, repeatable. */
+	params: readonly {
+		name: string;
+		check: (value: unknown) => boolean;
+		type: string;
+		optional?: boolean;
+		rest?: boolean;
+	}[];
 	returns: string;
 	description: string;
 	/** Evaluates arguments on demand. */
@@ -37,6 +45,35 @@ const places = (value: unknown) => Number.isInteger(value) && (value as number) 
 const same = (receiver: string | undefined) => receiver;
 
 export { elementOf };
+
+/** A task or a join, as a step reads it. */
+interface Standing {
+	done: boolean;
+	failed: boolean;
+	error: { code: string; message: string } | null;
+}
+
+const isTask = (value: unknown): value is Standing =>
+	isRecord(value) && waitedOf(value) !== null && typeof value.done === "boolean" && typeof value.failed === "boolean";
+
+const tasks = [
+	{ name: "first", check: isTask, type: "Task" },
+	{ name: "more", check: isTask, type: "Task", optional: true, rest: true },
+] as const;
+
+/** `all` or `any` of tasks, standing as they stand. */
+function joined(mode: "all" | "any", held: readonly unknown[]): Record<string, unknown> {
+	const once = [...new Map((held as Standing[]).map((item) => [canonicalJson(waitedOf(item)), item])).values()];
+	const key = { [JOIN_KEYS[mode]]: once };
+	if (mode === "any") return { ...key, done: once.some((item) => item.done), failed: false, error: null };
+	const done = once.every((item) => item.done);
+	const errors = done
+		? once.flatMap((item) => (item.error ? [{ code: item.error.code, message: item.error.message }] : []))
+		: [];
+	const error =
+		errors.length > 0 ? { code: "together", message: `${errors.length} of ${once.length} failed`, errors } : null;
+	return { ...key, done, failed: error !== null, error };
+}
 
 export const sameValue = (left: unknown, right: unknown): boolean =>
 	left === right || canonicalJson(left ?? null) === canonicalJson(right ?? null);
@@ -131,6 +168,24 @@ export const BUILTINS: readonly Builtin[] = [
 		run: (_receiver, [x, digits]) => roundTo(x as number, (digits as number | undefined) ?? 0),
 	},
 	{
+		name: "all",
+		receiver: "none",
+		params: tasks,
+		returns: "Task",
+		description: "A task done when every one is, failed when any failed.",
+		type: () => "Task",
+		run: (_receiver, args) => joined("all", args),
+	},
+	{
+		name: "any",
+		receiver: "none",
+		params: tasks,
+		returns: "Task",
+		description: "A task done with the first to end; awaiting it keeps that one.",
+		type: () => "Task",
+		run: (_receiver, args) => joined("any", args),
+	},
+	{
 		name: "if",
 		receiver: "none",
 		params: [
@@ -160,22 +215,30 @@ const ON_VALUES = new Set(BUILTINS.filter((builtin) => builtin.receiver !== "non
 /** A method some value takes. */
 export const valueBuiltin = (name: string): boolean => ON_VALUES.has(name);
 
-const arity = ({ name, params }: Builtin): string => {
+const restOf = (builtin: Builtin) => (builtin.params.at(-1)?.rest ? builtin.params.at(-1) : undefined);
+
+const arity = (builtin: Builtin): string => {
+	const { name, params } = builtin;
 	const required = params.filter((param) => !param.optional).length;
-	const range = required === params.length ? `${required}` : `${required} to ${params.length}`;
-	return `${name}() takes ${range} argument${params.length === 1 ? "" : "s"}`;
+	const range = restOf(builtin)
+		? `${required} or more`
+		: required === params.length
+			? `${required}`
+			: `${required} to ${params.length}`;
+	return `${name}() takes ${range} argument${params.length === 1 && !restOf(builtin) ? "" : "s"}`;
 };
 
 export function arityIssue(builtin: Builtin, count: number): string | null {
 	const required = builtin.params.filter((param) => !param.optional).length;
-	return count < required || count > builtin.params.length ? arity(builtin) : null;
+	const most = restOf(builtin) ? Number.POSITIVE_INFINITY : builtin.params.length;
+	return count < required || count > most ? arity(builtin) : null;
 }
 
 export function checkArgs(builtin: Builtin, args: readonly unknown[]): void {
 	const wrong = arityIssue(builtin, args.length);
 	if (wrong) throw new ConsoleError("wrong_args", wrong);
 	args.forEach((arg, at) => {
-		const param = builtin.params[at];
+		const param = builtin.params[at] ?? restOf(builtin);
 		if (param && !param.check(arg))
 			throw new ConsoleError("wrong_args", `${builtin.name}(): ${param.name} must be ${param.type}`);
 	});

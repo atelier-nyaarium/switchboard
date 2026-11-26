@@ -3,7 +3,8 @@
 import { z } from "zod";
 import { STEP_PATH_RE } from "../../shared/automation-walk.js";
 import { KEEP_TRYING_MIN_DEFAULT } from "../../shared/schemasAutomation.js";
-import { RUN_STRANDS_MAX } from "../../shared/schemasFunction.js";
+import { FUNCTION_STEPS_TOTAL_MAX, RUN_STRANDS_MAX } from "../../shared/schemasFunction.js";
+import type { Waited } from "../../shared/task-values.js";
 import { FAILURE_CODES, FAILURE_MESSAGE_MAX, type Failure, type FailureCode } from "./automationFrames.js";
 import type { LogRow } from "./automationLog.js";
 
@@ -38,6 +39,17 @@ export const VERDICTS = ["done", "failed", "ended"] as const;
 /** The walk owns its spelling. */
 export const StepPathSchema = z.string().regex(STEP_PATH_RE);
 
+export type { Waited } from "../../shared/task-values.js";
+
+const JOINED_MAX = FUNCTION_STEPS_TOTAL_MAX;
+export const WaitedSchema: z.ZodType<Waited> = z.lazy(() =>
+	z.union([
+		StepPathSchema,
+		z.strictObject({ all: z.array(WaitedSchema).min(1).max(JOINED_MAX) }),
+		z.strictObject({ any: z.array(WaitedSchema).min(1).max(JOINED_MAX) }),
+	]),
+);
+
 export const StepSchema = z.strictObject({
 	/** Begun; a hold is taken back off. */
 	attempts: z.number().int().nonnegative(),
@@ -63,6 +75,9 @@ export const StepSchema = z.strictObject({
 	side: z.enum(["then", "else"]).optional(),
 	/** When a `wait` ends. */
 	until: z.number().int().optional(),
+	awaits: WaitedSchema.optional(),
+	seen: z.literal(true).optional(),
+	ended: z.number().int().positive().optional(),
 });
 export type Step = z.infer<typeof StepSchema>;
 

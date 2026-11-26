@@ -50,6 +50,8 @@ export type ScriptNode =
 				| { kind: "run"; node: ConsoleNode }
 				| { kind: "try"; body: ScriptBlock; handler: ScriptBlock }
 				| { kind: "parallel"; body: ScriptBlock }
+				| { kind: "start"; as?: Span & { text: string }; body: ScriptBlock }
+				| { kind: "await"; as?: Span & { text: string }; task: ConsoleNode }
 				| { kind: "exit" }
 				| { kind: "throw"; text?: ConsoleNode }
 				| { kind: "wait"; minutes: ConsoleNode }
@@ -164,8 +166,15 @@ class ScriptParser extends ConsoleParser {
 		const equals = this.tokens[this.at + 1];
 		if (first.kind === "ident" && equals?.kind === "op" && equals.text === "=") {
 			this.at += 2;
-			const value = this.expression();
 			const name = { text: first.text, start: first.start, end: first.end };
+			const word = this.next;
+			if (word?.kind === "ident" && (word.text === "start" || word.text === "await")) {
+				const step = this.worded(word);
+				return step && (step.kind === "start" || step.kind === "await")
+					? { ...step, as: name, start: first.start }
+					: step;
+			}
+			const value = this.expression();
 			return { kind: "let", name, value, start: first.start, end: value.end };
 		}
 		const node = this.expression();
@@ -270,6 +279,45 @@ class ScriptParser extends ConsoleParser {
 			case "parallel": {
 				const body = this.block(word);
 				return body && { kind: "parallel", body, start, end: body.end };
+			}
+			case "start": {
+				const from = this.at;
+				this.lines();
+				const opens = this.is("{");
+				this.at = from;
+				if (opens) {
+					const body = this.block(word);
+					return body && { kind: "start", body, start, end: body.end };
+				}
+				const open = this.next;
+				// Lone statement as block.
+				if (!open || open.kind === "newline" || open.kind === "comment" || this.is("}")) {
+					this.issue(
+						"incomplete",
+						word.start,
+						word.end,
+						"start what? write start { } or start and a statement",
+					);
+					return null;
+				}
+				// Any one statement, a worded one too.
+				const only = open.kind === "ident" && RESERVED.has(open.text) ? this.worded(open) : this.plain(open);
+				if (!only) return null;
+				return {
+					kind: "start",
+					body: { steps: [only], start: only.start, end: only.end },
+					start,
+					end: only.end,
+				};
+			}
+			case "await": {
+				const said = this.next;
+				if (!said || said.kind === "newline" || said.kind === "comment" || this.is("}")) {
+					this.issue("incomplete", word.start, word.end, "await what? write await and a task");
+					return null;
+				}
+				const task = this.expression();
+				return { kind: "await", task, start, end: task.end };
 			}
 			case "exit":
 				if (this.next && this.next.kind !== "newline" && this.next.kind !== "comment" && !this.is("}")) {

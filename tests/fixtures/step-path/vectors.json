@@ -3,7 +3,16 @@
 	"cases": [
 		{
 			"name": "a flat list",
-			"steps": [{ "kind": "do", "action": "tell_assistant", "args": {} }, { "kind": "exit" }],
+			"steps": [
+				{
+					"kind": "do",
+					"action": "tell_assistant",
+					"args": {}
+				},
+				{
+					"kind": "exit"
+				}
+			],
 			"paths": ["0", "1"]
 		},
 		{
@@ -12,30 +21,74 @@
 				{
 					"kind": "if",
 					"when": "true",
-					"steps": [{ "kind": "exit" }, { "kind": "note", "text": "a" }],
-					"else": [{ "kind": "note", "text": "b" }]
+					"steps": [
+						{
+							"kind": "exit"
+						},
+						{
+							"kind": "note",
+							"text": "a"
+						}
+					],
+					"else": [
+						{
+							"kind": "note",
+							"text": "b"
+						}
+					]
 				},
-				{ "kind": "exit" }
+				{
+					"kind": "exit"
+				}
 			],
 			"paths": ["0", "0.0.0", "0.0.1", "0.1.0", "1"]
 		},
 		{
 			"name": "an if with only an else",
-			"steps": [{ "kind": "if", "when": "true", "else": [{ "kind": "exit" }] }],
+			"steps": [
+				{
+					"kind": "if",
+					"when": "true",
+					"else": [
+						{
+							"kind": "exit"
+						}
+					]
+				}
+			],
 			"paths": ["0", "0.1.0"]
 		},
 		{
 			"name": "a try inside an if's else, its catch holding a call",
 			"steps": [
-				{ "kind": "note", "text": "first" },
+				{
+					"kind": "note",
+					"text": "first"
+				},
 				{
 					"kind": "if",
 					"when": "ready",
 					"else": [
 						{
 							"kind": "try",
-							"steps": [{ "kind": "wait", "minutes": { "kind": "literal", "value": 5 } }],
-							"catch": [{ "kind": "call", "function": "chime" }, { "kind": "throw" }]
+							"steps": [
+								{
+									"kind": "wait",
+									"minutes": {
+										"kind": "literal",
+										"value": 5
+									}
+								}
+							],
+							"catch": [
+								{
+									"kind": "call",
+									"function": "chime"
+								},
+								{
+									"kind": "throw"
+								}
+							]
 						}
 					]
 				}
@@ -44,7 +97,13 @@
 		},
 		{
 			"name": "an empty try",
-			"steps": [{ "kind": "try", "steps": [], "catch": [] }],
+			"steps": [
+				{
+					"kind": "try",
+					"steps": [],
+					"catch": []
+				}
+			],
 			"paths": ["0"]
 		},
 		{
@@ -52,8 +111,21 @@
 			"steps": [
 				{
 					"kind": "try",
-					"steps": [{ "kind": "future_kind", "steps": [{ "kind": "exit" }] }],
-					"catch": [{ "kind": "exit" }]
+					"steps": [
+						{
+							"kind": "future_kind",
+							"steps": [
+								{
+									"kind": "exit"
+								}
+							]
+						}
+					],
+					"catch": [
+						{
+							"kind": "exit"
+						}
+					]
 				}
 			],
 			"paths": ["0", "0.0.0", "0.1.0"]
@@ -64,17 +136,65 @@
 				{
 					"kind": "parallel",
 					"steps": [
-						{ "kind": "exit" },
-						{ "kind": "if", "when": "a", "steps": [{ "kind": "exit" }], "else": [{ "kind": "exit" }] }
+						{
+							"kind": "exit"
+						},
+						{
+							"kind": "if",
+							"when": "a",
+							"steps": [
+								{
+									"kind": "exit"
+								}
+							],
+							"else": [
+								{
+									"kind": "exit"
+								}
+							]
+						}
 					]
 				},
-				{ "kind": "exit" }
+				{
+					"kind": "exit"
+				}
 			],
 			"paths": ["0", "0.0.0", "0.0.1", "0.0.1.0.0", "0.0.1.1.0", "1"]
+		},
+		{
+			"name": "a task's steps on its first side, and an await after it",
+			"steps": [
+				{
+					"kind": "start",
+					"as": "t",
+					"steps": [
+						{
+							"kind": "exit"
+						},
+						{
+							"kind": "if",
+							"when": "a",
+							"steps": [
+								{
+									"kind": "exit"
+								}
+							]
+						}
+					]
+				},
+				{
+					"kind": "await",
+					"task": "t"
+				}
+			],
+			"paths": ["0", "0.0.0", "0.0.1", "0.0.1.0.0", "1"]
 		}
 	],
 	"order": [
-		{ "given": ["10", "2.1", "2", "2.0", "1"], "sorted": ["1", "2", "2.0", "2.1", "10"] },
+		{
+			"given": ["10", "2.1", "2", "2.0", "1"],
+			"sorted": ["1", "2", "2.0", "2.1", "10"]
+		},
 		{
 			"given": ["1.1.0.1.1", "1.1.0", "1", "1.1.0.0.0", "0"],
 			"sorted": ["0", "1", "1.1.0", "1.1.0.0.0", "1.1.0.1.1"]

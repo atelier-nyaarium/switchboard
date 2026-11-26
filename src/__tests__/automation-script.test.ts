@@ -15,7 +15,7 @@ import { withDoing } from "../gateway/liveConsole/doing.js";
 import { holesOver } from "../gateway/liveConsole/holes.js";
 import { type ConsoleEntity, createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { unknown } from "../shared/expressions.js";
-import { lexConsole, lexConsoleText } from "../shared/live-console-grammar.js";
+import { lexConsole, lexConsoleText, parseConsoleText } from "../shared/live-console-grammar.js";
 import type { AutomationTrigger } from "../shared/schemasAutomation.js";
 import { ConsoleOpSchema } from "../shared/schemasConsoleOp.js";
 import { ConsoleOpResultSchema } from "../shared/schemasConsoleResults.js";
@@ -159,6 +159,15 @@ const CANONICAL: Record<string, FunctionStep[]> = {
 		},
 		{ kind: "parallel", steps: [] },
 		{ kind: "exit" },
+	],
+	"tasks started, awaited one by one, all together and the first of several": [
+		{ kind: "start", as: "slow", steps: [{ kind: "wait", minutes: lit(5) }, turn(lit(LAMP))] },
+		{ kind: "start", steps: [tell("{value}")] },
+		{ kind: "start", as: "quick", steps: [] },
+		{ kind: "await", task: "slow" },
+		{ kind: "await", task: "all(slow, quick)", as: "both" },
+		{ kind: "await", task: "any(slow, quick)", as: "first" },
+		{ kind: "if", when: "first == quick and both.done and !slow.failed", steps: [tell("{first}")] },
 	],
 	"an else that is not a lone if, and sides left empty": [
 		{
@@ -479,7 +488,7 @@ describe("a function's steps as script", () => {
 			"Upper",
 			'"open',
 		]);
-		expect(spansOf("if armed {\n}\nelse {\n}\ntry {\n}\nawait x")).toEqual(["armed", "else", "try", "await"]);
+		expect(spansOf("if armed {\n}\nelse {\n}\ntry {\n}\nany x")).toEqual(["armed", "else", "try", "any"]);
 		expect(spansOf("if (armed) {\n\texit")).toEqual(["if"]);
 		expect(spansOf("}\nexit")).toEqual(["}"]);
 		expect(spansOf('f(a, // one\n b)\nifttt.trigger("a", "b", "c", "d", "e")\nthrow 5\nwait()')).toEqual([
@@ -533,6 +542,19 @@ describe("a function's steps as script", () => {
 
 		expect(parsed.steps).toEqual([{ kind: "do", action: "ifttt_trigger", args: { event: lit("a{b}c") } }]);
 		expect([cut(0, 1), cut(1, 4), cut(4, 5)]).toEqual(["a", "\\{b\\}", "c"]);
+	});
+
+	it("reads a task started on one line as a block of one, and refuses a start or an await of nothing", () => {
+		expect(stepsOf('t = start devices.set("Desk lamp", "on")\nfirst = await any(t)')).toEqual([
+			{ kind: "start", as: "t", steps: [turn(lit(LAMP))] },
+			{ kind: "await", task: "any(t)", as: "first" },
+		]);
+		expect(spansOf("start\nawait\nT = start {\n}")).toEqual(["start", "await", "T"]);
+		expect(stepsOf("timer = start wait(5)\nt = start\n{\n}\nu = start await t")).toEqual([
+			{ kind: "start", as: "timer", steps: [{ kind: "wait", minutes: lit(5) }] },
+			{ kind: "start", as: "t", steps: [] },
+			{ kind: "start", as: "u", steps: [{ kind: "await", task: "t" }] },
+		]);
 	});
 
 	it("refuses blocks nested past what it follows, without running out of stack", () => {
@@ -658,10 +680,10 @@ function drawn(seed: number): FunctionStep[] {
 	const draw = drawer(seed);
 	const drawnFrom = (pieces: readonly string[]) =>
 		Array.from({ length: draw.int(6) }, () => draw.pick(pieces)).join("");
-	/** A text keeps its holes closed. */
+	/** A text a save keeps: its holes read. */
 	const text = () => {
 		const said = drawnFrom(PIECES);
-		return lexConsoleText(said).every((part) => part.kind !== "hole" || part.closed) ? said : "";
+		return parseConsoleText(said).issues.length === 0 ? said : "";
 	};
 	const constant = () => drawnFrom(LOOSE);
 	/** A kept or given value. */
@@ -717,6 +739,15 @@ function drawn(seed: number): FunctionStep[] {
 					: { kind: "exit" },
 			() => (nested ? { kind: "try", steps: list(depth + 1, 3), catch: list(depth + 1, 2) } : { kind: "exit" }),
 			() => (nested ? { kind: "parallel", steps: list(depth + 1, 3) } : { kind: "exit" }),
+			() =>
+				nested
+					? { kind: "start", ...(draw.chance(0.5) ? { as: "task" } : {}), steps: list(depth + 1, 2) }
+					: { kind: "exit" },
+			() => ({
+				kind: "await",
+				task: draw.pick(["task", "all(task)", "any(task, task)"]),
+				...(draw.chance(0.3) ? { as: "got" } : {}),
+			}),
 		])();
 	};
 	return list(1, 7);
@@ -756,6 +787,7 @@ function meaningOf(steps: readonly FunctionStep[]): unknown[] {
 			case "try":
 				return [...meaningOf(step.steps), ...meaningOf(step.catch)];
 			case "parallel":
+			case "start":
 				return meaningOf(step.steps);
 			default:
 				return [];
@@ -909,6 +941,14 @@ describe("the script's console reads", () => {
 					{ name: "errors", type: "List<Error>" },
 				],
 			},
+			{
+				name: "Task",
+				members: [
+					{ name: "done", type: "Truth" },
+					{ name: "failed", type: "Truth" },
+					{ name: "error", type: "Error" },
+				],
+			},
 		]);
 		expect(parsed).toEqual({ steps, names: printed.names, types: printed.types, statements: printed.statements });
 	});
@@ -966,6 +1006,7 @@ describe("the script's console reads", () => {
 			names: [{ name: "event", type: "Event" }, { name: "source" }, { name: "x", type: "Text" }],
 			types: [
 				{ name: "Error" },
+				{ name: "Task" },
 				{ name: "Event", members: [{ name: "id" }, { name: "title" }, { name: "url" }, { name: "reason" }] },
 			],
 		});

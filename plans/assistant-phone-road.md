@@ -2600,6 +2600,18 @@ Written before the code. Each line is a ruling until the code says otherwise. Th
 
 **Order:** the strand rules in `moved` with their table; the `parallel` kind through the schema, the walk (and its Kotlin twin and vectors), the save checks and the script; the pass over several cursors and the join; several effects in the pump and the device order; then `start` and `await` on the same rules, `all` and `any`, a task's members and type. Each ends green.
 
+**As built, tasks (2026-11-26, Opus, after the owner moved the slice off Fable):** as ruled above, on the block's engine.
+
+- **A task's end is the one owner rule, going on up.** `settleOwners` ends a `start` record when no cursor is beneath it and keeps climbing, since a task's end moves no cursor: the owner above may be done with it. The start's own cursor moves on at its turn through the same road an ended step takes (`leave` with `done`).
+- **A task reads as it stands, never as it was kept.** A kept task is `{task: path}` (or `{all: [...]}`, `{any: [...]}`); `scopeOf` dresses each one with `done`, `failed` and `error` at every read, and a `let` keeps the bare form, so no stale flag is stored.
+- **`as` on an await keeps what it waited on:** the task for one, the `all` for all, the first for `any`. Nothing gives a result yet, so there is none to keep.
+- **The order tasks ended is a counter on the record** (`ended`), so `any` names the first to end though several ended in one pass, and a frame's unawaited failure is the first to end.
+- **Width:** a task counts beside the steps after it, until its frame ends (`widthOf` carries what still runs past a list). A block waits for what its branches started, so it carries none.
+- **`all` and `any` are builtins with a repeating last argument** (`rest`), so the wire's description is unchanged: `all(first: Task, more?: Task)`.
+- **Phone:** the twins draw both as kept cards ("Start a task", "Wait for a task"), the walk and carry descend a task's list, and a Gateway that does not run them refuses the move.
+- **After the adversarial read (Opus):** its eight findings fixed. An `any` whose every task waits on the await was missed, since a revisited await counted as free: `waitsForever` is now a fixpoint over what can end. A kept join was typed Task and refused by `all` and `any`: joins nest. A task's block failure lost its `errors`: a strand keeps them. A catch's width now counts beside what its try started, an empty task counts none. A record a person writes with a `task` key read as a task, and a task inside a list went stale: a task is marked `$task` (`$all`, `$any`) and dressed at every depth. The one-line `start` reads any statement and finds its brace on a later line. A failed task's row says why.
+- **A read that changed nothing pumped again at once:** found when a mutation made an await read loop. The engine spun without yielding, so the test runner's timeout could not stop it. `startRead` pumps again only when the read moved its fire, and each mutation run is now bounded.
+
 ## Phase 2.7d - Walk-through and cleanup
 
 Installed 2026-11-18 as 8.14.83, on the owner's word (Questions 61 and 71): the plugin release, the Gateway and the host daemon restarted with a fresh host token, then the app over adb. Riding along: the Copilot delivery typed mid-turn, the host token read by the daemon's own script, the op store's eviction line said once a minute, and two message editor fixes. Every gate passed first, and emulator walk 16 passed.

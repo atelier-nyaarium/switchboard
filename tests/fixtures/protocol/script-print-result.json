@@ -61,6 +61,23 @@
 					"type": "List<Error>"
 				}
 			]
+		},
+		{
+			"name": "Task",
+			"members": [
+				{
+					"name": "done",
+					"type": "Truth"
+				},
+				{
+					"name": "failed",
+					"type": "Truth"
+				},
+				{
+					"name": "error",
+					"type": "Error"
+				}
+			]
 		}
 	],
 	"statements": [

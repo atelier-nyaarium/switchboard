@@ -88,6 +88,19 @@ export const FunctionStepSchema = z
 				return side();
 			},
 		}),
+		/** Task kept under `as`. */
+		z.strictObject({
+			kind: z.literal("start"),
+			as: z.string().regex(PARAM_NAME_RE).optional(),
+			get steps() {
+				return side();
+			},
+		}),
+		z.strictObject({
+			kind: z.literal("await"),
+			task: z.string().min(1).max(STEP_TEXT_MAX),
+			as: z.string().regex(PARAM_NAME_RE).optional(),
+		}),
 		z.strictObject({ kind: z.literal("exit") }),
 		z.strictObject({ kind: z.literal("throw"), text: z.string().max(STEP_TEXT_MAX).optional() }),
 		z.strictObject({ kind: z.literal("let"), name: z.string().regex(PARAM_NAME_RE), value: StepArgSchema }),
@@ -116,6 +129,8 @@ const STATEMENTS: { [K in FunctionStep["kind"]]: true } = {
 	if: true,
 	try: true,
 	parallel: true,
+	start: true,
+	await: true,
 	exit: true,
 	throw: true,
 	let: true,

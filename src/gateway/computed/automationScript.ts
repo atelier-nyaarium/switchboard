@@ -70,6 +70,7 @@ export interface ScriptBinding {
 	end: number;
 	/** A kept value; absent for a catch's `e`. */
 	value?: StepArg;
+	type?: string;
 }
 
 export interface ScriptStatement {
@@ -94,6 +95,7 @@ const CALL = AUTOMATION_ACTIONS.run_function.call;
 export const SCRIPT_UNWRITABLE = "it holds a step a script cannot write";
 export const SCRIPT_UNREADABLE = "its text would not read back as the same steps";
 export const SCRIPT_TOO_LONG = `it is longer than ${SCRIPT_SOURCE_MAX} characters as text`;
+const TASK = "Task";
 
 ////////////////////////////////
 //  Text and number encoding
@@ -261,7 +263,10 @@ export function printScript(steps: readonly FunctionStep[], tables: ScriptTables
 
 	/** Lines a step spans; `skip` past what belongs to the step before. */
 	const spans: { step: string; first: number; last: number; skip: number }[] = [];
-	const bound: { name: string; from: number; to: number | null; value?: StepArg }[] = [];
+	const bound: { name: string; from: number; to: number | null; value?: StepArg; type?: string }[] = [];
+	const keepable = (name: string | undefined): boolean =>
+		name === undefined || (!opensStatement(name) && isConsoleVariableName(name));
+	const keptAs = (name: string | undefined): string => (name === undefined ? "" : `${name} = `);
 
 	const block = (list: readonly FunctionStep[], indent: string, prefix: string): void => {
 		let commented = false;
@@ -305,6 +310,18 @@ export function printScript(steps: readonly FunctionStep[], tables: ScriptTables
 					lines.push(`${indent}parallel {`);
 					block(step.steps, `${indent}\t`, `${path}.0.`);
 					lines.push(`${indent}}`);
+					break;
+				case "start":
+					unwritable ||= !keepable(step.as);
+					lines.push(`${indent}${keptAs(step.as)}start {`);
+					block(step.steps, `${indent}\t`, `${path}.0.`);
+					lines.push(`${indent}}`);
+					if (step.as) bound.push({ name: step.as, from: lines.length - 1, to: null, type: TASK });
+					break;
+				case "await":
+					unwritable ||= !keepable(step.as);
+					lines.push(`${indent}${keptAs(step.as)}await ${canonicalExpression(step.task)}`);
+					if (step.as) bound.push({ name: step.as, from: first, to: null, type: TASK });
 					break;
 				case "try": {
 					lines.push(`${indent}try {`);
@@ -362,9 +379,15 @@ export function printScript(steps: readonly FunctionStep[], tables: ScriptTables
 		.sort((left, right) => left.start - right.start);
 	const bindings = bound
 		.map(
-			({ name, from, to, value: kept }): ScriptBinding =>
+			({ name, from, to, value: kept, type }): ScriptBinding =>
 				to === null
-					? { name, start: endOf(from), end: text.length, value: kept }
+					? {
+							name,
+							start: endOf(from),
+							end: text.length,
+							...(kept ? { value: kept } : {}),
+							...(type ? { type } : {}),
+						}
 					: { name, start: endOf(from) - 1, end: endOf(to) },
 		)
 		.sort((left, right) => left.start - right.start);
@@ -398,7 +421,7 @@ function overBounds(steps: readonly FunctionStep[]): { step: string; message: st
 					? [step.steps ?? [], step.else ?? []]
 					: step.kind === "try"
 						? [step.steps, step.catch]
-						: step.kind === "parallel"
+						: step.kind === "parallel" || step.kind === "start"
 							? [step.steps]
 							: [];
 			for (const [side, inner] of sides.entries()) {
@@ -548,6 +571,14 @@ export function parseScript(source: string, tables: ScriptTables): ScriptParse {
 		};
 	};
 
+	const named = (node: { as?: { text: string; start: number; end: number } }, path: string): string | undefined => {
+		const { as } = node;
+		if (!as) return undefined;
+		if (!PARAM_NAME_RE.test(as.text)) fail(as.start, as.end, "a name is lowercase letters, digits and _");
+		places.push({ step: path, param: "as", start: as.start, end: as.end });
+		return as.text;
+	};
+
 	const step = (node: ScriptNode, path: string): FunctionStep => {
 		switch (node.kind) {
 			case "note":
@@ -575,6 +606,18 @@ export function parseScript(source: string, tables: ScriptTables): ScriptParse {
 			}
 			case "parallel":
 				return { kind: "parallel", steps: block(node.body.steps, `${path}.0`) };
+			case "start": {
+				const as = named(node, path);
+				const steps = block(node.body.steps, `${path}.0`);
+				if (as) bindings.push({ name: as, start: node.end, end: source.length, type: TASK });
+				return { kind: "start", ...(as ? { as } : {}), steps };
+			}
+			case "await": {
+				const as = named(node, path);
+				const task = expression(node.task, { step: path, param: "task" });
+				if (as) bindings.push({ name: as, start: node.end, end: source.length, type: TASK });
+				return { kind: "await", task, ...(as ? { as } : {}) };
+			}
 			case "exit":
 				return { kind: "exit" };
 			case "throw": {
@@ -672,6 +715,14 @@ export function scriptNames(input: {
 	const names: ScriptNameRead[] = [...given, ...declared];
 	const kept = new Map<string, ScriptNameRead>();
 	for (const binding of [...input.bindings].sort((left, right) => left.start - right.start)) {
+		if (binding.type) {
+			const earlier = kept.get(binding.name);
+			if (earlier) earlier.end = binding.start;
+			const read = { name: binding.name, type: binding.type, start: binding.start, end: binding.end };
+			kept.set(binding.name, read);
+			names.push(read);
+			continue;
+		}
 		if (!binding.value) {
 			names.push({ name: binding.name, type: "Error", start: binding.start, end: binding.end });
 			continue;

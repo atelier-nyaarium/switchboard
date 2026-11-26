@@ -36,6 +36,8 @@ class AutomationWalkVectorsTest {
 				is FunctionStep.If -> "if"
 				is FunctionStep.Try -> "try"
 				is FunctionStep.Parallel -> "parallel"
+				is FunctionStep.Start -> "start"
+				is FunctionStep.Await -> "await"
 				is FunctionStep.Exit -> "exit"
 				is FunctionStep.Throw -> "throw"
 				is FunctionStep.Let -> "let"

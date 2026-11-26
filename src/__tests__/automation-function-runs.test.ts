@@ -18,7 +18,16 @@ import {
 	VALUE_TOO_LARGE,
 	VALUE_UNREAD,
 } from "../gateway/computed/automations.js";
-import { CALL_LOOPS, FUNCTION_GONE, FUNCTION_UNREAD, NO_SWITCH } from "../gateway/computed/automationValidity.js";
+import { NO_TASK, WAITS_FOREVER } from "../gateway/computed/automationTasks.js";
+import {
+	CALL_LOOPS,
+	EXIT_BESIDE,
+	FUNCTION_GONE,
+	FUNCTION_UNREAD,
+	NAME_TAKEN,
+	NO_SWITCH,
+	TOO_WIDE,
+} from "../gateway/computed/automationValidity.js";
 import { holesOver } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { unknown } from "../shared/expressions.js";
@@ -1433,6 +1442,245 @@ describe("a restart", () => {
 
 		expect(w.effects).toEqual([`${PLUG}:on`, `${PLUG}:on`]);
 		expect(w.rows()).toEqual([["device_set", "ran", undefined]]);
+	});
+
+	describe("tasks started beside the steps that follow", () => {
+		type Steps = AutomationFunctionInput["steps"];
+		const start = (as: string | undefined, ...steps: Steps) => ({
+			kind: "start" as const,
+			...(as === undefined ? {} : { as }),
+			steps,
+		});
+		const awaiting = (task: string, as?: string) => ({
+			kind: "await" as const,
+			task,
+			...(as === undefined ? {} : { as }),
+		});
+		const wait = (minutes: number) => ({ kind: "wait" as const, minutes: lit(minutes) });
+		const lastRun = (w: ReturnType<typeof world>) =>
+			w.automations.listing().automations.find((row) => row.id === "warm")?.lastRun;
+
+		it("runs a task beside the steps after it, and the run lasts until the task has ended", async () => {
+			const w = world();
+			w.save(pointing(hourly), [start("t", wait(5), ifttt("slow")), ifttt("now")]);
+			await w.later(HOUR);
+			const early = { effects: [...w.effects], running: lastRun(w)?.running };
+			await w.later(5 * 60_000);
+
+			expect(early).toEqual({ effects: ["ifttt:now"], running: true });
+			expect(w.effects).toEqual(["ifttt:now", "ifttt:slow"]);
+			expect(lastRun(w)?.running).toBe(false);
+			expect(w.rows().every(([, outcome]) => outcome === "ran")).toBe(true);
+		});
+
+		it("waits at an await for its task, and reads how a task stands as it runs", async () => {
+			const w = world();
+			w.save(pointing(hourly), [
+				start("t", wait(1), ifttt("a")),
+				{ kind: "if", when: "t.done", steps: [ifttt("early")], else: [ifttt("running", "{t}")] },
+				awaiting("t"),
+				ifttt("after", "{t} {t.failed}"),
+			]);
+			await w.later(HOUR);
+			const early = [...w.effects];
+			await w.later(60_000);
+
+			expect(early).toEqual(["ifttt:running:running"]);
+			expect(w.effects).toEqual(["ifttt:running:running", "ifttt:a", "ifttt:after:done no"]);
+		});
+
+		it("waits at all for every task, and fails together with each failure, which a try catches", async () => {
+			const w = world();
+			w.answer((effect) => (effect.endsWith(":on") ? { word: "refused" } : { word: "done" }));
+			w.save(pointing(hourly), [
+				start("a", turn("on")),
+				start("b", wait(1), ifttt("b")),
+				{
+					kind: "try",
+					steps: [awaiting("all(a, b, a)"), ifttt("unreached")],
+					catch: [ifttt("caught", "{e.code} {e.errors.count()} {e.errors[0].code}")],
+				},
+			]);
+			await w.later(HOUR);
+			const early = [...w.effects];
+			await w.later(60_000);
+
+			expect(early).toEqual([`${PLUG}:on`]);
+			expect(w.effects).toEqual([`${PLUG}:on`, "ifttt:b", "ifttt:caught:together 1 refused"]);
+			// The failure was awaited, so the call itself did not fail.
+			expect(w.rows().some(([action]) => action === "run_function")).toBe(false);
+		});
+
+		it("takes the first task to end from any, though both ended before it asked, and leaves nothing behind", async () => {
+			const w = world();
+			const steps: Steps = [
+				start("slow", wait(5), ifttt("slow")),
+				start("a", ifttt("a")),
+				start("b", wait(1), ifttt("b")),
+				wait(2),
+				awaiting("any(b, a, slow)", "first"),
+				{ kind: "if", when: "first == a", steps: [ifttt("a_first")], else: [ifttt("not_a")] },
+			];
+			const saved = w.save(pointing(hourly), steps);
+			await w.later(HOUR);
+			await w.later(60_000);
+			await w.later(60_000);
+			const asked = { effects: [...w.effects], running: lastRun(w)?.running };
+
+			expect(saved).toMatchObject({ stored: true });
+			await w.later(3 * 60_000);
+
+			expect(asked).toEqual({ effects: ["ifttt:a", "ifttt:b", "ifttt:a_first"], running: true });
+			expect(w.effects.at(-1)).toBe("ifttt:slow");
+			expect(lastRun(w)?.running).toBe(false);
+		});
+
+		it("remembers a failed task nobody awaited at the frame's end, and none that one awaited", async () => {
+			const w = world();
+			w.answer((effect) => (effect.endsWith(":on") ? { word: "refused" } : { word: "done" }));
+			w.save(pointing(hourly), [start(undefined, turn("on")), ifttt("after")]);
+			await w.later(HOUR);
+
+			expect([...w.effects].sort()).toEqual([`${PLUG}:on`, "ifttt:after"]);
+			expect(w.rows().at(-1)).toEqual(["run_function", "refused", CALL_FAILED]);
+		});
+
+		it("lets any take the first and leave a failed loser to the frame, which it does not see", async () => {
+			const w = world();
+			w.answer((effect) => (effect.endsWith(":on") ? { word: "refused" } : { word: "done" }));
+			w.save(pointing(hourly), [
+				start("loser", wait(1), turn("on")),
+				start("winner", ifttt("won")),
+				awaiting("any(loser, winner)", "first"),
+				ifttt("after", "{first == winner}"),
+			]);
+			await w.later(HOUR);
+			await w.later(60_000);
+
+			expect(w.effects).toEqual(["ifttt:won", "ifttt:after:yes", `${PLUG}:on`]);
+			expect(w.rows().at(-1)).toEqual(["run_function", "refused", CALL_FAILED]);
+		});
+
+		it("refuses an await that names no task, and one that would wait on itself, directly or through another", async () => {
+			const w = world();
+			w.save(pointing(hourly), [
+				awaiting("5"),
+				start("t", awaiting("t")),
+				start("a", wait(1), awaiting("b")),
+				start("b", wait(1), awaiting("a")),
+				ifttt("after"),
+			]);
+			await w.later(HOUR);
+			await w.later(60_000);
+			const refused = w.rows().filter(([action]) => action === "await");
+
+			// The first of the two that wait on each other is read, and fails with the task it waited on.
+			expect(refused).toEqual([
+				["await", "refused", NO_TASK],
+				["await", "refused", WAITS_FOREVER],
+				["await", "refused", WAITS_FOREVER],
+				["await", "refused", WAITS_FOREVER],
+			]);
+			expect(w.effects).toEqual(["ifttt:after"]);
+			expect(lastRun(w)?.running).toBe(false);
+		});
+
+		it("refuses an await whose any waits only on tasks that wait on it, and the run still ends", async () => {
+			const w = world();
+			w.save(pointing(hourly), [
+				start("a", wait(1), awaiting("any(b, c)")),
+				start("b", wait(1), awaiting("a")),
+				start("c", wait(1), awaiting("a")),
+				ifttt("main"),
+			]);
+			await w.later(HOUR);
+			await w.later(60_000);
+
+			// Once it fails, its task ends, and the two that waited on that task end with it.
+			expect(w.rows().filter(([action, outcome]) => action === "await" && outcome === "refused")).toEqual([
+				["await", "refused", WAITS_FOREVER],
+			]);
+			expect(lastRun(w)?.running).toBe(false);
+		});
+
+		it("waits on a join of joins, and hands a catch a task's block failure with each branch's", async () => {
+			const w = world();
+			w.answer((effect) => (effect.endsWith(":on") ? { word: "refused" } : { word: "done" }));
+			w.save(pointing(hourly), [
+				start("a", ifttt("a")),
+				start("b", wait(1), ifttt("b")),
+				start("c", { kind: "parallel", steps: [turn("on"), turn("on", lit(FAN))] }),
+				awaiting("all(a, b)", "both"),
+				awaiting("any(both, c)", "first"),
+				{
+					kind: "try",
+					steps: [awaiting("c")],
+					catch: [ifttt("caught", "{first == both} {e.code} {e.errors.count()}")],
+				},
+			]);
+			await w.later(HOUR);
+			await w.later(60_000);
+
+			expect(w.effects.at(-1)).toBe("ifttt:caught:no together 2");
+			expect(w.rows().filter(([action, outcome]) => action === "start" && outcome === "refused")).toEqual([
+				["start", "refused", "2 of 2 failed"],
+			]);
+		});
+
+		it("keeps a record shaped like a task as written, and reads a task inside a list as it stands", async () => {
+			const w = world();
+			w.save(pointing(hourly), [
+				start("t", wait(1)),
+				{ kind: "let", name: "r", value: expr('{task: "x", n: 5}') },
+				{ kind: "let", name: "xs", value: expr("[t]") },
+				awaiting("t"),
+				ifttt("after", "{r.n} {xs[0].done} {xs[0] == t}"),
+			]);
+			await w.later(HOUR);
+			await w.later(60_000);
+
+			expect(w.effects).toEqual(["ifttt:after:5 yes yes"]);
+		});
+
+		it("refuses at the save an exit inside a task, a task kept under a name the function takes, and a body too wide", () => {
+			const many = Array.from({ length: 8 }, () => ifttt("x"));
+			/** Each save on a fresh store, so none is refused for another's revision. */
+			const said = (steps: Steps) => {
+				const saved = world().save(pointing(hourly), steps);
+				return saved.stored ? "stored" : saved.reason;
+			};
+			const tried = {
+				kind: "try" as const,
+				steps: [start(undefined, wait(5)), { kind: "throw" as const }],
+				catch: [start(undefined, wait(5))],
+			};
+
+			expect([
+				said([start(undefined, { kind: "exit" })]),
+				said([start("room", ifttt("x"))]),
+				said([start(undefined, { kind: "parallel", steps: many }), ifttt("y")]),
+				// A catch starts beside what its try started.
+				said([tried, { kind: "parallel", steps: many.slice(0, 7) }]),
+				said([start("t", ifttt("x")), awaiting("all(t)", "done_t")]),
+				// An empty task runs nothing beside.
+				said([...many.slice(0, 7).map(() => start(undefined)), { kind: "parallel", steps: many.slice(0, 1) }]),
+			]).toEqual([EXIT_BESIDE, NAME_TAKEN, TOO_WIDE, TOO_WIDE, "stored", "stored"]);
+			expect(said([awaiting("nowhere")])).not.toBe("stored");
+		});
+
+		it("finds a task where it stood after a restart, and the run still waits for it", async () => {
+			const w = world();
+			w.save(pointing(hourly), [start("t", wait(5), ifttt("slow")), ifttt("now")]);
+			await w.later(HOUR);
+			await w.automations.stop();
+			w.restartWith((rows) => rows);
+			const restored = lastRun(w)?.running;
+			await w.later(5 * 60_000);
+
+			expect(restored).toBe(true);
+			expect(w.effects).toEqual(["ifttt:now", "ifttt:slow"]);
+			expect(lastRun(w)?.running).toBe(false);
+		});
 	});
 
 	describe("a block of steps side by side", () => {

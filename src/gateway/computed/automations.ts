@@ -113,7 +113,16 @@ import {
 } from "./automationRunner.js";
 import { holeScope } from "./automationScope.js";
 import { type Checkpoint, FIRED_MAX, own, restore, type State, storedOf, versionKey } from "./automationState.js";
-import { FRESH_STEP, failedAs, isEnded, refusedUnsent, type Step, steered } from "./automationSteps.js";
+import { FRESH_STEP, failedAs, isEnded, refusedUnsent, type Step, steered, type Waited } from "./automationSteps.js";
+import {
+	kept as keptValue,
+	NO_TASK,
+	taskName,
+	tasksIn,
+	WAITS_FOREVER,
+	waitedOf,
+	waitsForever,
+} from "./automationTasks.js";
 import {
 	holeSpanOf,
 	holeTextsOf,
@@ -1109,8 +1118,14 @@ export function createAutomations(deps: AutomationsDeps) {
 	function startRead(ref: StepRef): void {
 		const held = heldWork(ref.member);
 		if (!held) return;
+		const before = canonicalJson(held.fire);
 		reading = launch(
-			() => readStep(held.fire, ref),
+			async () => {
+				const moved = await readStep(held.fire, ref);
+				const after = state.fires.find((fire) => fire.member === ref.member);
+				// Unchanged read must not repump.
+				return moved && (after === undefined || canonicalJson(after) !== before);
+			},
 			() => {
 				reading = null;
 			},
@@ -1131,7 +1146,9 @@ export function createAutomations(deps: AutomationsDeps) {
 		const pointed = body && site !== null && frame?.values === undefined ? callAt(body, site)?.values : undefined;
 		const scope = holeScope(fire.names, fn?.params ?? [], frame?.values ?? pointed, deps.actions?.switchName);
 		if (!frame || !fn || site === null) return scope;
-		const vars = Object.fromEntries(Object.entries(frame.vars ?? {}).map(([name, value]) => [name, { value }]));
+		const vars = Object.fromEntries(
+			Object.entries(frame.vars ?? {}).map(([name, value]) => [name, taskName(value, fire.steps)]),
+		);
 		const address = addressIn(written(fn), below(at.path, site));
 		const by = address ? catchOf(address) : null;
 		const caught = by ? frame.caught?.[within(site, by)] : undefined;
@@ -1162,6 +1179,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			reason,
 		});
 		let outcome: { step: (held: Step) => Step; reason?: string; vars?: Record<string, JsonValue> };
+		let awaits: Waited | null = null;
 		switch (written.kind) {
 			case "if": {
 				const read = await evaluated(written.when, names);
@@ -1172,7 +1190,8 @@ export function createAutomations(deps: AutomationsDeps) {
 			}
 			case "let": {
 				const read = await argValue(written.value);
-				const kept = read === null ? null : keepable(read.value);
+				// Kept by name, never by standing.
+				const kept = read === null ? null : keepable(keptValue(read.value));
 				if (read === null) outcome = fail("unread", VALUE_UNREAD);
 				else if (kept === null) outcome = fail("refused", VALUE_TOO_LARGE);
 				else outcome = { step: (held) => steered(held), vars: { [written.name]: kept.value } };
@@ -1194,6 +1213,17 @@ export function createAutomations(deps: AutomationsDeps) {
 				outcome = fail("thrown", said, THROWN);
 				break;
 			}
+			case "await": {
+				const read = await evaluated(written.task, names);
+				const asked = read === null ? null : waitedOf(read.value);
+				if (read === null) outcome = fail("unread", VALUE_UNREAD);
+				else if (!asked) outcome = fail("unread", NO_TASK);
+				else {
+					awaits = asked;
+					outcome = { step: (held) => ({ ...held, awaits: asked }) };
+				}
+				break;
+			}
 			default:
 				return false;
 		}
@@ -1201,8 +1231,16 @@ export function createAutomations(deps: AutomationsDeps) {
 		const current = state.fires.find((held) => sameRun(held, fire));
 		const step = current?.steps[ref.path];
 		const frame = current?.frames?.[site];
-		if (!current || !step || isEnded(step) || step.until !== undefined || !frame) {
+		if (!current || !step || isEnded(step) || step.until !== undefined || step.awaits !== undefined || !frame) {
 			return unwanted(rows, log, current, step);
+		}
+		if (awaits) {
+			const tasks = tasksIn(awaits);
+			const known = tasks.every(
+				(task) => current.steps[task] !== undefined && treeStep(current, task)?.kind === "start",
+			);
+			if (!known) outcome = fail("unread", NO_TASK);
+			else if (waitsForever(ref.path, awaits, current.steps)) outcome = fail("refused", WAITS_FOREVER);
 		}
 		const overfull =
 			outcome.vars !== undefined && Object.keys({ ...frame.vars, ...outcome.vars }).length > FRAME_VARS_MAX;

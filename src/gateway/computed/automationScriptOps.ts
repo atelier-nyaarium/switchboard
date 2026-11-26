@@ -64,7 +64,7 @@ export function scriptOps(deps: ScriptOpsDeps) {
 	const typesOf = (context: Context): ConsoleScriptPrintResult["types"] => {
 		const eventFields = given(context.trigger)?.eventFields;
 		const scope = { names: new Map<string, string>(), eventFields, description: deps.vocabulary() };
-		return ["Error", ...(eventFields ? ["Event"] : [])].map((name) => ({
+		return ["Error", "Task", ...(eventFields ? ["Event"] : [])].map((name) => ({
 			name,
 			members: Object.entries(membersOf(name, scope))
 				.map(([member, type]) => ({ name: member, type }))

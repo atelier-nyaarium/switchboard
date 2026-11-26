@@ -3,7 +3,7 @@
 		{
 			"start": 13,
 			"end": 38,
-			"message": "write wait(minutes)"
+			"message": "missing )"
 		}
 	],
 	"names": [
@@ -29,6 +29,23 @@
 				{
 					"name": "errors",
 					"type": "List<Error>"
+				}
+			]
+		},
+		{
+			"name": "Task",
+			"members": [
+				{
+					"name": "done",
+					"type": "Truth"
+				},
+				{
+					"name": "failed",
+					"type": "Truth"
+				},
+				{
+					"name": "error",
+					"type": "Error"
 				}
 			]
 		}

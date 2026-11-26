@@ -77,6 +77,8 @@ export const STEERING = [
 	"if",
 	"try",
 	"parallel",
+	"start",
+	"await",
 	"exit",
 	"throw",
 	"let",
@@ -209,6 +211,7 @@ function stepsIn(steps: readonly FunctionStep[], base: Address): { address: Addr
 		if (step.kind === "if") return [{ address, step }, ...held("then", step.steps), ...held("else", step.else)];
 		if (step.kind === "try") return [{ address, step }, ...held("try", step.steps), ...held("catch", step.catch)];
 		if (step.kind === "parallel") return [{ address, step }, ...held("parallel", step.steps)];
+		if (step.kind === "start") return [{ address, step }, ...held("start", step.steps)];
 		return [{ address, step }];
 	});
 }
@@ -219,18 +222,60 @@ export const stepsOf = (fn: {
 }): { path: string; address: Address; step: FunctionStep }[] =>
 	stepsIn(open(fn.steps), []).map(({ address, step }) => ({ path: numbered(address).join("."), address, step }));
 
-/** Peak concurrent width. */
-export const widthOf = (steps: readonly FunctionStep[]): number =>
-	steps.reduce((widest, step) => {
-		if (step.kind === "parallel")
-			return Math.max(
-				widest,
-				step.steps.reduce((sum, each) => sum + widthOf([each]), 0),
-			);
-		if (step.kind === "if") return Math.max(widest, widthOf(step.steps ?? []), widthOf(step.else ?? []));
-		if (step.kind === "try") return Math.max(widest, widthOf(step.steps), widthOf(step.catch));
-		return widest;
-	}, 1);
+interface Width {
+	peak: number;
+	rest: number;
+}
+
+const listWidth = (steps: readonly FunctionStep[]): Width => {
+	let running = 0;
+	let peak = 0;
+	for (const step of steps) {
+		const each = stepWidth(step);
+		peak = Math.max(peak, running + each.peak);
+		running += each.rest;
+	}
+	return { peak, rest: running };
+};
+
+const widest = (...lists: readonly (readonly FunctionStep[])[]): Width => {
+	const widths = lists.map(listWidth);
+	return { peak: Math.max(1, ...widths.map((w) => w.peak)), rest: Math.max(0, ...widths.map((w) => w.rest)) };
+};
+
+function stepWidth(step: FunctionStep): Width {
+	switch (step.kind) {
+		// Block waits for its branches.
+		case "parallel":
+			return {
+				peak: Math.max(
+					1,
+					step.steps.reduce((sum, each) => sum + listWidth([each]).peak, 0),
+				),
+				rest: 0,
+			};
+		// Task runs beside the cursor.
+		case "start": {
+			const task = listWidth(step.steps).peak;
+			return { peak: task + 1, rest: task };
+		}
+		case "if":
+			return widest(step.steps ?? [], step.else ?? []);
+		// A catch runs while what the try started still runs.
+		case "try": {
+			const body = listWidth(step.steps);
+			const handler = listWidth(step.catch);
+			return { peak: Math.max(1, body.peak, body.rest + handler.peak), rest: body.rest + handler.rest };
+		}
+		default:
+			return { peak: 1, rest: 0 };
+	}
+}
+
+export const widthOf = (steps: readonly FunctionStep[]): number => Math.max(1, listWidth(steps).peak);
+
+/** A whole function's peak width. */
+export const functionWidth = (fn: { steps: Sealed<FunctionStep> }): number => widthOf(open(fn.steps));
 
 /** The functions a function's steps call, at any depth. */
 export const callsOf = (fn: { steps: Sealed<FunctionStep> }): string[] =>
@@ -256,7 +301,7 @@ export const recalled = (fn: { steps: Sealed<FunctionStep> }, to: (id: string) =
 		steps.map((step): FunctionStep => {
 			if (step.kind === "call") return { ...step, function: to(step.function) };
 			if (step.kind === "try") return { ...step, steps: each(step.steps), catch: each(step.catch) };
-			if (step.kind === "parallel") return { ...step, steps: each(step.steps) };
+			if (step.kind === "parallel" || step.kind === "start") return { ...step, steps: each(step.steps) };
 			if (step.kind !== "if") return step;
 			return {
 				...step,

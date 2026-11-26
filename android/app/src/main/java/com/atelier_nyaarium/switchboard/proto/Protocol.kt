@@ -2945,6 +2945,22 @@ sealed class FunctionStep {
 	) : FunctionStep()
 
 	@Serializable
+	@SerialName("start")
+	data class Start(
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val `as`: String? = null,
+		val steps: List<FunctionStep>,
+	) : FunctionStep()
+
+	@Serializable
+	@SerialName("await")
+	data class Await(
+		val task: String,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val `as`: String? = null,
+	) : FunctionStep()
+
+	@Serializable
 	@SerialName("exit")
 	data object Exit : FunctionStep()
 
@@ -3000,6 +3016,8 @@ object FunctionStepSerializer : KSerializer<FunctionStep> {
 				"if" -> input.json.decodeFromJsonElement(FunctionStep.If.serializer(), body)
 				"try" -> input.json.decodeFromJsonElement(FunctionStep.Try.serializer(), body)
 				"parallel" -> input.json.decodeFromJsonElement(FunctionStep.Parallel.serializer(), body)
+				"start" -> input.json.decodeFromJsonElement(FunctionStep.Start.serializer(), body)
+				"await" -> input.json.decodeFromJsonElement(FunctionStep.Await.serializer(), body)
 				"exit" -> input.json.decodeFromJsonElement(FunctionStep.Exit.serializer(), body)
 				"throw" -> input.json.decodeFromJsonElement(FunctionStep.Throw.serializer(), body)
 				"let" -> input.json.decodeFromJsonElement(FunctionStep.Let.serializer(), body)
@@ -3021,6 +3039,8 @@ object FunctionStepSerializer : KSerializer<FunctionStep> {
 			is FunctionStep.If -> tagged("if", output.json.encodeToJsonElement(FunctionStep.If.serializer(), value))
 			is FunctionStep.Try -> tagged("try", output.json.encodeToJsonElement(FunctionStep.Try.serializer(), value))
 			is FunctionStep.Parallel -> tagged("parallel", output.json.encodeToJsonElement(FunctionStep.Parallel.serializer(), value))
+			is FunctionStep.Start -> tagged("start", output.json.encodeToJsonElement(FunctionStep.Start.serializer(), value))
+			is FunctionStep.Await -> tagged("await", output.json.encodeToJsonElement(FunctionStep.Await.serializer(), value))
 			is FunctionStep.Exit -> tagged("exit", output.json.encodeToJsonElement(FunctionStep.Exit.serializer(), value))
 			is FunctionStep.Throw -> tagged("throw", output.json.encodeToJsonElement(FunctionStep.Throw.serializer(), value))
 			is FunctionStep.Let -> tagged("let", output.json.encodeToJsonElement(FunctionStep.Let.serializer(), value))

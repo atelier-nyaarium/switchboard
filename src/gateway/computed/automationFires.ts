@@ -74,7 +74,7 @@ export const FrameSchema = z.strictObject({
 	/** By its try's path: what `e` reads in that catch. */
 	caught: z.record(StepPathSchema, FailureSchema).optional(),
 	/** Uncaught failure per strand. */
-	strands: z.record(StepPathSchema, OneFailureSchema).optional(),
+	strands: z.record(StepPathSchema, FailureSchema).optional(),
 	/** By name. */
 	vars: z.record(z.string(), z.json()).optional(),
 	/** What its call gave it, by value name. */

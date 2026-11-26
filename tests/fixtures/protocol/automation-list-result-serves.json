@@ -31,33 +31,67 @@
 			{
 				"kind": "event",
 				"names": [
-					{ "name": "event", "description": "The event; its fields by name" },
-					{ "name": "source", "description": "The source's name" }
+					{
+						"name": "event",
+						"description": "The event; its fields by name"
+					},
+					{
+						"name": "source",
+						"description": "The source's name"
+					}
 				]
 			},
 			{
 				"kind": "value",
 				"names": [
-					{ "name": "value", "description": "The value it became" },
-					{ "name": "field", "description": "The field's name" }
+					{
+						"name": "value",
+						"description": "The value it became"
+					},
+					{
+						"name": "field",
+						"description": "The field's name"
+					}
 				]
 			},
 			{
 				"kind": "crossing",
 				"names": [
-					{ "name": "value", "description": "The reading now" },
-					{ "name": "device", "description": "The device's name" },
-					{ "name": "measure", "description": "What it measures" },
-					{ "name": "threshold", "description": "The threshold" }
+					{
+						"name": "value",
+						"description": "The reading now"
+					},
+					{
+						"name": "device",
+						"description": "The device's name"
+					},
+					{
+						"name": "measure",
+						"description": "What it measures"
+					},
+					{
+						"name": "threshold",
+						"description": "The threshold"
+					}
 				]
 			},
 			{
 				"kind": "time",
-				"names": [{ "name": "time", "description": "The time it came round" }]
+				"names": [
+					{
+						"name": "time",
+						"description": "The time it came round"
+					}
+				]
 			},
 			{
 				"kind": "interval",
-				"names": [{ "name": "time", "description": "The time it came round" }]
+				"names": [
+					{
+						"name": "time",
+						"description": "The time it came round"
+					}
+				]
 			}
 		],
 		"actions": [
@@ -198,7 +232,20 @@
 			"max": 32,
 			"steps": ["tell_assistant", "device_set", "ifttt_trigger"],
 			"paramTypes": ["device", "text", "number"],
-			"statements": ["do", "if", "try", "parallel", "exit", "throw", "let", "wait", "note", "call"],
+			"statements": [
+				"do",
+				"if",
+				"try",
+				"parallel",
+				"start",
+				"await",
+				"exit",
+				"throw",
+				"let",
+				"wait",
+				"note",
+				"call"
+			],
 			"unnamed": true,
 			"script": true
 		}

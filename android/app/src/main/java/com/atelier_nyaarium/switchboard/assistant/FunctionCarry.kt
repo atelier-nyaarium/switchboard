@@ -81,6 +81,8 @@ internal fun carryRefusal(
 			is FunctionStep.If -> "if".takeIf { it !in statements }
 			is FunctionStep.Try -> "try".takeIf { it !in statements }
 			is FunctionStep.Parallel -> "parallel".takeIf { it !in statements }
+			is FunctionStep.Start -> "start".takeIf { it !in statements }
+			is FunctionStep.Await -> "await".takeIf { it !in statements }
 			is FunctionStep.Exit -> "exit".takeIf { it !in statements }
 			is FunctionStep.Throw -> "throw".takeIf { it !in statements }
 			is FunctionStep.Let -> "let".takeIf { it !in statements }

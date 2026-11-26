@@ -4,6 +4,7 @@ import { fitOf, functionReads, type TriggerGiven, triggerGiven } from "../../sha
 import {
 	type Address,
 	type FunctionOf,
+	functionWidth,
 	type LeafAction,
 	pointerOf,
 	type RunFunction,
@@ -244,11 +245,17 @@ export function createAutomationValidity(
 
 	type Checked = Pick<AutomationFunction, "params" | "steps">;
 
-	const letNames = (fn: Checked): string[] =>
-		stepsOf(fn).flatMap(({ step }) => (step.kind === "let" ? [step.name] : []));
+	const keptName = (step: FunctionStep): string | undefined =>
+		step.kind === "let" ? step.name : step.kind === "start" || step.kind === "await" ? step.as : undefined;
+
+	const keptNames = (fn: Checked): string[] =>
+		stepsOf(fn).flatMap(({ step }) => {
+			const name = keptName(step);
+			return name === undefined ? [] : [name];
+		});
 
 	/** The run scopes `e` to a catch. */
-	const namesIn = (fn: Checked): string[] => [...holeNames(TRIGGER_NAMES, fn.params), ...letNames(fn), "e"];
+	const namesIn = (fn: Checked): string[] => [...holeNames(TRIGGER_NAMES, fn.params), ...keptNames(fn), "e"];
 
 	/** A name a kept value may not take. */
 	const nameTaken = (fn: Checked, name: string): boolean =>
@@ -281,6 +288,14 @@ export function createAutomationValidity(
 		note: () => null,
 		try: () => null,
 		parallel: (_fn, step) => (widthOf([step]) > RUN_STRANDS_MAX ? { message: TOO_WIDE } : null),
+		start: (fn, step) => {
+			if (step.as !== undefined && nameTaken(fn, step.as)) return { param: "as", message: NAME_TAKEN };
+			return functionWidth(fn) > RUN_STRANDS_MAX ? { message: TOO_WIDE } : null;
+		},
+		await: (fn, step) => {
+			if (step.as !== undefined && nameTaken(fn, step.as)) return { param: "as", message: NAME_TAKEN };
+			return expressionIssue("task", step.task, namesIn(fn));
+		},
 		if: (fn, step) => expressionIssue("when", step.when, namesIn(fn)),
 		let: (fn, step) => {
 			if (nameTaken(fn, step.name)) return { param: "name", message: NAME_TAKEN };
@@ -478,7 +493,8 @@ export function createAutomationValidity(
 		const param = fn.params.findIndex((held) => held.name === "e" || reservedName(held.name));
 		if (param >= 0) return nameOwnerIssue(param, NAME_RESERVED);
 		for (const { step, path } of stepsOf(fn)) {
-			if (step.kind === "let" && reservedName(step.name)) {
+			const kept = keptName(step);
+			if (kept !== undefined && reservedName(kept)) {
 				return stepOwnerIssue({ step: path, param: "name" }, NAME_RESERVED);
 			}
 		}

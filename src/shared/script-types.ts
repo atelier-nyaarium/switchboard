@@ -12,6 +12,7 @@ export const SCRIPT_TYPES = [
 	"Device",
 	"Event",
 	"Error",
+	"Task",
 	"List",
 	"Record",
 	"Unknown",
@@ -41,6 +42,12 @@ export const ERROR_MEMBERS: Readonly<Record<string, string>> = {
 	errors: "List<Error>",
 };
 
+export const TASK_MEMBERS: Readonly<Record<string, string>> = {
+	done: "Truth",
+	failed: "Truth",
+	error: "Error",
+};
+
 export interface TypeScope {
 	/** Held names; one shadows an entity. */
 	names: ReadonlyMap<string, string>;
@@ -51,6 +58,7 @@ export interface TypeScope {
 
 export function membersOf(type: string, scope: TypeScope): Readonly<Record<string, string>> {
 	if (type === "Error") return ERROR_MEMBERS;
+	if (type === "Task") return TASK_MEMBERS;
 	if (type === "Event") {
 		const fields = [...EVENT_GIVEN_FIELDS, ...(scope.eventFields ?? [])];
 		return Object.fromEntries(fields.map((field) => [field, "Text"]));

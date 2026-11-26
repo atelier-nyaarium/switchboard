@@ -590,6 +590,8 @@ internal class SandboxAutomationGateway(
 				is FunctionStep.If -> return null
 				is FunctionStep.Try -> return null
 				is FunctionStep.Parallel -> return null
+				is FunctionStep.Start -> return null
+				is FunctionStep.Await -> return null
 				is FunctionStep.Exit -> return null
 				is FunctionStep.Throw -> return null
 				is FunctionStep.Let -> return null

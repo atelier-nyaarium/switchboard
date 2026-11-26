@@ -155,8 +155,10 @@ export function functionReads(fn: Pick<AutomationFunction, "steps">): FunctionRe
 		wait: (step) => value(step.minutes),
 		throw: (step) => (step.text === undefined ? undefined : text(step.text)),
 		call: (step) => Object.values(step.values ?? {}).forEach(value),
+		await: (step) => read(step.task),
 		try: none,
 		parallel: none,
+		start: none,
 		exit: none,
 		note: none,
 	};
