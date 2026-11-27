@@ -94,8 +94,6 @@ private fun FlowPalette.of(colour: FlowColour): Color = when (colour) {
 	FlowColour.FAINT -> faint
 }
 
-/** Automation replay state. */
-private data class Replaying(val id: String, val replay: FlowReplay, val moment: Long, val playing: Boolean)
 
 /** Gateway-specific selection. */
 @Composable
@@ -150,7 +148,7 @@ private fun FlowBand(band: String, input: FlowInput, offer: AutomationOffer, ope
 	val reach = remember(graph, selected) { selected?.let { flowReach(graph, it) } }
 	val dot = playing?.let { held -> held.replay.dotAt(held.moment)?.let { (path, through) -> Triple(held.id, path, through) } }
 	FlowCanvas(graph, facts, selected, reach, dot) { key ->
-		if (key != selected) replaying = null
+		replaying = replaying?.takeIf { key == selected }
 		picked = key
 	}
 	playing?.let { held ->
@@ -159,11 +157,10 @@ private fun FlowBand(band: String, input: FlowInput, offer: AutomationOffer, ope
 			var last = withFrameMillis { it }
 			while (true) {
 				val now = withFrameMillis { it }
-				val going = replaying ?: break
-				val moment = going.moment + (now - last)
+				val going = replaying?.advanced(now - last) ?: break
 				last = now
-				replaying = if (moment >= going.replay.length) going.copy(moment = going.replay.length, playing = false) else going.copy(moment = moment)
-				if (moment >= going.replay.length) break
+				replaying = going
+				if (!going.playing) break
 			}
 		}
 	}
@@ -175,9 +172,9 @@ private fun FlowBand(band: String, input: FlowInput, offer: AutomationOffer, ope
 				replaying = playing,
 				opens = opens,
 				onOpen = onOpen,
-				onReplay = { id -> input.rows.firstOrNull { it.id == id }?.lastRun?.let { replaying = Replaying(id, FlowReplay(it), 0L, true) } },
-				onPlay = { replaying = replaying?.let { if (it.moment >= it.replay.length) it.copy(moment = 0L, playing = true) else it.copy(playing = !it.playing) } },
-				onScrub = { moment -> replaying = replaying?.copy(moment = moment, playing = false) },
+				onReplay = { id -> input.rows.firstOrNull { it.id == id }?.lastRun?.let { replaying = Replaying.of(id, it) } },
+				onPlay = { replaying = replaying?.toggled() },
+				onScrub = { moment -> replaying = replaying?.scrubbed(moment) },
 				onSelect = { picked = FlowKey.Automation(it) },
 			)
 		}

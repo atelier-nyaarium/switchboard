@@ -119,3 +119,19 @@ internal class FlowReplay(val run: AutomationLastRun) {
 		return marks[index].real + ((marks[after].real - marks[index].real) * through).toLong()
 	}
 }
+
+/** One automation's replay as its band holds it. */
+internal data class Replaying(val id: String, val replay: FlowReplay, val moment: Long, val playing: Boolean) {
+	/** Stops at the end. */
+	fun advanced(by: Long): Replaying =
+		(moment + by).let { if (it >= replay.length) copy(moment = replay.length, playing = false) else copy(moment = it) }
+
+	/** Ended plays again from the start; else pause or resume. */
+	fun toggled(): Replaying = if (moment >= replay.length) copy(moment = 0L, playing = true) else copy(playing = !playing)
+
+	fun scrubbed(to: Long): Replaying = copy(moment = to.coerceIn(0L, replay.length), playing = false)
+
+	companion object {
+		fun of(id: String, run: AutomationLastRun): Replaying = Replaying(id, FlowReplay(run), 0L, true)
+	}
+}

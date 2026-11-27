@@ -292,6 +292,12 @@ class FlowMapTest {
 		// Grey while its first attempt is out, amber once one failed.
 		val tried = { moment: Long -> replay.runAt(moment).steps.last().let { it.outcome to it.retrying } }
 		assertEquals(listOf(null to null, null to true), listOf(tried(2_000), tried(3_500)))
+		val held = com.atelier_nyaarium.switchboard.assistant.Replaying.of("warm", timed)
+		val ended = held.advanced(replay.length + 1_000)
+		assertEquals(
+			listOf(replay.length to false, 0L to true, 1_000L to false),
+			listOf(ended, ended.toggled(), ended.toggled().scrubbed(1_000)).map { it.moment to it.playing },
+		)
 		assertEquals(listOf("0" to null), untimed.runAt(500).steps.map { it.path to it.outcome })
 		assertEquals(listOf("0" to "ran", "1" to null), untimed.runAt(1_000).steps.map { it.path to it.outcome })
 	}
