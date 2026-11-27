@@ -13,6 +13,8 @@ data class ChatState(
 	val gateways: GatewayRegistry = GatewayRegistry(),
 	/** Used only as a stale-safe create-dialog suggestion. */
 	val lastProjectByGateway: Map<String, String> = emptyMap(),
+	/** Automations shown as the map. */
+	val automationsMap: Boolean = false,
 	val threads: Map<String, List<Message>> = emptyMap(),
 	/** Highest id a cut retired per thread; ids reassign on load. */
 	val idFloors: Map<String, Long> = emptyMap(),

@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,12 +42,30 @@ internal fun AutomationsView(
 	val toggleRefusals by repo.automationOps.toggles.refusals
 
 	PageColumn(modifier) {
+		SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+			SegmentedButton(
+				selected = !state.automationsMap,
+				onClick = hapticClick { repo.showAutomationsAsMap(false) },
+				shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+				icon = {},
+			) { Text("List") }
+			SegmentedButton(
+				selected = state.automationsMap,
+				onClick = hapticClick { repo.showAutomationsAsMap(true) },
+				shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+				icon = {},
+			) { Text("Map") }
+		}
 		automationsEmpty(state.gateways, home)?.let { empty ->
 			Text(
 				emptyLine(empty, "automations"),
 				style = MaterialTheme.typography.bodyLarge,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
+		}
+		if (state.automationsMap) {
+			AutomationsMapView(groups) { gatewayId, id -> onEdit(gatewayId, AutomationSlot.Held(id)) }
+			return@PageColumn
 		}
 		for (group in groups) {
 			Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

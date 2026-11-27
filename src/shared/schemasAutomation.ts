@@ -399,6 +399,8 @@ export const AutomationLastStepSchema = z
 		endMs: z.number().int().nonnegative().optional(),
 		/** Open, after a failed attempt. */
 		retrying: z.boolean().optional(),
+		/** When an attempt first failed, from the run's start. */
+		retriedMs: z.number().int().nonnegative().optional(),
 	})
 	.meta({ id: "AutomationLastStep" });
 export type AutomationLastStep = z.infer<typeof AutomationLastStepSchema>;

@@ -586,6 +586,18 @@ cannot rewrite what sorts its own events.
   brought back. A let-go removes every event automation, one of a source this build no longer
   has included. The older rule ops answer that rules became automations and the rules that match
   what wakes now.
+- **The map** (`assistant/FlowMap.kt`, `FlowLayout.kt`, `FlowReplay.kt`, `FlowSheet.kt`,
+  `FlowMapView.kt`): Automations shows as a List or a Map, the choice kept on the phone, one band
+  per Gateway in the List's order. Each band's graph is derived from that Gateway's listing alone:
+  `flowGraph` reads what starts each automation, then the walk (`reached`) for what it points at,
+  calls and acts on, so a named function is one node every automation that reaches it leads to,
+  an unnamed one stays in its automation's pill, and a device a step names by a value is followed
+  to the literal its pointer or call gives. `flowFacts` maps the last runs onto it by step path
+  (how its newest part ended, whether it happened or is happening, where a failure nothing caught
+  began, whether it runs only on failure), and colour, pattern and weight are each one `when` over
+  a fact, as the key ruled. Tapping selects and dims what is outside its reach, and the card under
+  the band says what was tapped; Replay plays the selected automation's last run by its step times
+  (a beat a step when it has none), each long gap shortened.
 
 ### Limits
 

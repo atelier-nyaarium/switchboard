@@ -470,6 +470,13 @@ class AppStateStore internal constructor(
 			prefs.edit().putString(KEY_PROFILE_NAME, value).apply()
 		}
 
+	/** Automations shown as the map. */
+	var automationsMap: Boolean
+		get() = prefs.getBoolean(KEY_AUTOMATIONS_MAP, false)
+		set(value) {
+			prefs.edit().putBoolean(KEY_AUTOMATIONS_MAP, value).apply()
+		}
+
 	/** Per-Gateway project suggestions. */
 	var lastProjectByGateway: Map<String, String>
 		get() {
@@ -543,6 +550,7 @@ class AppStateStore internal constructor(
 		const val KEY_ENROLL_CEREMONY_DONE = "federation_enroll_ceremony_done"
 		const val KEY_PROFILE_NAME = "federation_profile_name"
 		const val KEY_LAST_PROJECT = "create_last_project_by_gateway"
+		const val KEY_AUTOMATIONS_MAP = "automations_map"
 		const val KEY_HOSTED_TENANTS = "federation_hosted_tenants"
 		const val KEY_PENDING_ENROLLS = "federation_pending_enrolls"
 		const val KEY_TRUSTED_OWNERS = "federation_trusted_owners"
@@ -609,7 +617,7 @@ class AppStateStore internal constructor(
 			KEY_CONVERSATION_ID,
 			KEY_SYNC_EPOCH, KEY_SYNC_ACKED, KEY_SYNC_DROPPED, KEY_ABSENCE_STREAKS, KEY_TASK_BOARD, KEY_VAULT, KEY_ASSISTANT_SENDS, KEY_ASSISTANT_ACTS,
 			KEY_PHONE_CAPABILITY_RUNS, KEY_ASSISTANT_FEATURES,
-			KEY_RUNBOOKS, KEY_LAST_PROJECT, KEY_ROLES, KEY_LAUNCH_ERRORS, KEY_ASSISTANT_HOME,
+			KEY_RUNBOOKS, KEY_LAST_PROJECT, KEY_ROLES, KEY_LAUNCH_ERRORS, KEY_ASSISTANT_HOME, KEY_AUTOMATIONS_MAP,
 		)
 	}
 }

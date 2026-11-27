@@ -352,7 +352,7 @@ internal class SandboxAutomationGateway(
 						`else` = listOf(step("tell_assistant", "when" to StepArg.Literal(JsonPrimitive("quietly")), "message" to StepArg.Literal(JsonPrimitive("Dry enough.")))),
 					),
 					FunctionStep.Try(
-						steps = listOf(FunctionStep.Wait(StepArg.Literal(JsonPrimitive(5)))),
+						steps = listOf(step("device_set", "device" to StepArg.Literal(JsonPrimitive(SANDBOX_SWITCH)), "verb" to StepArg.Literal(JsonPrimitive("off")))),
 						catch = listOf(step("tell_assistant", "when" to StepArg.Literal(JsonPrimitive("now")), "message" to StepArg.Literal(JsonPrimitive("The lamp did not answer.")))),
 					),
 				),
@@ -395,9 +395,42 @@ internal class SandboxAutomationGateway(
 				crossing("threshold-ce1c44063c5d-temperature-low", "below", 2.0, enabled = true, ranAgoMs = 26 * HOUR_MS),
 				crossing("outside-hot", "above", 30.0, enabled = false, ranAgoMs = null),
 				evening(),
-				pointing("warm-room", AutomationTrigger.Crossing(SANDBOX_SENSOR, "temperature", "above", 26.0, 0.5, 1_800L), "too-warm"),
-				pointing("warm-hall", AutomationTrigger.Crossing(SANDBOX_SENSOR, "temperature", "above", 28.0, 0.5, 1_800L), "too-warm"),
-				pointing("blink-evening", AutomationTrigger.Time("19:00", (1L..7L).toList(), "America/Los_Angeles"), "blink", mapOf("lamp" to SANDBOX_SWITCH, "message" to "Good night")),
+				pointing("warm-room", AutomationTrigger.Crossing(SANDBOX_SENSOR, "temperature", "above", 26.0, 0.5, 1_800L), "too-warm").copy(
+					lastRun = AutomationLastRun(
+						at = now() - HOUR_MS,
+						revision = 1L,
+						steps = listOf(
+							AutomationLastStep("0", "run_function", outcome = Protocol.Wire.RunOutcome.REFUSED.wire, reason = "its function failed", startMs = 0, endMs = 600_000),
+							AutomationLastStep("0.0", "tell_assistant", outcome = "ran", function = "too-warm", startMs = 0, endMs = 200),
+							AutomationLastStep("0.1", "device_set", outcome = Protocol.Wire.RunOutcome.REFUSED.wire, reason = "it could not be reached", function = "too-warm", startMs = 200, endMs = 600_000),
+						),
+						running = false,
+					),
+				),
+				pointing("warm-hall", AutomationTrigger.Crossing(SANDBOX_SENSOR, "temperature", "above", 28.0, 0.5, 1_800L), "too-warm").copy(
+					lastRun = AutomationLastRun(
+						at = now() - 3 * HOUR_MS,
+						revision = 1L,
+						steps = listOf(
+							AutomationLastStep("0", "run_function", outcome = "ran", startMs = 0, endMs = 900),
+							AutomationLastStep("0.0", "tell_assistant", outcome = "ran", function = "too-warm", startMs = 0, endMs = 300),
+							AutomationLastStep("0.1", "device_set", outcome = "ran", function = "too-warm", startMs = 300, endMs = 900),
+						),
+						running = false,
+					),
+				),
+				pointing("blink-evening", AutomationTrigger.Time("19:00", (1L..7L).toList(), "America/Los_Angeles"), "blink", mapOf("lamp" to SANDBOX_SWITCH, "message" to "Good night")).copy(
+					lastRun = AutomationLastRun(
+						at = now() - 90_000,
+						revision = 1L,
+						steps = listOf(
+							AutomationLastStep("0", "run_function", startMs = 0),
+							AutomationLastStep("0.0", "device_set", function = "blink", startMs = 0, retrying = true),
+						),
+						active = "0.0",
+						running = true,
+					),
+				),
 				pointing("blink-morning", AutomationTrigger.Time("07:00", (1L..7L).toList(), "America/Los_Angeles"), "blink", mapOf("lamp" to SANDBOX_SWITCH, "message" to "Good morning")),
 				pointing("lamp-off", AutomationTrigger.Time("23:00", (1L..7L).toList(), "America/Los_Angeles"), SANDBOX_MOVING_FUNCTION),
 				pointing("humid", AutomationTrigger.Crossing(SANDBOX_SENSOR, "humidity", "above", 60.0, 2.0, 600L), "fn-humid").copy(
@@ -409,7 +442,8 @@ internal class SandboxAutomationGateway(
 							AutomationLastStep("0.0", "if", outcome = "ran", side = "else", function = "fn-humid"),
 							AutomationLastStep("0.0.1.0", "tell_assistant", outcome = "ran", function = "fn-humid"),
 							AutomationLastStep("0.1", "try", outcome = "ran", function = "fn-humid"),
-							AutomationLastStep("0.1.0.0", "wait", outcome = "ran", function = "fn-humid"),
+							AutomationLastStep("0.1.0.0", "device_set", outcome = Protocol.Wire.RunOutcome.REFUSED.wire, reason = "it was refused", function = "fn-humid"),
+							AutomationLastStep("0.1.1.0", "tell_assistant", outcome = "ran", function = "fn-humid"),
 						),
 						running = false,
 					),

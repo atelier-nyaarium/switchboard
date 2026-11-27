@@ -5781,6 +5781,8 @@ data class AutomationLastStep(
 	val endMs: Long? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val retrying: Boolean? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val retriedMs: Long? = null,
 )
 
 @Serializable

@@ -41,6 +41,8 @@ const reached = (step: Step, path: string, fire: Fire): boolean =>
 /** Times stamped by the pass that saw it. */
 interface Stamp {
 	now: number;
+	/** The run's latest stamp so far; a clock set back stamps nothing earlier. */
+	floor: number;
 	/** Its earlier record; none for a run held untimed. */
 	before: AutomationLastStep | undefined;
 	timed: boolean;
@@ -55,11 +57,15 @@ const stepOf = (fire: Fire, path: string, step: Step, ports: LastRunPorts, stamp
 			: endedOutcome(step.word);
 	const reason = ended ? (step.message ?? ended.reason) : undefined;
 	const fn = ports.functionAt(fire, path);
-	const { before, now, timed } = stamp;
-	const since = (at: number) => Math.max(0, at - fire.at);
+	const { before, now, timed, floor } = stamp;
+	const since = (at: number) => Math.max(floor, at - fire.at);
 	const startMs = timed ? (before ? before.startMs : since(step.startedAt ?? now)) : undefined;
-	const endMs = timed && ended ? (before?.endMs ?? since(now)) : undefined;
+	// A clock set back never ends a step before it began.
+	const endMs = timed && ended ? (before?.endMs ?? Math.max(since(now), startMs ?? 0)) : undefined;
 	const retrying = !ended && step.word !== undefined && step.word !== "done";
+	const retriedMs = timed
+		? (before?.retriedMs ?? (retrying ? Math.max(since(now), startMs ?? 0) : undefined))
+		: undefined;
 	return {
 		path,
 		kind: ports.kindAt(fire, path).slice(0, 32),
@@ -70,6 +76,7 @@ const stepOf = (fire: Fire, path: string, step: Step, ports: LastRunPorts, stamp
 		...(startMs !== undefined ? { startMs } : {}),
 		...(endMs !== undefined ? { endMs } : {}),
 		...(retrying ? { retrying } : {}),
+		...(retriedMs !== undefined ? { retriedMs } : {}),
 	};
 };
 
@@ -84,11 +91,15 @@ export function lastRunOf(
 	const earlier = before?.member === fire.member ? before.run.steps : undefined;
 	// Recorded untimed: stays so.
 	const timed = earlier === undefined || earlier[0]?.startMs !== undefined;
+	const floor = Math.max(
+		0,
+		...(earlier ?? []).flatMap((step) => [step.startMs ?? 0, step.endMs ?? 0, step.retriedMs ?? 0]),
+	);
 	const steps = Object.entries(fire.steps)
 		.filter(([path, step]) => reached(step, path, fire))
 		.sort(([a], [b]) => byPath(a, b))
 		.map(([path, step]) =>
-			stepOf(fire, path, step, ports, { now, timed, before: earlier?.find((held) => held.path === path) }),
+			stepOf(fire, path, step, ports, { now, floor, timed, before: earlier?.find((held) => held.path === path) }),
 		);
 	if (steps.length === 0) return null;
 	const active = running ? fire.active[0] : undefined;

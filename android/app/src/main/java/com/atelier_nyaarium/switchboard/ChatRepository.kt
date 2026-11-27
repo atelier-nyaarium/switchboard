@@ -133,6 +133,7 @@ class ChatRepository(
 			assistantHome = persistence.loadPersistedAssistantHome(),
 			firstRooted = store.firstRooted,
 			lastProjectByGateway = store.lastProjectByGateway,
+			automationsMap = store.automationsMap,
 			scheduledSends = persistence.loadPersistedScheduledSends(),
 			goals = persistence.loadPersistedGoals(),
 			drafts = persistence.loadPersistedDrafts(),
@@ -295,6 +296,12 @@ class ChatRepository(
 	val cutSubscribers = java.util.concurrent.CopyOnWriteArrayList<ThreadCutSubscriber>()
 
 	fun dismissLaunchError(team: String) = _state.dismissLaunchError(team)
+
+	/** Shows Automations as the map, or the list. */
+	fun showAutomationsAsMap(map: Boolean) {
+		store.automationsMap = map
+		_state.update { it.copy(automationsMap = map) }
+	}
 
 	/** A container start a held forget asked for, and that failed. */
 	fun holdStartFailure(team: String, line: String) {

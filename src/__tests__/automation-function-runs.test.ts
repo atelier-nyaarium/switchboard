@@ -841,7 +841,11 @@ describe("the last run", () => {
 			["0.1", 0, 301_000],
 			["0.2", 301_000, 301_000],
 		]);
-		expect(last(retry)?.steps.find((step) => step.path === "0.0")).toMatchObject({ startMs: 0, retrying: true });
+		expect(last(retry)?.steps.find((step) => step.path === "0.0")).toMatchObject({
+			startMs: 0,
+			retrying: true,
+			retriedMs: 0,
+		});
 	});
 
 	it("leaves a run recorded untimed without times", () => {
@@ -879,6 +883,17 @@ describe("the last run", () => {
 			[4_000, 4_000],
 			[4_000, 4_000],
 		]);
+		// The clock went back after the step began.
+		const begun = {
+			warm: {
+				...untimed.warm!,
+				run: { ...untimed.warm!.run, steps: [{ path: "0", kind: "device_set", startMs: 6_000 }] },
+			},
+		};
+		expect(recorded(begun, later, false, ports, 5_000).warm?.run.steps[0]).toMatchObject({
+			startMs: 6_000,
+			endMs: 6_000,
+		});
 	});
 
 	it("says why a step failed, keeps through a toggle, and is gone once what it runs is edited", async () => {
