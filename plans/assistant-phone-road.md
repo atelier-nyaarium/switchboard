@@ -1437,6 +1437,234 @@ A: One flat card that reuses the switch's side rendering. "If" shows once in the
 
 > yeah I think else if needs to reuse any rendering chaining you make for switch. Except instead of a case, you just show "if" once in the header of the tile, and each condition just has an "Expression" and body where you put the nested flow control and action.
 
+## Question 105 - What is a value a step keeps for later steps called?
+
+Q: The script writes `kept = event.reason` (step kind `let`, card "Keep a value", the frame's `vars`). What is it called?
+A: A variable. Every name and line of prose in automations, and the code behind it, goes past the owner one at a time as renames.
+
+> ohh that's pretty awkward. Kept is a variable? Variable is a better name for that. Run all naming decisions and prose by me again 1 by 1. We are doing renames. even in code.
+
+## Question 106 - Does a condition preview?
+
+Q: "No preview: it reads a value an earlier step keeps", or nothing?
+A: No condition previews. A condition draws only its error or warning: never true, false, or a "No preview" reason. A value that is not true or false stays, drawn as a warning.
+
+> in that case, I also don't like no preview kept thing either. It's more useless to say that than to leave it gone.
+
+> actually conditions just in general should not have a preview. only an error/warning. Because the preview of x == y is going to be true or false. Just useless
+
+## Question 107 - Do stored names change too?
+
+Q: Step kinds, action kinds and run-state fields are on disk, on the wire and in the home payload. Rename them with a migration window, keep them, or clean break?
+A: Clean break, with no compatibility window. Sakura is the only Gateway with automations; its stored data is rewritten at the deploy. The language stays consistent across wire, script, code, cards and prose.
+
+> no need for migration windows. Just update Sakura, the only user of automations, between builds and restarts.
+>
+> C. and keep all the language consistent.
+
+## Question 108 - What is the step that sets a variable called?
+
+Q: "Variable" everywhere, "Set variable", or a `var` keyword?
+A: "Variable" everywhere: card "Variable" with Name and Value fields, wire kind `variable`, code `Variable`, run state `variables`, Names here and error lines say "variable". Script stays `name = value`. + Add step offers a Variable card.
+
+**Recommendation (taken):** one word, nothing new to type, and it matches the Console's own name for a saved name.
+
+## Question 109 - What is running another function called?
+
+Q: "Call" everywhere, or "Run" everywhere?
+A: "Run" everywhere: card "Run function", picker "Run a function", dropdown "Run another function", script `functions.run("Name", {...})`, wire step kind `run_function` beside the action `run_function`. Code renames call to run, spelled "run function" where a bare "run" would read as an automation's run.
+
+> Run. Call sounds like phone automation.
+
+## Question 110 - What are an If's and a switch's branches called?
+
+Q: Script words in normal case ("Else if", "Else", "Case", "Default"), or plain words ("Otherwise")?
+A: Script words in normal case on cards, the move menu, the map and last-run lines. Code `otherwise` becomes `else`.
+
+**Recommendation (taken):** one word per branch, the same in cards and script.
+
+## Question 111 - What is error handling called?
+
+Q: Script words ("Try", "Catch", "Throw") or plain words ("If it fails", "Fail") on cards?
+A: Script words: cards "Try", "Catch", "Throw"; `e` reads "Error" in Names here; the legend says "On error" and "Error began here". Code `handler` becomes `catch`.
+
+**Recommendation (taken):** the same rule as Question 110.
+
+## Question 112 - What is the step that ends a function early called?
+
+Q: It ends only its own function: a caller goes on with its next step, and at the automation's top level the run ends. Functions give no value back. "Return" or "Exit"?
+A: "Return" everywhere: card "Return" with "Ends this function here.", script `return`, wire `return`.
+
+> Actually in languages, exit means program quit. return means return from function. Are our function runs a one way no return?
+
+## Question 113 - What is running steps side by side called?
+
+Q: "Parallel" everywhere, or "Together" everywhere?
+A: "Parallel" everywhere: card "Parallel", failure code `parallel`; code says `branch` for each line of steps it runs (was `strand`, and the last run's `beside`).
+
+**Recommendation (taken):** the script word, and the one a programmer looks for.
+
+## Question 114 - What are the task steps called?
+
+Q: "Start task" and "Await task", bare "Start" and "Await", or "Start a task" and "Wait for a task"?
+A: "Start task" and "Await task": the script word, then the noun. Script and wire stay `start` and `await`.
+
+**Recommendation (taken):** like "Run function", and "Await" keeps it apart from "Wait".
+
+## Question 115 - What is the step that only holds a remark called?
+
+Q: "Comment" everywhere, or keep "Note" and rename the assistant's `note` field?
+A: "Comment" everywhere: card "Comment", wire `comment`, script `//`. The tell's `note` field the assistant reads keeps its name.
+
+**Recommendation (taken):** `//` is a comment to anyone who has written code, and each word then means one thing.
+
+## Question 116 - What are a function's declared inputs called?
+
+Q: "Parameter", "Input", or keep "value"?
+A: "Parameter" on screen ("+ Add parameter", "Name this parameter.", "{name} is not one of its parameters"). On the wire, declared stays `params` and what an automation or a Run function step gives becomes `args`, as an action step's already is.
+
+**Recommendation (taken):** the programmer's pair: a function declares parameters, a caller gives arguments.
+
+## Question 117 - What are an automation's steps with no function name called?
+
+Q: "Unnamed function" everywhere, or "Its own steps" everywhere?
+A: "Unnamed function" everywhere: Script page `ƒ (unnamed)`, the refusal "An unnamed function belongs to one automation. Name it to share it." with code `unnamed` (was `private`), moving "That Gateway cannot hold unnamed functions.". Code `Own` becomes `unnamed`.
+
+**Recommendation (taken):** accurate, already the code's word, and naming it is how it is shared.
+
+## Question 118 - What are the words for how a step or a run ended?
+
+Q: One set everywhere?
+A: A step: Done (`done`), Failed (`failed`, was `refused`), Unsure (`unsure`, was `uncertain`), Skipped (`skipped`, was `suppressed`), Not run (never reached). A run that finished with a failed step: Done with failures (was "Not clean"). An automation that has never run: Never ran.
+
+> look good
+
+## Question 119 - What are the three triggers called?
+
+Q: Nouns matching the wire ("Event", "Crossing", "Schedule"), or sentences?
+A: "Event", "Crossing", "Schedule" (with "At a time" and "Every" under it). The map node says "Schedule" (was "Clock"), the crossing's picker says "Reading" (was "Value"), and its hole name becomes `reading` (was `value`).
+
+**Recommendation (taken):** one noun per trigger, the same as the wire.
+
+## Question 120 - What is the If's test field called?
+
+Q: "Condition" on the If and every Else if, or "Expression" on both?
+A: "Condition" on both; an Else if branch's X reads "Remove else if". Wire `when` becomes `condition`.
+
+**Recommendation (taken):** it says what the field decides, the script already calls it that, and each X says what it removes.
+
+## Question 121 - What is a plug called, now that "switch" names the step?
+
+Q: "Device" everywhere, or "Plug" everywhere?
+A: "Device" everywhere: action "Set device" (script `devices.set`), field "Device", parameter kind `device` (was `switch`), "no such device on this Gateway", "a newer setting of this device landed first". "Switch" names only the step.
+
+**Recommendation (taken):** it covers the next kind of device too, and matches the script and the Device parameter type.
+
+## Question 122 - What is the Switch card's field called?
+
+Q: Keep "Subject", or "Switch on"?
+A: Keep "Subject": card, script `switch (subject)` and wire `subject`.
+
+**Recommendation (taken):** already one word everywhere.
+
+## Question 123 - What is an event condition's middle picker called?
+
+Q: "Operator", keep "Test", or no label?
+A: "Operator": label, wire `operator` (was `test`), code says operator (was `RULE_TESTS`).
+
+**Recommendation (taken):** the programmer's word for "is" and "contains".
+
+## Question 124 - What is the field for how long a step retries called?
+
+Q: "Retry for", or keep "Keep trying"?
+A: "Retry for" (min): wire `retryForMin` (was `keepTryingMin`), issue "Retry for is 1 to 60 minutes".
+
+**Recommendation (taken):** it names what it does and frees up "keep".
+
+## Question 125 - What do cards the phone cannot draw say?
+
+Q: Today "This app cannot edit this step yet. It is kept as it is." and the action's twin, code `Kept`.
+A: A step's card shows its title and its script line with an "Edit in script" button, and no sentence; code `ScriptOnly`. An action's card reads "This app cannot edit this action."; code `Unsupported`. "Keep" appears nowhere as a prominent noun or verb, in prose or in code.
+
+> well I don't want the word keep appearing anywhere as a prominent noun or verb anywhere.
+>
+> Your double sentence can remove "It is kept as it is." and "It saves unchanged.". Both being absolutely useless waste of screen space.
+
+## Question 126 - Do the remaining steps get cards?
+
+Q: Parallel, Start task, Await task and Throw still need Script. Cards for all four, Throw only, or none?
+A: All four in this pass. Parallel: one side per branch ("+ Branch"). Start task: a name field and one side of steps. Await task: a task field (`t`, `all(a, b)`, `any(a, b)`) and an optional result name. Throw: one text field, the error's message. Only a script with errors still needs Script.
+
+**Recommendation (taken):** the switch's card layout covers every shape.
+
+## Question 127 - What are the braces in a message called?
+
+Q: "Placeholder", "Expression", or keep "hole"? What does JavaScript call `${}`?
+A: A string with braces is a "template", and each `{...}` in it is a "placeholder", as JavaScript's template literals have placeholders. Code `holes` becomes `placeholders`; runbooks' `{{name}}` blanks are placeholders too.
+
+> ok. Placeholder it is. A string may be a "template". And when it is, it has "placeholders"
+>  Sounds better than holes.
+
+## Question 128 - What is the editor's second heading called?
+
+Q: "Do", "Then", or keep "Runs"?
+A: "Do" on every Gateway: "When … Do …". An action step's wire kind `do` becomes `action`, so "do" names only the heading.
+
+**Recommendation (taken):** the classic automation pair.
+
+## Question 129 - What are the map's columns and legend called?
+
+Q: Plural nouns in normal case, or keep the capitals?
+A: Columns "Triggers", "Automations", "Functions", "Targets" (was "WHEN", "AUTOMATION", "FUNCTION", "ACTS ON"); the legend's arrow reads "Leads to" (was "Causes"); the shape stays "Trigger or target".
+
+**Recommendation (taken):** no shouting, and each column names what is in it.
+
+## Question 130 - How are "changed elsewhere" and "could not be reached" worded?
+
+Q: One wording each, or "on another device"?
+A: "Changed elsewhere." (automation), "Its function changed elsewhere." with Reload, "This function changed elsewhere." (an opened function), "Deleted elsewhere."; "This Gateway could not be reached." and "No Gateway could be reached.". The automation domain's code `moved` becomes `changed`.
+
+**Recommendation (taken):** the change may come from the assistant or a session, not only a device.
+
+## Question 131 - How is the go-ahead for outside actions worded?
+
+Q: One word, "confirm", or keep "Run without asking?", "go-ahead" and "Asks once when saved."?
+A: "Confirm": dialog "Confirm what it does", body "Each time it runs, it will set a device.", button "Allow"; refusal "Needs your confirmation: …"; hint "Asks for confirmation when saved.". The automation domain's code `danger` becomes `confirm`.
+
+**Recommendation (taken):** one word across the dialog, the refusal and the hint.
+
+## Question 132 - What replaces "needs attention"?
+
+Q: "A step in it needs attention." stands for an error, a warning, or a step this app cannot save. Say which, "Errors/Warnings encountered", or keep it?
+A: Counts, as the list rows already show them: "2 errors · 1 warning"; a step this app cannot save reads "Cannot be saved". The same form on the list, the Run function card and the Do block.
+
+> how about "Errors/Warnings encountered" or something
+
+**Recommendation (taken):** "encountered" reads as if a run hit them; these come from checking the steps before anything runs.
+
+## Question 133 - Who shapes the Gateway's lines?
+
+Q: Should the Gateway write full sentences, or keep fragments the phone capitalizes?
+A: Keep the fragments and the phone's capitalizing. Replace the insider words: "pointer", "derived id", "build", "steps beside it", "one run may", "rule", and the level `unarmed` in code.
+
+> the text looked fine as is, but did you have issue on how it was capsing?
+>
+> ok
+
+## Question 134 - What is the true-or-false type called?
+
+Q: "Boolean", "Yes/no", or keep "Truth"?
+A: "Boolean" everywhere a type is named, the `if()` help line included; error lines keep the plain words "true or false". The other types stay.
+
+**Recommendation (taken):** the programmer's word, like Variable and Parameter.
+
+## Question 135 - What do the sensor and source pages say?
+
+Q: "Watch" for a sensor's automations, "1 uses this source", and a bare "New". Say "uses" written out, or keep "watch"?
+A: "Uses", written out: "No automation uses this sensor.", "2 automations use it and will stop working.", "1 automation uses this source", and a "New automation" button. Code `watching` becomes `usedBy`.
+
+> A. And go ahead and implement now. then come back later when all renamed for stuff we missed
+
 # Plan
 
 ## Phase 2.5 - Integrations
@@ -2984,6 +3212,51 @@ Written before the build from Questions 98 to 104, checked against the tree on 2
 - **A load-time compatibility read that fixes old data in memory and leaves the file stale** (stores restored through a lenient reader: `createVaultDecisions`, `createSourceStateStore`). Round 1: the vault's `watcher` rewrite at load wrote once and ignored whether the write landed. Round 2: the source state's `unexpected` key was dropped in memory and written only on a later `put`, so an idle source kept it. Each was patched in place; a shared "restore lenient, rewrite checked until it lands" helper in `durable-store.ts` is the architecture fix, so a window can close only once every store has rewritten. Round 3, found by the architecture fix: the routines store minted incarnations at restore with an ignored write, so a failed write lost routine memory at the next start. Resolved by `restoreHeld`, adopted by the source state, policies, the automation state and routines; the other lenient restorers are on the board.
 
 **Defect classes to watch:** hand readers of sides (slice 1 closes it); an issue policy scattered across boundaries instead of one `levelOf`; two judges of a save (the phone gates only what it cannot write); the case comparison and the condition's one-or-many read each in one function per runtime, pinned by vectors; labels copied instead of generated.
+
+## Phase 2.7i - The naming pass (Q105 to Q135)
+
+One word per concept across wire, script, code, cards and prose, on the owner's rulings. Clean break (Q107): no skew window; sakura is the only Gateway with automations, and its stored automations are rewritten once at the deploy by a one-off script run with the Gateway stopped (records rewritten to the new names; run state, the log and last runs reset), deleted after the deploy. "Keep" appears nowhere as a prominent noun or verb, in prose or code (Q125). Anything missed comes back as a later pass.
+
+**The table (wire, script, card, code):**
+
+| Concept | Wire | Script | Card and prose | Code |
+|---|---|---|---|---|
+| Variable (Q108) | step `variable` {`name`, `value`} (was `let`) | `name = value` | "Variable" (Name, Value), in + Add step; Names here "Variable" | `Variable`; run state `variables` (was `vars`); no `kept*` |
+| Run another function (Q109) | step `run_function` {`function`, `args`} (was `call` {`values`}); action `run_function` {`function`, `args`} (was `values`) | `functions.run("Name", {...})` | "Run function"; picker "Run a function"; dropdown "Run another function" | call becomes run, spelled `runFunction` where a bare run means an automation's run |
+| Branches (Q110) | `else`, `default` | `else`, `case`, `default` | "Else if", "Else", "Case", "Default" in normal case everywhere | `otherwise` becomes `else` (`elseSteps` where the language reserves `else`) |
+| Errors (Q111) | `try` {`steps`, `catch`}, `throw` | `try { } catch (e) { }`, `throw` | "Try", "Catch", "Throw"; `e` "Error"; legend "On error", "Error began here" | `handler` becomes `catch` |
+| Return (Q112) | step `return` (was `exit`) | `return` | "Return", body "Ends this function here." | `exit` becomes `return` |
+| Parallel (Q113) | `parallel`; failure code `parallel` (was `together`) | `parallel { }` | "Parallel" | `strand` becomes `branch`; the last run's `beside` becomes `inFlight` |
+| Tasks (Q114) | `start`, `await` | `start`, `await` | "Start task", "Await task" | |
+| Comment (Q115) | step `comment` (was `note`) | `// text` | "Comment" | the tell's `note` field keeps its name |
+| Parameters (Q116) | `params` declared; `args` given | | "Parameter" ("+ Add parameter", "Name this parameter.", "{name} is not one of its parameters") | `FunctionValues` becomes args; `frame.values` becomes `frame.args` |
+| Unnamed function (Q117) | refusal code `unnamed` (was `private`) | | Script page `ƒ (unnamed)`; "An unnamed function belongs to one automation. Name it to share it."; "That Gateway cannot hold unnamed functions." | `Own` becomes `Unnamed` |
+| Outcomes (Q118) | `done`, `failed`, `unsure`, `skipped` (was `ran`, `refused`, `uncertain`, `suppressed`) | | "Done", "Failed", "Unsure", "Skipped", "Not run"; a run "Done with failures" (was "Not clean"); "Never ran" | |
+| Triggers (Q119) | `event`, `crossing`, `time`, `interval`; the crossing's placeholder name `reading` (was `value`) | | "Event", "Crossing", "Schedule" ("At a time", "Every"); crossing picker "Reading"; map node "Schedule" | |
+| Condition (Q120) | `if` {`condition`} (was `when`) | `if (condition)` | "Condition" on If and every Else if; "Remove else if" | |
+| Device (Q121) | parameter kind `device` (was `switch`) | `devices.set` | action "Set device", field "Device"; "no such device on this Gateway"; "a newer setting of this device landed first" | `switches` becomes `devices` |
+| Subject (Q122) | `subject` | `switch (subject)` | "Subject" | unchanged |
+| Operator (Q123) | condition `operator` (was `test`) | | "Operator" | `RULE_TESTS` becomes operators |
+| Retry for (Q124) | `retryForMin` (was `keepTryingMin`) | | "Retry for" (min); "Retry for is 1 to 60 minutes" | `KEEP_TRYING_*` becomes `RETRY_FOR_*` |
+| Undrawable cards (Q125) | | | a step: title, script line, "Edit in script", no sentence; an action: "This app cannot edit this action." | `StepDraft.Kept` becomes `ScriptOnly`; `ActionDraft.Kept` becomes `Unsupported` |
+| Placeholders (Q127) | | `{...}` | a string with braces is a "template"; each `{...}` a "placeholder" | `holes` becomes `placeholders` throughout |
+| Action step and heading (Q128) | step `action` (was `do`) | `entity.method(...)` | the editor reads "When … Do …" on every Gateway | `do` becomes `action` |
+| Map (Q129) | | | columns "Triggers", "Automations", "Functions", "Targets"; legend arrow "Leads to" | |
+| Changed and unreachable (Q130) | automation refusal `changed` (was `moved`) | | "Changed elsewhere.", "Its function changed elsewhere." (Reload), "This function changed elsewhere.", "Deleted elsewhere."; "This Gateway could not be reached.", "No Gateway could be reached." | the automation domain's `moved` becomes `changed` |
+| Confirm (Q131) | catalogue `confirm` (was `danger`) | | "Confirm what it does", "Each time it runs, it will set a device.", button "Allow"; "Needs your confirmation: …"; "Asks for confirmation when saved." | the automation domain's `danger` becomes `confirm`; the device catalogue's danger acts stay |
+| Issue counts (Q132) | | | "2 errors · 1 warning"; "Cannot be saved" (was "needs attention") | |
+| Gateway lines (Q133) | level `inactive` (was `unarmed`) | | fragments the phone capitalizes stay; "pointer", "derived id", "build", "steps beside it", "one run may" and "rule" are replaced | |
+| Boolean (Q134) | | type `Boolean` (was `Truth`) | `if()` help says Boolean; errors keep "true or false" | |
+| Uses (Q135) | | | "No automation uses this sensor.", "2 automations use it and will stop working.", "1 automation uses this source", button "New automation" | `watching` becomes `usedBy` |
+
+**Behaviour in the same pass:**
+
+- **Conditions do not preview (Q106):** no true, false or "No preview" line under a condition; only its error or warning. A value the newest event makes neither true nor false is a warning.
+- **Cards for every step (Q108, Q126):** Variable, Parallel ("+ Branch", one side per branch), Start task (a name and one side), Await task (a task field and an optional result name) and Throw (its message). Only a script with errors still needs Script.
+
+**One slice:** the whole pass lands together, since a clean break needs the wire, the Gateway, the phone and sakura's data to move at once: the wire and the Gateway engine, script grammar and printer, Gateway prose and the codegen, with vectors and fixtures regenerated; the phone's labels and lines, the new cards and the condition preview removed; docs and `AGENTS.md`; and the one-off migration script with its dry run against a copy of sakura's data.
+
+**For the architecture step (owner):** look for code the rewording lets go. Duplicate prose constants (`TOO_WIDE` and `TOO_MANY_BESIDE`, `NO_ACTION` and `NO_RUNNER`, `NOT_HOME` and `NOT_HERE`, `NOT_BOOLEAN` and `NOT_TRUE_OR_FALSE`), and the automation-domain skew windows (`step-refusals`, `condition-lists`, `function-serves`, `fire-84-shape`, `fire-tell`, `frame-values`) and readers of older shapes, which a clean break with sakura as the only Gateway no longer needs.
 
 ## Painpoints
 
