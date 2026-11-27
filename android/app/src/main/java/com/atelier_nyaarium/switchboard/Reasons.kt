@@ -2,9 +2,13 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.assistant.CarryRefusal
 import com.atelier_nyaarium.switchboard.assistant.RunsIssue
+import com.atelier_nyaarium.switchboard.assistant.RunsNote
 import com.atelier_nyaarium.switchboard.assistant.TypeWord
 import com.atelier_nyaarium.switchboard.assistant.ValueIssue
 import com.atelier_nyaarium.switchboard.assistant.ParamIssue
+import com.atelier_nyaarium.switchboard.assistant.drawsAsError
+import com.atelier_nyaarium.switchboard.assistant.issueLevelOf
+import com.atelier_nyaarium.switchboard.proto.AutomationIssue
 import com.atelier_nyaarium.switchboard.proto.AutomationSaveRefusal
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.VaultRequest
@@ -435,20 +439,33 @@ internal fun typeWordText(word: TypeWord): String = when (word) {
 /** What blocks Save in the Runs block. */
 internal fun runsIssueLine(issue: RunsIssue): String = when (issue) {
 	RunsIssue.NoSteps -> "Add a step first."
-	is RunsIssue.Step -> issue.line
 	is RunsIssue.NotAStep -> "One step cannot run in a function."
 	is RunsIssue.NeedsName -> "Name it to keep this step."
 	is RunsIssue.InCallee -> "Steps in ${issue.name} need attention."
-	is RunsIssue.Unset -> "Set a value for ${issue.name}."
 	RunsIssue.NameWithValues -> "Name it, or remove its values."
 	is RunsIssue.BadParam -> paramIssueLine(issue.issue)
 	RunsIssue.TooManyParams -> "A function takes at most ${Protocol.Wire.FUNCTION_PARAMS_MAX} values."
-	is RunsIssue.BadValue -> when (issue.issue) {
-		ValueIssue.UNKNOWN_DEVICE -> "Pick a device for ${issue.name} again."
-		ValueIssue.NOT_A_NUMBER -> "${issue.name} is a number."
-	}
 	is RunsIssue.SharedName -> "Used by ${issue.users}. Make unique first."
 	is RunsIssue.NameTooLong -> "A function name holds at most ${issue.max} characters."
+}
+
+internal fun runsNoteLine(note: RunsNote): String = when (note) {
+	is RunsNote.Unset -> "Set a value for ${note.name}."
+	is RunsNote.BadValue -> when (note.issue) {
+		ValueIssue.UNKNOWN_DEVICE -> "Pick a device for ${note.name} again."
+		ValueIssue.NOT_A_NUMBER -> "${note.name} is a number."
+	}
+}
+
+/** Null when it saved clean. */
+internal fun savedIssuesLine(issues: List<AutomationIssue>): String? {
+	val errors = issues.count { drawsAsError(issueLevelOf(it.level)) }
+	val warnings = issues.size - errors
+	val counts = listOfNotNull(
+		errors.takeIf { it > 0 }?.let { if (it == 1) "1 error" else "$it errors" },
+		warnings.takeIf { it > 0 }?.let { if (it == 1) "1 warning" else "$it warnings" },
+	)
+	return counts.takeIf { it.isNotEmpty() }?.let { "Saved with ${it.joinToString(" and ")}." }
 }
 
 internal fun paramIssueLine(issue: ParamIssue): String = when (issue) {

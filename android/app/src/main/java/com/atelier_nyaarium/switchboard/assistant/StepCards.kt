@@ -56,11 +56,20 @@ internal fun CardsSection(
 	kept: Map<String, KeptLine> = emptyMap(),
 	/** Opens script at offset. */
 	onScriptAt: ((Int) -> Unit)? = null,
+	/** The landed check's. */
+	issues: DrawnIssues? = null,
 ) {
 	val functionParams = if (tree == null) (draft.runs as? RunsHead.Points)?.pointing?.params.orEmpty() else draft.callees[tree]?.params.orEmpty()
 	val valueNames = functionParams.filter { it.param.name.isNotBlank() }.map { it.key }.toSet()
 	val plugs = plugChoices(functionParams, offer)
-	val rows = cardsDraw(draft.stepsOf(tree), { cardHint(it, offer, valueNames, calleeParamsOf(draft, offer)) }, lastRun, pointing = draft.runs is RunsHead.Points)
+	val calleeParams = calleeParamsOf(draft, offer)
+	val rows = cardsDraw(
+		draft.stepsOf(tree),
+		{ step -> cardIssueOf(step, issues) { cardHint(it, offer, valueNames, calleeParams) } },
+		lastRun,
+		pointing = draft.runs is RunsHead.Points,
+	)
+	val flagged = issues?.functions.orEmpty()
 	val running = lastRun?.running == true
 	lastRun?.let { run ->
 		Text(
@@ -73,7 +82,7 @@ internal fun CardsSection(
 		key(row.rowKey) {
 			Box(Modifier.padding(start = INDENT * row.depth)) {
 				when (row) {
-					is CardRow.Card -> StepCard(row, draft, offer, plugs, valueNames, enabled, said, textRead, conditionRead, asked, running, edit, reload, tree, kept[row.step.key], onScriptAt)
+					is CardRow.Card -> StepCard(row, draft, offer, plugs, valueNames, enabled, said, textRead, conditionRead, asked, running, edit, reload, tree, kept[row.step.key], onScriptAt, flagged)
 					is CardRow.SideLabel -> Text(
 						sideLabel(row.side),
 						style = MaterialTheme.typography.labelLarge,
@@ -112,6 +121,7 @@ private fun StepCard(
 	tree: String?,
 	kept: KeptLine?,
 	onScriptAt: ((Int) -> Unit)?,
+	flagged: Set<String>,
 ) {
 	val step = row.step
 	val key = step.key
@@ -161,7 +171,7 @@ private fun StepCard(
 					)
 					is StepDraft.Exit -> Text("Ends the run here.", style = MaterialTheme.typography.bodySmall, color = dim)
 					is StepDraft.Try -> Unit
-					is StepDraft.Call -> CallFields(step, draft, offer, tree, enabled, said, edit, reload)
+					is StepDraft.Call -> CallFields(step, draft, offer, tree, enabled, said, edit, reload, flagged)
 					is StepDraft.Kept -> if (kept != null) {
 						Text(kept.text, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
 						onScriptAt?.let { open -> TextButton(onClick = hapticClick { open(kept.at) }, enabled = enabled) { Text("Edit in script") } }
@@ -169,7 +179,7 @@ private fun StepCard(
 						Text("This app cannot edit this step yet. It is kept as it is.", style = MaterialTheme.typography.bodySmall, color = dim)
 					}
 				}
-				IssueLine(row.issue)
+				CardIssueLine(row.issue)
 				lastStepLine(row, running)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = dim) }
 			}
 		}

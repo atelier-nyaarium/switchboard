@@ -218,6 +218,10 @@ internal fun functionValueOf(param: FunctionParam, text: String): JsonPrimitive?
 	else -> text.takeIf { it.isNotBlank() }?.let(::JsonPrimitive)
 }
 
+/** Else as typed. */
+internal fun sentValueOf(param: FunctionParam, text: String): JsonPrimitive? =
+	functionValueOf(param, text) ?: text.takeIf { it.isNotBlank() }?.let(::JsonPrimitive)
+
 internal data class FunctionPreviewScope(val params: List<FunctionParam>, val values: JsonObject)
 
 /** Callee parameters; values unset. */
@@ -304,7 +308,7 @@ internal fun saveOpOf(
 				if (runs.params.isEmpty()) flatActions(runs.steps, offer)?.let { return op(it, null, read) }
 				if (!unnamedServed(offer)) return null
 			}
-			val values = runs.params.mapNotNull { row -> runs.values[row.key]?.let { functionValueOf(row.param, it) }?.let { row.param.name to it } }
+			val values = runs.params.mapNotNull { row -> runs.values[row.key]?.let { sentValueOf(row.param, it) }?.let { row.param.name to it } }
 			val pointer = runs.held.copy(function = runs.functionId, values = JsonObject(values.toMap()).takeIf { values.isNotEmpty() })
 			val body = bodyOf(runs.name, runs.params, runs.steps, offer, calleeParams) ?: return null
 			val called = calledOf(sending, offer, calleeParams) ?: return null

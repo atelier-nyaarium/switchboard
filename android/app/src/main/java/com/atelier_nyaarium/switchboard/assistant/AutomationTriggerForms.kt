@@ -63,6 +63,13 @@ internal fun IssueLine(line: String?) {
 }
 
 @Composable
+internal fun CardIssueLine(issue: CardIssue?) {
+	val held = issue ?: return
+	val color = if (drawsAsError(held.level)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline
+	Text(held.text, style = MaterialTheme.typography.bodySmall, color = color)
+}
+
+@Composable
 internal fun TriggerSection(
 	draft: AutomationDraft,
 	offer: AutomationOffer,

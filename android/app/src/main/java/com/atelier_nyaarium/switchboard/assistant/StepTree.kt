@@ -224,7 +224,7 @@ private fun callStepOf(draft: StepDraft.Call, params: List<FunctionParam>?): Fun
 				if (value.text.isBlank()) null
 				else {
 					val param = byName[name] ?: FunctionParam(name, FunctionParamType.TEXT.wire)
-					StepArg.Literal(functionValueOf(param, value.text) ?: return null)
+					StepArg.Literal(sentValueOf(param, value.text) ?: return null)
 				}
 			}
 		}
@@ -234,10 +234,10 @@ private fun callStepOf(draft: StepDraft.Call, params: List<FunctionParam>?): Fun
 	return FunctionStep.Call(function = draft.function, values = JsonObject(values).takeIf { values.isNotEmpty() })
 }
 
-/** A literal number's text; null otherwise. */
+/** A number, or unreadable text. */
 private fun minutesText(arg: StepArg): String? {
 	val literal = (arg as? StepArg.Literal)?.value as? JsonPrimitive ?: return null
-	if (literal.isString) return null
+	if (literal.isString) return literal.content.takeIf { parseDecimal(it.trim()) == null }
 	return literal.content.takeIf { literal.doubleOrNull != null }
 }
 
@@ -253,25 +253,23 @@ internal fun stepOfDraft(
 		is StepDraft.If -> {
 			val then = draft.then.map { stepOfDraft(it, offer, params, calleeParams) ?: return null }
 			val otherwise = draft.otherwise.map { stepOfDraft(it, offer, params, calleeParams) ?: return null }
-			draft.condition.takeIf { it.isNotBlank() }?.let {
-				FunctionStep.If(`when` = it, steps = then.takeIf { list -> list.isNotEmpty() }, `else` = otherwise.takeIf { list -> list.isNotEmpty() })
-			}
+			FunctionStep.If(`when` = draft.condition, steps = then.takeIf { it.isNotEmpty() }, `else` = otherwise.takeIf { it.isNotEmpty() })
 		}
 		is StepDraft.Try -> FunctionStep.Try(
 			steps = draft.body.map { stepOfDraft(it, offer, params, calleeParams) ?: return null },
 			catch = draft.catch.map { stepOfDraft(it, offer, params, calleeParams) ?: return null },
 		)
 		is StepDraft.Call -> callStepOf(draft, calleeParams(draft.function))
-		is StepDraft.Wait -> minutesOf(draft.minutes)?.let { FunctionStep.Wait(StepArg.Literal(it)) }
+		is StepDraft.Wait -> FunctionStep.Wait(StepArg.Literal(minutesOf(draft.minutes)))
 		is StepDraft.Exit -> FunctionStep.Exit
 		is StepDraft.Note -> FunctionStep.Note(draft.text)
 		is StepDraft.Kept -> draft.step
 	}
 
-/** Whole minutes stay whole. */
-private fun minutesOf(text: String): JsonPrimitive? {
+/** Whole stays whole; else as typed. */
+private fun minutesOf(text: String): JsonPrimitive {
 	val trimmed = text.trim()
-	val decimal = parseDecimal(trimmed) ?: return null
+	val decimal = parseDecimal(trimmed) ?: return JsonPrimitive(text)
 	return JsonPrimitive(trimmed.toLongOrNull() ?: decimal)
 }
 

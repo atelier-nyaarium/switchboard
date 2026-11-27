@@ -26,7 +26,9 @@ import com.atelier_nyaarium.switchboard.assistant.offerOf
 import com.atelier_nyaarium.switchboard.assistant.pickerChoices
 import com.atelier_nyaarium.switchboard.assistant.pointedAt
 import com.atelier_nyaarium.switchboard.assistant.reachLine
+import com.atelier_nyaarium.switchboard.assistant.RunsNote
 import com.atelier_nyaarium.switchboard.assistant.runsIssue
+import com.atelier_nyaarium.switchboard.assistant.runsNote
 import com.atelier_nyaarium.switchboard.assistant.saveAnswerOf
 import com.atelier_nyaarium.switchboard.assistant.triggerGiven
 import com.atelier_nyaarium.switchboard.assistant.valueIssue
@@ -171,24 +173,26 @@ class FunctionRulesTest {
 	}
 
 	@Test
-	fun saveWaitsForWhatTheRunsBlockStillOwes() {
+	fun saveWaitsOnlyForWhatCannotBeWrittenAndValueLinesNeverBlock() {
 		val blink = functionRow("blink", "Blink", listOf("mine"), params = listOf(FunctionParam("lamp", "device"), FunctionParam("times", "number")))
 		val offer = offerOf(SANDBOX_SERVES, away = false, functions = listOf(blink, tooWarm, frost))
 		val pointing = pointedAt(RunsDraft.Flat(emptyList()), "mine", blink, offer)
-		fun issue(runs: RunsDraft) = runsIssue(runs, "mine", given, offer, listed(offer))
+		fun issue(runs: RunsDraft) = runsIssue(runs, "mine", given, offer)
+		fun note(runs: RunsDraft) = runsNote(runs, given, offer)
+		val mistyped = pointing.copy(values = valuesByName(pointing, mapOf("lamp" to SANDBOX_SWITCH, "times" to "two")))
+		val set = pointing.copy(values = valuesByName(pointing, mapOf("lamp" to SANDBOX_SWITCH, "times" to "3")))
 
 		assertEquals(RunsIssue.NoSteps, issue(RunsDraft.Flat(emptyList())))
 		assertNull(issue(RunsDraft.Flat(listOf(StepDraft.Do("plug", ActionDraft.Filled("device_set", mapOf("device" to SANDBOX_SWITCH, "verb" to "on")))))))
 		val unknown = StepDraft.Do("unknown", ActionDraft.Kept(AutomationAction.Unknown("chime", buildJsonObject { put("kind", "chime") })))
 		assertEquals(RunsIssue.NotAStep("unknown"), issue(RunsDraft.Pointing("new", 0L, "Chime", emptyList(), listOf(unknown), emptyMap(), AutomationAction.RunFunction(function = "new"), PointMode.NEW, null)))
-		assertEquals(RunsIssue.Unset("lamp"), issue(pointing))
-		assertEquals(RunsIssue.BadValue("times", ValueIssue.NOT_A_NUMBER), issue(pointing.copy(values = valuesByName(pointing, mapOf("lamp" to SANDBOX_SWITCH, "times" to "two")))))
-		assertNull(issue(pointing.copy(values = valuesByName(pointing, mapOf("lamp" to SANDBOX_SWITCH, "times" to "3")))))
+		assertEquals(listOf<RunsIssue?>(null, null, null), listOf(pointing, mistyped, set).map(::issue))
+		assertEquals(listOf(RunsNote.Unset("lamp"), RunsNote.BadValue("times", ValueIssue.NOT_A_NUMBER), null), listOf(pointing, mistyped, set).map(::note))
 		// Clearing a shared name waits for Make unique.
 		val shared = pointedAt(RunsDraft.Flat(emptyList()), "mine", tooWarm, offer).copy(name = "")
 		assertEquals(RunsIssue.SharedName(2), issue(shared))
 		assertNull(issue(shared.copy(mode = PointMode.UNIQUE)))
-		assertNull(runsIssue(pointedAt(RunsDraft.Flat(emptyList()), "outside", frost, offer).copy(name = ""), "outside", given, offer, listed(offer)))
+		assertNull(runsIssue(pointedAt(RunsDraft.Flat(emptyList()), "outside", frost, offer).copy(name = ""), "outside", given, offer))
 	}
 
 	@Test
@@ -199,7 +203,7 @@ class FunctionRulesTest {
 		fun issue(params: List<FunctionParam>, name: String = "Solo", offer: AutomationOffer = FN_OFFER) =
 			runsIssue(base.copy(name = name, params = params.mapIndexed { index, param ->
 				base.params.getOrNull(index)?.copy(param = param) ?: FunctionValueDraft("value-$index", param)
-			}), "mine", given, offer, listed(offer))
+			}), "mine", given, offer)
 
 		assertEquals(RunsIssue.BadParam("", ParamIssue.EMPTY), issue(listOf(FunctionParam("", "text"))))
 		assertEquals(RunsIssue.BadParam("Lamp", ParamIssue.INVALID), issue(listOf(FunctionParam("Lamp", "text"))))

@@ -111,6 +111,7 @@ internal fun AutomationEditorPage(
 	val checkOp = functionSaveOf(draft, fields, offer, confirmed = true)?.takeUnless { errorsUnkept(draft, offer) }
 	val check = checkRead(ops, key, checkOp)
 	val checkSaid = checkSaidOf(checkedFor(check, checkOp), draft, heard)
+	val drawn = checkIssuesOf(check, checkOp, draft, offer)
 	val said = checkSaid ?: session.said
 	val can = automationEditing(
 		slot,
@@ -149,7 +150,7 @@ internal fun AutomationEditorPage(
 		)
 		return
 	}
-	val runs = runsView(draft, fields, offer, rows, said, check)
+	val runs = runsView(draft, fields, offer, rows, said, check, drawn)
 
 	val ref = draft.text
 	val textOf = ref?.let { textParam(draft, it, offer) }
@@ -233,6 +234,7 @@ internal fun AutomationEditorPage(
 			reload = reload,
 			rows = rows,
 			kept = keptScript(ops, gatewayId, draft, callee.id, offer, edit),
+			issues = drawn,
 		) { ScriptSection(ops, gatewayId, draft, callee.id, offer, can.edit, null, edit) }
 		return
 	}
@@ -287,6 +289,7 @@ internal fun AutomationEditorPage(
 					reload = reload,
 					kept = kept.lines,
 					onScriptAt = kept.open,
+					issues = drawn,
 				)
 			}
 		}

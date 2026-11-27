@@ -28,6 +28,7 @@ import com.atelier_nyaarium.switchboard.assistant.over
 import com.atelier_nyaarium.switchboard.assistant.outcomeOf
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationFunctionRow
+import com.atelier_nyaarium.switchboard.proto.AutomationIssue
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationServes
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationDeleteResult
@@ -136,7 +137,7 @@ internal fun functionWriteMoves(bodies: List<Automation?>, gatewayId: String, ho
 /** A gateway answer, never a Boolean. */
 internal sealed interface AutomationSaved {
 	/** Null after a delete. */
-	data class Stored(val row: AutomationRow?) : AutomationSaved
+	data class Stored(val row: AutomationRow?, val issues: List<AutomationIssue> = emptyList()) : AutomationSaved
 
 	/** The held row names what it lost to; `confirm` and `hole` say what to ask or mark. */
 	data class Refused(
@@ -163,7 +164,7 @@ internal fun automationSavedOf(
 	heldRow: AutomationRow? = null,
 ): AutomationSaved =
 	when (val read = saveAnswerOf(answer)) {
-		is SaveAnswer.Stored -> AutomationSaved.Stored(read.automation)
+		is SaveAnswer.Stored -> AutomationSaved.Stored(read.automation, read.issues)
 		is SaveAnswer.Confirm -> AutomationSaved.Refused(
 			automationSaveLine(Protocol.Wire.AutomationSaveRefusalCode.CONFIRM, answer.refusal),
 			confirm = read.labels,
@@ -313,8 +314,12 @@ internal class AutomationOps(
 	): EditOutcome<AutomationDraft, AutomationSaid>? = edits.send(key, opening) { sent ->
 		val held = state.value
 		val heard = automationContext(held.gateways, held.assistantHome, key.gatewayId).over(sent.context)
-		when (val outcome = outcomeOf(op(sent, heard), sent, deleting, heard)) {
-			AutomationOutcome.Done -> EditOutcome.Done
+		val saved = op(sent, heard)
+		when (val outcome = outcomeOf(saved, sent, deleting, heard)) {
+			AutomationOutcome.Done -> {
+				(saved as? AutomationSaved.Stored)?.issues?.let(::savedIssuesLine)?.let(::tell)
+				EditOutcome.Done
+			}
 			is AutomationOutcome.Offer -> EditOutcome.Stays(AutomationSaid.Line(outcome.line), outcome.draft, reopened = deleting)
 			is AutomationOutcome.Said -> EditOutcome.Stays(outcome.said)
 		}

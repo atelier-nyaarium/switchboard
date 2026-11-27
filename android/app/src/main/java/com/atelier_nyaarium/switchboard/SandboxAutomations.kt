@@ -48,6 +48,7 @@ import com.atelier_nyaarium.switchboard.proto.AutomationActionOption
 import com.atelier_nyaarium.switchboard.proto.AutomationActionParam
 import com.atelier_nyaarium.switchboard.proto.AutomationCondition
 import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
+import com.atelier_nyaarium.switchboard.proto.AutomationIssue
 import com.atelier_nyaarium.switchboard.proto.AutomationNumberOffer
 import com.atelier_nyaarium.switchboard.proto.AutomationSwitchOffer
 import com.atelier_nyaarium.switchboard.proto.AutomationConditionIssue
@@ -73,6 +74,8 @@ import java.util.Locale
 
 private const val AUTOMATION_ROUND_TRIP_MS = 400L
 private const val OLDER_GATEWAY = "unknown op automation_put"
+
+private const val SANDBOX_UNFIT = "It does not fit its function."
 private const val MINUTE_MS = 60_000L
 private const val HOUR_MS = 60 * MINUTE_MS
 internal const val SANDBOX_SENSOR = "ce:1c:44:06:3c:5d"
@@ -463,7 +466,7 @@ internal class SandboxAutomationGateway(
 			SANDBOX_NEVER_REGISTERED -> AutomationListing(ListAnswer.Unreachable)
 			SECOND_SANDBOX_GATEWAY -> AutomationListing(ListAnswer.NotServed)
 			EMPTY_GATEWAY -> AutomationListing(ListAnswer.Listed(shelf(gatewayId)), SANDBOX_SERVES.copy(functions = null))
-			else -> AutomationListing(ListAnswer.Listed(shelf(gatewayId)), SANDBOX_SERVES, functions = functionRows(gatewayId))
+			else -> AutomationListing(ListAnswer.Listed(shelf(gatewayId).map { withErrors(gatewayId, it) }), SANDBOX_SERVES, functions = functionRows(gatewayId))
 		}
 	}
 
@@ -476,7 +479,36 @@ internal class SandboxAutomationGateway(
 			val held: AutomationRow?,
 			val landed: Pair<String, Pair<Long, AutomationFunction>>?,
 			val copied: Boolean,
+			val issues: List<AutomationIssue>,
 		) : SaveJudgment
+	}
+
+	private fun spanIssue(record: String, id: String?, span: AutomationHoleSpan, line: String) = AutomationIssue(
+		level = Protocol.Wire.AutomationIssueLevel.ERROR.wire,
+		record = record,
+		id = id,
+		step = span.action.toString(),
+		param = span.param,
+		start = span.start,
+		end = span.end,
+		line = line,
+	)
+
+	/** A copy's id unwritten. */
+	private fun issuesOf(automation: Automation, function: Pair<String, AutomationFunction>?, copied: Boolean = false): List<AutomationIssue> = buildList {
+		unreadHole(automation)?.let { (span, line) -> add(spanIssue(Protocol.Wire.AutomationSaveRecord.AUTOMATION.wire, null, span, line)) }
+		val (id, body) = function ?: return@buildList
+		unreadStepHole(body)?.let { (span, line) -> add(spanIssue(Protocol.Wire.AutomationSaveRecord.FUNCTION.wire, id.takeUnless { copied }, span, line)) }
+		if (!fitsFunction(automation, body)) {
+			add(AutomationIssue(level = Protocol.Wire.AutomationIssueLevel.ERROR.wire, record = Protocol.Wire.AutomationSaveRecord.AUTOMATION.wire, line = SANDBOX_UNFIT))
+		}
+	}
+
+	private fun withErrors(gatewayId: String, row: AutomationRow): AutomationRow {
+		val pointer = pointerOf(row.automation)
+		val function = pointer?.let { id -> functions(gatewayId)[id]?.second?.let { id to it } }
+		val errors = issuesOf(row.automation, function).count { it.level == Protocol.Wire.AutomationIssueLevel.ERROR.wire }
+		return row.copy(errors = errors.toLong().takeIf { it > 0 })
 	}
 
 	private fun judge(gatewayId: String, op: ConsoleOp.AutomationSave): SaveJudgment {
@@ -522,25 +554,12 @@ internal class SandboxAutomationGateway(
 		if (pointer != null && function == null) {
 			return SaveJudgment.Refused(AutomationSaveRefusal(code = Protocol.Wire.AutomationSaveRefusalCode.UNKNOWN_FUNCTION.wire, id = pointer))
 		}
-		unreadHole(automation)?.let { (span, _) -> return SaveJudgment.Refused(holeRefusal(Protocol.Wire.AutomationSaveRecord.AUTOMATION.wire, span)) }
-		landed?.let { (_, body) ->
-			unreadStepHole(body.second)?.let {
-				return SaveJudgment.Refused(holeRefusal(Protocol.Wire.AutomationSaveRecord.FUNCTION.wire, it))
-			}
-		}
-		if (pointer != null && function != null) {
-			val users = listOf(op.automationId to automation) +
-				shelf(gatewayId).filter { it.id != op.automationId && pointerOf(it.automation) == pointer }.map { it.id to it.automation }
-			val unfit = users.filterNot { (_, body) -> fitsFunction(body, function) }.map { it.first }
-			if (unfit.isNotEmpty()) {
-				return SaveJudgment.Refused(AutomationSaveRefusal(code = Protocol.Wire.AutomationSaveRefusalCode.UNFIT.wire, automations = unfit))
-			}
-		}
 		val asks = unconfirmed(automation, held, after, stored)
 		if (asks.isNotEmpty() && op.confirmed != true) {
 			return SaveJudgment.Refused(AutomationSaveRefusal(code = Protocol.Wire.AutomationSaveRefusalCode.CONFIRM.wire, labels = asks))
 		}
-		return SaveJudgment.Ready(automation, revision, held, landed, copied)
+		val issues = issuesOf(automation, pointer?.let { id -> function?.let { id to it } }, copied)
+		return SaveJudgment.Ready(automation, revision, held, landed, copied, issues)
 	}
 
 	private fun functionFor(gatewayId: String, op: ConsoleOp.AutomationSave): AutomationFunction? {
@@ -582,7 +601,7 @@ internal class SandboxAutomationGateway(
 		val reads = functionFor(gatewayId, save)?.let(::sandboxReads)
 		return when (val judged = judge(gatewayId, save)) {
 			is SaveJudgment.Refused -> ConsoleAutomationCheckResult(ready = false, refusal = judged.refusal, reads = reads)
-			is SaveJudgment.Ready -> ConsoleAutomationCheckResult(ready = true, reads = reads)
+			is SaveJudgment.Ready -> ConsoleAutomationCheckResult(ready = true, reads = reads, issues = judged.issues.takeIf { it.isNotEmpty() })
 		}
 	}
 
@@ -612,7 +631,12 @@ internal class SandboxAutomationGateway(
 				shelves[gatewayId] = if (judged.held == null) shelf(gatewayId) + row else shelf(gatewayId).map { if (it.id == op.automationId) row else it }
 				val running = shelf(gatewayId).mapNotNull { pointerOf(it.automation) }.toSet()
 				bodies.keys.retainAll(reachOver(running) { id -> bodies[id]?.second?.let(::callsOf).orEmpty() })
-				return ConsoleAutomationSaveResult(stored = true, automation = row, function = functionRows(gatewayId).firstOrNull { it.id == pointerOf(automation) })
+				return ConsoleAutomationSaveResult(
+					stored = true,
+					automation = withErrors(gatewayId, row),
+					function = functionRows(gatewayId).firstOrNull { it.id == pointerOf(automation) },
+					issues = judged.issues.takeIf { it.isNotEmpty() },
+				)
 			}
 		}
 	}
@@ -656,24 +680,15 @@ internal class SandboxAutomationGateway(
 		return args.toSortedMap().toString()
 	}
 
-	private fun holeRefusal(record: String, span: AutomationHoleSpan) = AutomationSaveRefusal(
-		code = "hole",
-		record = record,
-		path = span.action.toString(),
-		param = span.param,
-		start = span.start,
-		end = span.end,
-	)
-
 	/** A hole nothing names. */
-	private fun unreadStepHole(function: AutomationFunction): AutomationHoleSpan? {
+	private fun unreadStepHole(function: AutomationFunction): Pair<AutomationHoleSpan, String>? {
 		val names = SANDBOX_SERVES.triggers.flatMap { it.names }.map { it.name }.toSet() + function.params.map { it.name }
 		written(function).forEachIndexed { at, step ->
 			val args = (step as? FunctionStep.Do)?.args ?: return@forEachIndexed
 			for ((param, arg) in args) {
 				val text = (literalOf(arg) as? JsonPrimitive)?.takeIf { it.isString }?.content ?: continue
 				val hole = holesOf(text).firstOrNull { !it.closed || it.root() !in names } ?: continue
-				return AutomationHoleSpan(at.toLong(), param, hole.start.toLong(), hole.end.toLong())
+				return AutomationHoleSpan(at.toLong(), param, hole.start.toLong(), hole.end.toLong()) to "no name ${hole.written(text)} here"
 			}
 		}
 		return null

@@ -29,6 +29,8 @@ import com.atelier_nyaarium.switchboard.assistant.StepDraft
 import com.atelier_nyaarium.switchboard.assistant.keptLines
 import com.atelier_nyaarium.switchboard.assistant.Served
 import com.atelier_nyaarium.switchboard.assistant.rowScriptErrors
+import com.atelier_nyaarium.switchboard.assistant.rowErrorsLine
+import com.atelier_nyaarium.switchboard.assistant.markedIssue
 import com.atelier_nyaarium.switchboard.assistant.ScriptShown
 import com.atelier_nyaarium.switchboard.assistant.scriptShown
 import com.atelier_nyaarium.switchboard.assistant.scriptShapes
@@ -109,6 +111,23 @@ class ScriptDraftTest {
 	private fun AutomationDraft.answered(answer: ConsoleScriptParseResult): AutomationDraft {
 		val asked = scriptParseOp(this, null, offered())!!
 		return parsedInto(null, asked, answer, offered())
+	}
+
+	@Test
+	fun aParseWithStepsAndIssuesReturnsToCardsAndMarksItsFirstError() {
+		val warning = ScriptIssue(0, 1, "shadows an entity", level = "warning")
+		val error = ScriptIssue(2, 4, "no such name", level = "error")
+		val answer = steps(plugStep("on")).copy(issues = listOf(warning, error))
+		val landed = opened(listOf(plugStep("off"))).startedScript(null, "a").typedScript(null, "b").answered(answer)
+
+		assertFalse(holdsErrors(landed.steps))
+		assertTrue(cardsAllowed(landed, null, landed.offered()))
+		assertEquals(listOf(warning, error), scriptIssues(landed, null, landed.offered()))
+		assertEquals(error, markedIssue(listOf(warning, error)))
+		assertNull(markedIssue(listOf(warning)))
+		// Older Gateways send no level.
+		assertEquals(ScriptIssue(0, 1, "older"), markedIssue(listOf(ScriptIssue(0, 1, "older"))))
+		assertNotNull(functionSaveOf(landed, none, landed.offered(), confirmed = false))
 	}
 
 	@Test
@@ -263,6 +282,7 @@ class ScriptDraftTest {
 
 		assertTrue(rowScriptErrors(row("outer"), served))
 		assertFalse(rowScriptErrors(row("fine"), served))
+		assertEquals(listOf(null, "1 error", "2 errors"), listOf(null, 1L, 2L).map { rowErrorsLine(row("fine").copy(errors = it)) })
 		val shared = opened(listOf(plugStep("on")), users = listOf("mine", "other")).startedScript(null, "a").typedScript(null, "x(").answered(issues)
 		val others = listOf(AutomationRow("other", 1L, pointed, "Downstairs above 26 °C"))
 		assertEquals(listOf("Downstairs above 26 °C"), errorsAsk(shared, shared.offered(), others)?.others)

@@ -157,7 +157,9 @@ class FunctionDraftTest {
 		val waiting = runsView(picked, none, serving.offer, listOf(plain))!!
 
 		assertEquals(listOf(ValueSource.Unset, ValueSource.Unset), waiting.values.map { it.source })
-		assertNull(functionSaveOf(picked, none, serving.offer, confirmed = false))
+		assertEquals(com.atelier_nyaarium.switchboard.assistant.RunsNote.Unset("lamp"), waiting.note)
+		// Unset values still save.
+		assertNull((written(functionSaveOf(picked, none, serving.offer, confirmed = false)!!.automation).single() as AutomationAction.RunFunction).values)
 		val set = picked.withFunctionValue(valueKey(picked, "lamp"), SANDBOX_SWITCH).withFunctionValue(valueKey(picked, "times"), "3")
 		val op = functionSaveOf(set, none, serving.offer, confirmed = false)!!
 		assertNull(op.function)
@@ -167,6 +169,15 @@ class FunctionDraftTest {
 				put("times", 3)
 			},
 			(written(op.automation).single() as AutomationAction.RunFunction).values,
+		)
+		// Unreadable numbers go as typed.
+		val mistyped = set.withFunctionValue(valueKey(picked, "times"), "two")
+		assertEquals(
+			buildJsonObject {
+				put("lamp", SANDBOX_SWITCH)
+				put("times", "two")
+			},
+			(written(functionSaveOf(mistyped, none, serving.offer, confirmed = false)!!.automation).single() as AutomationAction.RunFunction).values,
 		)
 
 		val sharing = automationDraftOf(shared, serving)!!
@@ -242,7 +253,7 @@ class FunctionDraftTest {
 		val runs = removed.runsDraft() as RunsDraft.Pointing
 
 		assertEquals(secondKey, ((runs.steps[1] as StepDraft.Do).action as ActionDraft.Filled).references.getValue("device").key)
-		assertEquals(RunsIssue.Step(runs.steps[1].key, "lamp2 is no longer a value; pick again"), draftRunsIssue(removed, none, offer))
+		assertEquals(RunsIssue.NotAStep(runs.steps[1].key), draftRunsIssue(removed, none, offer))
 		assertNull(functionSaveOf(removed, none, offer, confirmed = false))
 	}
 
@@ -334,14 +345,15 @@ class FunctionDraftTest {
 	}
 
 	@Test
-	fun theBlockLeavesCardIssuesToTheCardsWhileSaveStillWaits() {
+	fun aBrokenCardSavesWhileWhatCannotBeWrittenWaits() {
 		val opened = automationDraftOf(plain, serving)!!
 		val blank = opened.withAction(opened.steps[0].key) { ActionDraft.Filled("device_set", emptyMap()) }
 		val empty = automationDraftOf(plain, serving)!!.freshBody()
 		val long = automationDraftOf(plain, serving)!!.withFunctionName("x".repeat(Protocol.Wire.FUNCTION_NAME_MAX + 1))
 
 		assertEquals(listOf(null, null), listOf(blank, empty).map { runsView(it, none, serving.offer, listOf(plain))!!.issue })
-		assertTrue(draftRunsIssue(blank, none, serving.offer) is RunsIssue.Step)
+		assertNull(draftRunsIssue(blank, none, serving.offer))
+		assertEquals(listOf(AutomationAction.DeviceSet("", "")), written(functionSaveOf(blank, none, serving.offer, confirmed = false)!!.automation))
 		assertEquals(RunsIssue.NoSteps, draftRunsIssue(empty, none, serving.offer))
 		assertEquals(RunsIssue.NameTooLong(Protocol.Wire.FUNCTION_NAME_MAX), runsView(long, none, serving.offer, listOf(plain))!!.issue)
 		assertNull(functionSaveOf(long, none, serving.offer, confirmed = false))

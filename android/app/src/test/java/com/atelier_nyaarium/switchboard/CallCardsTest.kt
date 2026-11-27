@@ -19,6 +19,8 @@ import com.atelier_nyaarium.switchboard.assistant.callChoices
 import com.atelier_nyaarium.switchboard.assistant.callLine
 import com.atelier_nyaarium.switchboard.assistant.canRemove
 import com.atelier_nyaarium.switchboard.assistant.draftRunsIssue
+import com.atelier_nyaarium.switchboard.assistant.drawnIssuesOf
+import com.atelier_nyaarium.switchboard.proto.AutomationIssue
 import com.atelier_nyaarium.switchboard.assistant.functionSaveOf
 import com.atelier_nyaarium.switchboard.assistant.droppedEdits
 import com.atelier_nyaarium.switchboard.assistant.RunsDraft
@@ -207,6 +209,20 @@ class CallCardsTest {
 	}
 
 	@Test
+	fun aCalleesIssueLandsOnItsOwnCardAndMarksTheCallCard() {
+		val draft = opened().openedCallee("chime", offer)
+		val issue = AutomationIssue(level = "error", record = "function", id = "chime", step = "0", param = "device", line = "no such plug")
+		val drawn = drawnIssuesOf(listOf(issue), draft, flat = false, offer)
+		val unopened = drawnIssuesOf(listOf(issue), opened(), flat = false, offer)
+
+		assertEquals(listOf(draft.stepsOf("chime").single().key), drawn.cards.keys.toList())
+		assertEquals(CallLine.Attention, callLine(draft, offer, null, "chime", drawn.functions))
+		assertEquals(null, callLine(draft, offer, null, "chime"))
+		// Unopened: named, no card.
+		assertEquals(listOf("Chime: no such plug"), unopened.rest.map { it.text })
+	}
+
+	@Test
 	fun aCalleeTheAutomationNoLongerCallsNeitherBlocksSaveNorCountsAsAChange() {
 		val draft = opened()
 		val orphaned = draft.plusStep(Slot(null, null, 1), StepDraft.Call("c2", "", emptyMap()))
@@ -323,13 +339,18 @@ class CallCardsTest {
 	}
 
 	@Test
-	fun aValueItsFunctionNoLongerDeclaresBlocksSaveUntilCleared() {
+	fun aValueItsFunctionNoLongerDeclaresIsDrawnAndSavedForTheGatewayToJudge() {
 		val draft = opened()
 		val stray = draft.withStep(callKey(draft)) { (it as StepDraft.Call).copy(values = mapOf("room" to CallValue.Typed("hall"))) }
+		val unpicked = draft.withStep(callKey(draft)) { (it as StepDraft.Call).copy(function = "") }
 
 		assertEquals(listOf("room"), com.atelier_nyaarium.switchboard.assistant.strayCallValues(stray.steps.single() as StepDraft.Call, chime.function.params))
-		assertTrue(draftRunsIssue(stray, none, offer) is RunsIssue.Step)
-		assertNull(functionSaveOf(stray, none, offer, false))
+		assertNull(draftRunsIssue(stray, none, offer))
+		val sent = functionSaveOf(stray, none, offer, false)!!.function as com.atelier_nyaarium.switchboard.proto.AutomationSaveFunction.Edit
+		assertEquals(listOf("room"), (com.atelier_nyaarium.switchboard.assistant.written(sent.body).single() as FunctionStep.Call).values!!.keys.toList())
+		// No function: unwritable.
+		assertEquals(RunsIssue.NotAStep(callKey(draft)), draftRunsIssue(unpicked, none, offer))
+		assertNull(functionSaveOf(unpicked, none, offer, false))
 	}
 
 	@Test
@@ -355,7 +376,7 @@ class CallCardsTest {
 
 		assertEquals(false, callChoices(opened, callsBack, tree = null).contains(CallChoice.Existing("bell", "Bell")))
 		assertEquals(listOf("count"), com.atelier_nyaarium.switchboard.assistant.calleeParams(opened, fewer, "chime")!!.map { it.name })
-		assertTrue(draftRunsIssue(labelled, none, fewer) is RunsIssue.Step)
+		assertNull(draftRunsIssue(labelled, none, fewer))
 		assertNull(com.atelier_nyaarium.switchboard.assistant.calleeParams(opened, gone, "chime"))
 		assertEquals(4L, opened.openedCallee("chime", fewer).callees.getValue("chime").base)
 	}

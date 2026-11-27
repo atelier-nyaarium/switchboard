@@ -196,7 +196,7 @@ class SandboxAutomationGatewayTest {
 	}
 
 	@Test
-	fun aFunctionEditRefusesWhenAnotherUserWouldLoseARequiredValue() = runBlocking {
+	fun aFunctionEditThatLeavesAnotherUserUnfitSavesAndThatUserCountsAnError() = runBlocking {
 		val gateway = gateway()
 		val warm = gateway.rows("sandbox").single { it.id == "warm-room" }
 		val body = AutomationFunction(
@@ -214,8 +214,8 @@ class SandboxAutomationGatewayTest {
 			),
 		)
 
-		assertEquals("unfit", answer.refusal?.code)
-		assertTrue(answer.refusal?.automations.orEmpty().contains("warm-hall"))
+		assertTrue(answer.stored)
+		assertEquals(1L, gateway.rows("sandbox").single { it.id == "warm-hall" }.errors)
 	}
 
 	@Test
@@ -279,19 +279,22 @@ class SandboxAutomationGatewayTest {
 	}
 
 	@Test
-	fun aSaveIsRefusedForAMissingFunctionAHoleAFitOrADangerInsideAFunction() = runBlocking {
+	fun aMissingFunctionOrADangerRefusesWhileAHoleOrAFitIsAnIssue() = runBlocking {
 		val gateway = gateway()
 		val warm = gateway.rows("sandbox").single { it.id == "warm-room" }
 		suspend fun save(automation: Automation, function: AutomationSaveFunction? = null) =
 			gateway.save("sandbox", ConsoleOp.AutomationSave(automationId = warm.id, automation = automation, automationBase = warm.revision, function = function)).refusal
+		suspend fun check(automation: Automation, function: AutomationSaveFunction? = null) =
+			gateway.check("sandbox", ConsoleOp.AutomationCheck(automationId = warm.id, automation = automation, automationBase = warm.revision, function = function))!!
 		fun body(action: String, vararg args: Pair<String, String>) =
 			AutomationFunction("Too warm", emptyList(), listOf(FunctionStep.Do(action = action, args = JsonObject(args.associate { (name, text) -> name to literal(text) }))))
 
 		assertEquals("unknown_function", save(warm.automation.copy(actions = listOf(AutomationAction.RunFunction(function = "gone"))))?.code)
-		val hole = save(warm.automation, AutomationSaveFunction.Edit("too-warm", body("tell_assistant", "when" to "now", "message" to "It is {nope}."), 2L))
-		assertEquals(listOf("hole", "function", "0", "message"), listOf(hole?.code, hole?.record, hole?.path, hole?.param))
-		val clocked = warm.automation.copy(trigger = AutomationTrigger.Time("18:00", listOf(1L), "UTC"))
-		assertEquals(listOf("warm-room"), save(clocked)?.automations)
+		val hole = check(warm.automation, AutomationSaveFunction.Edit("too-warm", body("tell_assistant", "when" to "now", "message" to "It is {nope}."), 2L))
+		assertEquals(true, hole.ready)
+		assertEquals(listOf("error", "too-warm", "0", "message"), hole.issues!!.single { it.record == "function" }.let { listOf(it.level, it.id, it.step, it.param) })
+		val clocked = check(warm.automation.copy(trigger = AutomationTrigger.Time("18:00", listOf(1L), "UTC")))
+		assertEquals(listOf(true, "automation"), listOf(clocked.ready, clocked.issues!!.single().record))
 		val ifttt = save(warm.automation, AutomationSaveFunction.Edit("too-warm", body("ifttt_trigger", "event" to "door"), 2L))
 		assertEquals(listOf("Send to IFTTT"), ifttt?.labels)
 	}

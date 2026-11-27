@@ -195,6 +195,9 @@ internal fun scriptPending(draft: AutomationDraft, offer: AutomationOffer): Bool
 internal fun scriptIssues(draft: AutomationDraft, tree: String?, offer: AutomationOffer): List<ScriptIssue> =
 	draft.scriptOf(tree)?.answer?.takeIf { scriptCurrent(draft, tree, offer) }?.issues.orEmpty()
 
+/** First error, marked. */
+internal fun markedIssue(issues: List<ScriptIssue>): ScriptIssue? = issues.firstOrNull { drawsAsError(issueLevelOf(it.level)) }
+
 /** Confirm newly introduced errors. */
 internal data class ErrorsAsk(
 	/** Functions newly holding errors. */

@@ -253,8 +253,11 @@ internal data class AutomationDraft(
 	fun stepAt(key: String): StepDraft? =
 		findStep(steps, key) ?: callees.values.firstNotNullOfOrNull { findStep(it.steps, key) }
 
-	/** Null selects own cards. */
-	fun cardsOf(function: String?): List<StepDraft> = function?.let { callees[it]?.steps } ?: steps
+	/** Its own, or a callee's; null when no tree shows it. */
+	fun cardsOf(function: String?): List<StepDraft>? = when (function) {
+		null, functionHere(this, null) -> steps
+		else -> callees[function]?.steps
+	}
 
 	/** Null selects own cards. */
 	fun stepsOf(tree: String?): List<StepDraft> = if (tree == null) steps else callees[tree]?.steps.orEmpty()
@@ -508,11 +511,11 @@ internal fun givenOf(draft: AutomationDraft, fields: SourceFields): TriggerGiven
 /** A crossing's measure; null otherwise. */
 internal fun measureOf(draft: AutomationDraft): String? = (draft.trigger as? TriggerDraft.Crossing)?.measure?.takeIf { it.isNotBlank() }
 
-/** What blocks Save in its Runs block; null where functions are not served. */
+/** What it cannot write; null where functions are not served. */
 internal fun draftRunsIssue(draft: AutomationDraft, fields: SourceFields, offer: AutomationOffer): RunsIssue? {
 	if (offer.functions == null) return null
-	runsIssue(draft.runsDraft(), draft.id, givenOf(draft, fields), offer, calleeParamsOf(draft, offer))?.let { return it }
-	return sentCallees(draft, offer).firstOrNull { calleeIssue(it, offer, calleeParamsOf(draft, offer)) != null }?.let { RunsIssue.InCallee(it.name) }
+	runsIssue(draft.runsDraft(), draft.id, givenOf(draft, fields), offer)?.let { return it }
+	return sentCallees(draft, offer).firstOrNull { calleeIssue(it, offer) != null }?.let { RunsIssue.InCallee(it.name) }
 }
 
 /** The save op; null when unservable or unwritable. */
@@ -739,6 +742,14 @@ internal fun checkedReads(read: CheckRead, functionId: String): FunctionReads? {
 	return read.answer?.reads?.takeIf { pointerOf(automation) == functionId }
 }
 
+/** Only this op's ready check. */
+internal fun checkIssuesOf(read: CheckRead, op: ConsoleOp.AutomationSave?, draft: AutomationDraft, offer: AutomationOffer): DrawnIssues? {
+	val sent = op ?: return null
+	val check = checkedFor(read, sent)?.takeIf { it.ready } ?: return null
+	return drawnIssuesOf(check.issues.orEmpty(), draft, flat = pointerOf(sent.automation) == null, offer)
+}
+
+/** Issues alone refuse nothing. */
 internal fun checkSaidOf(check: ConsoleAutomationCheckResult?, draft: AutomationDraft, context: EditContext): AutomationSaid? {
 	if (check == null || check.ready) return null
 	val refusal = check.refusal ?: return null
@@ -769,7 +780,7 @@ internal sealed interface SaidAt {
 /** Null for a step no card holds. */
 internal fun saidAtOf(at: RefusedAt, draft: AutomationDraft): SaidAt? = when (at) {
 	is RefusedAt.Value -> SaidAt.Value(at.param)
-	is RefusedAt.Step -> keyAt(draft.cardsOf(at.function), at.path)?.let { SaidAt.Card(it, at.param) }
+	is RefusedAt.Step -> draft.cardsOf(at.function)?.let { keyAt(it, at.path) }?.let { SaidAt.Card(it, at.param) }
 }
 
 internal sealed interface AutomationOutcome {
@@ -791,7 +802,7 @@ internal fun outcomeOf(
 		AutomationSaved.Unreachable -> AutomationOutcome.Said("That Gateway could not be reached")
 		is AutomationSaved.Refused -> {
 			val held = saved.heldRow?.takeIf { it.id == draft.id && it.revision != draft.revision && editable(it, context.offer) }
-			val hole = saved.hole?.let { refused -> keyAt(draft.cardsOf(refused.function), refused.path)?.let { key -> key to refused } }
+			val hole = saved.hole?.let { refused -> draft.cardsOf(refused.function)?.let { keyAt(it, refused.path) }?.let { key -> key to refused } }
 			val at = saved.at?.let { saidAtOf(it, draft) }
 			val moved = saved.functionMoved?.let { movedIdOf(it, draft) }
 			when {

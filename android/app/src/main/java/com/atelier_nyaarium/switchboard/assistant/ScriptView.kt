@@ -143,7 +143,7 @@ internal fun ScriptSection(
 			lastRun?.let { run ->
 				Text(if (run.running) "Running now" else "Last run ${agoText(run.at)}", style = MaterialTheme.typography.labelMedium, color = dim)
 			}
-			val first = shown.issues.firstOrNull()?.let { it.start.toInt() until maxOf(it.end.toInt(), it.start.toInt() + 1) }
+			val first = markedIssue(shown.issues)?.let { it.start.toInt() until maxOf(it.end.toInt(), it.start.toInt() + 1) }
 			ScriptLines(shown.text, scriptLines(shown.text, shown.statements, lastRun, pointing = draft.runs is RunsHead.Points), entities, shown.names, first)
 			for (issue in shown.issues) {
 				IssueRow(shown.text, issue, enabled && shown.editable) { open(issue.start.toInt()) }
@@ -183,7 +183,7 @@ private fun IssueRow(text: String, issue: com.atelier_nyaarium.switchboard.proto
 	Text(
 		"Line ${lineOf(text, issue.start.toInt())}: ${issue.message}",
 		style = MaterialTheme.typography.bodySmall,
-		color = MaterialTheme.colorScheme.error,
+		color = if (drawsAsError(issueLevelOf(issue.level))) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline,
 		modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = hapticClick(onJump)).padding(vertical = 2.dp),
 	)
 }
@@ -248,7 +248,7 @@ internal fun ScriptEditorPage(
 		max = Protocol.Wire.SCRIPT_SOURCE_MAX,
 		names = scriptNamesHere(namesHere(offer, draft.trigger.kind, null, scriptValuesOf(draft, tree)), typed.names),
 		mode = TextMode.SCRIPT,
-		issueOf = { text -> issues.firstOrNull()?.takeIf { text == typed.text }?.let { it.start.toInt().coerceAtMost(text.length) until maxOf(it.end.toInt(), it.start.toInt() + 1).coerceAtMost(text.length) } },
+		issueOf = { text -> markedIssue(issues)?.takeIf { text == typed.text }?.let { it.start.toInt().coerceAtMost(text.length) until maxOf(it.end.toInt(), it.start.toInt() + 1).coerceAtMost(text.length) } },
 		description = vocabulary?.description,
 		ids = ids,
 		shapes = emptyMap(),

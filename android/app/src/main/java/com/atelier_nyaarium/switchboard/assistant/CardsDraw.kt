@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard.assistant
 
 import com.atelier_nyaarium.switchboard.parseDecimal
+import com.atelier_nyaarium.switchboard.proto.AutomationIssue
 import com.atelier_nyaarium.switchboard.proto.AutomationLastRun
 import com.atelier_nyaarium.switchboard.proto.AutomationLastStep
 import com.atelier_nyaarium.switchboard.proto.AutomationPreviewName
@@ -10,6 +11,69 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.FunctionParam
 import com.atelier_nyaarium.switchboard.proto.FunctionStep
 import com.atelier_nyaarium.switchboard.proto.Protocol
+import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationIssueLevel
+import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationSaveRecord
+
+/** A card's line and level. */
+internal data class CardIssue(val level: AutomationIssueLevel, val line: String, val chip: String? = null) {
+	val text: String get() = chip?.let { "$it: $line" } ?: line
+}
+
+/** Else the outline tone. */
+internal fun drawsAsError(level: AutomationIssueLevel): Boolean = when (level) {
+	AutomationIssueLevel.UNARMED, AutomationIssueLevel.ERROR -> true
+	AutomationIssueLevel.WARNING -> false
+}
+
+// skew:step-refusals
+/** Absent or unknown: error. */
+internal fun issueLevelOf(word: String?): AutomationIssueLevel =
+	AutomationIssueLevel.entries.find { it.wire == word } ?: AutomationIssueLevel.ERROR
+
+/** Answered issues, placed. */
+internal data class DrawnIssues(
+	/** By card key. */
+	val cards: Map<String, CardIssue>,
+	/** Held by no card. */
+	val rest: List<CardIssue>,
+	/** Other functions holding an error. */
+	val functions: Set<String>,
+)
+
+/** Its own function, or none. */
+private fun ownIssue(issue: AutomationIssue, draft: AutomationDraft): Boolean =
+	issue.record == AutomationSaveRecord.AUTOMATION.wire || issue.id == null || issue.id == functionHere(draft, null)
+
+/** The cards its step names. */
+private fun issueTree(issue: AutomationIssue, draft: AutomationDraft, flat: Boolean): List<StepDraft>? = when (issue.record) {
+	AutomationSaveRecord.AUTOMATION.wire -> draft.steps.takeIf { flat }
+	else -> draft.cardsOf(issue.id)
+}
+
+/** `flat`: no function written. */
+internal fun drawnIssuesOf(issues: List<AutomationIssue>, draft: AutomationDraft, flat: Boolean, offer: AutomationOffer): DrawnIssues {
+	val cards = mutableMapOf<String, CardIssue>()
+	val rest = mutableListOf<CardIssue>()
+	val functions = mutableSetOf<String>()
+	for (issue in issues) {
+		val level = issueLevelOf(issue.level)
+		val other = issue.id?.takeUnless { ownIssue(issue, draft) }
+		if (other != null && drawsAsError(level)) functions += other
+		val key = issue.step?.let { path -> issueTree(issue, draft, flat)?.let { keyAt(it, path) } }
+		if (key == null) {
+			val named = other?.let { id -> draft.callees[id]?.name ?: offer.functions?.row(id)?.function?.name ?: id }
+			rest += CardIssue(level, named?.let { "$it: ${issue.line}" } ?: issue.line, issue.value)
+			continue
+		}
+		val held = cards[key]
+		if (held == null || (!drawsAsError(held.level) && drawsAsError(level))) cards[key] = CardIssue(level, issue.line, issue.value)
+	}
+	return DrawnIssues(cards, rest, functions)
+}
+
+/** The check's, else its hint. */
+internal fun cardIssueOf(step: StepDraft, drawn: DrawnIssues?, hint: (StepDraft) -> String?): CardIssue? =
+	if (drawn != null) drawn.cards[step.key] else hint(step)?.let { CardIssue(AutomationIssueLevel.ERROR, it) }
 
 internal sealed interface CardRow {
 	val rowKey: String
@@ -19,7 +83,7 @@ internal sealed interface CardRow {
 		val step: StepDraft,
 		override val depth: Int,
 		val path: String,
-		val issue: String?,
+		val issue: CardIssue?,
 		val last: AutomationLastStep?,
 		val active: Boolean,
 	) : CardRow {
@@ -42,7 +106,7 @@ internal fun runPathOf(path: String, pointing: Boolean): String = if (pointing) 
 /** Cards in written order. */
 internal fun cardsDraw(
 	steps: List<StepDraft>,
-	issueOf: (StepDraft) -> String?,
+	issueOf: (StepDraft) -> CardIssue?,
 	lastRun: AutomationLastRun?,
 	pointing: Boolean,
 ): List<CardRow> {
@@ -255,7 +319,14 @@ internal sealed interface CallLine {
 }
 
 /** Through its calls too. */
-internal fun callLine(draft: AutomationDraft, offer: AutomationOffer, said: AutomationSaid?, function: String): CallLine? {
+internal fun callLine(
+	draft: AutomationDraft,
+	offer: AutomationOffer,
+	said: AutomationSaid?,
+	function: String,
+	/** Functions holding errors. */
+	flagged: Set<String> = emptySet(),
+): CallLine? {
 	if (function.isBlank()) return null
 	val below = draft.reached(listOf(function), offer)
 	movedCallee(said, draft, offer)?.takeIf { it in below }?.let { return CallLine.Moved(it) }
@@ -266,8 +337,8 @@ internal fun callLine(draft: AutomationDraft, offer: AutomationOffer, said: Auto
 	}
 	val saidBelow = saidKey?.let { draft.treeHolding(it) } in below
 	val issueBelow = below.any { id ->
-		when (val source = functionSource(draft, offer, id)) {
-			is FunctionSource.Cards -> source.callee?.let { calleeIssue(it, offer, calleeParamsOf(draft, offer)) } != null
+		id in flagged || when (val source = functionSource(draft, offer, id)) {
+			is FunctionSource.Cards -> source.callee?.let { calleeIssue(it, offer) } != null
 			is FunctionSource.Listed -> source.row.invalid != null
 			null -> false
 		}

@@ -14,6 +14,9 @@ import com.atelier_nyaarium.switchboard.assistant.cardsDraw
 import com.atelier_nyaarium.switchboard.assistant.conditionAsk
 import com.atelier_nyaarium.switchboard.assistant.conditionPreviewOf
 import com.atelier_nyaarium.switchboard.assistant.draftRunsIssue
+import com.atelier_nyaarium.switchboard.assistant.drawnIssuesOf
+import com.atelier_nyaarium.switchboard.assistant.AutomationSlot
+import com.atelier_nyaarium.switchboard.proto.AutomationIssue
 import com.atelier_nyaarium.switchboard.assistant.freshStatement
 import com.atelier_nyaarium.switchboard.assistant.functionSaveOf
 import com.atelier_nyaarium.switchboard.assistant.lastRunShown
@@ -58,6 +61,7 @@ import com.atelier_nyaarium.switchboard.assistant.withFunctionName
 import com.atelier_nyaarium.switchboard.assistant.automationEditing
 import com.atelier_nyaarium.switchboard.assistant.runOffered
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -234,6 +238,39 @@ class StepCardsTest {
 		)
 		assertEquals(written, written.map { stepOfDraft(treeOf(it, FN_OFFER), FN_OFFER, calleeParams = listed(FN_OFFER)) })
 		for (kind in listOf("if", "try", "wait", "exit", "note")) assertTrue(freshStatement(kind) != null)
+	}
+
+	@Test
+	fun brokenStepsSaveAndReadBackAsWrittenWhileAStepWithNoFunctionStillWaits() {
+		val broken = listOf(
+			StepDraft.If("i", "", listOf(on("t")), emptyList()),
+			StepDraft.Wait("w", "soon"),
+			StepDraft.Do("d", toldDraft("now", "")),
+		)
+		val draft = opened().copy(steps = broken, newFunctionId = "fn-own")
+		fun saves(of: com.atelier_nyaarium.switchboard.assistant.AutomationDraft) =
+			automationEditing(AutomationSlot.Held("mine"), of, none, offered = true, busy = false, gone = false, offer = FN_OFFER).save
+
+		assertNull(draftRunsIssue(draft, none, FN_OFFER))
+		assertTrue(saves(draft))
+		val body = written((functionSaveOf(draft, none, FN_OFFER, confirmed = false)!!.function as AutomationSaveFunction.Edit).body)
+		assertEquals(listOf("", "soon"), listOf((body[0] as FunctionStep.If).`when`, (treeOf(body[1], FN_OFFER) as StepDraft.Wait).minutes))
+		assertEquals(body, body.map { stepOfDraft(treeOf(it, FN_OFFER), FN_OFFER, calleeParams = listed(FN_OFFER)) })
+		// Numeric text stays kept.
+		assertTrue(treeOf(FunctionStep.Wait(StepArg.Literal(JsonPrimitive("5"))), FN_OFFER) is StepDraft.Kept)
+		val unpicked = draft.copy(steps = broken + StepDraft.Call("c", "", emptyMap()))
+		assertEquals(RunsIssue.NotAStep("c"), draftRunsIssue(unpicked, none, FN_OFFER))
+		assertFalse(saves(unpicked))
+	}
+
+	@Test
+	fun aFlatSavesIssuesLandOnItsCardsOnlyWhenItWroteNoFunction() {
+		val draft = opened()
+		val issue = AutomationIssue(level = "warning", record = "automation", step = "0", param = "device", line = "no such plug")
+
+		assertEquals(listOf(draft.steps.single().key), drawnIssuesOf(listOf(issue), draft, flat = true, FN_OFFER).cards.keys.toList())
+		val pointed = drawnIssuesOf(listOf(issue), draft, flat = false, FN_OFFER)
+		assertEquals(listOf(emptyMap<String, Any>(), listOf("no such plug")), listOf(pointed.cards, pointed.rest.map { it.text }))
 	}
 
 	@Test

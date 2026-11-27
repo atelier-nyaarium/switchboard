@@ -3,6 +3,7 @@ package com.atelier_nyaarium.switchboard.assistant
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
+import com.atelier_nyaarium.switchboard.proto.AutomationIssue
 import com.atelier_nyaarium.switchboard.proto.AutomationFunctionRow
 import com.atelier_nyaarium.switchboard.proto.AutomationFunctionServes
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
@@ -119,12 +120,9 @@ internal fun valueIssue(param: FunctionParam, text: String, offer: AutomationOff
 	else -> null
 }
 
-/** What blocks Save in the Runs block. */
+/** Only what cannot be written. */
 internal sealed interface RunsIssue {
 	data object NoSteps : RunsIssue
-
-	/** On the card at `key`. */
-	data class Step(val key: String, val line: String) : RunsIssue
 
 	/** The card at `key` cannot be a function's step. */
 	data class NotAStep(val key: String) : RunsIssue
@@ -132,9 +130,8 @@ internal sealed interface RunsIssue {
 	/** Requires a named function. */
 	data class NeedsName(val key: String) : RunsIssue
 
+	/** A callee it cannot write. */
 	data class InCallee(val name: String) : RunsIssue
-
-	data class Unset(val name: String) : RunsIssue
 
 	data object NameWithValues : RunsIssue
 
@@ -142,44 +139,21 @@ internal sealed interface RunsIssue {
 
 	data object TooManyParams : RunsIssue
 
-	data class BadValue(val name: String, val issue: ValueIssue) : RunsIssue
-
 	/** Its name was cleared while others run it. */
 	data class SharedName(val users: Int) : RunsIssue
 
 	data class NameTooLong(val max: Int) : RunsIssue
 }
 
+/** Never blocks Save. */
+internal sealed interface RunsNote {
+	data class Unset(val name: String) : RunsNote
+
+	data class BadValue(val name: String, val issue: ValueIssue) : RunsNote
+}
+
 private fun nameIssue(name: String): RunsIssue? =
 	RunsIssue.NameTooLong(Protocol.Wire.FUNCTION_NAME_MAX).takeIf { name.trim().length > Protocol.Wire.FUNCTION_NAME_MAX }
-
-/** What a card itself lacks; values are read only in a function. */
-private fun cardIssue(step: StepDraft, offer: AutomationOffer, params: List<FunctionValueDraft>?, calleeParams: CalleeParams): String? = when (step) {
-	is StepDraft.Do -> {
-		val byKey = params.orEmpty().associateBy { it.key }
-		val refIssue = (step.action as? ActionDraft.Filled)?.references?.values?.firstNotNullOfOrNull { reference ->
-			val value = byKey[reference.key]
-			when {
-				params == null -> null
-				value == null -> "${reference.name} is no longer a value; pick again"
-				value.param.type != FunctionParamType.DEVICE.wire -> "${value.param.name} needs a Device value"
-				else -> null
-			}
-		}
-		refIssue ?: actionIssue(step.action, offer, byKey.keys)
-	}
-	is StepDraft.If -> "Its condition is needed".takeIf { step.condition.isBlank() }
-	is StepDraft.Wait -> waitIssue(step.minutes)
-	is StepDraft.Call -> callIssue(step, calleeParams)
-	is StepDraft.Try, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept -> null
-}
-
-private fun callIssue(step: StepDraft.Call, calleeParams: CalleeParams): String? {
-	if (step.function.isBlank()) return "Pick a function"
-	val declared = calleeParams(step.function)
-	strayCallValues(step, declared).firstOrNull()?.let { return "Clear $it" }
-	return callValueIssue(step, calleeParams)
-}
 
 /** A typed value its type cannot read. */
 internal fun callValueIssue(step: StepDraft.Call, calleeParams: CalleeParams): String? {
@@ -190,31 +164,29 @@ internal fun callValueIssue(step: StepDraft.Call, calleeParams: CalleeParams): S
 	}
 }
 
-private fun stepIssue(steps: List<StepDraft>, offer: AutomationOffer, params: List<FunctionValueDraft>?, calleeParams: CalleeParams): RunsIssue? {
-	if (steps.isEmpty()) return RunsIssue.NoSteps
-	return everyStep(steps).firstNotNullOfOrNull { step -> cardIssue(step, offer, params, calleeParams)?.let { RunsIssue.Step(step.key, it) } }
-}
-
 private fun notPlain(steps: List<StepDraft>): StepDraft? =
 	everyStep(steps).firstOrNull { step -> !(step is StepDraft.Do && step.action is ActionDraft.Filled) }
 
 /** Statements need functions. */
 private fun flatIssue(steps: List<StepDraft>, offer: AutomationOffer): RunsIssue? {
 	if (offer.functions == null || flatActions(steps, offer) != null) return null
-	if (!unnamedServed(offer)) return notPlain(steps)?.let { RunsIssue.NeedsName(it.key) }
+	if (!unnamedServed(offer)) notPlain(steps)?.let { return RunsIssue.NeedsName(it.key) }
 	return unwritable(steps, offer, emptyList())?.let { RunsIssue.NotAStep(it.key) }
 }
 
-internal fun calleeIssue(callee: CalleeDraft, offer: AutomationOffer, calleeParams: CalleeParams): RunsIssue? =
-	stepIssue(callee.steps, offer, callee.params, calleeParams)
+/** A callee it cannot write. */
+internal fun calleeIssue(callee: CalleeDraft, offer: AutomationOffer): RunsIssue? = when {
+	callee.steps.isEmpty() -> RunsIssue.NoSteps
+	else -> unwritable(callee.steps, offer, callee.params)?.let { RunsIssue.NotAStep(it.key) }
+}
 
-/** A card the function cannot hold. */
+/** Unwritable, not merely broken. */
 private fun unwritable(steps: List<StepDraft>, offer: AutomationOffer, params: List<FunctionValueDraft>): StepDraft? =
 	everyStep(steps).firstOrNull { step ->
 		when (step) {
 			is StepDraft.Do -> stepOf(step.action, offer, params) == null
-			is StepDraft.If, is StepDraft.Try, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Call, is StepDraft.Kept ->
-				false
+			is StepDraft.Call -> step.function.isBlank()
+			is StepDraft.If, is StepDraft.Try, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept -> false
 		}
 	}
 
@@ -231,19 +203,28 @@ private fun paramIssues(params: List<FunctionParam>, given: TriggerGiven): List<
 	}
 }
 
-/** Null when edited. */
-internal fun runsIssue(
-	runs: RunsDraft,
-	selfId: String,
-	given: TriggerGiven,
-	offer: AutomationOffer,
-	calleeParams: CalleeParams,
-): RunsIssue? =
+/** Null when it can be written. */
+internal fun runsIssue(runs: RunsDraft, selfId: String, given: TriggerGiven, offer: AutomationOffer): RunsIssue? =
 	when (runs) {
 		is RunsDraft.Kept -> null
-		is RunsDraft.Flat -> stepIssue(runs.steps, offer, null, calleeParams) ?: flatIssue(runs.steps, offer)
-		is RunsDraft.Pointing -> stepIssue(runs.steps, offer, runs.params, calleeParams) ?: pointingIssue(runs, selfId, given, offer)
+		is RunsDraft.Flat -> if (runs.steps.isEmpty()) RunsIssue.NoSteps else flatIssue(runs.steps, offer)
+		is RunsDraft.Pointing -> if (runs.steps.isEmpty()) RunsIssue.NoSteps else pointingIssue(runs, selfId, given, offer)
 	}
+
+/** Named function's value line. */
+internal fun runsNote(runs: RunsDraft, given: TriggerGiven, offer: AutomationOffer): RunsNote? {
+	val pointing = runs as? RunsDraft.Pointing ?: return null
+	if (pointing.name.isBlank()) return null
+	for (row in valueRows(pointing.wireParams(), given, pointing.valuesByName(), measure = null)) {
+		val param = row.param ?: continue
+		when (val source = row.source) {
+			ValueSource.FromTrigger, is ValueSource.Mismatch -> Unit
+			ValueSource.Unset -> return RunsNote.Unset(param.name)
+			is ValueSource.Set -> valueIssue(param, source.text, offer)?.let { return RunsNote.BadValue(param.name, it) }
+		}
+	}
+	return null
+}
 
 private fun pointingIssue(
 	runs: RunsDraft.Pointing,
@@ -261,19 +242,10 @@ private fun pointingIssue(
 	}
 	nameIssue(runs.name)?.let { return it }
 	val wireParams = runs.wireParams()
-	val values = runs.valuesByName()
 	unwritable(runs.steps, offer, runs.params)?.let { return RunsIssue.NotAStep(it.key) }
 	if (runs.params.size > Protocol.Wire.FUNCTION_PARAMS_MAX) return RunsIssue.TooManyParams
 	val paramIssues = paramIssues(wireParams, given)
 	paramIssues.forEachIndexed { index, issue -> if (issue != null) return RunsIssue.BadParam(wireParams.getOrNull(index)?.name.orEmpty(), issue) }
-	for (row in valueRows(wireParams, given, values, measure = null)) {
-		when (val source = row.source) {
-			ValueSource.FromTrigger -> Unit
-			is ValueSource.Mismatch -> Unit
-			ValueSource.Unset -> row.param?.let { return RunsIssue.Unset(it.name) }
-			is ValueSource.Set -> row.param?.let { param -> valueIssue(param, source.text, offer)?.let { return RunsIssue.BadValue(param.name, it) } }
-		}
-	}
 	return null
 }
 
@@ -295,6 +267,10 @@ internal data class RunsView(
 	val moved: Boolean = false,
 	/** Named, or unnamed where held. */
 	val valuesAllowed: Boolean = false,
+	/** Until the check lands. */
+	val note: RunsNote? = null,
+	/** Held by no card. */
+	val issues: List<CardIssue> = emptyList(),
 ) {
 	/** No empty header. */
 	val reachHeader: Boolean get() = reach.isNotEmpty()
@@ -303,16 +279,14 @@ internal data class RunsView(
 internal fun canAddValue(view: RunsView): Boolean =
 	!view.kept && view.valuesAllowed && view.values.count { it.param != null } < Protocol.Wire.FUNCTION_PARAMS_MAX
 
-/** Cards draw own. */
+/** Cards draw an empty body. */
 private fun blockIssue(issue: RunsIssue?): RunsIssue? = when (issue) {
-	null, RunsIssue.NoSteps, is RunsIssue.Step -> null
+	null, RunsIssue.NoSteps -> null
 	is RunsIssue.NotAStep,
 	is RunsIssue.NeedsName,
 	is RunsIssue.InCallee,
-	is RunsIssue.Unset,
 	RunsIssue.NameWithValues,
 	is RunsIssue.BadParam,
-	is RunsIssue.BadValue,
 	is RunsIssue.SharedName,
 	is RunsIssue.NameTooLong,
 	RunsIssue.TooManyParams,
@@ -327,12 +301,16 @@ internal fun runsView(
 	rows: List<AutomationRow>,
 	said: AutomationSaid? = null,
 	read: CheckRead = CheckRead(),
+	/** The landed check's, placed. */
+	drawn: DrawnIssues? = null,
 ): RunsView? {
 	val functions = offer.functions ?: return null
 	val issue = blockIssue(draftRunsIssue(draft, fields, offer))
+	val note = runsNote(draft.runsDraft(), givenOf(draft, fields), offer).takeIf { drawn == null }
+	val issues = drawn?.rest.orEmpty()
 	return when (val runs = draft.runsDraft()) {
-		is RunsDraft.Flat -> RunsView("", true, null, emptyList(), emptyList(), unique = false, makeUnique = false, kept = false, issue = issue)
-		is RunsDraft.Kept -> RunsView("", false, null, emptyList(), emptyList(), unique = false, makeUnique = false, kept = true, issue = null)
+		is RunsDraft.Flat -> RunsView("", true, null, emptyList(), emptyList(), unique = false, makeUnique = false, kept = false, issue = issue, issues = issues)
+		is RunsDraft.Kept -> RunsView("", false, null, emptyList(), emptyList(), unique = false, makeUnique = false, kept = true, issue = null, issues = issues)
 		is RunsDraft.Pointing -> {
 			val others = othersOf(runs, draft.id, functions)
 			val shared = sharedName(runs, others)
@@ -357,6 +335,8 @@ internal fun runsView(
 				invalid = row?.invalid,
 				moved = movedFor(said, runs),
 				valuesAllowed = runs.name.isNotBlank() || unnamedServed(offer),
+				note = note,
+				issues = issues,
 			)
 		}
 	}
@@ -385,6 +365,10 @@ internal fun functionLine(row: AutomationRow, functions: List<AutomationFunction
 }
 
 internal const val SCRIPT_ERRORS_LINE = "Its script has errors. It will not run."
+
+/** "2 errors"; null when none. */
+internal fun rowErrorsLine(row: AutomationRow): String? =
+	row.errors?.takeIf { it > 0 }?.let { if (it == 1L) "1 error" else "$it errors" }
 
 internal fun rowScriptErrors(row: AutomationRow, served: Served): Boolean {
 	val rows = when (served) {
@@ -463,7 +447,11 @@ internal fun pickerSubtitle(trigger: TriggerDraft, opened: TriggerDraft, sentenc
 
 /** How a save came back. */
 internal sealed interface SaveAnswer {
-	data class Stored(val automation: AutomationRow?, val function: AutomationFunctionRow?) : SaveAnswer
+	data class Stored(
+		val automation: AutomationRow?,
+		val function: AutomationFunctionRow?,
+		val issues: List<AutomationIssue> = emptyList(),
+	) : SaveAnswer
 
 	/** Ask once, then send with `confirmed`. */
 	data class Confirm(val labels: List<String>) : SaveAnswer
@@ -532,7 +520,7 @@ internal fun movedAutomation(refused: SaveAnswer.Refused): Boolean =
 	refused.code == AutomationSaveRefusalCode.MOVED && refused.refusal.record == AutomationSaveRecord.AUTOMATION.wire
 
 internal fun saveAnswerOf(result: ConsoleAutomationSaveResult): SaveAnswer {
-	if (result.stored) return SaveAnswer.Stored(result.automation, result.function)
+	if (result.stored) return SaveAnswer.Stored(result.automation, result.function, result.issues.orEmpty())
 	val refusal = result.refusal ?: return SaveAnswer.Refused(null, AutomationSaveRefusal(code = ""))
 	val code = AutomationSaveRefusalCode.entries.find { it.wire == refusal.code } ?: return SaveAnswer.Refused(null, refusal)
 	return when (code) {

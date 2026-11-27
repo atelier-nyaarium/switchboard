@@ -53,6 +53,8 @@ internal fun CallFields(
 	said: AutomationSaid?,
 	edit: ((AutomationDraft) -> AutomationDraft) -> Unit,
 	reload: (String) -> Unit,
+	/** Functions holding errors. */
+	flagged: Set<String>,
 ) {
 	val key = step.key
 	val choices = callChoices(draft, offer, tree)
@@ -109,7 +111,7 @@ internal fun CallFields(
 			}
 		}
 	}
-	when (val line = callLine(draft, offer, said, step.function)) {
+	when (val line = callLine(draft, offer, said, step.function, flagged)) {
 		is CallLine.Moved -> MovedLine(enabled) { reload(line.id) }
 		CallLine.Attention -> Text("A step in it needs attention.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 		null -> Unit
@@ -232,6 +234,8 @@ internal fun CalleePage(
 	reload: (String) -> Unit,
 	rows: List<AutomationRow>,
 	kept: KeptScript,
+	/** The landed check's. */
+	issues: DrawnIssues?,
 	/** Its script, read-only. */
 	script: @Composable () -> Unit,
 ) {
@@ -276,6 +280,7 @@ internal fun CalleePage(
 				tree = callee.id,
 				kept = kept.lines,
 				onScriptAt = kept.open,
+				issues = issues,
 			)
 		}
 	}

@@ -2,7 +2,14 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.assistant.AutomationOutcome
 import com.atelier_nyaarium.switchboard.assistant.AutomationSaid
+import com.atelier_nyaarium.switchboard.assistant.CardIssue
 import com.atelier_nyaarium.switchboard.assistant.CheckRead
+import com.atelier_nyaarium.switchboard.assistant.cardIssueOf
+import com.atelier_nyaarium.switchboard.assistant.checkIssuesOf
+import com.atelier_nyaarium.switchboard.assistant.drawsAsError
+import com.atelier_nyaarium.switchboard.assistant.issueLevelOf
+import com.atelier_nyaarium.switchboard.proto.AutomationIssue
+import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationIssueLevel
 import com.atelier_nyaarium.switchboard.assistant.EditContext
 import com.atelier_nyaarium.switchboard.assistant.PointMode
 import com.atelier_nyaarium.switchboard.assistant.RunsDraft
@@ -117,6 +124,52 @@ class AutomationCheckTest {
 		val field = checkSaidOf(invalid, fieldDraft, context) as AutomationSaid.Field
 		assertEquals(SaidAt.Card(fieldDraft.steps.single().key, "message"), field.at)
 		assertEquals("Hi", field.text)
+	}
+
+	@Test
+	fun aReadyChecksIssuesLandOnTheirCardsByLevelAndReplaceTheCardsHints() {
+		val op = saveOp()
+		val step = draft.steps.single()
+		val issues = listOf(
+			AutomationIssue(level = "warning", record = "function", id = "shared", step = "0", line = "shadows an entity"),
+			AutomationIssue(level = "error", record = "function", id = "shared", step = "0", param = "device", line = "no such plug"),
+			AutomationIssue(level = "unarmed", record = "automation", line = "unknown source"),
+			AutomationIssue(level = "error", record = "function", id = "elsewhere", line = "gone"),
+		)
+		val read = CheckRead(op, ConsoleAutomationCheckResult(ready = true, issues = issues))
+		val drawn = checkIssuesOf(read, op, draft, offer)!!
+
+		// Issues leave Save standing.
+		assertNull(checkSaidOf(read.answer, draft, context))
+		assertTrue(saveAllowedAfterCheck(checkSaidOf(read.answer, draft, context), null, draft, offer))
+		// Error outranks warning.
+		assertEquals(mapOf(step.key to CardIssue(AutomationIssueLevel.ERROR, "no such plug")), drawn.cards)
+		assertEquals(listOf("unknown source", "elsewhere: gone"), drawn.rest.map { it.text })
+		assertEquals(setOf("elsewhere"), drawn.functions)
+		assertEquals(drawn.cards[step.key], cardIssueOf(step, drawn) { "its own hint" })
+		assertNull(cardIssueOf(step, drawn.copy(cards = emptyMap())) { "its own hint" })
+		// Hints until this op's check.
+		assertNull(checkIssuesOf(read, saveOp(automation.copy(enabled = false)), draft, offer))
+		assertNull(checkIssuesOf(CheckRead(op, refused(Protocol.Wire.AutomationSaveRefusalCode.NO_KEY.wire)), op, draft, offer))
+		assertEquals(CardIssue(AutomationIssueLevel.ERROR, "its own hint"), cardIssueOf(step, null) { "its own hint" })
+		assertEquals(listOf(true, true, false), AutomationIssueLevel.entries.map(::drawsAsError))
+		assertEquals(AutomationIssueLevel.ERROR, issueLevelOf(null))
+		assertEquals("Hall: twice", CardIssue(AutomationIssueLevel.ERROR, "twice", chip = "Hall").text)
+	}
+
+	@Test
+	fun aSaveThatLandsWithIssuesIsDoneAndSaysWhatItHolds() {
+		val issues = listOf(
+			AutomationIssue(level = "error", record = "function", id = "shared", step = "0", line = "no such plug"),
+			AutomationIssue(level = "warning", record = "function", id = "shared", param = "room", line = "shadows an entity"),
+		)
+		val saved = automationSavedOf(ConsoleAutomationSaveResult(stored = true, issues = issues), "mine")
+
+		assertEquals(AutomationSaved.Stored(null, issues), saved)
+		assertEquals(AutomationOutcome.Done, outcomeOf(saved, draft, deleting = false, context))
+		assertEquals("Saved with 1 error and 1 warning.", savedIssuesLine(issues))
+		assertEquals("Saved with 2 errors.", savedIssuesLine(listOf(issues[0], issues[0])))
+		assertNull(savedIssuesLine(emptyList()))
 	}
 
 	@Test

@@ -32,6 +32,7 @@ import com.atelier_nyaarium.switchboard.FUNCTION_UNLISTED
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.FunctionParamType
 import com.atelier_nyaarium.switchboard.runsIssueLine
+import com.atelier_nyaarium.switchboard.runsNoteLine
 import com.atelier_nyaarium.switchboard.paramIssueLine
 import com.atelier_nyaarium.switchboard.typeWordText
 import com.atelier_nyaarium.switchboard.usedByLine
@@ -102,6 +103,8 @@ internal fun RunsBlock(
 		}
 	}
 	view.issue?.let { Text(runsIssueLine(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+	view.note?.let { Text(runsNoteLine(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+	for (issue in view.issues) CardIssueLine(issue)
 }
 
 @Composable
