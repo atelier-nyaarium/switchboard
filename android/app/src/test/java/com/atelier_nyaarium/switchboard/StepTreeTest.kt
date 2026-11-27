@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.assistant.STEPS_DEPTH
 import com.atelier_nyaarium.switchboard.assistant.STEPS_PER_LIST
 import com.atelier_nyaarium.switchboard.assistant.STEPS_TOTAL
 import com.atelier_nyaarium.switchboard.assistant.Side
@@ -8,7 +7,6 @@ import com.atelier_nyaarium.switchboard.assistant.Slot
 import com.atelier_nyaarium.switchboard.assistant.StepDraft
 import com.atelier_nyaarium.switchboard.assistant.byPath
 import com.atelier_nyaarium.switchboard.assistant.chainOf
-import com.atelier_nyaarium.switchboard.assistant.depthOf
 import com.atelier_nyaarium.switchboard.assistant.everyStep
 import com.atelier_nyaarium.switchboard.assistant.findStep
 import com.atelier_nyaarium.switchboard.assistant.insertedStep
@@ -98,13 +96,9 @@ class StepTreeTest {
 	@Test
 	fun eachCapRefusesTheStepPastIt() {
 		val full = List(minOf(STEPS_PER_LIST, STEPS_TOTAL)) { exit("x$it") }
-		// As deep as a body may go: the leaf at the last level.
-		val deep = (1 until STEPS_DEPTH).fold(listOf<StepDraft>(exit("leaf"))) { inner, level -> listOf(StepDraft.Try("t$level", inner, emptyList())) }
 		val wide = List(STEPS_TOTAL / 4) { at -> StepDraft.Try("w$at", List(3) { exit("w$at.$it") }, emptyList()) }
 
 		assertNull(insertedStep(full, Slot(null, null, 0), exit("over")))
-		assertEquals(STEPS_DEPTH, depthOf(deep))
-		assertNull(insertedStep(deep, Slot("t1", Side.Body, 0), StepDraft.Try("t0", listOf(exit("deeper")), emptyList())))
 		assertEquals(STEPS_TOTAL, everyStep(wide).size)
 		assertNull(insertedStep(wide, Slot("w0", Side.Catch, 0), exit("over")))
 	}
@@ -146,16 +140,5 @@ class StepTreeTest {
 		val wide = List(STEPS_TOTAL / 4) { at -> StepDraft.If("w$at", "x", List(3) { exit("w$at.$it") }, emptyList()) }
 		assertEquals(STEPS_TOTAL, everyStep(wide).size)
 		assertNull(withElseIf(wide, "w0"))
-	}
-
-	@Test
-	fun anElseIfChainAddsNoDepth() {
-		val chain = (1..3).fold(listOf<StepDraft>(exit("last"))) { inner, link ->
-			listOf(StepDraft.If("i$link", "true", listOf(exit("t$link")), inner))
-		}
-		// Else lists add depth.
-		val beside = listOf(StepDraft.If("p", "true", emptyList(), listOf(exit("q"), chain.single())))
-
-		assertEquals(listOf(2, 3), listOf(depthOf(chain), depthOf(beside)))
 	}
 }

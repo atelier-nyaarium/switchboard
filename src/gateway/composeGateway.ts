@@ -495,6 +495,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	});
 	const routines = composeRoutines({
 		dataDir: bootstrap.dataDir,
+		repairs: stores.repairs,
 		ambient: bootstrap.ambient,
 		getRunbook: (runbookId) => runbooks.console.get(runbookId),
 		knowsSpawn: (spawn) => {

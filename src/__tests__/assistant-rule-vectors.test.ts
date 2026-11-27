@@ -28,7 +28,7 @@ type Vector = Typed & {
 	test: string;
 	fits: boolean;
 	parses?: boolean;
-	warning?: boolean;
+	vanished?: boolean;
 	canonical?: string | string[];
 };
 
@@ -67,7 +67,7 @@ describe("condition fit, against the shared corpus", () => {
 				trigger.success && trigger.data.kind === "event" ? canonicalConditions(trigger.data.conditions) : null;
 			const fits = conditions !== null && conditionsIssue(conditions, specs) === null;
 			expect(fits).toBe(vector.fits);
-			expect(conditions !== null && conditionsWarning(conditions, specs) !== null).toBe(vector.warning ?? false);
+			expect(conditions !== null && conditionsWarning(conditions, specs) !== null).toBe(vector.vanished ?? false);
 			if (fits && vector.canonical !== undefined) expect(conditions?.[0]?.value).toEqual(vector.canonical);
 		});
 	}

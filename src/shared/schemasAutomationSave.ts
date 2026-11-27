@@ -85,6 +85,34 @@ export const AUTOMATION_ISSUE_LEVELS = [
 ] as const;
 export type AutomationIssueLevel = (typeof AUTOMATION_ISSUE_LEVELS)[number];
 
+const CAUSE_LEVELS = {
+	empty_case: "error",
+	/** Given before, ignoring case. */
+	repeated_value: "error",
+	/** Choice value unavailable. */
+	vanished: "warning",
+	/** Condition field undeclared. */
+	unknown_field: "unarmed",
+	/** Unsupported condition test. */
+	untaken_test: "unarmed",
+	too_long: "error",
+	too_many: "error",
+	trigger: "unarmed",
+	/** Holes cannot be read. */
+	unready: "unarmed",
+	/** Name shadows entity. */
+	shadows: "warning",
+	unfit: "error",
+	/** Function absent from carry. */
+	left: "unarmed",
+	unread: "unarmed",
+	unparsed: "error",
+} as const satisfies Record<string, AutomationIssueLevel>;
+
+/** Fixed-level issue. */
+export type IssueCause = keyof typeof CAUSE_LEVELS;
+export const ISSUE_LEVELS: Readonly<Record<IssueCause, AutomationIssueLevel>> = CAUSE_LEVELS;
+
 export const AUTOMATION_ISSUES_MAX = 256;
 
 export const AutomationIssueSchema = z

@@ -1,5 +1,5 @@
 {
-	"_comment": "A switch's case values, as src/shared/switch-cases.ts reads them. `keys`: `caseKey` trims ASCII whitespace and lowers case, the one comparison a run, the duplicate check and the phone share. `choiceFields`: `choiceFieldOf` answers the field a subject names as exactly `event.<field>`, else null. `issues`: `switchIssues` over a switch's cases, with `choices` the subject's options or null when it names no choice field; each issue's `level`, `why` (empty, twice, vanished), `case`, and for a value its `chip` (place in its case) and `value`. `taken`: the case `caseTaken` answers each shown subject over the same cases and choices, the default past the last, a vanished value matching nothing; TypeScript only, since the phone never runs a switch. The phone's twin replays the rest.",
+	"_comment": "A switch's case values, as src/shared/switch-cases.ts reads them. `keys`: `caseKey` trims ASCII whitespace and lowers case, the one comparison a run, the duplicate check and the phone share. `choiceFields`: `choiceFieldOf` answers the field a subject names as exactly `event.<field>`, else null. `issues`: `switchIssues` over a switch's cases, with `choices` the subject's options or null when it names no choice field; each issue's `cause` (empty_case, repeated_value or vanished, leveled by `ISSUE_LEVELS`), `case`, and for a value its `chip` (place in its case) and `value`. `taken`: the case `caseTaken` answers each shown subject over the same cases and choices, the default past the last, a vanished value matching nothing; TypeScript only, since the phone never runs a switch. The phone's twin replays the rest.",
 	"keys": [
 		{ "value": "mention", "key": "mention" },
 		{ "value": " Open ", "key": "open" },
@@ -38,26 +38,26 @@
 			"name": "a value given again ignoring case is an error on the later chip",
 			"cases": [{ "values": ["Mention", "assign"] }, { "values": ["review", " mention "] }],
 			"choices": null,
-			"issues": [{ "level": "error", "why": "twice", "case": 1, "chip": 1, "value": " mention " }],
+			"issues": [{ "cause": "repeated_value", "case": 1, "chip": 1, "value": " mention " }],
 			"taken": [{ "shown": "MENTION", "case": 0 }, { "shown": "review", "case": 1 }]
 		},
 		{
 			"name": "a value given twice in one case is an error on the second",
 			"cases": [{ "values": ["a", "b", "A"] }],
 			"choices": null,
-			"issues": [{ "level": "error", "why": "twice", "case": 0, "chip": 2, "value": "A" }]
+			"issues": [{ "cause": "repeated_value", "case": 0, "chip": 2, "value": "A" }]
 		},
 		{
 			"name": "a case with no values is an error on the case",
 			"cases": [{ "values": ["a"] }, { "values": [] }],
 			"choices": null,
-			"issues": [{ "level": "error", "why": "empty", "case": 1 }]
+			"issues": [{ "cause": "empty_case", "case": 1 }]
 		},
 		{
 			"name": "a value its choice field no longer holds is a warning",
 			"cases": [{ "values": ["mention", "gone"] }, { "values": ["ASSIGN"] }],
 			"choices": ["mention", "assign", "review_requested"],
-			"issues": [{ "level": "warning", "why": "vanished", "case": 0, "chip": 1, "value": "gone" }],
+			"issues": [{ "cause": "vanished", "case": 0, "chip": 1, "value": "gone" }],
 			"taken": [
 				{ "shown": "Mention", "case": 0 },
 				{ "shown": "gone", "case": 2 },
@@ -70,8 +70,8 @@
 			"cases": [{ "values": ["gone"] }, { "values": ["Gone"] }],
 			"choices": ["mention"],
 			"issues": [
-				{ "level": "warning", "why": "vanished", "case": 0, "chip": 0, "value": "gone" },
-				{ "level": "error", "why": "twice", "case": 1, "chip": 0, "value": "Gone" }
+				{ "cause": "vanished", "case": 0, "chip": 0, "value": "gone" },
+				{ "cause": "repeated_value", "case": 1, "chip": 0, "value": "Gone" }
 			],
 			"taken": [{ "shown": "GONE", "case": 2 }]
 		},

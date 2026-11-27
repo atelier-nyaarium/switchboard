@@ -197,6 +197,7 @@ import {
 	AutomationSaveRefusalSchema,
 	ConsoleAutomationCheckResultSchema,
 	ConsoleAutomationSaveResultSchema,
+	ISSUE_LEVELS,
 	SAVE_RECORDS,
 } from "../src/shared/schemasAutomationSave.js";
 import {
@@ -259,7 +260,6 @@ import {
 	KasaSettingPutSchema,
 } from "../src/shared/schemasDevices.js";
 import {
-	FUNCTION_DEPTH_MAX,
 	FUNCTION_NAME_MAX,
 	FUNCTION_PARAM_TYPES,
 	FUNCTION_PARAMS_MAX,
@@ -1381,7 +1381,6 @@ const wireConstants: ReadonlyArray<readonly [string, string | number]> = [
 	["FUNCTIONS_MAX", FUNCTIONS_MAX],
 	["FUNCTION_STEPS_MAX", FUNCTION_STEPS_MAX],
 	["FUNCTION_STEPS_TOTAL_MAX", FUNCTION_STEPS_TOTAL_MAX],
-	["FUNCTION_DEPTH_MAX", FUNCTION_DEPTH_MAX],
 	["FUNCTION_PARAMS_MAX", FUNCTION_PARAMS_MAX],
 	["FUNCTION_PARAM_NAME_PATTERN", PARAM_NAME_RE.source],
 	["FUNCTION_PARAM_NAME_MAX", PARAM_NAME_MAX],
@@ -1415,6 +1414,15 @@ const wireEnumBlock = (name: string, values: readonly string[]) =>
 	[
 		`${INDENT}${INDENT}enum class ${name}(val wire: String) {`,
 		...values.map((value) => `${INDENT}${INDENT}${INDENT}${kotlinConstName(value)}(${kotlinString(value)}),`),
+		`${INDENT}${INDENT}}`,
+	].join("\n");
+const levelTableBlock = (name: string, table: Readonly<Record<string, string>>, valueEnum: string) =>
+	[
+		`${INDENT}${INDENT}enum class ${name}(val wire: String, val level: ${valueEnum}) {`,
+		...Object.entries(table).map(
+			([key, value]) =>
+				`${INDENT}${INDENT}${INDENT}${kotlinConstName(key)}(${kotlinString(key)}, ${valueEnum}.${kotlinConstName(value)}),`,
+		),
 		`${INDENT}${INDENT}}`,
 	].join("\n");
 const consoleOpKinds = literalValues(ConsoleOpSchema, "kind");
@@ -1852,6 +1860,8 @@ ${wireEnumBlock("AutomationSaveRefusalCode", AUTOMATION_SAVE_REFUSALS)}
 ${wireEnumBlock("AutomationSaveRecord", SAVE_RECORDS)}
 
 ${wireEnumBlock("AutomationIssueLevel", AUTOMATION_ISSUE_LEVELS)}
+
+${levelTableBlock("IssueCause", ISSUE_LEVELS, "AutomationIssueLevel")}
 
 ${wireEnumBlock("AutomationRunRefusal", AUTOMATION_RUN_REFUSALS)}
 

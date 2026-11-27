@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-	COMPUTED_DEPTH_MAX,
 	type ComputedField,
 	type ComputedFields,
 	createComputedFields,
@@ -127,7 +126,7 @@ describe("computed fields", () => {
 		expect(w.told).toEqual([]);
 	});
 
-	it("evaluates fields that name fields in order, and refuses a cycle or a chain too deep", () => {
+	it("evaluates fields that name fields in order, and refuses a cycle", () => {
 		const w = world(fresh());
 		w.readings.set(TEMP, known(30));
 		const fields = w.open();
@@ -167,15 +166,6 @@ describe("computed fields", () => {
 			issue: { path: ["nodes", 1], code: "invalid_type" },
 		});
 		expect(fields.put("fahrenheit", { ...hotBand, unit: "F" }, 0)).toMatchObject({ stored: false });
-		// `alarm` is two deep.
-		const links = Array.from({ length: COMPUTED_DEPTH_MAX - 2 }, (_, at) => `link-${at}`);
-		const linkOf = (id: string, from: string): ComputedField => ({
-			label: id,
-			nodes: [{ kind: "field", ref: { source: "computed", id: from } }],
-		});
-		const linked = links.map((id, at) => fields.put(id, linkOf(id, links[at - 1] ?? "alarm"), 0).stored);
-		expect(linked.every(Boolean)).toBe(true);
-		expect(fields.put("too-deep", linkOf("too-deep", links.at(-1) ?? ""), 0)).toMatchObject({ stored: false });
 	});
 
 	it("re-baselines an edited field without telling, and keeps values across a restart", () => {

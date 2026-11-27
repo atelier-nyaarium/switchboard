@@ -20,7 +20,6 @@ import {
 	type AutomationActionRow,
 } from "../../shared/schemasAutomation.js";
 import {
-	FUNCTION_DEPTH_MAX,
 	FUNCTION_PARAMS_MAX,
 	FUNCTION_STEPS_MAX,
 	FUNCTION_STEPS_TOTAL_MAX,
@@ -439,23 +438,21 @@ class Refused extends Error {
 
 function overBounds(steps: readonly FunctionStep[]): { step: string; message: string } | null {
 	let total = 0;
-	const walk = (list: readonly FunctionStep[], prefix: string, depth: number): ReturnType<typeof overBounds> => {
+	const walk = (list: readonly FunctionStep[], prefix: string): ReturnType<typeof overBounds> => {
 		for (const [index, step] of list.entries()) {
 			const path = `${prefix}${index}`;
 			if (index >= FUNCTION_STEPS_MAX)
 				return { step: path, message: `more than ${FUNCTION_STEPS_MAX} steps in one block` };
 			if (++total > FUNCTION_STEPS_TOTAL_MAX)
 				return { step: path, message: `more than ${FUNCTION_STEPS_TOTAL_MAX} steps` };
-			if (depth > FUNCTION_DEPTH_MAX)
-				return { step: path, message: `blocks nest more than ${FUNCTION_DEPTH_MAX} deep` };
 			for (const held of sidesOf(step)) {
-				const found = walk(held.steps, `${path}.${held.number}.`, depth + 1);
+				const found = walk(held.steps, `${path}.${held.number}.`);
 				if (found) return found;
 			}
 		}
 		return null;
 	};
-	return walk(steps, "", 1);
+	return walk(steps, "");
 }
 
 export function parseScript(source: string, tables: ScriptTables): ScriptParse {

@@ -1,5 +1,5 @@
 import type { Ambient } from "../../shared/ambient.js";
-import { openDurable } from "../../shared/durable-store.js";
+import { openDurable, type RestoreRepairs } from "../../shared/durable-store.js";
 import { ownerLaunchPhrase } from "../../shared/launch-notice.js";
 import {
 	occurrenceIdOf,
@@ -30,6 +30,7 @@ const LEGACY_LIST_ZONE = "America/Los_Angeles";
 
 export interface RoutineStageDeps {
 	dataDir: string;
+	repairs: RestoreRepairs;
 	ambient: Pick<Ambient, "now" | "setTimer" | "clearTimer" | "newId">;
 	/** Read late; composed after this stage. */
 	attempt?: () => RoutineAttempt | null;
@@ -109,6 +110,7 @@ export function composeRoutines(deps: RoutineStageDeps): RoutineStage {
 	const store = openDurable(deps.dataDir, "routines", (durable) =>
 		createRoutineStore({
 			store: durable,
+			repairs: deps.repairs,
 			getRunbook: deps.getRunbook,
 			knowsSpawn: deps.knowsSpawn,
 			assistantPlaced: deps.assistantPlaced,

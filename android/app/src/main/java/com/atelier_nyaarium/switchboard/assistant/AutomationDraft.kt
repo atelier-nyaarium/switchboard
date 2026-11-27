@@ -34,7 +34,7 @@ import com.atelier_nyaarium.switchboard.proto.FieldTypes
 import com.atelier_nyaarium.switchboard.proto.FunctionReads
 import com.atelier_nyaarium.switchboard.proto.AutomationConditionServes
 import com.atelier_nyaarium.switchboard.proto.Protocol
-import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationIssueLevel
+import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.IssueCause
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -164,16 +164,16 @@ internal data class SourceFields(val specs: List<AssistantFieldSpec>) {
 
 	fun issueOf(condition: AutomationCondition): CardIssue? {
 		val spec = specOf(condition.field)
-			?: return CardIssue(AutomationIssueLevel.UNARMED, "${fieldLabel(condition.field)} is not a field here")
+			?: return CardIssue(IssueCause.UNKNOWN_FIELD.level, "${fieldLabel(condition.field)} is not a field here")
 		val values = valuesOf(condition).map(::trimRuleValue)
 		if (values.isEmpty()) return null
-		if (values.any { it.length > MAX_VALUE_LEN }) return CardIssue(AutomationIssueLevel.ERROR, "At most $MAX_VALUE_LEN characters")
-		if (values.size > MAX_VALUES) return CardIssue(AutomationIssueLevel.ERROR, "At most $MAX_VALUES values")
+		if (values.any { it.length > MAX_VALUE_LEN }) return CardIssue(IssueCause.TOO_LONG.level, "At most $MAX_VALUE_LEN characters")
+		if (values.size > MAX_VALUES) return CardIssue(IssueCause.TOO_MANY.level, "At most $MAX_VALUES values")
 		if (condition.test !in testsOf(spec)) {
-			return CardIssue(AutomationIssueLevel.UNARMED, "${spec.label} takes no \"${testLabel(condition.test, values.size)}\"")
+			return CardIssue(IssueCause.UNTAKEN_TEST.level, "${spec.label} takes no \"${testLabel(condition.test, values.size)}\"")
 		}
 		val gone = (spec as? AssistantFieldSpec.Enumeration)?.let { held -> values.firstOrNull { value -> held.options.none { it.value == value } } }
-		return gone?.let { CardIssue(AutomationIssueLevel.WARNING, "no longer offered; it matches nothing", it) }
+		return gone?.let { CardIssue(IssueCause.VANISHED.level, "no longer offered; it matches nothing", it) }
 	}
 
 	/** Vanished choices remain valid. */

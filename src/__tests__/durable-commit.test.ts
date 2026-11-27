@@ -15,7 +15,7 @@ afterEach(() => {
 	for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
-/** Older file, failable saves. */
+/** Failable durable store. */
 function olderFile(held: unknown) {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "restore-held-"));
 	roots.push(dir);
@@ -33,7 +33,6 @@ function olderFile(held: unknown) {
 	return { store, faults, onDisk };
 }
 
-/** Bare number is older. */
 const decode = (raw: unknown) =>
 	typeof raw === "number" ? { value: { n: raw }, stale: true } : { value: raw as { n: number }, stale: false };
 

@@ -255,7 +255,8 @@ stores a routine and carries it across every edit, so a rename or a reschedule k
 delete ends it. An id reused after a delete gets a new incarnation, which is what stops a fresh
 routine inheriting a dead one's history. A change of target kind mints one too, since a spawn run's
 history can hold what a check-in must not see. A routine stored before incarnations gets one at
-restore. Not `since`: two routines stored in one millisecond would share that, and a number shaped
+restore, held in memory and rewritten on each persist pass until it lands (`restoreHeld`), so a
+failed write never mints a second. Not `since`: two routines stored in one millisecond would share that, and a number shaped
 like a time invites being read as one. `sameContent` excludes it alongside the revision and `since`,
 or a save would look like an edit because the gateway owns a field.
 

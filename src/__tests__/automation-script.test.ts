@@ -21,7 +21,6 @@ import type { AutomationTrigger } from "../shared/schemasAutomation.js";
 import { ConsoleOpSchema } from "../shared/schemasConsoleOp.js";
 import { ConsoleOpResultSchema } from "../shared/schemasConsoleResults.js";
 import {
-	FUNCTION_DEPTH_MAX,
 	FUNCTION_STEPS_TOTAL_MAX,
 	FunctionSchema,
 	type FunctionStep,
@@ -299,7 +298,6 @@ describe("a function's steps as script", () => {
 	it("refuses a body past a function's bounds at the first step over, and a value too long", () => {
 		const over = FUNCTION_STEPS_TOTAL_MAX;
 		const many = Array.from({ length: over + 1 }, (_, index) => `x${index} = ${index}`).join("\n");
-		const deep = `${"if (a) {\n".repeat(FUNCTION_DEPTH_MAX)}exit\n${"}\n".repeat(FUNCTION_DEPTH_MAX)}`;
 		const wide = Array.from(
 			{ length: FUNCTION_STEPS_TOTAL_MAX / 8 + 1 },
 			() => `if (a) {\n${Array.from({ length: 7 }, () => "exit").join("\n")}\n}`,
@@ -307,7 +305,6 @@ describe("a function's steps as script", () => {
 		const long = `x = "${"a".repeat(1001)}"`;
 
 		expect(spansOf(many)).toEqual([`x${over} = ${over}`]);
-		expect(spansOf(deep)).toEqual(["exit"]);
 		expect(read(wide).issues).toMatchObject([{ start: wide.lastIndexOf("if (a) {") }]);
 		expect(spansOf(long)).toEqual([long.slice(4)]);
 		expect(spansOf("x = 9".padEnd(700, "9"))).toEqual(["9".repeat(696)]);

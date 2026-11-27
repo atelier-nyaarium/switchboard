@@ -167,7 +167,6 @@ object Protocol {
 		const val FUNCTIONS_MAX: Int = 256
 		const val FUNCTION_STEPS_MAX: Int = 256
 		const val FUNCTION_STEPS_TOTAL_MAX: Int = 256
-		const val FUNCTION_DEPTH_MAX: Int = 256
 		const val FUNCTION_PARAMS_MAX: Int = 256
 		const val FUNCTION_PARAM_NAME_PATTERN: String = "^[a-z][a-z0-9_]{0,31}\$"
 		const val FUNCTION_PARAM_NAME_MAX: Int = 32
@@ -255,6 +254,23 @@ object Protocol {
 			UNARMED("unarmed"),
 			ERROR("error"),
 			WARNING("warning"),
+		}
+
+		enum class IssueCause(val wire: String, val level: AutomationIssueLevel) {
+			EMPTY_CASE("empty_case", AutomationIssueLevel.ERROR),
+			REPEATED_VALUE("repeated_value", AutomationIssueLevel.ERROR),
+			VANISHED("vanished", AutomationIssueLevel.WARNING),
+			UNKNOWN_FIELD("unknown_field", AutomationIssueLevel.UNARMED),
+			UNTAKEN_TEST("untaken_test", AutomationIssueLevel.UNARMED),
+			TOO_LONG("too_long", AutomationIssueLevel.ERROR),
+			TOO_MANY("too_many", AutomationIssueLevel.ERROR),
+			TRIGGER("trigger", AutomationIssueLevel.UNARMED),
+			UNREADY("unready", AutomationIssueLevel.UNARMED),
+			SHADOWS("shadows", AutomationIssueLevel.WARNING),
+			UNFIT("unfit", AutomationIssueLevel.ERROR),
+			LEFT("left", AutomationIssueLevel.UNARMED),
+			UNREAD("unread", AutomationIssueLevel.UNARMED),
+			UNPARSED("unparsed", AutomationIssueLevel.ERROR),
 		}
 
 		enum class AutomationRunRefusal(val wire: String) {

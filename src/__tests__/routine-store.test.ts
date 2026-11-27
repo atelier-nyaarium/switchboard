@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { UNPLACED_REASON } from "../gateway/routines/reservation.js";
 import { createRoutineStore } from "../gateway/routines/store.js";
-import { openDurable } from "../shared/durable-store.js";
+import { createRestoreRepairs, DurableStore, openDurable } from "../shared/durable-store.js";
 import { type Routine, targetKind } from "../shared/schemasRoutine.js";
 
 const roots: string[] = [];
@@ -20,6 +20,7 @@ const open = (dataDir: string) =>
 	openDurable(dataDir, "routines", (store) =>
 		createRoutineStore({
 			store,
+			repairs: createRestoreRepairs(),
 			now: () => 1_700_000_000_000,
 			newIncarnation: () => "inc-1",
 			onChanged: () => undefined,
@@ -142,6 +143,7 @@ describe("routine store", () => {
 		const guarded = openDurable(fresh(), "routines", (store) =>
 			createRoutineStore({
 				store,
+				repairs: createRestoreRepairs(),
 				now: () => 1_700_000_000_000,
 				newIncarnation: () => "inc-1",
 				sessionTaken: () => true,
@@ -153,23 +155,42 @@ describe("routine store", () => {
 		expect(refused.reason).toContain("host.routine-morning");
 	});
 
-	it("gives a routine stored before incarnations one at restore, and keeps it", () => {
+	it("mints a legacy routine's incarnation once, holding it while the rewrite fails and writing it on a later pass", () => {
+		vi.spyOn(console, "warn").mockImplementation(() => {});
 		const dataDir = fresh();
-		const { incarnation: _incarnation, ...legacy } = routine("legacy");
-		fs.writeFileSync(path.join(dataDir, "routines.json"), JSON.stringify([legacy]));
+		const file = path.join(dataDir, "routines.json");
+		fs.writeFileSync(file, JSON.stringify([routine("legacy")]));
+		const disk = new DurableStore(dataDir, "routines");
+		let failing = true;
+		const store = {
+			load: () => disk.load(),
+			saveChecked: (state: unknown) => {
+				if (failing) throw new Error("disk full");
+				disk.saveChecked(state);
+			},
+		};
 		let minted = 0;
-		const reopen = () =>
-			openDurable(dataDir, "routines", (store) =>
-				createRoutineStore({
-					store,
-					now: () => 1_700_000_000_000,
-					newIncarnation: () => `inc-${++minted}`,
-					onChanged: () => undefined,
-				}),
-			);
+		const repairs = createRestoreRepairs();
+		const onDisk = () => (JSON.parse(fs.readFileSync(file, "utf8")) as Routine[])[0]?.incarnation;
+		const held = createRoutineStore({
+			store,
+			repairs,
+			now: () => 1_700_000_000_000,
+			newIncarnation: () => `inc-${++minted}`,
+			onChanged: () => undefined,
+		});
 
-		expect(reopen().get("legacy")?.incarnation).toBe("inc-1");
-		expect(reopen().get("legacy")?.incarnation).toBe("inc-1");
+		repairs.retry();
+		expect([held.get("legacy")?.incarnation, onDisk(), repairs.pending()]).toEqual([
+			"inc-1",
+			undefined,
+			["routine"],
+		]);
+
+		failing = false;
+		repairs.retry();
+		expect([held.get("legacy")?.incarnation, onDisk(), repairs.pending()]).toEqual(["inc-1", "inc-1", []]);
+		expect(open(dataDir).get("legacy")?.incarnation).toBe("inc-1");
 	});
 
 	it("restores rows written before a target had a kind or a CLI as spawn routines that run Claude", () => {
@@ -192,6 +213,7 @@ describe("routine store", () => {
 		const store = openDurable(fresh(), "routines", (durable) =>
 			createRoutineStore({
 				store: durable,
+				repairs: createRestoreRepairs(),
 				now: () => 1_700_000_000_000,
 				newIncarnation: () => "inc-1",
 				assistantPlaced: () => placed,
@@ -226,6 +248,7 @@ describe("routine store", () => {
 		const store = openDurable(fresh(), "routines", (durable) =>
 			createRoutineStore({
 				store: durable,
+				repairs: createRestoreRepairs(),
 				now: () => 1_700_000_000_000,
 				newIncarnation: () => `inc-${++minted}`,
 				assistantPlaced: () => true,
@@ -254,6 +277,7 @@ describe("routine store", () => {
 		const store = openDurable(dataDir, "routines", (durable) =>
 			createRoutineStore({
 				store: durable,
+				repairs: createRestoreRepairs(),
 				now: () => 1_700_000_000_000,
 				newIncarnation: () => "inc-1",
 				onChanged: hook,

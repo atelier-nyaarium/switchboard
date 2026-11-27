@@ -38,7 +38,6 @@ import { unknown } from "../shared/expressions.js";
 import { type AutomationInput, AutomationSchema, type AutomationTrigger } from "../shared/schemasAutomation.js";
 import {
 	type AutomationFunctionInput,
-	FUNCTION_DEPTH_MAX,
 	FUNCTION_STEPS_TOTAL_MAX,
 	FunctionSchema,
 	FunctionStepsSchema,
@@ -1432,25 +1431,15 @@ describe("a tree of steps", () => {
 		]);
 	});
 
-	it("refuses a body nested past its depth or holding too many steps", () => {
-		const nest = (depth: number): AutomationFunctionInput["steps"] =>
-			depth === 0 ? [{ kind: "exit" }] : [{ kind: "if", when: "true", steps: nest(depth - 1) }];
-		// Only the total binds.
+	it("refuses a body holding too many steps at any depth", () => {
 		const wide = (total: number): AutomationFunctionInput["steps"] => [
 			{ kind: "if", when: "true", steps: Array.from({ length: total - 2 }, () => ({ kind: "exit" as const })) },
 			{ kind: "exit" },
 		];
 		const parses = (steps: AutomationFunctionInput["steps"]) =>
-			FunctionSchema.safeParse({ name: "Deep", params: [], steps }).success;
+			FunctionSchema.safeParse({ name: "Wide", params: [], steps }).success;
 
-		expect(
-			[
-				nest(FUNCTION_DEPTH_MAX - 1),
-				nest(FUNCTION_DEPTH_MAX),
-				wide(FUNCTION_STEPS_TOTAL_MAX),
-				wide(FUNCTION_STEPS_TOTAL_MAX + 1),
-			].map(parses),
-		).toEqual([true, false, true, false]);
+		expect([wide(FUNCTION_STEPS_TOTAL_MAX), wide(FUNCTION_STEPS_TOTAL_MAX + 1)].map(parses)).toEqual([true, false]);
 	});
 });
 

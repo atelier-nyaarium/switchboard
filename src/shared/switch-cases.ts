@@ -1,5 +1,6 @@
 import { parseConsoleExpression } from "./live-console-grammar.js";
 import { caseKey } from "./schemasAssistantRules.js";
+import type { IssueCause } from "./schemasAutomationSave.js";
 
 /** Exact event field member. */
 export function choiceFieldOf(subject: string): string | null {
@@ -9,12 +10,10 @@ export function choiceFieldOf(subject: string): string | null {
 	return target.kind === "ident" && target.name === "event" && !target.grouped ? node.name : null;
 }
 
-/** Empty, duplicate, vanished choice. */
-export type SwitchIssueWhy = "empty" | "twice" | "vanished";
+export type SwitchCause = Extract<IssueCause, "empty_case" | "repeated_value" | "vanished">;
 
 export interface SwitchIssue {
-	level: "error" | "warning";
-	why: SwitchIssueWhy;
+	cause: SwitchCause;
 	case: number;
 	/** Chip index, except empty. */
 	chip?: number;
@@ -37,11 +36,11 @@ export function switchIssues(
 	const seen = new Set<string>();
 	const issues: SwitchIssue[] = [];
 	step.cases.forEach((held, at) => {
-		if (held.values.length === 0) issues.push({ level: "error", why: "empty", case: at });
+		if (held.values.length === 0) issues.push({ cause: "empty_case", case: at });
 		held.values.forEach((value, chip) => {
 			const key = caseKey(value);
-			if (seen.has(key)) issues.push({ level: "error", why: "twice", case: at, chip, value });
-			else if (!offered(key)) issues.push({ level: "warning", why: "vanished", case: at, chip, value });
+			if (seen.has(key)) issues.push({ cause: "repeated_value", case: at, chip, value });
+			else if (!offered(key)) issues.push({ cause: "vanished", case: at, chip, value });
 			seen.add(key);
 		});
 	});

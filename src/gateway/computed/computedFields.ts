@@ -21,7 +21,6 @@ import { inRange, roundTo, UNIT_CODES } from "../../shared/field-types.js";
 import { createOwnerRecords, type OwnerIssue, type OwnerRecord } from "../ownerRecords.js";
 
 export const COMPUTED_FIELDS_MAX = 256;
-export const COMPUTED_DEPTH_MAX = 256;
 export const COMPUTED_KIND = "computed_field";
 /** Transitions kept per field. */
 export const CHANGES_MAX = 16;
@@ -123,7 +122,6 @@ export function createComputedFields(deps: ComputedFieldsDeps) {
 	function resolve(all: readonly OwnerRecord<ComputedField>[], read: InputRead): Resolved {
 		const byId = new Map(all.map((record) => [record.id, record]));
 		const resolved: Resolved = { types: new Map(), order: [], invalid: new Map() };
-		const depthOf = new Map<string, number>();
 		const visiting = new Set<string>();
 		const refuse = (id: string, message: string) =>
 			resolved.invalid.set(id, { path: ["nodes"], message, code: "invalid_ref" });
@@ -137,20 +135,14 @@ export function createComputedFields(deps: ComputedFieldsDeps) {
 				return false;
 			}
 			visiting.add(id);
-			let depth = 1;
 			for (const dep of computedRefs(record.body)) {
 				if (!visit(dep)) {
 					visiting.delete(id);
 					refuse(id, `${record.body.label} names a field that cannot be read`);
 					return false;
 				}
-				depth = Math.max(depth, (depthOf.get(dep) ?? 1) + 1);
 			}
 			visiting.delete(id);
-			if (depth > COMPUTED_DEPTH_MAX) {
-				refuse(id, `${record.body.label} names fields more than ${COMPUTED_DEPTH_MAX} deep`);
-				return false;
-			}
 			const check = checkExpression(record.body.nodes, (ref) =>
 				ref.source === "computed" ? (resolved.types.get(ref.id) ?? null) : (read(ref)?.type ?? null),
 			);
@@ -159,7 +151,6 @@ export function createComputedFields(deps: ComputedFieldsDeps) {
 				return false;
 			}
 			resolved.types.set(id, check.type);
-			depthOf.set(id, depth);
 			resolved.order.push(id);
 			return true;
 		};

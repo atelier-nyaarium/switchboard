@@ -151,8 +151,8 @@ class AutomationCheckTest {
 		// Hints precede check results.
 		assertNull(checkIssuesOf(read, saveOp(automation.copy(enabled = false)), draft, offer))
 		assertNull(checkIssuesOf(CheckRead(op, refused(Protocol.Wire.AutomationSaveRefusalCode.NO_KEY.wire)), op, draft, offer))
-		assertEquals(CardIssue(AutomationIssueLevel.ERROR, "its own hint"), cardIssueOf(step, null) { "its own hint" })
-		assertEquals(listOf(true, true, false), AutomationIssueLevel.entries.map(::drawsAsError))
+		assertEquals(CardIssue(null, "its own hint"), cardIssueOf(step, null) { "its own hint" })
+		assertEquals(listOf(true, true, false, false), (AutomationIssueLevel.entries + null).map(::drawsAsError))
 		assertEquals(AutomationIssueLevel.ERROR, issueLevelOf(null))
 		assertEquals("Hall: twice", CardIssue(AutomationIssueLevel.ERROR, "twice", chip = "Hall").text)
 	}

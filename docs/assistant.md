@@ -147,6 +147,7 @@ Router's record names. That Gateway feeds it events. The session decides what to
       blocks nothing, and the save is judged again when sent. A ready check's issues are drawn on
       their cards in place of each card's own hint (`checkIssuesOf`, `CardIssue`): an error in the
       error colour, a warning in the outline tone, and what no card holds under the Runs block.
+      Before the check answers, a card's own hint with no cause is drawn in the outline tone.
       They never disable Save, and a save that lands with them says so. Save waits only on what the
       phone cannot write (`runsIssue`): no steps, a Call with no function, an action the Gateway no
       longer offers, a value removed under a step, a cleared shared name, a bad value name.

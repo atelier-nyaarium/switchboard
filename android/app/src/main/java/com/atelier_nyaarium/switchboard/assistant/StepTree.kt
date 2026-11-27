@@ -70,7 +70,6 @@ internal data class Slot(val parent: String?, val side: Side?, val index: Int)
 
 internal val STEPS_PER_LIST = Protocol.Wire.FUNCTION_STEPS_MAX
 internal val STEPS_TOTAL = Protocol.Wire.FUNCTION_STEPS_TOTAL_MAX
-internal val STEPS_DEPTH = Protocol.Wire.FUNCTION_DEPTH_MAX
 
 /** Numbered sides, in order. */
 internal fun sidesOf(step: StepDraft): List<Pair<Side, List<StepDraft>>> = when (step) {
@@ -110,10 +109,6 @@ internal fun everyStep(steps: List<StepDraft>): List<StepDraft> =
 
 internal fun findStep(steps: List<StepDraft>, key: String): StepDraft? = everyStep(steps).firstOrNull { it.key == key }
 
-/** Single-if else chain. */
-private fun chained(step: StepDraft, side: Side, list: List<StepDraft>): Boolean =
-	step is StepDraft.If && side == Side.Else && list.singleOrNull() is StepDraft.If
-
 /** Else-if links, in order. */
 internal fun chainOf(step: StepDraft.If): List<StepDraft.If> =
 	generateSequence(step) { it.otherwise.singleOrNull() as? StepDraft.If }.toList()
@@ -132,15 +127,9 @@ internal fun withoutLink(steps: List<StepDraft>, link: String): List<StepDraft> 
 	return replacedStep(steps, before.key) { before.copy(otherwise = dropped.otherwise) }
 }
 
-/** Links add no depth. */
-internal fun depthOf(steps: List<StepDraft>): Int =
-	steps.maxOfOrNull { step ->
-		maxOf(1, sidesOf(step).maxOfOrNull { (side, list) -> (if (chained(step, side, list)) 0 else 1) + depthOf(list) } ?: 0)
-	} ?: 0
-
 private fun fits(steps: List<StepDraft>): Boolean {
 	val lists = listOf(steps) + everyStep(steps).flatMap { step -> sidesOf(step).map { it.second } }
-	return lists.all { it.size <= STEPS_PER_LIST } && everyStep(steps).size <= STEPS_TOTAL && depthOf(steps) <= STEPS_DEPTH
+	return lists.all { it.size <= STEPS_PER_LIST } && everyStep(steps).size <= STEPS_TOTAL
 }
 
 /** The step at `key` changed; every other key kept. */

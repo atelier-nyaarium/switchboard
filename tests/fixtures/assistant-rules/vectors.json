@@ -1,5 +1,5 @@
 {
-	"_comment": "Shared validation vectors for TypeScript and Kotlin. `codes`, `times` and `around` construct the typed value, or `values` lists several; `canonical` gives the stored value. Trimming removes ASCII whitespace at edges, before the length counts. `parses: false` is refused by the wire; `warning` is a choice that left its list. `matches` is TypeScript only, since the phone never matches.",
+	"_comment": "Shared validation vectors for TypeScript and Kotlin. `codes`, `times` and `around` construct the typed value, or `values` lists several; `canonical` gives the stored value. Trimming removes ASCII whitespace at edges, before the length counts. `parses: false` is refused by the wire; `vanished` is a choice that left its list, leveled by `ISSUE_LEVELS`. `matches` is TypeScript only, since the phone never matches.",
 	"specs": [
 		{
 			"kind": "enumeration",
@@ -42,7 +42,7 @@
 			"test": "is",
 			"value": "retired",
 			"fits": true,
-			"warning": true,
+			"vanished": true,
 			"canonical": "retired"
 		},
 		{
@@ -51,7 +51,7 @@
 			"test": "is",
 			"value": "Mention",
 			"fits": true,
-			"warning": true
+			"vanished": true
 		},
 		{
 			"name": "a padded choice is trimmed to the listed value",
@@ -176,7 +176,7 @@
 			"test": "is",
 			"values": ["Mention", "mention"],
 			"fits": true,
-			"warning": true,
+			"vanished": true,
 			"canonical": ["Mention", "mention"]
 		},
 		{
@@ -201,7 +201,7 @@
 			"test": "is",
 			"values": ["mention", "retired"],
 			"fits": true,
-			"warning": true,
+			"vanished": true,
 			"canonical": ["mention", "retired"]
 		},
 		{

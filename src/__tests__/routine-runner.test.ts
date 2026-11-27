@@ -9,7 +9,7 @@ import { createRoutineRunner, GRACE_MS, type RoutineAttempt } from "../gateway/r
 import { createRoutineStore } from "../gateway/routines/store.js";
 import type { Ambient } from "../shared/ambient.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
-import { openDurable } from "../shared/durable-store.js";
+import { createRestoreRepairs, openDurable } from "../shared/durable-store.js";
 import { occurrenceIdOf, ROUTINE_REPORT_GRACE_MS, type Routine } from "../shared/schemasRoutine.js";
 import { SESSION_COMMANDS } from "../shared/session-commands.js";
 
@@ -51,7 +51,13 @@ function world(over: Partial<RoutineAttempt> = {}, took = A_YEAR_BEFORE, clock: 
 	roots.push(root);
 	// The gateway stamps when it took a routine, so a test says so by moving this clock.
 	const routines = openDurable(root, "routines", (store) =>
-		createRoutineStore({ store, now: () => took, newIncarnation: () => "inc-1", onChanged: () => undefined }),
+		createRoutineStore({
+			store,
+			repairs: createRestoreRepairs(),
+			now: () => took,
+			newIncarnation: () => "inc-1",
+			onChanged: () => undefined,
+		}),
 	);
 	const occurrences = openDurable(root, "routine-occurrences", (store) => createOccurrenceStore({ store }));
 	let now = MONDAY_0900_LA;
@@ -146,6 +152,7 @@ describe("the routine runner", () => {
 		let busy = true;
 		const stage = composeRoutines({
 			dataDir: root,
+			repairs: createRestoreRepairs(),
 			ambient: {
 				now: () => now,
 				setTimer: () => ({}) as ReturnType<Ambient["setTimer"]>,
@@ -429,6 +436,7 @@ describe("the routine runner", () => {
 		const delivered: string[] = [];
 		const stage = composeRoutines({
 			dataDir: root,
+			repairs: createRestoreRepairs(),
 			ambient: {
 				now: () => now,
 				setTimer: () => ({}) as ReturnType<Ambient["setTimer"]>,
@@ -464,6 +472,7 @@ describe("the routine runner", () => {
 		let placed = true;
 		const stage = composeRoutines({
 			dataDir: root,
+			repairs: createRestoreRepairs(),
 			ambient: {
 				now: () => now,
 				setTimer: () => ({}) as ReturnType<Ambient["setTimer"]>,
@@ -504,6 +513,7 @@ describe("the routine runner", () => {
 		let minted = 0;
 		const stage = composeRoutines({
 			dataDir: root,
+			repairs: createRestoreRepairs(),
 			ambient: {
 				now: () => clock.now,
 				setTimer: () => ({}) as ReturnType<Ambient["setTimer"]>,

@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { canonicalJson } from "../../shared/canonical-json.js";
-import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
+import { type Decoded, type DurableStore, type RestoreRepairs, restoreHeld } from "../../shared/durable-store.js";
 import { isCheckIn, type Routine, RoutineSchema, routineRefusal, targetKind } from "../../shared/schemasRoutine.js";
 import { REVISION_CEILING, type Runbook } from "../../shared/schemasRunbook.js";
 import type { SessionHarness } from "../../shared/session-harness.js";
@@ -11,7 +11,9 @@ import { type TargetFacts, targetRules } from "./reservation.js";
 
 export interface RoutineStoreDeps extends TargetFacts {
 	/** Opened through `openDurable`. */
-	store: DurableStore;
+	store: Pick<DurableStore, "load" | "saveChecked">;
+	/** Retries a restore's rewrite. */
+	repairs: RestoreRepairs;
 	/** The record cannot check itself against a runbook it cannot see. */
 	getRunbook?: (runbookId: string) => Runbook | null;
 	now: () => number;
@@ -74,54 +76,34 @@ function contextRefusal(routine: Routine, deps: RoutineStoreDeps): string | null
 	return rendered.ok ? null : rendered.reason;
 }
 
+function upgraded(stored: Routine[], newIncarnation: () => string): Decoded<Routine[]> {
+	let stale = false;
+	const value = stored.map((read) => {
+		let routine = read;
+		if (legacyPick(routine.target)) routine = { ...routine, target: { ...routine.target, cli: LEGACY_PICK } };
+		// Minted before execution.
+		if (routine.incarnation === undefined) routine = { ...routine, incarnation: newIncarnation() };
+		if (routine !== read) stale = true;
+		return frozen(routine);
+	});
+	return { value, stale };
+}
+
 export function createRoutineStore(deps: RoutineStoreDeps) {
-	const { store } = deps;
-	let routines: Routine[] = RoutinesSchema.parse(store.load() ?? []).map(frozen);
-	if (routines.some((routine) => legacyPick(routine.target))) {
-		const picked = routines.map((routine) =>
-			legacyPick(routine.target)
-				? frozen({ ...routine, target: { ...routine.target, cli: LEGACY_PICK } })
-				: routine,
-		);
-		commitChecked(
-			store,
-			picked,
-			(landed) => {
-				routines = landed;
-			},
-			{ label: "routine" },
-		);
-	}
-	// Legacy routines get an incarnation before anything runs.
-	if (routines.some((routine) => routine.incarnation === undefined)) {
-		const minted = routines.map((routine) =>
-			routine.incarnation === undefined ? frozen({ ...routine, incarnation: deps.newIncarnation() }) : routine,
-		);
-		commitChecked(
-			store,
-			minted,
-			(landed) => {
-				routines = landed;
-			},
-			{ label: "routine" },
-		);
-	}
+	const stored = restoreHeld({
+		store: deps.store,
+		label: "routine",
+		repairs: deps.repairs,
+		decode: (raw) => upgraded(RoutinesSchema.parse(raw ?? []), deps.newIncarnation),
+	});
 
 	/** Disk first. */
-	const commit = (next: Routine[]): boolean =>
-		commitChecked(
-			store,
-			next,
-			(landed) => {
-				routines = landed;
-			},
-			{ label: "routine", onLanded: deps.onChanged },
-		).landed;
+	const commit = (next: Routine[]): boolean => stored.commit(next, { onLanded: deps.onChanged }).landed;
 
-	const held = (id: string): Routine | undefined => routines.find((routine) => routine.id === id);
+	const held = (id: string): Routine | undefined => stored.value.find((routine) => routine.id === id);
 
 	const list = (): Routine[] =>
-		[...routines].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+		[...stored.value].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 
 	const get = (id: string): Routine | null => held(id) ?? null;
 
@@ -168,8 +150,8 @@ export function createRoutineStore(deps: RoutineStoreDeps) {
 			incarnation: (sameKind ? current?.incarnation : undefined) ?? deps.newIncarnation(),
 		});
 		const next = current
-			? routines.map((existing) => (existing.id === routine.id ? routine : existing))
-			: [...routines, routine];
+			? stored.value.map((existing) => (existing.id === routine.id ? routine : existing))
+			: [...stored.value, routine];
 		if (!commit(next)) return { stored: false, revision: held0, reason: "could not be written" };
 		return { stored: true, revision: routine.revision, routine };
 	};
@@ -190,8 +172,8 @@ export function createRoutineStore(deps: RoutineStoreDeps) {
 	};
 
 	const remove = (id: string): { deleted: boolean } => {
-		const kept = routines.filter((routine) => routine.id !== id);
-		if (kept.length === routines.length) return { deleted: false };
+		const kept = stored.value.filter((routine) => routine.id !== id);
+		if (kept.length === stored.value.length) return { deleted: false };
 		return { deleted: commit(kept) };
 	};
 

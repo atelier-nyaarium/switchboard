@@ -1,7 +1,7 @@
 // A function: a named body an automation points at.
 
 import { z } from "zod";
-import { type HeldSide, sidesOf, walked } from "./automation-walk.js";
+import { sidesOf, walked } from "./automation-walk.js";
 import { RULE_ID_RE } from "./schemasAssistantRules.js";
 import { ASSISTANT_RULE_VALUE_MAX } from "./wire-vocabulary.js";
 
@@ -11,7 +11,6 @@ export const FUNCTIONS_MAX = 256;
 export const FUNCTION_STEPS_MAX = 256;
 /** Across every depth. */
 export const FUNCTION_STEPS_TOTAL_MAX = 256;
-export const FUNCTION_DEPTH_MAX = 256;
 /** A day. */
 export const WAIT_MINUTES_MAX = 1_440;
 export const FUNCTION_PARAMS_MAX = 256;
@@ -181,24 +180,11 @@ export const FUNCTION_STATEMENT_KINDS = Object.keys(STATEMENTS) as FunctionStep[
 const countOf = (steps: readonly FunctionStep[]): number =>
 	steps.reduce((sum, step) => sum + 1 + sidesOf(step).reduce((held, side) => held + countOf(side.steps), 0), 0);
 
-/** Else-if chain link. */
-const chained = (step: FunctionStep, side: HeldSide<FunctionStep>): boolean =>
-	step.kind === "if" && side.side === "else" && side.steps.length === 1 && side.steps[0]?.kind === "if";
-
-/** Else-if adds no depth. */
-const depthOf = (steps: readonly FunctionStep[]): number =>
-	steps.reduce(
-		(deepest, step) =>
-			Math.max(deepest, 1, ...sidesOf(step).map((side) => (chained(step, side) ? 0 : 1) + depthOf(side.steps))),
-		steps.length > 0 ? 1 : 0,
-	);
-
 /** A body's steps within its bounds; may be empty. */
 export const FunctionStepsSchema = z
 	.array(FunctionStepSchema)
 	.max(FUNCTION_STEPS_MAX)
-	.refine((steps) => countOf(steps) <= FUNCTION_STEPS_TOTAL_MAX, { message: "too many steps" })
-	.refine((steps) => depthOf(steps) <= FUNCTION_DEPTH_MAX, { message: "steps nest too deep" });
+	.refine((steps) => countOf(steps) <= FUNCTION_STEPS_TOTAL_MAX, { message: "too many steps" });
 
 export const FunctionSchema = z
 	.strictObject({

@@ -14,7 +14,7 @@ import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.AutomationCondition
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.Protocol
-import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationIssueLevel
+import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.IssueCause
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -74,7 +74,7 @@ class AssistantRuleVectorsTest {
 			val issue = rules.issueOf(condition)
 			assertEquals(name, o["parses"]?.jsonPrimitive?.boolean ?: true, fitted != null)
 			assertEquals(name, fits, rules.fits(condition))
-			assertEquals(name, o["warning"]?.jsonPrimitive?.boolean ?: false, issue?.level == AutomationIssueLevel.WARNING)
+			assertEquals(name, o["vanished"]?.jsonPrimitive?.boolean ?: false, issue?.level == IssueCause.VANISHED.level)
 			assertEquals(name, !fits && valuesOf(condition).isNotEmpty(), issue?.let { drawsAsError(it.level) } == true)
 			if (fits) o["canonical"]?.let { assertEquals(name, it, fitted?.conditions?.single()?.value) }
 		}

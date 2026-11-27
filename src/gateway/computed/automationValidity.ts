@@ -31,7 +31,13 @@ import {
 	FUNCTION_STEP_KINDS,
 	type FunctionValue,
 } from "../../shared/schemasAutomation.js";
-import { type AutomationIssue, type AutomationIssueLevel, SAVE_LINE_MAX } from "../../shared/schemasAutomationSave.js";
+import {
+	type AutomationIssue,
+	type AutomationIssueLevel,
+	ISSUE_LEVELS,
+	type IssueCause,
+	SAVE_LINE_MAX,
+} from "../../shared/schemasAutomationSave.js";
 import {
 	type AutomationFunction,
 	type FunctionStep,
@@ -41,7 +47,7 @@ import {
 	WAIT_MINUTES_MAX,
 } from "../../shared/schemasFunction.js";
 import { SCRIPT_RESERVED } from "../../shared/script-grammar.js";
-import { choiceFieldOf, type SwitchIssueWhy, switchIssues } from "../../shared/switch-cases.js";
+import { choiceFieldOf, type SwitchCause, switchIssues } from "../../shared/switch-cases.js";
 import { hasHoles } from "../../shared/text-holes.js";
 import type { OwnerIssue, OwnerRecord } from "../ownerRecords.js";
 import { clockIssue, isClock } from "./automationClock.js";
@@ -112,18 +118,21 @@ export interface StepIssue {
 	chip?: number;
 	value?: string;
 	message: string;
-	/** Beyond a plain error. */
-	why?: StepWhy;
+	/** Absent: a plain error. */
+	cause?: StepCause;
 }
 
-/** Step issue causes. */
-export type StepWhy = "unrunnable" | "alone" | "shadows" | "unready" | "vanished";
+/** Store or judge refusal. */
+const REFUSALS = { unrunnable: true, alone: true, loop: true, budget: true, private: true, gone: true } as const;
+type Refusal = keyof typeof REFUSALS;
+
+export type StepCause = IssueCause | Extract<Refusal, "unrunnable" | "alone">;
 
 /** Why a call cannot run its function. */
 export type CallIssue = { kind: "unfit" } | { kind: "switch"; param: string };
 
 /** Why a call stops. */
-export type CallCut = "loop" | "budget" | "private" | "gone" | "left" | "unread";
+export type CallCut = Extract<Refusal, "loop" | "budget" | "private" | "gone"> | Extract<IssueCause, "left" | "unread">;
 
 /** Call path. */
 export interface CallPlace {
@@ -168,42 +177,30 @@ export const lineOf = (issue: BodyIssue): string => (LINES[issue.at] as (held: B
 /** Store or judge refusal. */
 export type IssueLevel = "refuses" | AutomationIssueLevel;
 
-const CUT_LEVELS: Readonly<Record<CallCut, IssueLevel>> = {
-	loop: "refuses",
-	budget: "refuses",
-	private: "refuses",
-	gone: "refuses",
-	left: "unarmed",
-	unread: "unarmed",
+type Cause = IssueCause | Refusal;
+
+const CAUSES: { [A in BodyIssue["at"]]: (issue: Extract<BodyIssue, { at: A }>) => Cause | undefined } = {
+	trigger: () => "trigger",
+	choice: () => "vanished",
+	action: ({ issue }) => issue.cause,
+	step: ({ issue }) => issue.cause,
+	call: (issue) => issue.why,
+	fit: () => "unfit",
+	name: () => "shadows",
 };
 
-const WHY_LEVELS: Readonly<Record<StepWhy, IssueLevel>> = {
-	unrunnable: "refuses",
-	alone: "refuses",
-	shadows: "warning",
-	unready: "unarmed",
-	vanished: "warning",
+const refuses = (cause: Cause): cause is Refusal => Object.hasOwn(REFUSALS, cause);
+
+/** Absent: a plain error. */
+const causeLevel = (cause: Cause | undefined): IssueLevel => {
+	if (cause === undefined) return "error";
+	return refuses(cause) ? "refuses" : ISSUE_LEVELS[cause];
 };
 
-const stepLevel = (issue: StepIssue): IssueLevel => (issue.why ? WHY_LEVELS[issue.why] : "error");
+const stepLevel = (issue: StepIssue): IssueLevel => causeLevel(issue.cause);
 
-export function levelOf(issue: BodyIssue): IssueLevel {
-	switch (issue.at) {
-		case "trigger":
-			return "unarmed";
-		case "choice":
-			return "warning";
-		case "action":
-		case "step":
-			return stepLevel(issue.issue);
-		case "call":
-			return CUT_LEVELS[issue.why];
-		case "fit":
-			return "error";
-		case "name":
-			return "warning";
-	}
-}
+export const levelOf = (issue: BodyIssue): IssueLevel =>
+	causeLevel((CAUSES[issue.at] as (held: BodyIssue) => Cause | undefined)(issue));
 
 const unarms = (issue: BodyIssue): boolean => {
 	const level = levelOf(issue);
@@ -222,20 +219,20 @@ const spanOf = (issue: StepIssue) => ({
 	...(issue.value === undefined ? {} : { value: issue.value.slice(0, SAVE_LINE_MAX) }),
 });
 
-const SWITCH_LINES: Readonly<Record<SwitchIssueWhy, (value: string) => string>> = {
-	empty: () => "a case holds no value",
-	twice: () => "this value is given before",
+const SWITCH_LINES: Readonly<Record<SwitchCause, (value: string) => string>> = {
+	empty_case: () => "a case holds no value",
+	repeated_value: () => "this value is given before",
 	vanished: (value) => `${value} is no longer one of its values`,
 };
 
 /** Switch issues by case. */
 const caseIssues = (step: Extract<FunctionStep, { kind: "switch" }>, choices: readonly string[] | null): StepIssue[] =>
-	switchIssues(step, choices).map(({ why, case: at, chip, value }) => ({
+	switchIssues(step, choices).map(({ cause, case: at, chip, value }) => ({
 		case: at,
 		...(chip === undefined ? {} : { chip }),
 		...(value === undefined ? {} : { value }),
-		message: SWITCH_LINES[why](value ?? ""),
-		...(why === "vanished" ? { why } : {}),
+		message: SWITCH_LINES[cause](value ?? ""),
+		cause,
 	}));
 
 const ANSWERS: {
@@ -357,7 +354,7 @@ export function createAutomationValidity(
 		start: 0,
 		end: text.length,
 		message: "holes cannot be read yet",
-		why: "unready",
+		cause: "unready",
 	});
 
 	/** A hole's issue in a text. */
@@ -378,7 +375,7 @@ export function createAutomationValidity(
 		args: Readonly<Record<string, StepArg>>,
 		names: readonly string[] | null,
 	): StepIssue | null {
-		if (!stepAction(kind)) return { message: UNRUNNABLE, why: "unrunnable" };
+		if (!stepAction(kind)) return { message: UNRUNNABLE, cause: "unrunnable" };
 		if (kind !== "tell_assistant" && !deps.actions) return { message: NO_ACTION };
 		const params: readonly AutomationActionParam[] = AUTOMATION_ACTIONS[kind].params;
 		for (const name of Object.keys(args)) {
@@ -460,7 +457,7 @@ export function createAutomationValidity(
 		exit: (_fn, _step, address) => (ownerOf(address) ? { message: EXIT_BESIDE } : null),
 		note: () => null,
 		unparsed: (fn, _step, address) =>
-			address.length !== 1 || stepsOf(fn).length !== 1 ? { message: UNPARSED_ALONE, why: "alone" } : null,
+			address.length !== 1 || stepsOf(fn).length !== 1 ? { message: UNPARSED_ALONE, cause: "alone" } : null,
 		try: () => null,
 		parallel: (_fn, step) => (widthOf([step]) > RUN_STRANDS_MAX ? { message: TOO_WIDE } : null),
 		start: (fn, step) => {
@@ -494,7 +491,7 @@ export function createAutomationValidity(
 			return null;
 		},
 		do: (fn, step) => {
-			if (!stepAction(step.action)) return { message: UNRUNNABLE, why: "unrunnable" };
+			if (!stepAction(step.action)) return { message: UNRUNNABLE, cause: "unrunnable" };
 			const row: AutomationActionRow = AUTOMATION_ACTIONS[step.action];
 			const gives = STORES_RESULTS && row.gives !== undefined;
 			if (step.as !== undefined && !gives) return { param: "as", message: GIVES_NOTHING };
@@ -516,7 +513,7 @@ export function createAutomationValidity(
 		if (issue) return issue;
 		const kept = keptName(step);
 		if (kept === undefined || !reservedName(kept)) return null;
-		return { param: step.kind === "let" ? "name" : "as", message: NAME_RESERVED, why: "shadows" };
+		return { param: step.kind === "let" ? "name" : "as", message: NAME_RESERVED, cause: "shadows" };
 	};
 
 	/** Primary issue first. */

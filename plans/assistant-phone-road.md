@@ -2965,9 +2965,23 @@ Written before the build from Questions 98 to 104, checked against the tree on 2
 
 **Order** (each ends green): 1, the sides table, no behaviour change; 2, "Seen outside its lists"; 3, the Gateway's saves never block (`levelOf`, the run's check, the issue answers, row `errors`, parse levels); 4, the phone's gate and issue drawing; 5, value lists; 6, the switch on the Gateway (schema, walk and vectors, frames and table, pass, checks and vectors, script, serves); 7, the switch on the phone and the map; 8, flat else-if.
 
+### As built (2026-11-27) ✅
+
+- **Slices, all ✅:** the sides table on both runtimes; "Seen outside its lists" gone (the stored key rewritten once at restore); the old items (`vault-watcher-grants`, `automation-serves` closed once ql-2815 restarted on 8.14.89); saves never block on the Gateway and the phone; value lists; the switch on the Gateway; the switch on the phone with the map; the flat else-if card.
+- **Departures from the Opus block:**
+  - **Every count an owner writes against is 256**, on the owner's word ("just make all limits 256 instead of arbitrarily deciding it should have been like 32 or 16 or 8"): automations, functions, steps per list and in total, a function's values, a step's arguments, actions, conditions, values per condition, switch cases and values per case, calls deep, parallel branches, computed fields, issues answered; the record store holds 512. `CONDITION_VALUES_MAX` is 256, not 16.
+  - **No depth limit:** with the step total at 256, depth could never bind, so `FUNCTION_DEPTH_MAX`, `COMPUTED_DEPTH_MAX` and both `depthOf` readers are gone; the "an `if` alone in an else counts at its parent's depth" ruling went with them. `SCRIPT_BLOCKS_MAX` (256) guards the parser's stack.
+  - **Values compare ignoring case** everywhere a switch reads them (`caseKey`, shared with option uniqueness); a vanished choice routes to the default at run time, as the warning says.
+  - **A misfit call fails as a step with errors** (`unread`, `STEP_ERRORS`), as every other error.
+  - **One table maps each issue's cause to its level** (`ISSUE_LEVELS`, generated into `Protocol.Wire.IssueCause`); emitters answer a cause, `levelOf` and the phone read the table, and a local hint with no cause draws neutral until the check lands.
+  - **Condition values drop only exact repeats**, so a renamed choice stays beside its stale spelling.
+  - **One restore helper** (`restoreHeld` in `durable-store.ts`): a store restored through a lenient reader rewrites checked and retries each persist pass until it lands; pending repairs show on `/health`. Adopted by the source state, policies, the automation state and routines.
+  - **Every step kind is named** where the engine reads a step and where the printer writes one, so a new kind does not compile until each handles it.
+- **On the board for later:** side writers through the side table (cases by key, one canonical side, a typed script codec); byte budgets where data is stored and sent; the remaining lenient restorers adopting `restoreHeld`.
+
 ### Bug Classes
 
-- **A load-time compatibility read that fixes old data in memory and leaves the file stale** (stores restored through a lenient reader: `createVaultDecisions`, `createSourceStateStore`). Round 1: the vault's `watcher` rewrite at load wrote once and ignored whether the write landed. Round 2: the source state's `unexpected` key was dropped in memory and written only on a later `put`, so an idle source kept it. Each was patched in place; a shared "restore lenient, rewrite checked until it lands" helper in `durable-store.ts` is the architecture fix, so a window can close only once every store has rewritten.
+- **A load-time compatibility read that fixes old data in memory and leaves the file stale** (stores restored through a lenient reader: `createVaultDecisions`, `createSourceStateStore`). Round 1: the vault's `watcher` rewrite at load wrote once and ignored whether the write landed. Round 2: the source state's `unexpected` key was dropped in memory and written only on a later `put`, so an idle source kept it. Each was patched in place; a shared "restore lenient, rewrite checked until it lands" helper in `durable-store.ts` is the architecture fix, so a window can close only once every store has rewritten. Round 3, found by the architecture fix: the routines store minted incarnations at restore with an ignored write, so a failed write lost routine memory at the next start. Resolved by `restoreHeld`, adopted by the source state, policies, the automation state and routines; the other lenient restorers are on the board.
 
 **Defect classes to watch:** hand readers of sides (slice 1 closes it); an issue policy scattered across boundaries instead of one `levelOf`; two judges of a save (the phone gates only what it cannot write); the case comparison and the condition's one-or-many read each in one function per runtime, pinned by vectors; labels copied instead of generated.
 

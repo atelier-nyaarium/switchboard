@@ -545,7 +545,7 @@ internal class SandboxAutomationGateway(
 		val (id, body) = function ?: return@buildList
 		unreadStepHole(body)?.let { (span, line) -> add(spanIssue(Protocol.Wire.AutomationSaveRecord.FUNCTION.wire, id.takeUnless { copied }, span, line)) }
 		if (!fitsFunction(automation, body)) {
-			add(AutomationIssue(level = Protocol.Wire.AutomationIssueLevel.ERROR.wire, record = Protocol.Wire.AutomationSaveRecord.AUTOMATION.wire, line = SANDBOX_UNFIT))
+			add(AutomationIssue(level = Protocol.Wire.IssueCause.UNFIT.level.wire, record = Protocol.Wire.AutomationSaveRecord.AUTOMATION.wire, line = SANDBOX_UNFIT))
 		}
 	}
 

@@ -1,7 +1,7 @@
 import type { TriggerGiven } from "../../shared/automation-fit.js";
 import type { ConsoleOp } from "../../shared/console-protocol.js";
 import type { AutomationTrigger } from "../../shared/schemasAutomation.js";
-import type { AutomationIssueLevel } from "../../shared/schemasAutomationSave.js";
+import { type AutomationIssueLevel, ISSUE_LEVELS } from "../../shared/schemasAutomationSave.js";
 import type { FunctionParam, FunctionStep } from "../../shared/schemasFunction.js";
 import type { ConsoleDescription } from "../../shared/schemasLiveConsole.js";
 import {
@@ -104,7 +104,7 @@ export function scriptOps(deps: ScriptOpsDeps) {
 			const names = namesOf(request, parsed.bindings, request.text.length);
 			const types = typesOf(request);
 			if (!parsed.steps) {
-				const level: AutomationIssueLevel = "error";
+				const level = ISSUE_LEVELS.unparsed;
 				const issues = parsed.issues.map((issue) => ({ ...issue, message: cut(issue.message), level }));
 				return { issues, names, types, statements: [] };
 			}

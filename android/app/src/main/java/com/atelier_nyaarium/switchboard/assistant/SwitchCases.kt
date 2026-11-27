@@ -5,7 +5,7 @@ import com.atelier_nyaarium.switchboard.liveconsole.lexConsole
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldOption
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.Protocol
-import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationIssueLevel
+import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.IssueCause
 
 // Twin of `switch-cases.ts`.
 
@@ -26,19 +26,19 @@ internal fun choiceFieldOf(subject: String): String? {
 	return name.text.takeIf { plain }
 }
 
-internal enum class SwitchIssueWhy(val wire: String) {
-	EMPTY("empty"),
+/** Twin of `SwitchCause`. */
+internal enum class SwitchCause(val issue: IssueCause) {
+	EMPTY_CASE(IssueCause.EMPTY_CASE),
 
-	TWICE("twice"),
+	REPEATED_VALUE(IssueCause.REPEATED_VALUE),
 
-	VANISHED("vanished"),
+	VANISHED(IssueCause.VANISHED),
 }
 
 internal data class SwitchIssue(
-	val level: AutomationIssueLevel,
-	val why: SwitchIssueWhy,
+	val cause: SwitchCause,
 	val case: Int,
-	/** Absent for `EMPTY`. */
+	/** Absent for `EMPTY_CASE`. */
 	val chip: Int? = null,
 	val value: String? = null,
 )
@@ -49,12 +49,12 @@ internal fun switchIssues(cases: List<List<String>>, choices: List<String>?): Li
 	val seen = mutableSetOf<String>()
 	val issues = mutableListOf<SwitchIssue>()
 	cases.forEachIndexed { at, values ->
-		if (values.isEmpty()) issues += SwitchIssue(AutomationIssueLevel.ERROR, SwitchIssueWhy.EMPTY, at)
+		if (values.isEmpty()) issues += SwitchIssue(SwitchCause.EMPTY_CASE, at)
 		values.forEachIndexed { chip, value ->
 			val key = caseKey(value)
 			when {
-				key in seen -> issues += SwitchIssue(AutomationIssueLevel.ERROR, SwitchIssueWhy.TWICE, at, chip, value)
-				offered != null && key !in offered -> issues += SwitchIssue(AutomationIssueLevel.WARNING, SwitchIssueWhy.VANISHED, at, chip, value)
+				key in seen -> issues += SwitchIssue(SwitchCause.REPEATED_VALUE, at, chip, value)
+				offered != null && key !in offered -> issues += SwitchIssue(SwitchCause.VANISHED, at, chip, value)
 			}
 			seen += key
 		}
@@ -89,11 +89,13 @@ internal sealed interface CaseAdd {
 
 internal data class CaseView(val case: CaseDraft, val chips: List<CaseChip>, val issue: CardIssue?, val add: CaseAdd)
 
-private fun issueLine(issue: SwitchIssue): String = when (issue.why) {
-	SwitchIssueWhy.EMPTY -> "A case holds no value"
-	SwitchIssueWhy.TWICE -> "Given before"
-	SwitchIssueWhy.VANISHED -> "No longer one of its values"
+private fun issueLine(issue: SwitchIssue): String = when (issue.cause) {
+	SwitchCause.EMPTY_CASE -> "A case holds no value"
+	SwitchCause.REPEATED_VALUE -> "Given before"
+	SwitchCause.VANISHED -> "No longer one of its values"
 }
+
+private fun caseIssue(issue: SwitchIssue, chip: String? = null) = CardIssue(issue.cause.issue.level, issueLine(issue), chip)
 
 internal fun caseViews(step: StepDraft.Switch, options: List<AssistantFieldOption>?): List<CaseView> {
 	val issues = switchIssues(step.cases.map { it.values }, options?.map { it.value })
@@ -102,9 +104,9 @@ internal fun caseViews(step: StepDraft.Switch, options: List<AssistantFieldOptio
 	return step.cases.mapIndexed { at, held ->
 		val chips = held.values.mapIndexed { chip, value ->
 			val issue = issues.firstOrNull { it.case == at && it.chip == chip }
-			CaseChip(value, labelOf(value), issue?.let { CardIssue(it.level, issueLine(it), labelOf(value)) })
+			CaseChip(value, labelOf(value), issue?.let { caseIssue(it, labelOf(value)) })
 		}
-		val empty = issues.firstOrNull { it.case == at && it.chip == null }?.let { CardIssue(it.level, issueLine(it)) }
+		val empty = issues.firstOrNull { it.case == at && it.chip == null }?.let { caseIssue(it) }
 		val add = when {
 			held.values.size >= CASE_VALUES -> CaseAdd.Full
 			left == null -> CaseAdd.Type

@@ -207,7 +207,7 @@ export function restoreDurable(name: string, restore: () => void): void {
 
 export interface Decoded<T> {
 	value: T;
-	/** File holds older form. */
+	/** Stale file form. */
 	stale: boolean;
 }
 

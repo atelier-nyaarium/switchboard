@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { composeRoutines } from "../gateway/compose/composeRoutines.js";
 import { renderRoutine } from "../gateway/routines/render.js";
 import type { Ambient } from "../shared/ambient.js";
+import { createRestoreRepairs } from "../shared/durable-store.js";
 import type { Routine } from "../shared/schemasRoutine.js";
 import type { Runbook } from "../shared/schemasRunbook.js";
 
@@ -45,6 +46,7 @@ function stage(over: Partial<Runbook> = {}) {
 	const authorized: string[][] = [];
 	const routines = composeRoutines({
 		dataDir: root,
+		repairs: createRestoreRepairs(),
 		ambient: {
 			now: () => now,
 			setTimer: () => ({}) as ReturnType<Ambient["setTimer"]>,

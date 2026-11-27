@@ -15,14 +15,14 @@ import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationIssueLevel
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationSaveRecord
 
-internal data class CardIssue(val level: AutomationIssueLevel, val line: String, val chip: String? = null) {
+/** Null means uncaused. */
+internal data class CardIssue(val level: AutomationIssueLevel?, val line: String, val chip: String? = null) {
 	val text: String get() = chip?.let { "$it: $line" } ?: line
 }
 
-/** Warnings are nonblocking. */
-internal fun drawsAsError(level: AutomationIssueLevel): Boolean = when (level) {
+internal fun drawsAsError(level: AutomationIssueLevel?): Boolean = when (level) {
 	AutomationIssueLevel.UNARMED, AutomationIssueLevel.ERROR -> true
-	AutomationIssueLevel.WARNING -> false
+	AutomationIssueLevel.WARNING, null -> false
 }
 
 // skew:step-refusals
@@ -69,7 +69,7 @@ internal fun drawnIssuesOf(issues: List<AutomationIssue>, draft: AutomationDraft
 }
 
 internal fun cardIssueOf(step: StepDraft, drawn: DrawnIssues?, hint: (StepDraft) -> String?): CardIssue? =
-	if (drawn != null) drawn.cards[step.key] else hint(step)?.let { CardIssue(AutomationIssueLevel.ERROR, it) }
+	if (drawn != null) drawn.cards[step.key] else hint(step)?.let { CardIssue(null, it) }
 
 internal sealed interface CardRow {
 	val rowKey: String
