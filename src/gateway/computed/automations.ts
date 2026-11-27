@@ -1521,15 +1521,6 @@ export function createAutomations(deps: AutomationsDeps) {
 		};
 	};
 
-	/** A revived id starts unrun. */
-	const forgetRan = (ids: readonly string[]): void => {
-		if (!ids.some((id) => Object.hasOwn(state.value.ran, id))) return;
-		commit({
-			...state.value,
-			ran: Object.fromEntries(Object.entries(state.value.ran).filter(([id]) => !ids.includes(id))),
-		});
-	};
-
 	const judged = (intent: AutomationIntent, held: readonly OwnerRecord<Automation>[]) =>
 		judgeAutomationWrite(intent, {
 			held,
@@ -1544,19 +1535,25 @@ export function createAutomations(deps: AutomationsDeps) {
 			unreadFunctionAt: (id) => store.unreadOf(id, FUNCTION_KIND),
 		});
 
-	/** What removed automations left queued. */
-	const dropOwned = (ids: readonly string[]): void => {
-		if (ids.length === 0) return;
-		const gone = new Set(ids);
+	/** Prunes removals, one commit. */
+	const dropOwned = (revived: readonly string[], removed: readonly string[]): void => {
+		if (revived.length === 0 && removed.length === 0) return;
+		const gone = new Set(removed);
 		const owned = (member: string) => {
 			const owner = ownerOf(member);
 			return owner !== null && gone.has(owner);
 		};
-		const events = state.value.queue.events.filter((event) => !owned(event.member));
-		const fires = state.value.fires.map((held) => (gone.has(held.automation) ? untold(held) : held));
-		const next: State = { ...state.value, queue: { ...state.value.queue, events }, fires };
-		if (canonicalJson(next) !== canonicalJson(state.value) && !commit(next)) {
-			console.warn("[automations] a removed automation's queued events were not dropped");
+		const held = state.value;
+		const base: State = {
+			...held,
+			// Revived ids start unrun.
+			ran: Object.fromEntries(Object.entries(held.ran).filter(([id]) => !revived.includes(id))),
+			queue: { ...held.queue, events: held.queue.events.filter((event) => !owned(event.member)) },
+			fires: held.fires.map((fire) => (gone.has(fire.automation) ? untold(fire) : fire)),
+		};
+		const next: State = { ...base, ...pruned(base) };
+		if (canonicalJson(next) !== canonicalJson(held) && !commit(next)) {
+			console.warn("[automations] a removed automation's state was not dropped");
 		}
 	};
 
@@ -1604,9 +1601,11 @@ export function createAutomations(deps: AutomationsDeps) {
 		const result = store.batch(verdict.writes);
 		if (!result.stored) return storeRefused(result, verdict.writes, intent);
 		const known = new Set(held.map((record) => record.id));
-		forgetRan(verdict.writes.filter((row) => row.op === "remove" || !known.has(row.id)).map((row) => row.id));
 		const live = new Set(records.list().map((record) => record.id));
-		dropOwned(held.filter((record) => !live.has(record.id)).map((record) => record.id));
+		dropOwned(
+			verdict.writes.filter((row) => row.op === "remove" || !known.has(row.id)).map((row) => row.id),
+			held.filter((record) => !live.has(record.id)).map((record) => record.id),
+		);
 		// Bands follow their crossings.
 		deps.fields.derivedChanged();
 		drain();

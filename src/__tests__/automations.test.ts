@@ -761,6 +761,28 @@ describe("automations", () => {
 		expect(titles()).toEqual(["Pail"]);
 	});
 
+	it("forgets a deleted automation's failed run on disk and in its log, with nothing queued", async () => {
+		const dir = fresh();
+		const w = world(dir);
+		const { automations } = w.open();
+		const heat: AutomationInput = {
+			enabled: true,
+			trigger: { kind: "event", source: "github", conditions: [] },
+			actions: [{ kind: "device_set", device: "plug", verb: "on" }],
+		};
+		automations.ownerPut("heat", heat, 0, true);
+		w.answerDevices(() => ({ word: "refused" }));
+		automations.run("heat", "c1");
+		await automations.settled();
+		const ran = [automations.log().map((run) => run.outcome), automations.lastRun("heat") !== null];
+
+		automations.ownerRemove("heat", 1);
+		const held = JSON.parse(fs.readFileSync(path.join(dir, "automation-state.json"), "utf8"));
+
+		expect(ran).toEqual([["refused"], true]);
+		expect([automations.log(), held.log, held.lastRuns, held.queue.events]).toEqual([[], [], {}, []]);
+	});
+
 	it("neither lists nor keeps a queued entry past its retention", () => {
 		const dir = fresh();
 		const old = { member: "automation:old:a0:1", at: 1_000, body: { title: "Old", fields: {} } };
