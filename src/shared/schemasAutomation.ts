@@ -520,8 +520,6 @@ export type AutomationSwitchOffer = z.infer<typeof AutomationSwitchOfferSchema>;
 export const ConsoleAutomationListResultSchema = z
 	.object({
 		automations: z.array(AutomationRowSchema),
-		// skew:automation-serves.
-		/** Absent from a build that holds an event trigger and a tell alone. */
 		serves: z
 			.object({
 				triggers: z.array(AutomationTriggerOfferSchema).max(16),
@@ -558,8 +556,7 @@ export const ConsoleAutomationListResultSchema = z
 					.meta({ id: "AutomationFunctionServes" })
 					.optional(),
 			})
-			.meta({ id: "AutomationServes" })
-			.optional(),
+			.meta({ id: "AutomationServes" }),
 		/** Absent from older builds. */
 		functions: z.array(AutomationFunctionRowSchema).max(FUNCTIONS_MAX).optional(),
 	})

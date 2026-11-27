@@ -21,9 +21,8 @@ internal suspend fun ConsoleClient.automationList(gatewayId: String): Automation
 	val listed = (answer as? ConsoleClient.ValueAnswer.Answered)?.let { held ->
 		runIsolated { wireJson.decodeFromJsonElement<ConsoleAutomationListResult>(held.result) }.getOrNull()
 	}
-	val rows = listAnswerOf(answer, ProseRefusal.OLDER_BUILD) { listed?.automations }
-	val prose = answer is ConsoleClient.ValueAnswer.Refused && answer.reason != Protocol.Wire.OP_REASON_NOT_SERVED
-	return AutomationListing(rows, listed?.serves, prose, functions = listed?.functions)
+	val rows = listAnswerOf(answer) { listed?.automations }
+	return AutomationListing(rows, listed?.serves, functions = listed?.functions)
 }
 
 internal suspend fun ConsoleClient.automationPut(

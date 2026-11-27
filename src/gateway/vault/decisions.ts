@@ -52,12 +52,6 @@ const sameHolder = (a: VaultHolder, b: StandingHolder): boolean =>
 
 const GrantsSchema = z.array(VaultGrantSchema);
 
-// skew:vault-watcher-grants: watcher rows predate services.
-const asService = (grant: VaultGrant): VaultGrant =>
-	grant.holder.kind === "watcher"
-		? { ...grant, holder: { kind: "service", serviceId: grant.holder.watcherId } }
-		: grant;
-
 /** Why a policy stopped answering. */
 export function qualificationRefusal(
 	current: AuthorizationPolicy | null,
@@ -140,11 +134,7 @@ export function answeringOf(
 export function createVaultDecisions(deps: VaultDecisionsDeps) {
 	const { store } = deps;
 	const sessionCapMs = deps.sessionCapMs ?? VAULT_SESSION_GRANT_CAP_MS;
-	const loaded = GrantsSchema.parse(store.load() ?? []);
-	let grants: VaultGrant[] = loaded.map(asService);
-	// skew:vault-watcher-grants: rewritten once at load.
-	if (loaded.some((grant) => grant.holder.kind === "watcher"))
-		commitChecked(store, grants, () => {}, { label: "vault grant" });
+	let grants: VaultGrant[] = GrantsSchema.parse(store.load() ?? []);
 
 	/** Persist revocations before reporting. */
 	const commit = (next: VaultGrant[], checked: boolean): boolean => {

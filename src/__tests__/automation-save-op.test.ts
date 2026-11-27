@@ -131,7 +131,7 @@ describe("the automation save op", () => {
 		expect(chime).toMatchObject({ stored: true, function: { reads: { names: ["time"], eventFields: [] } } });
 		expect(listed.functions).toEqual([second.function, chime.function]);
 		expect(listed.automations.map((row) => row.id)).toEqual(["warm", "ring", "clock"]);
-		expect(listed.serves?.functions).toEqual({
+		expect(listed.serves.functions).toEqual({
 			max: 32,
 			steps: ["tell_assistant", "device_set", "ifttt_trigger"],
 			statements: [
@@ -414,7 +414,7 @@ describe("the automation save op", () => {
 		expect([refusalOf(second), refusalOf(called), refusalOf(cleared)]).toEqual(
 			Array.from({ length: 3 }, () => ({ code: "private", record: "function", id: "warm-up" })),
 		);
-		expect(console.list().serves?.functions?.unnamed).toBe(true);
+		expect(console.list().serves.functions?.unnamed).toBe(true);
 	});
 
 	it("answers an older phone's put as before", () => {

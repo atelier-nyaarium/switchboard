@@ -324,7 +324,7 @@ describe("the trigger catalogue", () => {
 		});
 
 		expect(Object.keys(AUTOMATION_TRIGGERS)).toEqual(kinds);
-		expect(listed.serves?.triggers.map((row) => [row.kind, row.names.map((held) => held.name)])).toEqual(
+		expect(listed.serves.triggers.map((row) => [row.kind, row.names.map((held) => held.name)])).toEqual(
 			kinds.map((kind) => [kind, [...AUTOMATION_TRIGGER_NAMES[kind]]]),
 		);
 	});

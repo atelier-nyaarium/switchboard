@@ -203,7 +203,7 @@ class HoleTextRulesTest {
 			listOf(at("tell", "message"), at("tell", "value1"), at("ifttt", "value2"), at("ifttt", "event"), at("plug", "verb"), at("missing", "message")),
 		)
 		assertEquals(listOf("Message" to 1_000, "Value 2" to 500, null), listOf(named("tell", "message"), named("ifttt", "value2"), named("tell", "when")))
-		assertNull(textAt(draft, TextRef("tell", "message"), offerOf(null, away = false)))
+		assertNull(textAt(draft, TextRef("tell", "message"), tellOnlyOffer()))
 	}
 
 	@Test

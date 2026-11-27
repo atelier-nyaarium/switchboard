@@ -78,13 +78,12 @@ private val SERVES = AutomationServes(
 )
 
 
-private val HERE = EditContext(offerOf(null, away = false), emptyList())
+private val HERE = EditContext(tellOnlyOffer(), emptyList())
 
 class AutomationOpsTest {
 	private class FakeGateway : AutomationGateway {
 		val shelves = mutableMapOf<String, List<AutomationRow>>()
 		val refusing = mutableSetOf<String>()
-		val prosing = mutableSetOf<String>()
 		var serves = SERVES
 		val unreachable = mutableSetOf<String>()
 		val holds = mutableMapOf<String, TestHold>()
@@ -119,7 +118,6 @@ class AutomationOpsTest {
 			val listed = shelves[gatewayId].orEmpty()
 			holds.remove(gatewayId)?.pass()
 			if (gatewayId in refusing) return AutomationListing(ListAnswer.NotServed)
-			if (gatewayId in prosing) return AutomationListing(ListAnswer.NotServed, prose = true)
 			if (gatewayId in unreachable) throw IllegalStateException("unreachable")
 			return AutomationListing(ListAnswer.Listed(listed), serves, functions = functionRows.takeIf { it.isNotEmpty() })
 		}
@@ -318,8 +316,6 @@ class AutomationOpsTest {
 		assertEquals(listOf(false, false, true), fake.confirmed)
 	}
 
-	private val serving = AssistantRead.Answered(assistantState(workdir = "~/notes"))
-
 	private fun admitting(vararg ids: String) = MutableStateFlow(ChatState(gateways = testRegistry(*ids)))
 
 	private fun ChatState.drawn() = gateways.gateways.filter { it.automations is GatewayList.Listed }.map { it.id }
@@ -344,29 +340,6 @@ class AutomationOpsTest {
 		fake.refusing += "sakura"
 		runBlocking { ops.refreshAll() }
 		assertTrue(state.value.drawn().isEmpty())
-	}
-
-	@Test
-	fun theTokenAlwaysReadsNotServedAndProseNever() {
-		val reads = mapOf("unread" to AssistantRead.Reading, "refused" to AssistantRead.Refused, "serving" to serving)
-		val landed = { prose: Boolean ->
-			val fake = FakeGateway()
-			reads.keys.forEach { fake.shelves[it] = listOf(automationRow()) }
-			val state = admitting(*reads.keys.toTypedArray())
-			state.value = state.value.copy(
-				gateways = reads.entries.fold(state.value.gateways) { held, (id, read) -> held.withEntry(id) { it.copy(assistant = read) } },
-			)
-			val ops = AutomationOps(state, Host(fake))
-			runBlocking { ops.refreshAll() }
-			(if (prose) fake.prosing else fake.refusing) += reads.keys
-			runBlocking { ops.refreshAll() }
-			reads.keys.associateWith { state.value.gateways.entry(it)?.automations }
-		}
-		val drawn = GatewayList.Listed(listOf(automationRow()))
-
-		assertEquals(reads.mapValues { GatewayList.NotServed }, landed(false))
-		assertEquals(reads.mapValues { drawn }, landed(true))
-		assertEquals(listOf(false, false, false), reads.values.map(::saysOlderBuild))
 	}
 
 	@Test

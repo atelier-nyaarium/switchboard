@@ -62,19 +62,9 @@ internal data class AutomationOffer(
 	fun labelOf(kind: String): String = actions.find { it.kind == kind }?.label ?: kind
 }
 
-// skew:automation-serves: every listing names what it serves.
-/** The event row a listing with no `serves` holds. */
-private val LEGACY_EVENT = TriggerOffer(
-	TRIGGER_EVENT,
-	listOf(AutomationTriggerName("event", "The event; its fields by name"), AutomationTriggerName("source", "The source's name")),
-)
-
-// skew:automation-serves: every listing names what it serves.
-/** A listing with no `serves` holds an event and a bare tell. */
 /** `functions` from the same listing as `serves`. */
-internal fun offerOf(serves: AutomationServes?, away: Boolean, functions: List<AutomationFunctionRow>? = null): AutomationOffer =
-	if (serves == null) AutomationOffer(triggers = listOf(LEGACY_EVENT), actions = listOf(DEFAULT_TELL), away = away)
-	else AutomationOffer(
+internal fun offerOf(serves: AutomationServes, away: Boolean, functions: List<AutomationFunctionRow>? = null): AutomationOffer =
+	AutomationOffer(
 		triggers = serves.triggers.map { TriggerOffer(it.kind, it.names) },
 		actions = serves.actions.map(::actionOfferOf),
 		numbers = serves.numbers.map { NumberOffer(it.device, it.measure, it.label, it.unit, it.decimals.toInt()) },

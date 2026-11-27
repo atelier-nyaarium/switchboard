@@ -1380,6 +1380,63 @@ The owner sent a screenshot of an integrations map from another of their project
   - **The picker, "Run a function":** the subtitle is the trigger's sentence alone. "+ New function", a thin line, then every function this automation could run, each with its signature and its count. No "Fits this trigger" label. A function that takes another source's event, such as a GitHub event, is not listed. The "Incompatible triggers" group, with reasons worded "Requires event.", has nothing left to list and is off the card. Owner: "If it is a source like GitHub, don't show it where Incompatible." As built, a function reading a name the trigger lacks, or a declared value given as another type, is hidden the same way.
 - **"Not tested" shows only where a device is added** (the Found rows and the Pair with dialogue), never on Integrations or a device page. Owner: "actually get rid of not tested from the devices view. that's going to get annoying. ot only needs to be on the device additscreen".
 
+## Question 98 - How does an event's condition say "any of"?
+
+Q: A Match switch over the rows (All, Any, None), a list of values on one row, both, or one typed expression?
+A: A list of values on one row. A choice field shows its choices as chips; a text field takes free-text entries. Tests: is any of, is none of, contains any of, contains none of; one value reads as plain is. Rows still all must hold. No Match switch.
+
+> B looks good
+
+> nah I don't like A after all. But that does bring into interest a Switch operator. For enums, it enumerates all values on it, and you can choose a route it does. Or for raw strings, you set the text for each case.
+
+## Question 99 - How does a Switch step route a choice field?
+
+Q: Every choice listed with a route picker, or route cards holding chips?
+A: Every choice listed, each picking a route. A switch is a step in Runs beside If, in the cards and the script. A filled-in case runs its route; a value no case names runs the default. The script language holds `switch`, its cases and `default`. A text subject takes typed values per case.
+
+> 1. Every `case` filled in does a route. If not filled in, does the `default` block. Ensure the language handles that.
+
+Recommended: it is how the owner described it, and every choice is visibly routed; a choice the source adds later lands on the default.
+
+## Question 100 - How is a switch drawn, and do its cases have names?
+
+Q: Named routes picked per choice, numbered routes, or routes shown by their first step?
+A: None of them. A case is flow control and has no name. The switch is drawn like the If card: the subject, then one CASE side per case labelled by its value chips, its steps inside, "+ Case", and DEFAULT last with a faint line naming what falls to it. Supersedes the per-choice route picker of Question 99.
+
+> hmm. the UX doesn't scream ease of switches. it just looks like a nightmare form. And why MUST a name be set? I figured switch cases were just flow control, and not a named function itself or something.
+
+> Nice. way better.
+
+## Question 101 - What does a case value that does not fit look like?
+
+Q: How is a choice the source no longer holds shown, and a value given twice?
+A: A case value its choice field no longer holds is a warning: it heals, since that case simply never matches. A typed value given a second time is an error on that second chip. The add menu for a choice subject omits values already used in the switch.
+
+> And it should show a case as error if it no longer exists (still allows you to back out anyways and save anyways). And the case add drop-down for enums should omit already added values. For raw entries, mark error on the second plus instance.
+
+> ohh good point. if it's salvageable, warning instead of error. Erroreans it WILL crash out and the action goes to a failed branch. Warning means it healed.
+
+## Question 102 - Does an error block a save?
+
+Q: Does a repeated typed value block Save, or warn?
+A: No error ever blocks a save. An error makes the step unrunnable: a run that reaches it fails there, as an `unparsed` step does, so a `try` around it catches it and anything else ends the frame failed. A warning is something that healed and runs on.
+
+> As per defined before: No error ever blocks a save, but it makes the action not runnable anymore. An automation that uses it and lands on it will drop to the fail case and error put.
+
+## Question 103 - Do the existing step checks follow that rule?
+
+Q: Today some step checks refuse a save (an expression that does not parse, a value of the wrong type). Bring every step check under Question 102, or only the switch?
+A: Every step check. Broken code saves on purpose: each issue is shown where it sits, and a run that reaches the broken step fails there.
+
+> ohh that flag, yeah change it. I meant for it to allow bad code on purpose. You can't alt tab to another script on a phone, so you must eat the failure to check how you did it right on another script. Copy code and all.
+
+## Question 104 - How is an else-if chain drawn on the cards?
+
+Q: Nested If cards inside each Else, as today, or one flat card?
+A: One flat card that reuses the switch's side rendering. "If" shows once in the tile's header; each branch has an "Expression" field and a body holding its steps (nested flow control and actions); an else, when present, is last; "+ Else if" adds a branch. Stored as today, an `if` inside the else side.
+
+> yeah I think else if needs to reuse any rendering chaining you make for switch. Except instead of a case, you just show "if" once in the header of the tile, and each condition just has an "Expression" and body where you put the nested flow control and action.
+
 # Plan
 
 ## Phase 2.5 - Integrations
@@ -2818,6 +2875,97 @@ Still owed here: the owner's own use of it, and the list below.
 - **Half closed:** `vault-watcher-grants`. A Gateway now stores and answers `service` and rewrites a stored `watcher` row once at load; the schema member and the phone's `VaultHolder.Watcher` stay until every Gateway has started on this build, since ql-2815's build could not be read.
 - **The walk (2026-11-26):** the owner's phone, re-paired, on this build: Automations List and Map, the editor's Runs in Cards and Script, the script page, Sources, a sensor's page. One defect: an automation the lane told alone kept no steps, so the map drew it as never run while the list said "Ran 1d ago". The map now reads its last-ran time (`FlowGraph.ranAt`). The Key became a Legend button drawing the designer's legend, each sample through the map's own draw calls, and a test holds that it shows every colour, pattern and weight.
 - **Still owed here:** `vault-watcher-grants` and `automation-serves` once ql-2815 runs this build; the 2026-12-10 windows the phone, daemons and Gateways write (all but ql now current); a real notification and a sensor crossing reaching the assistant.
+
+## Phase 2.7h - Value lists, the switch and saves that never block (Q98 to Q104)
+
+Rough; refined before building.
+
+**Old items in the same slice:** close `vault-watcher-grants` and `automation-serves` (every Gateway now runs 8.14.89, ql-2815 restarted on it), and 2.7d's open board item: remove "Seen outside its lists" from a source's page with the wire's unexpected field and the Gateway's per-source list.
+
+**Value lists on a condition (Q98):**
+
+- A condition holds one or more values. Tests: is any of, is none of, contains any of, contains none of; one value reads as plain is, is not, contains. Rows still all must hold.
+- One matcher (`conditionsMatch`) and its vectors (`tests/fixtures/assistant-rules/vectors.json`) on both runtimes; the sentence, the preview and the lane read it.
+- The editor: a choice field's values as chips, the menu omitting chosen ones; a text field takes free-text chips.
+- A skew window for a phone and a Gateway that know only one value.
+
+**The switch step (Q99 to Q102):**
+
+- A step kind beside `if`: a subject expression, cases each holding values and steps, and a default. The first case naming the value runs, else the default. A choice compares exactly, text ignoring case. No fall-through and no names.
+- Script: `switch (subject) { case "a", "b" { ... } default { ... } }`, printed and parsed by the Gateway, round-tripping.
+- The walk numbers its sides (each case, then default), replayed on both runtimes; the engine, the failure table, strands and width, retire, and the last run's side taken all follow the If's rules.
+- Issues, never refusals (Q102): a typed value given twice is an error on that chip, and a run that reaches the switch fails there, `try` catching it. A value its choice field no longer holds is a warning: that case never matches.
+- Cards: drawn like the If card. The subject, a CASE side per case labelled by value chips (+ offers the unused choices for a choice subject, a free-text chip otherwise), "+ Case", and DEFAULT last with a faint line naming what falls to it.
+- `serves.functions.statements` names it; the map draws a line per case.
+
+**Else-if chains (Q104):** one flat If card through the same side rendering as the switch: "If" once in the header, each branch an "Expression" and its body, the else last, "+ Else if". The stored form is unchanged; the cards read a chain of `if` in `else` as branches and write it back the same.
+
+**Every step check saves (Q103):** the judge stops refusing a save for a step's issue (`writeIssue`, `entryIssue`). Each issue is drawn where it sits, and a frame runs its steps until it reaches the broken one, which fails there as an `unparsed` step does. A confirm for a dangerous action is no error and still asks.
+
+### How 2.7h is to be built (Opus block)
+
+Written before the build from Questions 98 to 104, checked against the tree on 2026-11-26. Each line is a ruling until the code says otherwise.
+
+**Sides get one table first.**
+
+- Every runtime reads a step's sides by hand today: `stepsIn`, `recalled`, `stepWidth` (`automation-walk.ts`), `countOf`, `depthOf` (`schemasFunction.ts`), `TreeStep`, `sideOf`, `SIDES_OF` (`automationFrames.ts`); on the phone `stepsIn`, `called` (`AutomationWalk.kt`) and `stepPaths` (`StepTree.kt`). A switch would be the seventh edit on each.
+- `sidesOf(step)` and `withSides(step, lists)` in `automation-walk.ts`, a `sidesOf(FunctionStep)` twin in `AutomationWalk.kt`; every reader above goes through them.
+- A switch side is `case:N`, default `case:<cases.length>`. `numbered` stays body-free, `addressIn` reads the body, `byPath` keeps default last.
+- On the phone `Side` becomes a sealed class (`Then`, `Else`, `Body`, `Catch`, `Case(n)`, `Default`), and `sidesOf(StepDraft)` answers each side with its number.
+
+**Saves never block (Q102, Q103).**
+
+- One policy, `levelOf(issue: BodyIssue)` in `automationValidity.ts`: `refuses`, `unarmed`, `error` or `warning`. Each boundary applies it; the `stopsWrite` filter, the judge's own `find` calls and `entryIssue`'s filter go.
+- **`refuses`** (the store cannot hold it, or the judge cannot judge it): schema parse failures, the one id space and bad ids, `moved` and `gone`, caps (`full`, `FUNCTIONS_MAX`) and the call budget, `loop`, `private`, `mixed`, `newer_app`, `not_home`, `no_key`, `no_free_id`, `unknown_function`, `newer_function`, `UNPARSED_ALONE`, and `unrunnable` (no catalogue row, so danger cannot be asked). `confirm` still asks, as a refusal with labels.
+- **`unarmed`:** the save lands and the row reads `invalid`: a trigger issue, `FUNCTION_LEFT`, `FUNCTION_UNREAD`.
+- **`error`:** the save lands, the automation stays armed, and a run fails at the broken step: every `STEPS` issue not above, every `argsIssue` on a flat action, holes, and fit (the pointer's and a call's).
+- **`warning`:** the save lands and runs on: a vanished choice, and `namingIssue` (a held name shadows an entity at the fire).
+- At each boundary: `writeIssue` and the store's `refusal` hook answer `refuses` only; `automationIssue` (feeding `armed`, `retireOf` and the row's `invalid`) answers `refuses` or `unarmed`; in `judgeSave` the fresh-reach soundness check, `issueUnder`/`issueOf`, its own `NO_SWITCH` refusal and `unfit` go, and `namingRefusal` becomes a warning; `entryIssue` and `calledEntryIssue` keep fit, `FUNCTION_PRIVATE`, gone or unread and the loop, and stop judging the callee's steps.
+- **The run:** in `take` (`automationPass.ts`) a port `ports.errorAt(fire, path)` reruns `stepIssue` on the pinned frame body at the step's turn. An error ends the step `failedAs(step, "unread", STEP_ERRORS)`, `STEP_ERRORS = "this step has errors"`, fixed as `SCRIPT_ERRORS` is since an issue's line can quote a stored value. A `try` catches it; otherwise the frame ends failed and the call `call_failed`. Flat actions already fail at their turn through `resolved`.
+- **The answer:** `AutomationIssueSchema` in `schemasAutomationSave.ts` (`{ level, record, id?, step?, param?, start?, end?, case?, value?, line }`) rides `ConsoleAutomationCheckResult.issues` (with `ready: true`) and `ConsoleAutomationSaveResult.issues`. `AutomationRow.errors` counts the errors in what it runs, read every time. `stepIssueOf` becomes `stepIssuesOf`, so `script_parse` answers steps plus every step issue, placed, with `ScriptIssue.level`; steps present means the cards return, and `unparsed` is only text that does not parse.
+- **The phone:** `runsIssue` keeps only what cannot become a body that parses (`NoSteps`, `NotAStep`, `NeedsName`, `NameWithValues`, `SharedName`, `BadParam`, `TooManyParams`, `NameTooLong`). The other card lines (`cardIssue`, `Unset`, `BadValue`) are drawn and never block, replaced by the check's issue once it lands. `checkIssuesOf(check, draft)` maps issues to card keys through `keyAt` and `cardsOf`. `cardsDraw`'s `issueOf` returns `CardIssue(level, line, chip?)`: errors in the error colour, warnings in the outline tone. `saveAllowedAfterCheck` stays, since only structure refuses. The list row reads `errors` beside `SCRIPT_ERRORS_LINE`.
+- Skew row `step-refusals` (Gateway writes, phone tolerates, two weeks): on closing the phone drops its reading of `hole`, `unfit` and step `invalid`, and `ScriptIssue.level` becomes required.
+
+**Value lists (Q98).**
+
+- `AssistantRuleConditionSchema.value` becomes `string | string[]`; one value stays a string, so every stored row and older reader is unchanged. An older phone decodes a list as `AutomationTrigger.Unknown` and keeps it as sent, where a field beside `value` would be dropped by `ignoreUnknownKeys` on a re-save. `AutomationConditionSchema` shares the shape. Check the codegen carries `string | string[]`; if not, one generated union serializer.
+- `RULE_TESTS` gains `contains_not`. `TEST_LABELS` (is, is not, contains, does not contain) and `LIST_TEST_LABELS` (is any of, is none of, contains any of, contains none of) live in `field-types.ts` and are generated into `FieldTypes`. `CONDITION_VALUES_MAX = 16` in `wire-vocabulary.ts`.
+- `canonicalConditions` trims each value, drops duplicates under the matcher's comparison, and collapses one value back to a string, so no stored condition holds a duplicate.
+- `holds`: any-of for `is` and `contains`, none-of for `is_not` and `contains_not`. A missing field still fails every test.
+- A vanished choice is a warning, as in Q101: `conditionIssue` stops calling it invalid, and the value matches nothing.
+- `vectors.json` gains list cases, `contains_not`, the collapse and a vanished choice that fits with a warning, replayed by `AssistantRuleVectorsTest.kt` and `assistant-rule-vectors.test.ts`; matching cases are TypeScript only, since the phone never matches.
+- `eventSentence` uses the list labels and joins values with ", ". The lane, `previewEvent` and `entities.ts` read `conditionsMatch` already.
+- `serves.conditions = { tests, values }` under skew row `condition-lists` (Gateway to phone, two weeks). The phone offers chips and the fourth test only where served; `carryRefusal` refuses a move to a destination that lacks them.
+- Phone: `EventForm` in `AutomationTriggerForms.kt` draws the chip row (a choice field's menu omits chosen values, a text field takes free-text chips); `SourceFields.issueOf`, `withCondition`, `withField` and `changed` in `AutomationDraft.kt` read through one `valuesOf(condition)` and write through `conditionOf(field, test, values)`.
+
+**The switch step (Q99 to Q101).**
+
+- Schema beside `if` (`schemasFunction.ts`): `{ kind: "switch", subject, cases: [{ values, steps }] max SWITCH_CASES_MAX, default? }`. `STATEMENTS` gains `switch`, so `serves.functions.statements` names it.
+- `readSteering` reads the subject once through the read slot, as the shown text a hole prints; unreadable fails `unread` with `SUBJECT_UNREAD`. The first case holding the value wins, else default. `steered` stores `case: n`, `howOf` returns `{ how: "took", side: case:n }`. `moved`, the failure table (new rows: a case taken, an empty default, a failure caught around the switch), width (`widest(...sidesOf(step))`), strands and retire follow the If. `AutomationLastStep` gains `case`.
+- **Comparison always ignores case** (trim, then lower case) through one `caseKey` in `src/shared/switch-cases.ts`: a step cannot know its subject is a choice (`membersOf` types every event field as `Text`, and a source's specs change after a save), and one rule keeps the run, the duplicate check and the phone agreeing. A refine on `AssistantFieldSpecSchema` refuses two options equal ignoring case.
+- Issues in one place per runtime: `switch-cases.ts` (`switchIssues(step, choices)`, `choiceFieldOf(subject)`) and its twin `assistant/SwitchCases.kt`, replaying `tests/fixtures/switch-cases/vectors.json`. A typed value given twice is an error on the second chip (`STEPS.switch`, with the subject's expression check). A value missing from the subject's choices is a warning on its chip, yielded by `assessBody` where the trigger is known. A choice subject is exactly `event.<field>` naming an `enumeration` spec of the trigger's source, read from the parse tree on the Gateway and from `lexConsole` tokens and `SourceFields` on the phone.
+- Script: `switch (subject) { case "a", "b" { } default { } }`. `SCRIPT_RESERVED` gains `switch`, `case` and `default` (a stored `let default` then prints read-only). Case values are quoted constants; a hole is refused. Printer and reader in `automationScript.ts`; the seeded round-trip sweep includes switches.
+- Phone: `StepDraft.Switch(key, subject, cases: List<CaseDraft(key, values, steps)>, default)` with `treeOf` and `stepOf`. `cardsDraw` emits `CardRow.Branch(parent, label, depth)`: a CASE row with chips, DEFAULT last with its faint line; "+ Case" is an `AddSlot`; the menu omits used values. `ScriptView` marks the case taken.
+- Map: a line per case. `FlowKey.Switch`, which is a plug, is renamed `FlowKey.Plug` so "switch" means the step.
+
+**Flat else-if (Q104), phone only.**
+
+- `cardsDraw` reads an `If` whose else is exactly one `If` as a chain: "If" once, one `CardRow.Branch` per link (an Expression field and its body), the else last. Edits target each link's own key, so `stepOfDraft` writes back unchanged bytes. "+ Else if" inserts `If(fresh, "", [], last.otherwise)` as the last link's else. `StepTreeTest` pins the round trip byte for byte.
+
+**Old items.**
+
+- "Seen outside its lists" goes: `AssistantSourceSchema.unexpected`, `AssistantUnexpectedValuesSchema`, `AssistantFieldValueSchema`, `unexpectedAfter`, `unexpectedNow`, `MAX_UNEXPECTED` (`sourceState.ts`, `sourceLane.ts`, `composeAssistant.ts`), `unexpectedLines` (`AssistantOps.kt`), the `AssistantSourcePage.kt` lines and the sandbox's. `SourceStateSchema` still reads a stored `unexpected` key and drops it at restore, since being strict it would quarantine every source's cursor; skew row `source-unexpected` (two weeks) deletes the key.
+
+**Settled alongside, on the owner's rule that no error blocks a save:**
+
+- A trigger that cannot fire (unknown source, a test its field does not take) saves and reads `invalid`, as a carry already stores it.
+- What the wire could not carry (a blank condition value or subject, a case with no value) is relaxed in the schema and saves as an error, not blocked on the cards.
+- An `if` alone in an else counts at its parent's depth in both `depthOf` readers, so a flat chain is not cut at three links.
+- A choice subject is only `event.<field>` for now; a value trigger's choice field reads as text.
+
+**Order** (each ends green): 1, the sides table, no behaviour change; 2, "Seen outside its lists"; 3, the Gateway's saves never block (`levelOf`, the run's check, the issue answers, row `errors`, parse levels); 4, the phone's gate and issue drawing; 5, value lists; 6, the switch on the Gateway (schema, walk and vectors, frames and table, pass, checks and vectors, script, serves); 7, the switch on the phone and the map; 8, flat else-if.
+
+**Defect classes to watch:** hand readers of sides (slice 1 closes it); an issue policy scattered across boundaries instead of one `levelOf`; two judges of a save (the phone gates only what it cannot write); the case comparison and the condition's one-or-many read each in one function per runtime, pinned by vectors; labels copied instead of generated.
 
 ## Painpoints
 

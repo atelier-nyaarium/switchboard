@@ -28,34 +28,22 @@ internal sealed interface ListAnswer<out T> {
 	data object Unreachable : ListAnswer<Nothing>
 }
 
-/** Reads a prose refusal from a Gateway older than the token. */
-internal enum class ProseRefusal(val answer: ListAnswer<Nothing>) {
-	/** Every build serves it: a refusal is a fault. */
-	FAULT(ListAnswer.Unreachable),
-
-	// skew:automation-serves: the token alone says not served.
-	/** An older build lacks it. */
-	OLDER_BUILD(ListAnswer.NotServed),
-}
-
-/** The one reading of a list answer. */
+/** The one reading of a list answer; only the token says not served. */
 internal fun <T> listAnswerOf(
 	answer: ConsoleClient.ValueAnswer,
-	prose: ProseRefusal,
 	rows: (kotlinx.serialization.json.JsonElement) -> List<T>?,
 ): ListAnswer<T> = when (answer) {
 	is ConsoleClient.ValueAnswer.Answered -> rows(answer.result)?.let { ListAnswer.Listed(it) } ?: ListAnswer.Unreachable
 	is ConsoleClient.ValueAnswer.Refused ->
-		if (answer.reason == com.atelier_nyaarium.switchboard.proto.Protocol.Wire.OP_REASON_NOT_SERVED) ListAnswer.NotServed else prose.answer
+		if (answer.reason == com.atelier_nyaarium.switchboard.proto.Protocol.Wire.OP_REASON_NOT_SERVED) ListAnswer.NotServed else ListAnswer.Unreachable
 	is ConsoleClient.ValueAnswer.Undelivered, ConsoleClient.ValueAnswer.Unreachable -> ListAnswer.Unreachable
 }
 
 internal suspend inline fun <reified R, T> ConsoleClient.listAnswer(
 	gatewayId: String,
 	op: ConsoleOp,
-	prose: ProseRefusal,
 	crossinline rows: (R) -> List<T>,
-): ListAnswer<T> = listAnswerOf(sendValueAnswer(gatewayId, op), prose) { result ->
+): ListAnswer<T> = listAnswerOf(sendValueAnswer(gatewayId, op)) { result ->
 	runIsolated { rows(wireJson.decodeFromJsonElement<R>(result)) }.getOrNull()
 }
 

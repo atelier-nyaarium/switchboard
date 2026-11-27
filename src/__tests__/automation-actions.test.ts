@@ -84,7 +84,7 @@ describe("the action catalogue", () => {
 			{ action: 1, param: "message", text: "It is {value}" },
 			{ action: 2, param: "value2", text: "two" },
 		]);
-		expect(listed.serves?.actions.map((row) => [row.kind, row.params.map((param) => param.name)])).toEqual(
+		expect(listed.serves.actions.map((row) => [row.kind, row.params.map((param) => param.name)])).toEqual(
 			kinds.map((kind) => [kind, paramsOf(kind).map((param) => param.name)]),
 		);
 	});
@@ -96,8 +96,8 @@ describe("the action catalogue", () => {
 		);
 		const listed = ConsoleAutomationListResultSchema.parse(JSON.parse(fs.readFileSync(file, "utf8")));
 
-		expect(listed.serves?.actions).toEqual(JSON.parse(JSON.stringify(AUTOMATION_SERVES.actions)));
-		expect(listed.serves?.triggers).toEqual([...AUTOMATION_SERVES.triggers]);
+		expect(listed.serves.actions).toEqual(JSON.parse(JSON.stringify(AUTOMATION_SERVES.actions)));
+		expect(listed.serves.triggers).toEqual([...AUTOMATION_SERVES.triggers]);
 	});
 
 	it("stores no IFTTT action the live request would refuse", () => {

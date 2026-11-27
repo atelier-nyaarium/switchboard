@@ -601,10 +601,8 @@ no TTL.
   named whenever more than one Gateway is in the view's scope. A runbook's delete says when its Gateway's routines
   are unread. A Gateway's peers alone outlive its restart on the entry, so its linked Domains stay
   until it answers again. Refresh re-reads the view that is drawn. The `not_served` token always reads as
-  not served. A refusal in prose is a fault for routines, runbooks and policies, so what was drawn
-  stays; for automations it reads as not served until 2026-11-29, since a Gateway from before the
-  token refuses an unknown op in schema prose (`ProseRefusal`), and only when that Gateway's state
-  answers no `sources`. Runbooks keep only rows, since the phone's library is durable. Peers are
+  not served. A refusal in prose is a fault, so what was drawn stays. Runbooks keep only rows, since
+  the phone's library is durable. Peers are
   read by `TrustOps`, which keeps what it had on any failure. A re-provision clears each fence, so
   a read still out lands nothing.
 - **Policies** (`PolicyOps.kt`, `policies/`): one group per Gateway, read when the view shows and

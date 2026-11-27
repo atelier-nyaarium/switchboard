@@ -19,7 +19,7 @@ private fun valuesOf(values: Map<String, String>): JsonObject =
 	JsonObject(values.mapValues { (_, value) -> JsonPrimitive(value) })
 
 internal suspend fun ConsoleClient.runbookList(gatewayId: String): ListAnswer<Runbook> =
-	listAnswer<ConsoleRunbookListResult, _>(gatewayId, ConsoleOp.RunbookList, ProseRefusal.FAULT) { it.runbooks }
+	listAnswer<ConsoleRunbookListResult, _>(gatewayId, ConsoleOp.RunbookList) { it.runbooks }
 
 suspend fun ConsoleClient.runbookPut(
 	gatewayId: String,

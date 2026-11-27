@@ -61,30 +61,14 @@ internal interface AssistantHost {
 	fun persistHome(home: AssistantHome.Read)
 }
 
-// skew:automation-serves: the not-served token says what a Gateway serves.
-/** Every answered state names its sources. */
-internal fun servesSources(state: ConsoleAssistantStateResult?): Boolean = state != null
-
-/** Unread or refused reads as an older build. */
-internal fun servesSources(read: AssistantRead): Boolean = when (read) {
-	is AssistantRead.Answered -> servesSources(read.state)
-	AssistantRead.Reading, AssistantRead.Refused -> false
-}
-
-/** Only a state answered without sources. */
-internal fun saysOlderBuild(read: AssistantRead): Boolean = when (read) {
-	is AssistantRead.Answered -> !servesSources(read.state)
-	AssistantRead.Reading, AssistantRead.Refused -> false
-}
-
-/** Move payload; null `automations` lists none. */
+/** Move payload. */
 internal fun carriedOf(
 	state: ConsoleAssistantStateResult,
-	automations: List<AutomationRow>?,
+	automations: List<AutomationRow>,
 	functions: List<AutomationFunctionRow>? = null,
 ): AssistantHomeCarried {
-	val events = automations?.filter { it.automation.trigger is AutomationTrigger.Event }
-	val carried = events?.map { CarriedAutomation(it.id, it.automation) }
+	val events = automations.filter { it.automation.trigger is AutomationTrigger.Event }
+	val carried = events.map { CarriedAutomation(it.id, it.automation) }
 	return AssistantHomeCarried(
 		approveEverySend = state.approveEverySend ?: true,
 		temperatureUnit = state.temperatureUnit,
@@ -100,9 +84,8 @@ internal fun carriedOf(
 			AssistantHomeCarriedIntegration(id = integration.id, grant = integration.grants.firstOrNull())
 		},
 		// None carried sends none.
-		functions = carried?.let { moving ->
-			carriedFunctionsOf(moving, functions.orEmpty().map { CarriedFunction(it.id, it.function) })
-		}?.takeIf { it.isNotEmpty() },
+		functions = carriedFunctionsOf(carried, functions.orEmpty().map { CarriedFunction(it.id, it.function) })
+			.takeIf { it.isNotEmpty() },
 	)
 }
 
@@ -514,20 +497,18 @@ internal class AssistantOps(
 		val client = host.gateway ?: return null
 		val answer = attempt { client.call(gatewayId, ConsoleOp.AssistantState) } as? AssistantAnswer.State ?: return null
 		fence.land(ticket, HomeEffect.Word(gatewayId, AssistantWord.Answered(answer.state)))
-		val listed = eventRows(client, gatewayId, answer.state) ?: return null
+		val listed = eventRows(client, gatewayId) ?: return null
 		return carriedOf(answer.state, listed.rows, listed.functions)
 	}
 
-	/** `rows` null from a build that lists none. */
-	private class EventRows(val rows: List<AutomationRow>?, val functions: List<AutomationFunctionRow>? = null)
+	private class EventRows(val rows: List<AutomationRow>, val functions: List<AutomationFunctionRow>?)
 
-	/** Null when unread; a refusal counts only from an older build. */
-	private suspend fun eventRows(client: AssistantGateway, gatewayId: String, held: ConsoleAssistantStateResult): EventRows? {
+	/** Null unless listed. */
+	private suspend fun eventRows(client: AssistantGateway, gatewayId: String): EventRows? {
 		val listing = attempt { client.automationListing(gatewayId) }
 		return when (val listed = listing?.rows) {
 			is ListAnswer.Listed -> EventRows(listed.rows, listing.functions)
-			ListAnswer.NotServed -> EventRows(null).takeUnless { servesSources(held) }
-			ListAnswer.Unreachable, null -> null
+			ListAnswer.NotServed, ListAnswer.Unreachable, null -> null
 		}
 	}
 
@@ -544,7 +525,7 @@ internal class AssistantOps(
 				asked.map { (id, _) -> async { id to attempt { client.call(id, ConsoleOp.AssistantState) } } }.awaitAll()
 			}
 			val choice = seedFrom(answers) ?: return
-			val listed = eventRows(client, choice.gatewayId, choice.state) ?: return
+			val listed = eventRows(client, choice.gatewayId) ?: return
 			writes.withLock {
 				val now = state.value.gateways
 				if (!fence.current(ticket) || !now.current || seenAt(now) != asked) return@withLock

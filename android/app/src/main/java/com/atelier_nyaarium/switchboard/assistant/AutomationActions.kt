@@ -59,16 +59,6 @@ internal data class ActionOffer(
 	fun param(name: String): ParamOffer? = params.find { it.name == name }
 }
 
-// skew:automation-serves: a Gateway that names no kinds.
-/** A tell with no message. */
-internal val DEFAULT_TELL = ActionOffer(
-	kind = ACTION_TELL,
-	label = "Tell the assistant",
-	danger = false,
-	home = true,
-	params = listOf(ParamOffer("when", "When", PARAM_CHOICE, options = listOf(ParamOption("now", "Now"), ParamOption("quietly", "Quietly")))),
-)
-
 internal fun actionOfferOf(row: AutomationActionOffer): ActionOffer = ActionOffer(
 	kind = row.kind,
 	label = row.label,

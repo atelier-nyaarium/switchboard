@@ -166,12 +166,6 @@ export const SKEW_WINDOWS = {
 		ends: "A carried home's `temperatureUnit` becomes required; the Router keeps an older phone's sealed nulls until the next move, so re-seal or keep it nullish on read.",
 		moved: "the Router holds homes an older phone sealed",
 	},
-	"vault-watcher-grants": {
-		closes: "2026-11-28",
-		from: ["gateway"],
-		in: ["gateway", "phone"],
-		ends: "Drop the `watcher` holder, its rewrite at load and the phone's member, once every Gateway has started on a build that rewrites it.",
-	},
 	"vault-required": {
 		closes: "2026-12-03",
 		from: ["gateway"],
@@ -189,12 +183,6 @@ export const SKEW_WINDOWS = {
 		from: ["gateway"],
 		in: ["gateway"],
 		ends: "Drop the session store's legacy reads.",
-	},
-	"automation-serves": {
-		closes: "2026-11-29",
-		from: ["gateway"],
-		in: ["phone"],
-		ends: "Every listing names what it serves; drop the prose refusal and the legacy offer.",
 	},
 	"function-row-callers": {
 		closes: "2026-12-10",

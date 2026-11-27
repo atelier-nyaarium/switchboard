@@ -48,8 +48,6 @@ import kotlinx.coroutines.flow.update
 internal data class AutomationListing(
 	val rows: ListAnswer<AutomationRow>,
 	val serves: AutomationServes? = null,
-	/** Not served read from prose, not the token. */
-	val prose: Boolean = false,
 	/** From the same read as the rows. */
 	val functions: List<AutomationFunctionRow>? = null,
 )
@@ -331,20 +329,15 @@ internal class AutomationOps(
 		val client = host.gateway
 		var listedServes: AutomationServes? = null
 		var listedFunctions: List<AutomationFunctionRow>? = null
-		var prose = false
 		val call = client?.let { held ->
 			suspend {
 				val listing = held.list(gatewayId)
 				listedServes = listing.serves
 				listedFunctions = listing.functions
-				prose = listing.prose
 				listing.rows
 			}
 		}
-		val read = reads.list(TAG, gatewayId, call) ?: return
-		// skew:automation-serves: with the prose shim.
-		val older = saysOlderBuild(state.value.gateways.assistantRead(gatewayId))
-		val answer = if (read == ListAnswer.NotServed && prose && !older) ListAnswer.Unreachable else read
+		val answer = reads.list(TAG, gatewayId, call) ?: return
 		state.update { held ->
 			held.copy(
 				gateways = held.gateways.withEntry(gatewayId) {

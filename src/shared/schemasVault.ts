@@ -211,8 +211,6 @@ export const VaultHolderSchema = z
 		z.strictObject({ kind: z.literal("session"), sessionTarget: z.string().min(1).max(128) }),
 		z.strictObject({ kind: z.literal("routine"), routineId: z.string().min(1).max(64) }),
 		z.strictObject({ kind: z.literal("service"), serviceId: z.string().min(1).max(64) }),
-		// skew:vault-watcher-grants: a stored row from before services.
-		z.strictObject({ kind: z.literal("watcher"), watcherId: z.string().min(1).max(64) }),
 	])
 	.meta({ id: "VaultHolder" });
 

@@ -32,5 +32,6 @@
 			"sentence": "Outside thermometer temperature below 2.0 C",
 			"device": "ce:1c:44:06:3c:5d"
 		}
-	]
+	],
+	"serves": { "triggers": [], "actions": [], "numbers": [], "switches": [] }
 }

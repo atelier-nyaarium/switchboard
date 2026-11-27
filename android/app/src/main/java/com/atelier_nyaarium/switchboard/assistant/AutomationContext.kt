@@ -45,9 +45,9 @@ internal fun automationContext(registry: GatewayRegistry, home: AssistantHome, g
 	}
 	val away = gatewayId != placed
 	val served = when (registry.listOn(gatewayId) { it.automations }) {
-		is GatewayList.Listed -> registry.entry(gatewayId).let { entry ->
-			Served.Known(offerOf(entry?.automationServes, away, entry?.automationFunctions))
-		}
+		is GatewayList.Listed -> registry.entry(gatewayId)?.let { entry ->
+			entry.automationServes?.let { Served.Known(offerOf(it, away, entry.automationFunctions)) }
+		} ?: Served.Unknown(ListEmpty.Reading)
 		GatewayList.Unread -> Served.Unknown(ListEmpty.Reading)
 		GatewayList.Unreachable -> Served.Unknown(ListEmpty.Unreachable)
 		GatewayList.NotServed -> Served.Unknown(ListEmpty.NotServed(listOf(gatewayId)))

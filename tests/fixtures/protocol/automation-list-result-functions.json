@@ -62,5 +62,16 @@
 			"moves": false,
 			"reads": { "names": ["time"], "eventFields": [] }
 		}
-	]
+	],
+	"serves": {
+		"triggers": [],
+		"actions": [],
+		"numbers": [],
+		"switches": [],
+		"functions": {
+			"max": 32,
+			"steps": ["tell_assistant", "device_set"],
+			"paramTypes": ["device", "text", "number"]
+		}
+	}
 }

@@ -138,8 +138,7 @@ Router's record names. That Gateway feeds it events. The session decides what to
       automation's put and delete hold the lock a move holds (`AssistantOps.carriedWrite`) and are
       refused, unsent, once the home has left its Gateway; any other automation stays on its
       Gateway and is written straight to it. The leave dialogue belongs to the opening Back was pressed on,
-      and a Back during a save leaves at once while the answer still lands. A Gateway that answers no
-      `serves` holds an event and a tell alone. `AutomationDraft.kt` holds the draft, its `outcomeOf`, `fittingAutomation`
+      and a Back during a save leaves at once while the answer still lands. `AutomationDraft.kt` holds the draft, its `outcomeOf`, `fittingAutomation`
       and the lines each row shows; `AutomationParts.kt` holds a trigger as the editor holds it, the
       offer and a text's preview; `AutomationActions.kt` holds an action, drawn from its Gateway's
       row.

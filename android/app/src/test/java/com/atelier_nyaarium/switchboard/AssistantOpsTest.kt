@@ -643,7 +643,6 @@ class AssistantOpsTest {
 			),
 			carriedOf(state, listOf(eventRow("urgent"), alertRow)),
 		)
-		assertNull(carriedOf(state, null).automations)
 	}
 
 	@Test

@@ -10,7 +10,7 @@ import com.atelier_nyaarium.switchboard.proto.Protocol
 // A policy lives on one gateway, so every call names the one it means.
 
 internal suspend fun ConsoleClient.policyList(gatewayId: String): ListAnswer<AuthorizationPolicy> =
-	listAnswer<ConsolePolicyListResult, _>(gatewayId, ConsoleOp.PolicyList, ProseRefusal.FAULT) { it.policies }
+	listAnswer<ConsolePolicyListResult, _>(gatewayId, ConsoleOp.PolicyList) { it.policies }
 
 suspend fun ConsoleClient.policyPut(
 	gatewayId: String,

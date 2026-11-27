@@ -3017,8 +3017,7 @@ data class AutomationFunctionRow(
 @Serializable
 data class ConsoleAutomationListResult(
 	val automations: List<AutomationRow>,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val serves: AutomationServes? = null,
+	val serves: AutomationServes,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val functions: List<AutomationFunctionRow>? = null,
 )
@@ -4660,12 +4659,6 @@ sealed class VaultHolder {
 	@SerialName("service")
 	data class Service(
 		val serviceId: String,
-	) : VaultHolder()
-
-	@Serializable
-	@SerialName("watcher")
-	data class Watcher(
-		val watcherId: String,
 	) : VaultHolder()
 }
 

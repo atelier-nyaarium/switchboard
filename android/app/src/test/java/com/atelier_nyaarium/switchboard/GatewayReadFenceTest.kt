@@ -71,19 +71,18 @@ class GatewayReadFenceTest {
 	}
 
 	@Test
-	fun onlyTheTokenSaysNotServedForAListEveryBuildServes() {
+	fun onlyTheTokenSaysNotServed() {
 		val rows: (kotlinx.serialization.json.JsonElement) -> List<String>? = { listOf("row") }
 		val token = ConsoleClient.ValueAnswer.Refused(com.atelier_nyaarium.switchboard.proto.Protocol.Wire.OP_REASON_NOT_SERVED)
 		val prose = ConsoleClient.ValueAnswer.Refused("content key unavailable")
 		val answered = ConsoleClient.ValueAnswer.Answered(kotlinx.serialization.json.JsonNull)
 
-		assertEquals(ListAnswer.Listed(listOf("row")), listAnswerOf(answered, ProseRefusal.FAULT, rows))
-		assertEquals(ListAnswer.Unreachable, listAnswerOf<String>(answered, ProseRefusal.FAULT) { null })
-		assertEquals(ListAnswer.NotServed, listAnswerOf(token, ProseRefusal.FAULT, rows))
-		assertEquals(ListAnswer.Unreachable, listAnswerOf(prose, ProseRefusal.FAULT, rows))
-		assertEquals(ListAnswer.NotServed, listAnswerOf(prose, ProseRefusal.OLDER_BUILD, rows))
-		assertEquals(ListAnswer.Unreachable, listAnswerOf(ConsoleClient.ValueAnswer.Undelivered("held"), ProseRefusal.OLDER_BUILD, rows))
-		assertEquals(ListAnswer.Unreachable, listAnswerOf(ConsoleClient.ValueAnswer.Unreachable, ProseRefusal.OLDER_BUILD, rows))
+		assertEquals(ListAnswer.Listed(listOf("row")), listAnswerOf(answered, rows))
+		assertEquals(ListAnswer.Unreachable, listAnswerOf<String>(answered) { null })
+		assertEquals(ListAnswer.NotServed, listAnswerOf(token, rows))
+		assertEquals(ListAnswer.Unreachable, listAnswerOf(prose, rows))
+		assertEquals(ListAnswer.Unreachable, listAnswerOf(ConsoleClient.ValueAnswer.Undelivered("held"), rows))
+		assertEquals(ListAnswer.Unreachable, listAnswerOf(ConsoleClient.ValueAnswer.Unreachable, rows))
 	}
 
 	@Test

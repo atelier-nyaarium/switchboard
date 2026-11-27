@@ -325,9 +325,8 @@ describe("vault decisions", () => {
 		expect(open(dataDir).list(1_000)).toEqual([]);
 	});
 
-	it("a watcher's stored grants carry over to its service, beside every other holder's", () => {
+	it("a service's grants follow its links and its revokes, beside every other holder's", () => {
 		const dataDir = fresh();
-		const file = path.join(dataDir, "vault-decisions.json");
 		const session = {
 			grantId: "session",
 			tier: "session",
@@ -341,55 +340,35 @@ describe("vault decisions", () => {
 			entryId: "deploy",
 			holder: { kind: "routine", routineId: "t" },
 		};
-		const stored = (grantId: string, watcherId: string, entryId: string) => ({
+		const stored = (grantId: string, serviceId: string, entryId: string) => ({
 			grantId,
 			tier: "standing",
 			entryId,
-			holder: { kind: "watcher", watcherId },
+			holder: { kind: "service", serviceId },
 		});
 		recorded(dataDir, [session, routine, stored("github", "github", "pat"), stored("ifttt", "ifttt", "key")]);
 
 		const decisions = open(dataDir);
 		expect(decisions.covers({ serviceId: "github", entryId: "pat" }, 1_000)?.grantId).toBe("github");
-		expect(decisions.covers({ serviceId: "ifttt", entryId: "key" }, 1_000)?.grantId).toBe("ifttt");
-		expect(decisions.list(1_000).map((grant) => grant.grantId)).toEqual(["session", "routine", "github", "ifttt"]);
-		const holders = () =>
-			(JSON.parse(fs.readFileSync(file, "utf8")) as { holder: unknown }[]).map((grant) => grant.holder);
-		expect(holders()).toEqual([
-			session.holder,
-			routine.holder,
-			{ kind: "service", serviceId: "github" },
-			{ kind: "service", serviceId: "ifttt" },
-		]);
-
 		decisions.setServiceGrants("gmail", ["mail"]);
 		expect(decisions.revoke("ifttt")).toBe(true);
-		expect(holders()).toEqual([
+
+		const reopened = open(dataDir);
+		expect(reopened.covers({ serviceId: "gmail", entryId: "mail" }, 1_000)).toBeDefined();
+		expect(reopened.covers({ serviceId: "ifttt", entryId: "key" }, 1_000)).toBeUndefined();
+		expect(reopened.list(1_000).map((grant) => grant.holder)).toEqual([
 			session.holder,
 			routine.holder,
 			{ kind: "service", serviceId: "github" },
 			{ kind: "service", serviceId: "gmail" },
 		]);
-		const reopened = open(dataDir);
-		expect(reopened.covers({ serviceId: "gmail", entryId: "mail" }, 1_000)).toBeDefined();
-		expect(reopened.covers({ serviceId: "ifttt", entryId: "key" }, 1_000)).toBeUndefined();
-
-		// Invalid files remain unchanged.
-		const broken = [stored("github", "github", "pat"), { grantId: "bad", tier: "standing" }];
-		recorded(dataDir, broken);
-		expect(open(dataDir).list(1_000)).toEqual([]);
-		expect(
-			fs
-				.readdirSync(dataDir)
-				.some((name) => fs.readFileSync(path.join(dataDir, name), "utf8").includes('"service"')),
-		).toBe(false);
 	});
 
 	it("reads standing grants without sweeping an expired one off disk", () => {
 		const dataDir = fresh();
-		const watcher = { kind: "service", serviceId: "github" };
+		const service = { kind: "service", serviceId: "github" };
 		const held = [
-			{ grantId: "standing", tier: "standing", entryId: "deploy", holder: watcher },
+			{ grantId: "standing", tier: "standing", entryId: "deploy", holder: service },
 			{
 				grantId: "lapsed",
 				tier: "session",
