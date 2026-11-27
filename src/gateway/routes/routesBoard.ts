@@ -1,4 +1,5 @@
 import { type BoardActor, mayWrite, visibleTo } from "../../shared/board-authority.js";
+import { reorderMoves } from "../../shared/board-order.js";
 import {
 	type BoardReply,
 	boardEntryIdForOperation,
@@ -249,6 +250,54 @@ export function createBoardRoutes({
 								}
 							}
 							return ops.length > 0 ? ops : "unchanged";
+						},
+						r.operationId ? `${r.action}:${r.operationId}` : undefined,
+					),
+				);
+			}
+			case "reorder": {
+				const ids = r.ids;
+				if (!ids || new Set(ids).size !== ids.length) {
+					return jsonResponse({ error: "reorder requires distinct ids" }, 400);
+				}
+				const target = r.parent;
+				if (target === undefined) {
+					// Without a parent, the ids must already share one.
+					const board = await client.read();
+					if (board.kind !== "ok") return jsonResponse({ error: board.error }, 503);
+					const parents = new Map(ids.map((id) => [id, board.entries.find((e) => e.id === id)?.parent]));
+					const first = parents.get(ids[0] as string);
+					const apart = ids.filter((id) => parents.get(id) !== first);
+					if (apart.length > 0) {
+						return jsonResponse(
+							{ error: `these do not share the first id's parent; pass parent: ${apart.join(", ")}` },
+							400,
+						);
+					}
+				}
+				return answer(
+					await client.mutate(
+						sessionKey,
+						(view) => {
+							const moved = ids.map((id) => view.entry(id));
+							for (const entry of moved) {
+								if (!entry) return "entry_missing";
+								const denied = mayWrite(entry, actor);
+								if (denied) return denied;
+							}
+							const parent = target === undefined ? moved[0]?.parent : (target ?? undefined);
+							if (parent !== undefined) {
+								const under = view.entry(parent);
+								if (!under) return "parent_missing";
+								const denied = mayWrite(under, actor);
+								if (denied) return denied;
+							}
+							if (target === undefined && moved.some((entry) => entry?.parent !== parent))
+								return "parent_missing";
+							const moves = reorderMoves(view.entries, ids, parent, r.index, (e) =>
+								visibleTo(e, sessionKey),
+							);
+							return moves.map((move) => ({ kind: "move" as const, ...move }));
 						},
 						r.operationId ? `${r.action}:${r.operationId}` : undefined,
 					),

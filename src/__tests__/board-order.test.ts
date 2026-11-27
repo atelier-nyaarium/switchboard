@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { endRank, placeAt, renumber, restoreAtEnd } from "../shared/board-order.js";
+import { endRank, placeAt, renumber, reorderMoves, restoreAtEnd, siblingsInOrder } from "../shared/board-order.js";
 import type { BoardEntry } from "../shared/console-protocol.js";
 
 type Row = { id: string; rank: number; parent?: string; trashedAt?: number };
@@ -44,4 +44,58 @@ describe("board order", () => {
 			expect(rows(entries)).toEqual(c.expected);
 		});
 	}
+});
+
+describe("reorder", () => {
+	const board = (ids: string[], hidden: string[] = []) =>
+		ids.map(
+			(id, i) =>
+				({
+					id,
+					rank: i + 1,
+					title: id,
+					state: "open",
+					...(hidden.includes(id) ? { sessionId: "other" } : {}),
+				}) as BoardEntry,
+		);
+	/** Applies the moves as the Router does and answers the order. */
+	const applied = (entries: BoardEntry[], moves: ReturnType<typeof reorderMoves>) => {
+		const held = new Map(entries.map((e) => [e.id, { ...e }]));
+		for (const move of moves) placeAt(held, move.id, move.parent, move.index);
+		return siblingsInOrder(held.values(), undefined).map((e) => e.id);
+	};
+	const sees = (e: BoardEntry) => e.sessionId === undefined;
+
+	it("puts sparse ids together after the index-th sibling, in the order given", () => {
+		const entries = board(["X", "A", "B", "C", "D"]);
+
+		expect(applied(entries, reorderMoves(entries, ["D", "X", "B"], undefined, 1, sees))).toEqual([
+			"A",
+			"D",
+			"X",
+			"B",
+			"C",
+		]);
+		expect(applied(entries, reorderMoves(entries, ["C", "A"], undefined, 0, sees))).toEqual([
+			"C",
+			"A",
+			"X",
+			"B",
+			"D",
+		]);
+		expect(applied(entries, reorderMoves(entries, ["A", "X"], undefined, undefined, sees))).toEqual([
+			"B",
+			"C",
+			"D",
+			"A",
+			"X",
+		]);
+	});
+
+	it("counts only the siblings the reader sees", () => {
+		const entries = board(["A", "H", "B", "C"], ["H"]);
+
+		expect(applied(entries, reorderMoves(entries, ["C"], undefined, 1, sees))).toEqual(["A", "C", "H", "B"]);
+		expect(applied(entries, reorderMoves(entries, ["A"], undefined, 9, sees))).toEqual(["H", "B", "C", "A"]);
+	});
 });

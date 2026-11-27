@@ -47,6 +47,46 @@ export function placeAt(entries: Map<string, Ordered>, id: string, parent: strin
 	});
 }
 
+export type ReorderMove = { id: string; parent: string | undefined; index?: number };
+
+/**
+ * Moves that put `ids` together, in order, after the `index`-th sibling the reader sees (0 the top,
+ * absent the end), each index as the Router applies it: among the live siblings without that entry.
+ */
+export function reorderMoves<E extends Ordered>(
+	entries: Iterable<E>,
+	ids: readonly string[],
+	parent: string | undefined,
+	index: number | undefined,
+	sees: (entry: E) => boolean,
+): ReorderMove[] {
+	const held = new Map<string, Ordered>([...entries].map((e) => [e.id, { ...e }]));
+	const moving = new Set(ids);
+	const shown = [...siblingsInOrder(entries, parent)].filter((e) => !moving.has(e.id) && sees(e));
+	// null: the end; undefined: the top.
+	let after: string | undefined | null =
+		index === undefined
+			? null
+			: index <= 0 || shown.length === 0
+				? undefined
+				: shown[Math.min(index, shown.length) - 1]?.id;
+	const moves: ReorderMove[] = [];
+	for (const id of ids) {
+		if (after === null) {
+			placeAt(held, id, parent);
+			moves.push({ id, parent });
+			continue;
+		}
+		const anchor = after;
+		const at =
+			anchor === undefined ? 0 : siblingsInOrder(held.values(), parent, id).findIndex((e) => e.id === anchor) + 1;
+		placeAt(held, id, parent, at);
+		moves.push({ id, parent, index: at });
+		after = id;
+	}
+	return moves;
+}
+
 /** Brings back what a restore of `id` takes; the topmost lands last among its live siblings. */
 export function restoreAtEnd(entries: Map<string, BoardEntry>, id: string): string[] {
 	const brought = restoreBrings(entries, id);

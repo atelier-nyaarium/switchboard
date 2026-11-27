@@ -207,6 +207,41 @@ describe("sessions, bindings, and console operations", () => {
 		expect(squatter.inbound).toEqual([]);
 	});
 
+	it("reorders a session's entries together in one write, and refuses ids under different parents", async () => {
+		const held = await ensureBound();
+		const board = async (body: Record<string, unknown>) =>
+			(await held.post("/task-board", { from: held.team, ...body })) as Response;
+		const create = async (title: string, parent?: string) =>
+			(
+				(await (
+					await board({
+						action: "create",
+						operationId: `reorder-${title}`,
+						assignTo: "self",
+						title,
+						...(parent ? { parent } : {}),
+					})
+				).json()) as { id: string }
+			).id;
+		const group = await create("Reorder group");
+		await create("A", group);
+		const [b, c, d] = [await create("B", group), await create("C", group), await create("D", group)];
+
+		const moved = await board({ action: "reorder", operationId: "reorder-1", ids: [d, b], index: 1 });
+		const listed = (await (await board({ action: "list", scope: "session" })).json()) as {
+			entries: Array<{ id: string; title: string; rank: number; parent?: string }>;
+		};
+		const order = listed.entries
+			.filter((entry) => entry.parent === group)
+			.sort((x, y) => x.rank - y.rank)
+			.map((entry) => entry.title);
+		const apart = await board({ action: "reorder", operationId: "reorder-2", ids: [c, group] });
+
+		expect(moved.status).toBe(200);
+		expect(order).toEqual(["A", "D", "B", "C"]);
+		expect(apart.status).toBe(400);
+	});
+
 	it("leaves a devcontainer name without a binding claimable", async () => {
 		const free = session("fixture-app.free");
 		expect(await free.registered()).toMatchObject({ type: "register_ok" });

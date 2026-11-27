@@ -20,7 +20,7 @@ describe("task board tool requests", () => {
 	it("every mutating action carries a fresh operation id, and reads carry none", () => {
 		// The id is what makes an HTTP retry a replay: create derives its entry id from it, the rest
 		// rely on the route's record of it. A repeated CALL is a new write and must not collide.
-		for (const action of ["claim", "release", "create", "update", "clear"] as const) {
+		for (const action of ["claim", "release", "create", "update", "reorder", "clear"] as const) {
 			const first = boardRequestBody(action, { id: "bd_1", title: "a", assignTo: "backlog" });
 			const second = boardRequestBody(action, { id: "bd_1", title: "a", assignTo: "backlog" });
 			expect(first.operationId, `${action} minted none`).toEqual(expect.any(String));

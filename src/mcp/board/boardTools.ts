@@ -75,6 +75,31 @@ Omit to keep the parent. \`null\` moves the entry to top level. No depth limit. 
 		),
 };
 
+const ReorderInputSchema = {
+	ids: z.array(ID).min(1).max(64).describe(`Entries you hold, in the order they should end up.`),
+	index: z
+		.number()
+		.int()
+		.nonnegative()
+		.optional()
+		.describe(
+			`
+Position among the destination's siblings you can see, not counting the moved ones.
+
+\`0\` is the top, \`1\` after the first. Omit for the end.
+`.trim(),
+		),
+	parent: ID.nullable()
+		.optional()
+		.describe(
+			`
+Parent to move them all under. \`null\` is the top level.
+
+Omit to keep the parent they share; ids under different parents are refused.
+`.trim(),
+		),
+};
+
 const ClearInputSchema = {};
 
 const FetchAttachmentsInputSchema = {
@@ -149,6 +174,14 @@ Mark only the entry you actually finished.
 The reply lists saved cascaded changes.
 `.trim();
 
+const REORDER_DESCRIPTION = `
+# Reorder Task Board Entries
+
+Move entries together, in the given order, to one position among their siblings. One write: all land or none.
+
+The Router renumbers the siblings. \`taskBoardList\` shows each entry's \`rank\`.
+`.trim();
+
 const CLEAR_DESCRIPTION = `
 # Clear Task Board Entries
 
@@ -177,14 +210,16 @@ function operationId(): string {
 }
 
 /** The actions that CHANGE something. A read is re-run freely; these are not. */
-const MUTATING = new Set(["claim", "release", "create", "update", "clear"]);
+const MUTATING = new Set(["claim", "release", "create", "update", "reorder", "clear"]);
 
 /** Absent is OMITTED, since the gateway's schema is strict. `from` is NOT here: postBoard supplies
  * this process's own identity. */
 export function boardRequestBody(
-	action: "list" | "claim" | "release" | "create" | "update" | "clear" | "attachments",
+	action: "list" | "claim" | "release" | "create" | "update" | "reorder" | "clear" | "attachments",
 	args: {
 		id?: string;
+		ids?: string[];
+		index?: number;
 		scope?: string;
 		title?: string;
 		body?: string | null;
@@ -203,6 +238,8 @@ export function boardRequestBody(
 		...(args.state === undefined ? {} : { state: args.state }),
 		...(args.parent === undefined ? {} : { parent: args.parent }),
 		...(args.assignTo === undefined ? {} : { assignTo: args.assignTo }),
+		...(args.ids === undefined ? {} : { ids: args.ids }),
+		...(args.index === undefined ? {} : { index: args.index }),
 	};
 }
 
@@ -324,6 +361,13 @@ export function registerBoardTools(mcpServer: McpServer): void {
 		{ title: `Task Board Update`, description: UPDATE_DESCRIPTION, inputSchema: UpdateInputSchema },
 		async (args: { id: string; title?: string; body?: string | null; state?: string; parent?: string | null }) =>
 			post(boardRequestBody("update", args)),
+	);
+
+	mcpServer.registerTool(
+		"taskBoardReorder",
+		{ title: `Task Board Reorder`, description: REORDER_DESCRIPTION, inputSchema: ReorderInputSchema },
+		async (args: { ids: string[]; index?: number; parent?: string | null }) =>
+			post(boardRequestBody("reorder", args)),
 	);
 
 	mcpServer.registerTool(

@@ -84,10 +84,13 @@ export const HumanNotifySchema = z.object({
 	files: ChannelFilesSchema.optional(),
 });
 
+/** Entries one reorder moves. */
+export const BOARD_REORDER_MAX = 64;
+
 export const BoardRouteRequestSchema = z
 	.object({
 		from: z.string().min(1).max(128),
-		action: z.enum(["list", "claim", "release", "create", "update", "clear", "attachments"]),
+		action: z.enum(["list", "claim", "release", "create", "update", "reorder", "clear", "attachments"]),
 		scope: z.enum(["unclaimed", "session", "all"]).optional(),
 		id: z.string().min(1).max(64).optional(),
 		operationId: z.string().min(1).max(128).optional(),
@@ -96,6 +99,8 @@ export const BoardRouteRequestSchema = z
 		body: z.string().max(BOARD_BODY_MAX).nullable().optional(),
 		state: z.enum(["open", "in_progress", "paused", "done", "cancelled"]).optional(),
 		parent: z.string().min(1).max(64).nullable().optional(),
+		ids: z.array(z.string().min(1).max(64)).min(1).max(BOARD_REORDER_MAX).optional(),
+		index: z.number().int().nonnegative().optional(),
 	})
 	.strict();
 

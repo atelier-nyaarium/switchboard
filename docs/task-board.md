@@ -40,6 +40,10 @@ clear structure with sealed title, body and attachment filenames. It never opens
   index among the live siblings without the moved entry (absent lands last), and a restore puts the
   topmost restored entry last. Every write renumbers each group 1..n, which closes the gap a trash or
   a removal leaves. Renumbering touches entries no session holds, which only the Router may write.
+- **A session reorders in one write:** `taskBoardReorder` takes ids it holds, in their final order, an
+  index among the siblings it can see (0 the top, absent the end) and an optional parent, else the
+  parent the ids share. `reorderMoves` in `board-order.ts` turns that into one `move` per id with each
+  index as the Router will apply it, so they land together after the index-th sibling or not at all.
 - **A shifted sibling is written but not observed:** only an entry the write names, or the cascade,
   reaches its holder. A rank-only change is never announced.
 - The phone runs the same rule over its pending writes, renumbering after each, so a drag shows where
