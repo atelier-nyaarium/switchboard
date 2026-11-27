@@ -203,9 +203,10 @@ export function createPass(ports: PassPorts): {
 		fire: Fire,
 		running: boolean,
 		order: State["order"],
+		now: number,
 	): State["lastRuns"] => {
 		const orderOf = (member: string) => own(order.members, member) ?? 0;
-		return recorded(lastRuns, fire, running, { kindAt, functionAt, stampOf: ports.stampOf, orderOf });
+		return recorded(lastRuns, fire, running, { kindAt, functionAt, stampOf: ports.stampOf, orderOf }, now);
 	};
 
 	/** Judges steps a restart found. */
@@ -307,7 +308,7 @@ export function createPass(ports: PassPorts): {
 			const before = own(landedSets, device);
 			if (!before || before.at <= set.at) landedSets[device] = set;
 		}
-		for (const fire of fires) lastRuns = record(lastRuns, fire, !finished(fire), held.order);
+		for (const fire of fires) lastRuns = record(lastRuns, fire, !finished(fire), held.order, now);
 		return { fires, log, ran, landedSets, lastRuns };
 	};
 
@@ -763,7 +764,7 @@ export function createPass(ports: PassPorts): {
 			if (retired) {
 				// Retired once its effect lands.
 				const holds = holdsClaim(fire);
-				lastRuns = record(lastRuns, fire, holds, input.state.order);
+				lastRuns = record(lastRuns, fire, holds, input.state.order, input.now);
 				if (holds) {
 					fires.push(fire);
 					retiring.add(fire.member);
@@ -833,7 +834,7 @@ export function createPass(ports: PassPorts): {
 						{ now: input.now, home: input.home, runnable, targets, unread, tell },
 					));
 				}
-				lastRuns = record(lastRuns, fire, !finished(fire), input.state.order);
+				lastRuns = record(lastRuns, fire, !finished(fire), input.state.order, input.now);
 				return finished(fire) ? [] : [fire];
 			});
 		};

@@ -103,7 +103,7 @@ describe("automation pass", () => {
 		expect(result.next.lastRuns.automation?.run).toEqual({
 			at: 0,
 			revision: 1,
-			steps: [{ path: "0", kind: "device_set", outcome: "ran" }],
+			steps: [{ path: "0", kind: "device_set", outcome: "ran", startMs: 0, endMs: 1 }],
 			running: false,
 		});
 	});

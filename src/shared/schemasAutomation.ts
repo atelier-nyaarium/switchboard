@@ -394,6 +394,11 @@ export const AutomationLastStepSchema = z
 		side: z.enum(["then", "else"]).optional(),
 		/** The function it ran in. */
 		function: z.string().optional(),
+		/** From the run's start; absent from older builds. */
+		startMs: z.number().int().nonnegative().optional(),
+		endMs: z.number().int().nonnegative().optional(),
+		/** Open, after a failed attempt. */
+		retrying: z.boolean().optional(),
 	})
 	.meta({ id: "AutomationLastStep" });
 export type AutomationLastStep = z.infer<typeof AutomationLastStepSchema>;

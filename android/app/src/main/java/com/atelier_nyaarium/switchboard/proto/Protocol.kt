@@ -5775,6 +5775,12 @@ data class AutomationLastStep(
 	val side: String? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val function: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val startMs: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val endMs: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val retrying: Boolean? = null,
 )
 
 @Serializable

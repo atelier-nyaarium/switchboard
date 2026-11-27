@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { composeAutomations } from "../gateway/compose/composeAutomations.js";
+import type { Fire } from "../gateway/computed/automationFires.js";
+import { type LastRuns, recorded } from "../gateway/computed/automationLastRun.js";
 import { QUEUE_FULL, QUEUE_MAX_EVENTS } from "../gateway/computed/automationOutbox.js";
 import { CALL_FAILED, SCRIPT_ERRORS, TOO_MANY_BESIDE } from "../gateway/computed/automationPass.js";
 import type { Attempt } from "../gateway/computed/automationRunner.js";
@@ -818,6 +820,64 @@ describe("the last run", () => {
 			["0.0.0.0", "ran"],
 			["0.1", "ran"],
 			["0.2", "ran"],
+		]);
+	});
+
+	it("times each step from the run's start, and says an open step is retrying", async () => {
+		const w = world();
+		w.save(pointing(hourly), tree);
+		await w.later(HOUR);
+		await w.later(5 * 60_000 + 1_000);
+		const timed = last(w)?.steps.map((step) => [step.path, step.startMs, step.endMs]);
+		const retry = world();
+		retry.answer(unreachable);
+		retry.save(pointing(hourly), [turn("on")]);
+		await retry.later(HOUR);
+
+		expect(timed).toEqual([
+			["0", 0, 301_000],
+			["0.0", 0, 0],
+			["0.0.0.0", 0, 0],
+			["0.1", 0, 301_000],
+			["0.2", 301_000, 301_000],
+		]);
+		expect(last(retry)?.steps.find((step) => step.path === "0.0")).toMatchObject({ startMs: 0, retrying: true });
+	});
+
+	it("leaves a run recorded untimed without times", () => {
+		const ended = { attempts: 1, word: "done", verdict: "done" } as const;
+		const fire = { member: "m", automation: "warm", incarnation: "i", at: 1_000, revision: 1 } as Fire;
+		const ports = {
+			kindAt: () => "device_set",
+			functionAt: () => undefined,
+			stampOf: () => ({ body: "", functions: [] }),
+			orderOf: () => 0,
+		};
+		const untimed: LastRuns = {
+			warm: {
+				member: "m",
+				incarnation: "i",
+				order: 0,
+				stamp: ports.stampOf(),
+				run: {
+					at: 1_000,
+					revision: 1,
+					steps: [{ path: "0", kind: "device_set", outcome: "ran" }],
+					running: true,
+				},
+			},
+		};
+		const later = { ...fire, steps: { "0": ended, "1": ended }, active: [] };
+		const times = (held: LastRuns) =>
+			recorded(held, later, false, ports, 5_000).warm?.run.steps.map((step) => [step.startMs, step.endMs]);
+
+		expect(times(untimed)).toEqual([
+			[undefined, undefined],
+			[undefined, undefined],
+		]);
+		expect(times({})).toEqual([
+			[4_000, 4_000],
+			[4_000, 4_000],
 		]);
 	});
 

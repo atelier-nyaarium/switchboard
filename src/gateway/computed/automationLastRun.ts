@@ -38,7 +38,15 @@ export interface LastRunPorts {
 const reached = (step: Step, path: string, fire: Fire): boolean =>
 	isEnded(step) || step.startedAt !== undefined || step.attempts > 0 || fire.active.includes(path);
 
-const stepOf = (fire: Fire, path: string, step: Step, ports: LastRunPorts): AutomationLastStep => {
+/** Times stamped by the pass that saw it. */
+interface Stamp {
+	now: number;
+	/** Its earlier record; none for a run held untimed. */
+	before: AutomationLastStep | undefined;
+	timed: boolean;
+}
+
+const stepOf = (fire: Fire, path: string, step: Step, ports: LastRunPorts, stamp: Stamp): AutomationLastStep => {
 	// No word: closed by an older build.
 	const ended = !isEnded(step)
 		? null
@@ -47,6 +55,11 @@ const stepOf = (fire: Fire, path: string, step: Step, ports: LastRunPorts): Auto
 			: endedOutcome(step.word);
 	const reason = ended ? (step.message ?? ended.reason) : undefined;
 	const fn = ports.functionAt(fire, path);
+	const { before, now, timed } = stamp;
+	const since = (at: number) => Math.max(0, at - fire.at);
+	const startMs = timed ? (before ? before.startMs : since(step.startedAt ?? now)) : undefined;
+	const endMs = timed && ended ? (before?.endMs ?? since(now)) : undefined;
+	const retrying = !ended && step.word !== undefined && step.word !== "done";
 	return {
 		path,
 		kind: ports.kindAt(fire, path).slice(0, 32),
@@ -54,15 +67,29 @@ const stepOf = (fire: Fire, path: string, step: Step, ports: LastRunPorts): Auto
 		...(reason ? { reason: reason.slice(0, LAST_STEP_REASON_MAX) } : {}),
 		...(step.side ? { side: step.side } : {}),
 		...(fn ? { function: fn } : {}),
+		...(startMs !== undefined ? { startMs } : {}),
+		...(endMs !== undefined ? { endMs } : {}),
+		...(retrying ? { retrying } : {}),
 	};
 };
 
-/** Null before its first step's turn. */
-export function lastRunOf(fire: Fire, running: boolean, ports: LastRunPorts): HeldLastRun | null {
+/** Null before its first step's turn; `before` is this run's earlier record. */
+export function lastRunOf(
+	fire: Fire,
+	running: boolean,
+	ports: LastRunPorts,
+	now: number,
+	before?: HeldLastRun,
+): HeldLastRun | null {
+	const earlier = before?.member === fire.member ? before.run.steps : undefined;
+	// Recorded untimed: stays so.
+	const timed = earlier === undefined || earlier[0]?.startMs !== undefined;
 	const steps = Object.entries(fire.steps)
 		.filter(([path, step]) => reached(step, path, fire))
 		.sort(([a], [b]) => byPath(a, b))
-		.map(([path, step]) => stepOf(fire, path, step, ports));
+		.map(([path, step]) =>
+			stepOf(fire, path, step, ports, { now, timed, before: earlier?.find((held) => held.path === path) }),
+		);
 	if (steps.length === 0) return null;
 	const active = running ? fire.active[0] : undefined;
 	const beside = running && fire.active.length > 1 ? { beside: fire.active } : {};
@@ -76,10 +103,10 @@ export function lastRunOf(fire: Fire, running: boolean, ports: LastRunPorts): He
 }
 
 /** A later admission replaces an earlier one, never the reverse. */
-export function recorded(held: LastRuns, fire: Fire, running: boolean, ports: LastRunPorts): LastRuns {
-	const run = lastRunOf(fire, running, ports);
-	if (!run) return held;
+export function recorded(held: LastRuns, fire: Fire, running: boolean, ports: LastRunPorts, now: number): LastRuns {
 	const before = Object.hasOwn(held, fire.automation) ? held[fire.automation] : undefined;
+	const run = lastRunOf(fire, running, ports, now, before);
+	if (!run) return held;
 	if (before && before.member !== fire.member && run.order <= before.order) return held;
 	return { ...held, [fire.automation]: run };
 }
