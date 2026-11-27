@@ -154,9 +154,7 @@ import { ACTION_OUTCOMES } from "../src/shared/schemasAssistantRecord.js";
 import {
 	AssistantFieldOptionSchema,
 	AssistantFieldSpecSchema,
-	AssistantFieldValueSchema,
 	AssistantRuleConditionSchema,
-	AssistantUnexpectedValuesSchema,
 } from "../src/shared/schemasAssistantRules.js";
 import {
 	AssistantSendFileSchema,
@@ -649,8 +647,6 @@ const ROOTS: z.ZodType[] = [
 	AssistantRuleConditionSchema,
 	AssistantFieldOptionSchema,
 	AssistantFieldSpecSchema,
-	AssistantFieldValueSchema,
-	AssistantUnexpectedValuesSchema,
 	AssistantSendFileSchema,
 	AssistantSendIntentSchema,
 	AssistantSendRequestSchema,

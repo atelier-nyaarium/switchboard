@@ -1,4 +1,5 @@
 import type { TriggerGiven } from "../../shared/automation-fit.js";
+import { sidesOf } from "../../shared/automation-walk.js";
 import {
 	type ConsoleNode,
 	type ConsoleStringPiece,
@@ -418,16 +419,8 @@ function overBounds(steps: readonly FunctionStep[]): { step: string; message: st
 				return { step: path, message: `more than ${FUNCTION_STEPS_TOTAL_MAX} steps` };
 			if (depth > FUNCTION_DEPTH_MAX)
 				return { step: path, message: `blocks nest more than ${FUNCTION_DEPTH_MAX} deep` };
-			const sides =
-				step.kind === "if"
-					? [step.steps ?? [], step.else ?? []]
-					: step.kind === "try"
-						? [step.steps, step.catch]
-						: step.kind === "parallel" || step.kind === "start"
-							? [step.steps]
-							: [];
-			for (const [side, inner] of sides.entries()) {
-				const found = walk(inner, `${path}.${side}.`, depth + 1);
+			for (const held of sidesOf(step)) {
+				const found = walk(held.steps, `${path}.${held.number}.`, depth + 1);
 				if (found) return found;
 			}
 		}

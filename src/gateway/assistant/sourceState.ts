@@ -2,11 +2,6 @@
 
 import { z } from "zod";
 import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
-import {
-	type AssistantFieldSpec,
-	type AssistantFieldValue,
-	trimRuleValue,
-} from "../../shared/schemasAssistantRules.js";
 import type { SourceEvent } from "./source.js";
 
 export const MAX_GONE = 256;
@@ -30,13 +25,6 @@ const SourceStateSchema = z.strictObject({
 	stopped: z.string().optional(),
 	/** Next wake retry wait. */
 	wakeRetryMs: z.number().int().positive().optional(),
-	/** Undeclared enumeration values. */
-	unexpected: z
-		.strictObject({
-			values: z.array(z.strictObject({ field: z.string(), value: z.string() })),
-			capped: z.boolean(),
-		})
-		.optional(),
 	/** Listed, but answered `not_found`; hidden until updated past `at`. */
 	gone: z
 		.array(z.strictObject({ id: z.string(), at: z.number() }))
@@ -46,61 +34,20 @@ const SourceStateSchema = z.strictObject({
 
 export type SourceState = z.infer<typeof SourceStateSchema>;
 
+// skew:source-unexpected: drop the key's read.
+const StoredStateSchema = SourceStateSchema.extend({ unexpected: z.unknown().optional() }).transform(
+	({ unexpected: _dropped, ...state }): SourceState => state,
+);
+
 /** The stored key keeps its word, so the build before sources reads it. */
 const SnapshotSchema = z.strictObject({
 	v: z.literal(1),
-	watchers: z.record(z.string(), SourceStateSchema),
+	watchers: z.record(z.string(), StoredStateSchema),
 });
 
 type Snapshot = z.infer<typeof SnapshotSchema>;
 
 export const FRESH_STATE: SourceState = { cursor: null, newest: 0, primed: false, unread: 0, capped: false };
-
-export const MAX_UNEXPECTED = 32;
-
-type Unexpected = NonNullable<SourceState["unexpected"]>;
-
-const keyOf = (entry: AssistantFieldValue) => JSON.stringify([entry.field, entry.value]);
-
-/** Undeclared enum values. */
-const stillUnexpected = (specs: readonly AssistantFieldSpec[], entry: AssistantFieldValue) =>
-	specs.some(
-		(spec) =>
-			spec.kind === "enumeration" &&
-			spec.field === entry.field &&
-			!spec.options.some((option) => option.value === entry.value),
-	);
-
-/** Prune listed values, add observed values; ignore missing fields. */
-export function unexpectedAfter(
-	held: Unexpected | undefined,
-	events: readonly SourceEvent[],
-	specs: readonly AssistantFieldSpec[],
-): Unexpected | undefined {
-	const values = (held?.values ?? []).filter((entry) => stillUnexpected(specs, entry));
-	const seen = new Set(values.map(keyOf));
-	let capped = held?.capped ?? false;
-	for (const event of events) {
-		for (const spec of specs) {
-			if (spec.kind !== "enumeration" || !Object.hasOwn(event.fields, spec.field)) continue;
-			const entry = { field: spec.field, value: event.fields[spec.field] ?? "" };
-			// No list can name a blank, so it is never reported.
-			if (trimRuleValue(entry.value) === "") continue;
-			if (!stillUnexpected(specs, entry) || seen.has(keyOf(entry))) continue;
-			if (values.length >= MAX_UNEXPECTED) {
-				capped = true;
-				continue;
-			}
-			seen.add(keyOf(entry));
-			values.push(entry);
-		}
-	}
-	return values.length === 0 && !capped ? undefined : { values, capped };
-}
-
-/** Pruned against active specs. */
-export const unexpectedNow = (state: SourceState, specs: readonly AssistantFieldSpec[]) =>
-	unexpectedAfter(state.unexpected, [], specs);
 
 export const isGone = (state: SourceState, event: Pick<SourceEvent, "id" | "at">): boolean =>
 	state.gone?.some((entry) => entry.id === event.id && event.at <= entry.at) ?? false;
@@ -123,13 +70,7 @@ export function goneListed(state: SourceState, events: readonly SourceEvent[], c
 
 /** Drawn counts and health; poll ages excluded. */
 const shownOf = (state: SourceState) =>
-	JSON.stringify([
-		state.unread,
-		state.capped,
-		state.stopped ?? null,
-		state.backoff?.reason ?? null,
-		state.unexpected ?? null,
-	]);
+	JSON.stringify([state.unread, state.capped, state.stopped ?? null, state.backoff?.reason ?? null]);
 
 export const shownChanged = (before: SourceState, after: SourceState): boolean => shownOf(before) !== shownOf(after);
 

@@ -71,8 +71,7 @@ Router's record names. That Gateway feeds it events. The session decides what to
     - **A service source's page:** Enabled with its health line; Secret with Assign secret; Produces,
       the event and its fields; Inbox with its count; Commands, its actions; "N use this source",
       which opens a page listing those automations' sentences (`triggeredBy`), for a source whose
-      events can trigger one; the values seen outside
-      its lists; and Retry when stopped.
+      events can trigger one; and Retry when stopped.
     - **Automations:** one group per Gateway that lists any, the home first with its Assistant chip.
       Each row shows the Gateway's sentence, what it does, when it last ran or why it is invalid,
       and the only on and off switch; a clock's row says when it runs next. New opens the editor on
@@ -538,10 +537,6 @@ cannot rewrite what sorts its own events.
 - **The Gateway writes each row's sentence:** from the trigger, the source's `brief` then each
   condition as field label, test and option label ("GitHub: reason is review requested"), or
   "every event" when there are none (`eventSentence`). Nothing stores it.
-- **Values off the list are reported:** every poll checks its events against the declarations,
-  the priming poll included, and keeps each value outside its field's list once, up to 32, with an
-  overflow flag. An entry leaves once the declaration lists it. The phone shows them on the
-  source's page, so a new GitHub value is seen before an automation needs it.
 - **No drop, no ping:** GitHub threads are cleared at GitHub through `source/github_done`, and the
   agent alone decides what is worth telling the owner.
 - **Ops:** `automation_list` answers each row with its revision, sentence, `invalid`, `lastRanAt`

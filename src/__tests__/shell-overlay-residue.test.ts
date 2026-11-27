@@ -40,7 +40,7 @@ function overlaysIn(source: string): string[] {
 /** What `App` composes after its screens: the lines from the screen switch's close to the function's. */
 function afterScreens(source: string): string | null {
 	const lines = code(source).split("\n");
-	const open = lines.findIndex((line) => line === "\twhen (screen) {");
+	const open = lines.indexOf("\twhen (screen) {");
 	if (open < 0) return null;
 	const close = lines.findIndex((line, at) => at > open && line === "\t}");
 	const end = lines.findIndex((line, at) => at > close && line === "}");

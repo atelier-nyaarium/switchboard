@@ -120,6 +120,76 @@ export type Address = readonly (number | Side)[];
 /** A step's first list is 0, its second 1. */
 export const sideNumber = (side: Side): 0 | 1 => (side === "else" || side === "catch" ? 1 : 0);
 
+/** What `sidesOf` reads of a step. */
+export interface Branching<T> {
+	kind: string;
+	steps?: readonly T[];
+	else?: readonly T[];
+	catch?: readonly T[];
+}
+
+/** A step known by its sides alone. */
+export interface TreeStep extends Branching<TreeStep> {}
+
+/** One list a step holds. */
+export interface HeldSide<T> {
+	side: Side;
+	number: number;
+	steps: readonly T[];
+}
+
+/** Keyed by every kind, in written order. */
+const SIDES_BY_KIND: { readonly [K in StepKind]: readonly Side[] } = {
+	if: ["then", "else"],
+	try: ["try", "catch"],
+	parallel: ["parallel"],
+	start: ["start"],
+	do: [],
+	await: [],
+	exit: [],
+	throw: [],
+	let: [],
+	wait: [],
+	note: [],
+	unparsed: [],
+	call: [],
+};
+
+const fieldOf = (side: Side): "steps" | "else" | "catch" => {
+	switch (side) {
+		case "then":
+		case "try":
+		case "parallel":
+		case "start":
+			return "steps";
+		case "else":
+			return "else";
+		case "catch":
+			return "catch";
+	}
+};
+
+const sidesNamed = (kind: string): readonly Side[] =>
+	Object.hasOwn(SIDES_BY_KIND, kind) ? SIDES_BY_KIND[kind as StepKind] : [];
+
+/** The one reader of a step's lists. */
+export const sidesOf = <T>(step: Branching<T>): HeldSide<T>[] =>
+	sidesNamed(step.kind).map((side) => ({ side, number: sideNumber(side), steps: step[fieldOf(side)] ?? [] }));
+
+/** `lists` in `sidesOf` order; an absent side left empty stays absent. */
+export const withSides = (step: FunctionStep, lists: readonly (readonly FunctionStep[])[]): FunctionStep => {
+	const sides = sidesNamed(step.kind);
+	if (sides.length === 0) return step;
+	const held: Branching<FunctionStep> = step;
+	const written: Partial<Record<"steps" | "else" | "catch", readonly FunctionStep[]>> = {};
+	sides.forEach((side, at) => {
+		const field = fieldOf(side);
+		const list = lists[at] ?? [];
+		if (held[field] !== undefined || list.length > 0) written[field] = list;
+	});
+	return { ...step, ...written } as FunctionStep;
+};
+
 /** Numbers alone: a call, an index and a side each read as one. */
 export const STEP_PATH_RE = /^\d+(\.\d+)*$/;
 
@@ -208,12 +278,7 @@ function followed(
 function stepsIn(steps: readonly FunctionStep[], base: Address): { address: Address; step: FunctionStep }[] {
 	return steps.flatMap((step, index) => {
 		const address = [...base, index];
-		const held = (side: Side, list: readonly FunctionStep[] | undefined) => stepsIn(list ?? [], [...address, side]);
-		if (step.kind === "if") return [{ address, step }, ...held("then", step.steps), ...held("else", step.else)];
-		if (step.kind === "try") return [{ address, step }, ...held("try", step.steps), ...held("catch", step.catch)];
-		if (step.kind === "parallel") return [{ address, step }, ...held("parallel", step.steps)];
-		if (step.kind === "start") return [{ address, step }, ...held("start", step.steps)];
-		return [{ address, step }];
+		return [{ address, step }, ...sidesOf(step).flatMap((held) => stepsIn(held.steps, [...address, held.side]))];
 	});
 }
 
@@ -245,31 +310,31 @@ const widest = (...lists: readonly (readonly FunctionStep[])[]): Width => {
 };
 
 function stepWidth(step: FunctionStep): Width {
+	const lists = sidesOf(step).map((held) => held.steps);
+	const [first = [], second = []] = lists;
 	switch (step.kind) {
 		// Block waits for its branches.
 		case "parallel":
 			return {
 				peak: Math.max(
 					1,
-					step.steps.reduce((sum, each) => sum + listWidth([each]).peak, 0),
+					first.reduce((sum, each) => sum + listWidth([each]).peak, 0),
 				),
 				rest: 0,
 			};
 		// Task runs beside the cursor.
 		case "start": {
-			const task = listWidth(step.steps).peak;
+			const task = listWidth(first).peak;
 			return { peak: task + 1, rest: task };
 		}
-		case "if":
-			return widest(step.steps ?? [], step.else ?? []);
 		// A catch runs while what the try started still runs.
 		case "try": {
-			const body = listWidth(step.steps);
-			const handler = listWidth(step.catch);
+			const body = listWidth(first);
+			const handler = listWidth(second);
 			return { peak: Math.max(1, body.peak, body.rest + handler.peak), rest: body.rest + handler.rest };
 		}
 		default:
-			return { peak: 1, rest: 0 };
+			return widest(...lists);
 	}
 }
 
@@ -299,17 +364,15 @@ export function reachOf(automation: Walked, functionOf: FunctionOf): Set<string>
 /** A function's steps as written, each call naming what `to` answers. */
 export const recalled = (fn: { steps: Sealed<FunctionStep> }, to: (id: string) => string): FunctionStep[] => {
 	const each = (steps: readonly FunctionStep[]): FunctionStep[] =>
-		steps.map((step): FunctionStep => {
-			if (step.kind === "call") return { ...step, function: to(step.function) };
-			if (step.kind === "try") return { ...step, steps: each(step.steps), catch: each(step.catch) };
-			if (step.kind === "parallel" || step.kind === "start") return { ...step, steps: each(step.steps) };
-			if (step.kind !== "if") return step;
-			return {
-				...step,
-				...(step.steps ? { steps: each(step.steps) } : {}),
-				...(step.else ? { else: each(step.else) } : {}),
-			};
-		});
+		steps.map(
+			(step): FunctionStep =>
+				step.kind === "call"
+					? { ...step, function: to(step.function) }
+					: withSides(
+							step,
+							sidesOf(step).map((held) => each(held.steps)),
+						),
+		);
 	return each(open(fn.steps));
 };
 

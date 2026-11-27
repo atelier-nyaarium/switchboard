@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { AssistantActionDescriptorSchema } from "./schemasAssistantActions.js";
-import { AssistantFieldSpecSchema, AssistantUnexpectedValuesSchema } from "./schemasAssistantRules.js";
+import { AssistantFieldSpecSchema } from "./schemasAssistantRules.js";
 import { SERVICE_KEYS } from "./schemasIntegrations.js";
 
 const AssistantWatcherBackoffSchema = z
@@ -42,8 +42,6 @@ export const AssistantSourceSchema = z
 		stopped: z.string().optional(),
 		/** What its events carry. */
 		fieldSpecs: z.array(AssistantFieldSpecSchema),
-		/** Out-of-set event values. */
-		unexpected: AssistantUnexpectedValuesSchema.optional(),
 		/** The secret it needs, as shown; absent when it needs none. */
 		secret: z.string().max(400).optional(),
 		actions: z.array(AssistantActionDescriptorSchema),

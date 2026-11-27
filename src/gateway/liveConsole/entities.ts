@@ -490,7 +490,6 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 							nextPollAt: found.nextPollAt ?? null,
 							backoff: found.backoff ?? null,
 							stopped: found.stopped ?? null,
-							unexpected: found.unexpected ?? null,
 						};
 					},
 				},

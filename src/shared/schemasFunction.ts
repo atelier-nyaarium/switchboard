@@ -1,7 +1,7 @@
 // A function: a named body an automation points at.
 
 import { z } from "zod";
-import { walked } from "./automation-walk.js";
+import { sidesOf, walked } from "./automation-walk.js";
 import { RULE_ID_RE } from "./schemasAssistantRules.js";
 
 /** Store-wide total. */
@@ -146,25 +146,14 @@ const STATEMENTS: { [K in FunctionStep["kind"]]: true } = {
 /** Every kind a step may be. */
 export const FUNCTION_STATEMENT_KINDS = Object.keys(STATEMENTS) as FunctionStep["kind"][];
 
-type Tree = { kind: string; steps?: readonly Tree[]; else?: readonly Tree[]; catch?: readonly Tree[] };
-
 /** Every step at every depth. */
-const countOf = (steps: readonly Tree[]): number =>
-	steps.reduce(
-		(sum, step) => sum + 1 + countOf(step.steps ?? []) + countOf(step.else ?? []) + countOf(step.catch ?? []),
-		0,
-	);
+const countOf = (steps: readonly FunctionStep[]): number =>
+	steps.reduce((sum, step) => sum + 1 + sidesOf(step).reduce((held, side) => held + countOf(side.steps), 0), 0);
 
 /** A flat list is one deep. */
-const depthOf = (steps: readonly Tree[]): number =>
+const depthOf = (steps: readonly FunctionStep[]): number =>
 	steps.reduce(
-		(deepest, step) =>
-			Math.max(
-				deepest,
-				1 + depthOf(step.steps ?? []),
-				1 + depthOf(step.else ?? []),
-				1 + depthOf(step.catch ?? []),
-			),
+		(deepest, step) => Math.max(deepest, 1 + Math.max(0, ...sidesOf(step).map((side) => depthOf(side.steps)))),
 		steps.length > 0 ? 1 : 0,
 	);
 

@@ -4,7 +4,6 @@ import com.atelier_nyaarium.switchboard.crypto.sha256Hex
 import com.atelier_nyaarium.switchboard.proto.AssistantActionDescriptor
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldOption
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
-import com.atelier_nyaarium.switchboard.proto.AssistantFieldValue
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeReadResult
 import com.atelier_nyaarium.switchboard.proto.AssistantIntegration
 import com.atelier_nyaarium.switchboard.proto.INTEGRATIONS
@@ -12,7 +11,6 @@ import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeReport
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeSealed
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
-import com.atelier_nyaarium.switchboard.proto.AssistantUnexpectedValues
 import com.atelier_nyaarium.switchboard.proto.AssistantSource
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
@@ -360,7 +358,6 @@ internal class SandboxAssistantGateway : AssistantGateway {
 			lastSuccessAt = day(-120_000L),
 			nextPollAt = day(60_000L),
 			fieldSpecs = SANDBOX_FIELD_SPECS,
-			unexpected = AssistantUnexpectedValues(listOf(AssistantFieldValue("type", "WorkflowRun")), capped = false),
 			secret = "GitHub PAT (Classic) with scope:\n- Notifications",
 			actions = listOf(AssistantActionDescriptor("github_done", "Mark done", "Clears threads from your GitHub inbox.")),
 			enabled = "github" !in off,

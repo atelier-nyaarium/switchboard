@@ -13,14 +13,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.doubleOrNull
 import java.util.UUID
 
-/** The sides a step holds; `number` is the side's place in a path. */
-internal enum class Side(val number: Int) {
-	THEN(0),
-	ELSE(1),
-	BODY(0),
-	CATCH(1),
-}
-
 /** A step as the editor holds it, named by a key minted once. */
 internal sealed interface StepDraft {
 	val key: String
@@ -68,26 +60,30 @@ internal val STEPS_PER_LIST = Protocol.Wire.FUNCTION_STEPS_MAX
 internal val STEPS_TOTAL = Protocol.Wire.FUNCTION_STEPS_TOTAL_MAX
 internal val STEPS_DEPTH = Protocol.Wire.FUNCTION_DEPTH_MAX
 
-/** Its sides, in written order. */
+/** Its sides, each with its number, in written order. */
 internal fun sidesOf(step: StepDraft): List<Pair<Side, List<StepDraft>>> = when (step) {
-	is StepDraft.If -> listOf(Side.THEN to step.then, Side.ELSE to step.otherwise)
-	is StepDraft.Try -> listOf(Side.BODY to step.body, Side.CATCH to step.catch)
+	is StepDraft.If -> listOf(Side.Then to step.then, Side.Else to step.otherwise)
+	is StepDraft.Try -> listOf(Side.Body to step.body, Side.Catch to step.catch)
 	is StepDraft.Do, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Call, is StepDraft.Kept -> emptyList()
 }
 
 private fun withSide(step: StepDraft, side: Side, list: List<StepDraft>): StepDraft = when (step) {
 	is StepDraft.If -> when (side) {
-		Side.THEN -> step.copy(then = list)
-		Side.ELSE -> step.copy(otherwise = list)
-		Side.BODY, Side.CATCH -> step
+		Side.Then -> step.copy(then = list)
+		Side.Else -> step.copy(otherwise = list)
+		Side.Body, Side.Catch -> step
 	}
 	is StepDraft.Try -> when (side) {
-		Side.BODY -> step.copy(body = list)
-		Side.CATCH -> step.copy(catch = list)
-		Side.THEN, Side.ELSE -> step
+		Side.Body -> step.copy(body = list)
+		Side.Catch -> step.copy(catch = list)
+		Side.Then, Side.Else -> step
 	}
 	is StepDraft.Do, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Call, is StepDraft.Kept -> step
 }
+
+/** Each side's list changed; keys kept. */
+private fun withSidesMapped(step: StepDraft, change: (List<StepDraft>) -> List<StepDraft>): StepDraft =
+	sidesOf(step).fold(step) { held, (side, list) -> withSide(held, side, change(list)) }
 
 /** Every step at every depth, a step before what it holds. */
 internal fun everyStep(steps: List<StepDraft>): List<StepDraft> =
@@ -106,15 +102,10 @@ private fun fits(steps: List<StepDraft>): Boolean {
 
 /** The step at `key` changed; every other key kept. */
 internal fun replacedStep(steps: List<StepDraft>, key: String, change: (StepDraft) -> StepDraft): List<StepDraft> =
-	steps.map { step ->
-		if (step.key == key) change(step)
-		else sidesOf(step).fold(step) { held, (side, list) -> withSide(held, side, replacedStep(list, key, change)) }
-	}
+	steps.map { step -> if (step.key == key) change(step) else withSidesMapped(step) { replacedStep(it, key, change) } }
 
 internal fun removedStep(steps: List<StepDraft>, key: String): List<StepDraft> =
-	steps.filter { it.key != key }.map { step ->
-		sidesOf(step).fold(step) { held, (side, list) -> withSide(held, side, removedStep(list, key)) }
-	}
+	steps.filter { it.key != key }.map { step -> withSidesMapped(step) { removedStep(it, key) } }
 
 private fun placed(steps: List<StepDraft>, slot: Slot, step: StepDraft): List<StepDraft> {
 	fun into(list: List<StepDraft>) = list.toMutableList().apply { add(slot.index.coerceIn(0, size), step) }
@@ -168,15 +159,7 @@ internal fun keyAt(steps: List<StepDraft>, path: String): String? = pathsOf(step
 internal fun stepPaths(steps: List<FunctionStep>, base: String? = null): List<String> =
 	steps.withIndex().flatMap { (index, step) ->
 		val path = if (base == null) "$index" else "$base.$index"
-		val sides = when (step) {
-			is FunctionStep.If -> listOf(Side.THEN to step.steps.orEmpty(), Side.ELSE to step.`else`.orEmpty())
-			is FunctionStep.Try -> listOf(Side.BODY to step.steps, Side.CATCH to step.catch)
-			is FunctionStep.Parallel -> listOf(Side.BODY to step.steps)
-			is FunctionStep.Start -> listOf(Side.BODY to step.steps)
-			is FunctionStep.Do, is FunctionStep.Exit, is FunctionStep.Throw, is FunctionStep.Let, is FunctionStep.Await,
-			is FunctionStep.Wait, is FunctionStep.Note, is FunctionStep.Unparsed, is FunctionStep.Call, is FunctionStep.Unknown -> emptyList()
-		}
-		listOf(path) + sides.flatMap { (side, list) -> stepPaths(list, "$path.${side.number}") }
+		listOf(path) + sidesOf(step).flatMap { (side, list) -> stepPaths(list, "$path.${side.number}") }
 	}
 
 /** Written order: a step before what it holds. */
@@ -288,16 +271,17 @@ private fun minutesOf(text: String): JsonPrimitive? {
 
 /** The same steps, keys aside. */
 internal fun unkeyed(steps: List<StepDraft>): List<StepDraft> = steps.map { step ->
-	when (step) {
+	val keyless = when (step) {
 		is StepDraft.Do -> step.copy(key = "")
-		is StepDraft.If -> step.copy(key = "", then = unkeyed(step.then), otherwise = unkeyed(step.otherwise))
-		is StepDraft.Try -> step.copy(key = "", body = unkeyed(step.body), catch = unkeyed(step.catch))
+		is StepDraft.If -> step.copy(key = "")
+		is StepDraft.Try -> step.copy(key = "")
 		is StepDraft.Wait -> step.copy(key = "")
 		is StepDraft.Exit -> step.copy(key = "")
 		is StepDraft.Note -> step.copy(key = "")
 		is StepDraft.Call -> step.copy(key = "")
 		is StepDraft.Kept -> step.copy(key = "")
 	}
+	withSidesMapped(keyless, ::unkeyed)
 }
 
 /** The action of every card that does one, at any depth. */
@@ -305,12 +289,7 @@ internal fun doings(steps: List<StepDraft>): List<StepDraft.Do> = everyStep(step
 
 /** Each card's action changed; keys kept. */
 internal fun mapDoings(steps: List<StepDraft>, change: (ActionDraft) -> ActionDraft): List<StepDraft> = steps.map { step ->
-	when (step) {
-		is StepDraft.Do -> step.copy(action = change(step.action))
-		is StepDraft.If -> step.copy(then = mapDoings(step.then, change), otherwise = mapDoings(step.otherwise, change))
-		is StepDraft.Try -> step.copy(body = mapDoings(step.body, change), catch = mapDoings(step.catch, change))
-		is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Call, is StepDraft.Kept -> step
-	}
+	if (step is StepDraft.Do) step.copy(action = change(step.action)) else withSidesMapped(step) { mapDoings(it, change) }
 }
 
 /** A card's title. */

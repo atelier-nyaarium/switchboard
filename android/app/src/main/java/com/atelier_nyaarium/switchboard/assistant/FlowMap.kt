@@ -333,9 +333,10 @@ private fun guardOf(entry: WalkStep, held: Map<String, WalkStep>): Pair<Boolean,
 	for (cut in parts.size - 1 downTo 1) {
 		val above = held[parts.subList(0, cut).joinToString(".")] ?: continue
 		if (above.step !is FunctionStep.Try) continue
-		when (parts[cut]) {
-			"0" -> guarded = true
-			"1" -> if (above.via == entry.via) caught = true
+		when (sidesOf(above.step).firstOrNull { (side, _) -> "${side.number}" == parts[cut] }?.first) {
+			Side.Body -> guarded = true
+			Side.Catch -> if (above.via == entry.via) caught = true
+			Side.Then, Side.Else, null -> Unit
 		}
 	}
 	return guarded to caught

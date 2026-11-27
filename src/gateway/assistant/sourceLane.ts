@@ -6,15 +6,7 @@ import type { EventMember } from "../../shared/pending-delivery-store.js";
 import type { RuleAction } from "../../shared/schemasAssistantRules.js";
 import { fireAndForget } from "../fireAndForget.js";
 import { type PollAnswer, PollAnswerSchema, SOURCE_ID_RE, type Source, type SourceEvent } from "./source.js";
-import {
-	goneListed,
-	isGone,
-	type SourceState,
-	type SourceStateStore,
-	shownChanged,
-	unexpectedAfter,
-	unexpectedNow,
-} from "./sourceState.js";
+import { goneListed, isGone, type SourceState, type SourceStateStore, shownChanged } from "./sourceState.js";
 
 /** Bounds a hung source. */
 export const POLL_TIMEOUT_MS = 60_000;
@@ -272,8 +264,7 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 		const answer = await answerOf(source, whole ? null : held.cursor, signal, ambient);
 		if (!live()) return;
 		const now = ambient.now();
-		// Every settle writes the set pruned against the current specs.
-		const health = { ...cleared(held), unexpected: unexpectedNow(held, source.fieldSpecs) };
+		const health = cleared(held);
 		if (answer.kind === "backoff") {
 			const until = now + answer.retryMs;
 			settle(source, { ...health, backoff: { until, reason: answer.reason }, nextPollAt: until }, until);
@@ -288,11 +279,9 @@ export function createSourceLanes(deps: SourceLanesDeps): SourceLanes {
 			settle(source, { ...health, lastSuccessAt: now, nextPollAt: next }, next);
 			return;
 		}
-		// Record all event values before freshness filtering.
-		const unexpected = unexpectedAfter(held.unexpected, answer.events, source.fieldSpecs);
 		const pruned = goneListed(health, answer.events, answer.capped);
 		const shown = answer.events.filter((event) => !isGone(pruned, event));
-		const read = { unread: shown.length, capped: answer.capped, lastSuccessAt: now, unexpected };
+		const read = { unread: shown.length, capped: answer.capped, lastSuccessAt: now };
 		const newest = answer.events.reduce((max, event) => Math.max(max, event.at), held.newest);
 		// First poll primes without waking.
 		const fresh = held.primed ? shown.filter((event) => event.at > held.newest) : [];

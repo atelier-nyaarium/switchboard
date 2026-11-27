@@ -42,7 +42,7 @@ A read-only expression language over Gateway state. A session inspects live stat
 | `sensors` | `list`, `read(device)` (each reading's `value` and `shown` in the owner's unit, its 24-hour low and high), `value(device, key)` (one reading's value, the short read a condition needs), `payloads(device)`, `extremes(device, key)` |
 | `fields` | `list`, `get(id)` (the record and why invalid), `read(id)` (its value or why unknown, its seq and last transitions) |
 | `automations` | `list`, `get(id)` (the record and why invalid), `read(id)` (its checkpoint), `runs`, `queue` |
-| `sources` | `list`, `get(id)` (fields, whether its events can trigger an automation, commands; never its setup text or vault entry ids), `read(id)` (unread, polls, backoff, unexpected values), `test(id, fields)` (the armed event automations an event with those fields meets, each with its `when`, and whether it wakes) |
+| `sources` | `list`, `get(id)` (fields, whether its events can trigger an automation, commands; never its setup text or vault entry ids), `read(id)` (unread, polls, backoff), `test(id, fields)` (the armed event automations an event with those fields meets, each with its `when`, and whether it wakes) |
 | `bluetooth` | `listen(seconds?)`: host radio sightings for the window, loudest first, at most 256 addresses. Each row names its family, and `unsupported: yes` marks a device never paired. Host sessions only, since a listen outlasts the phone's answer wait. |
 | `definitions` | `list`, `get(key)`, `match(advert)`, `decode(key, advert)` |
 

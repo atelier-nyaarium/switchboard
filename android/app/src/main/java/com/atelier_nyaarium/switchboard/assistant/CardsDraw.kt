@@ -27,12 +27,12 @@ internal sealed interface CardRow {
 	}
 
 	data class SideLabel(val parent: String, val side: Side, override val depth: Int) : CardRow {
-		override val rowKey: String get() = "$parent/${side.name}"
+		override val rowKey: String get() = "$parent/${side.number}"
 	}
 
 	/** Full when insertion fails. */
 	data class AddSlot(val slot: Slot, override val depth: Int, val full: Boolean) : CardRow {
-		override val rowKey: String get() = "${slot.parent ?: "top"}/${slot.side?.name ?: ""}/add"
+		override val rowKey: String get() = "${slot.parent ?: "top"}/${slot.side?.number ?: ""}/add"
 	}
 }
 
@@ -55,7 +55,7 @@ internal fun cardsDraw(
 			val run = runPathOf(path, pointing)
 			val card = CardRow.Card(step, depth, path, issueOf(step), last[run], run == active)
 			listOf(card) + sidesOf(step).flatMap { (inner, held) ->
-				val label = if (inner == Side.ELSE || inner == Side.CATCH) listOf(CardRow.SideLabel(step.key, inner, depth + 1)) else emptyList()
+				val label = if (inner == Side.Else || inner == Side.Catch) listOf(CardRow.SideLabel(step.key, inner, depth + 1)) else emptyList()
 				val slot = Slot(step.key, inner, held.size)
 				label + rows(held, "$path.${inner.number}", depth + 1) + CardRow.AddSlot(slot, depth + 1, full(slot))
 			}

@@ -43,7 +43,7 @@ internal fun runNamesHere(steps: List<StepDraft>, key: String): List<NameHere> {
 }
 
 private fun insideCatch(steps: List<StepDraft>, key: String): Boolean =
-	everyStep(steps).filterIsInstance<StepDraft.Try>().any { held -> findStep(held.catch, key) != null }
+	everyStep(steps).any { held -> sidesOf(held).any { (side, list) -> side == Side.Catch && findStep(list, key) != null } }
 
 internal fun textPaint(mode: TextMode, text: String, entities: Set<String>, names: Set<String>): List<PaintSpan> = when (mode) {
 	TextMode.HOLES -> holePaint(text, entities, names)

@@ -181,7 +181,7 @@ class StepCardsTest {
 			}
 		}
 		assertEquals(
-			listOf("0:a@0", "1:b@0.0.0", "1:+a", "1:ELSE", "1:c@0.1.0", "1:+a", "0:d@1", "1:+d", "1:CATCH", "1:e@1.1.0", "1:+d", "0:+top"),
+			listOf("0:a@0", "1:b@0.0.0", "1:+a", "1:Else", "1:c@0.1.0", "1:+a", "0:d@1", "1:+d", "1:Catch", "1:e@1.1.0", "1:+d", "0:+top"),
 			shape,
 		)
 		val nested = cardsDraw(deep, { null }, null, pointing = false).filterIsInstance<CardRow.Card>()

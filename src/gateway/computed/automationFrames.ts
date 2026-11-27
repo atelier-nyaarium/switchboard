@@ -1,6 +1,6 @@
 // How a frame moves through a body's tree.
 
-import type { Address, Side } from "../../shared/automation-walk.js";
+import { type Address, type HeldSide, type Side, sidesOf, type TreeStep } from "../../shared/automation-walk.js";
 
 export const FAILURE_CODES = [
 	"refused",
@@ -24,37 +24,10 @@ export interface Failure {
 	errors?: { code: FailureCode; message: string }[];
 }
 
-export type { Address, Side } from "../../shared/automation-walk.js";
+export type { Address, Side, TreeStep } from "../../shared/automation-walk.js";
 
-/** Lists read by walker. */
-export interface TreeStep {
-	kind: string;
-	steps?: readonly TreeStep[];
-	else?: readonly TreeStep[];
-	catch?: readonly TreeStep[];
-}
-
-const sideOf = (step: TreeStep, side: Side): readonly TreeStep[] | undefined => {
-	switch (side) {
-		case "then":
-		case "try":
-		case "parallel":
-		case "start":
-			return step.steps;
-		case "else":
-			return step.else;
-		case "catch":
-			return step.catch;
-	}
-};
-
-/** A step's lists, first then second. */
-const SIDES_OF: Readonly<Record<string, readonly Side[]>> = {
-	if: ["then", "else"],
-	try: ["try", "catch"],
-	parallel: ["parallel"],
-	start: ["start"],
-};
+const sideOf = (step: TreeStep, side: Side): readonly TreeStep[] | undefined =>
+	sidesOf(step).find((held) => held.side === side)?.steps;
 
 /** Innermost strand index. */
 const strandAt = (address: Address): number => Math.max(address.lastIndexOf("parallel"), address.lastIndexOf("start"));
@@ -89,12 +62,10 @@ export const addressIn = (body: readonly TreeStep[], numbers: readonly number[])
 		if (!step) return null;
 		address.push(index);
 		if (at + 1 === numbers.length) return address;
-		const side: Side | undefined = Object.hasOwn(SIDES_OF, step.kind)
-			? SIDES_OF[step.kind]?.[numbers[at + 1] as number]
-			: undefined;
-		if (!side) return null;
-		address.push(side);
-		list = sideOf(step, side);
+		const held: HeldSide<TreeStep> | undefined = sidesOf(step)[numbers[at + 1] as number];
+		if (!held) return null;
+		address.push(held.side);
+		list = held.steps;
 	}
 	return null;
 };

@@ -1,7 +1,5 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.assistant.field
-import com.atelier_nyaarium.switchboard.assistant.fieldLabel
 import com.atelier_nyaarium.switchboard.assistant.label
 import com.atelier_nyaarium.switchboard.assistant.carriedFunctionsOf
 import com.atelier_nyaarium.switchboard.assistant.FunctionsServed
@@ -256,17 +254,6 @@ internal fun sourceHealth(source: AssistantSource, ago: (Long) -> String): Strin
 		"Waiting: ${status.reason}" + if (status.checkedAt != null) " · ${unreadText(source)}" else ""
 	SourceStatus.NotChecked -> "Not checked yet"
 	is SourceStatus.Checked -> "Checked ${ago(status.at)} · ${unreadText(source)}"
-}
-
-/** Show unlisted event values individually as specs grow. */
-internal fun unexpectedLines(source: AssistantSource): List<String> {
-	val seen = source.unexpected ?: return emptyList()
-	val specs = source.fieldSpecs
-	val named = seen.values.map { entry ->
-		val field = specs.find { it.field == entry.field }?.label ?: fieldLabel(entry.field)
-		"$field: ${entry.value}"
-	}
-	return if (seen.capped) named + "and more" else named
 }
 
 internal enum class AssistantSection { LOCATION, FEATURES, SAFETY, REMOVE }

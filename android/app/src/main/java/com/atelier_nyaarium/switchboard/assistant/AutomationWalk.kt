@@ -76,19 +76,32 @@ private fun followed(
 	}
 }
 
+/** A side a step holds; `number` is its place in a path. */
+internal sealed class Side(val number: Int) {
+	data object Then : Side(0)
+
+	data object Else : Side(1)
+
+	data object Body : Side(0)
+
+	data object Catch : Side(1)
+}
+
+/** The one reader of a stored step's lists, in written order. */
+internal fun sidesOf(step: FunctionStep): List<Pair<Side, List<FunctionStep>>> = when (step) {
+	is FunctionStep.If -> listOf(Side.Then to step.steps.orEmpty(), Side.Else to step.`else`.orEmpty())
+	is FunctionStep.Try -> listOf(Side.Body to step.steps, Side.Catch to step.catch)
+	is FunctionStep.Parallel -> listOf(Side.Body to step.steps)
+	is FunctionStep.Start -> listOf(Side.Body to step.steps)
+	is FunctionStep.Do, is FunctionStep.Exit, is FunctionStep.Throw, is FunctionStep.Let, is FunctionStep.Await,
+	is FunctionStep.Wait, is FunctionStep.Note, is FunctionStep.Unparsed, is FunctionStep.Call, is FunctionStep.Unknown -> emptyList()
+}
+
 /** Parents precede children. */
 private fun stepsIn(steps: List<FunctionStep>, base: List<Int>): List<Pair<List<Int>, FunctionStep>> =
 	steps.withIndex().flatMap { (index, step) ->
 		val at = base + index
-		val sides = when (step) {
-			is FunctionStep.If -> listOf(0 to step.steps.orEmpty(), 1 to step.`else`.orEmpty())
-			is FunctionStep.Try -> listOf(0 to step.steps, 1 to step.catch)
-			is FunctionStep.Parallel -> listOf(0 to step.steps)
-			is FunctionStep.Start -> listOf(0 to step.steps)
-			is FunctionStep.Do, is FunctionStep.Exit, is FunctionStep.Throw, is FunctionStep.Let, is FunctionStep.Await,
-			is FunctionStep.Wait, is FunctionStep.Note, is FunctionStep.Unparsed, is FunctionStep.Call, is FunctionStep.Unknown -> emptyList()
-		}
-		listOf(at to step) + sides.flatMap { (side, list) -> stepsIn(list, at + side) }
+		listOf(at to step) + sidesOf(step).flatMap { (side, list) -> stepsIn(list, at + side.number) }
 	}
 
 /** Unexpanded calls, written order. */
@@ -122,15 +135,7 @@ internal fun reachOver(starts: Collection<String>, callsOf: (String) -> List<Str
 internal fun callsIn(steps: List<FunctionStep>): List<String> = called(steps)
 
 private fun called(steps: List<FunctionStep>): List<String> = steps.flatMap { step ->
-	when (step) {
-		is FunctionStep.Call -> listOf(step.function)
-		is FunctionStep.If -> called(step.steps.orEmpty()) + called(step.`else`.orEmpty())
-		is FunctionStep.Try -> called(step.steps) + called(step.catch)
-		is FunctionStep.Parallel -> called(step.steps)
-		is FunctionStep.Start -> called(step.steps)
-		is FunctionStep.Do, is FunctionStep.Exit, is FunctionStep.Throw, is FunctionStep.Let, is FunctionStep.Await,
-		is FunctionStep.Wait, is FunctionStep.Note, is FunctionStep.Unparsed, is FunctionStep.Unknown -> emptyList()
-	}
+	listOfNotNull((step as? FunctionStep.Call)?.function) + sidesOf(step).flatMap { (_, list) -> called(list) }
 }
 
 /** The list as written, one level; a call is never followed. */

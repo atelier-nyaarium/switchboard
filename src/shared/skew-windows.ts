@@ -196,6 +196,12 @@ export const SKEW_WINDOWS = {
 		in: ["phone"],
 		ends: "`serves.functions` names its statements, `unnamed` and `script`, all required.",
 	},
+	"source-unexpected": {
+		closes: "2026-12-10",
+		from: ["gateway"],
+		in: ["gateway"],
+		ends: "Drop the read of a stored `unexpected` key.",
+	},
 	"fire-tell": {
 		closes: "2026-12-16",
 		from: ["gateway"],

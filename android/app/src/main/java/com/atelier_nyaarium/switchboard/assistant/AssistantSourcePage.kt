@@ -42,7 +42,6 @@ import com.atelier_nyaarium.switchboard.routines.SecretNeeded
 import com.atelier_nyaarium.switchboard.routines.grantedLine
 import com.atelier_nyaarium.switchboard.sourceHealth
 import com.atelier_nyaarium.switchboard.sourceTroubled
-import com.atelier_nyaarium.switchboard.unexpectedLines
 import com.atelier_nyaarium.switchboard.vault.grantableOn
 
 /** Red when troubled. */
@@ -163,11 +162,6 @@ internal fun AssistantSourcePage(
 				}
 				Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
 			}
-		}
-		val unexpected = unexpectedLines(source)
-		if (unexpected.isNotEmpty()) {
-			Text("Seen outside its lists", style = MaterialTheme.typography.labelLarge)
-			for (line in unexpected) Text(line, style = MaterialTheme.typography.bodySmall, color = dim)
 		}
 		if (canRetry(source)) {
 			TextButton(onClick = hapticClick { run { answerText(retry(gatewayId, source)) } }, enabled = !busy) { Text("Retry") }

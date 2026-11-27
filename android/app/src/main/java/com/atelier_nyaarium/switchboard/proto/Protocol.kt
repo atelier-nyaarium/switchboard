@@ -2569,8 +2569,6 @@ data class AssistantSource(
 	val stopped: String? = null,
 	val fieldSpecs: List<AssistantFieldSpec>,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val unexpected: AssistantUnexpectedValues? = null,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val secret: String? = null,
 	val actions: List<AssistantActionDescriptor>,
 	val enabled: Boolean,
@@ -3339,18 +3337,6 @@ object AssistantFieldSpecSerializer : KSerializer<AssistantFieldSpec> {
 	private fun tagged(kind: String, body: JsonElement): JsonObject =
 		JsonObject(mapOf("kind" to JsonPrimitive(kind)) + body.jsonObject)
 }
-
-@Serializable
-data class AssistantFieldValue(
-	val field: String,
-	val value: String,
-)
-
-@Serializable
-data class AssistantUnexpectedValues(
-	val values: List<AssistantFieldValue>,
-	val capped: Boolean,
-)
 
 @Serializable
 data class AssistantSendFile(

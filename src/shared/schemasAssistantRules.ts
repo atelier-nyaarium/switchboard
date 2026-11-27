@@ -68,23 +68,6 @@ export type AssistantFieldSpec = z.infer<typeof AssistantFieldSpecSchema>;
 
 export const testsOf = (spec: AssistantFieldSpec): readonly RuleTest[] => FIELD_TYPES[spec.kind].tests;
 
-/** Out-of-set field value. */
-export const AssistantFieldValueSchema = z
-	.object({ field: fieldName, value: z.string().max(1_000) })
-	.meta({ id: "AssistantFieldValue" });
-
-export type AssistantFieldValue = z.infer<typeof AssistantFieldValueSchema>;
-
-export const AssistantUnexpectedValuesSchema = z
-	.object({
-		values: z.array(AssistantFieldValueSchema),
-		/** More observed than retained. */
-		capped: z.boolean(),
-	})
-	.meta({ id: "AssistantUnexpectedValues" });
-
-export type AssistantUnexpectedValues = z.infer<typeof AssistantUnexpectedValuesSchema>;
-
 export const AssistantRuleConditionSchema = z
 	.object({
 		field: z.string().min(1).max(64),

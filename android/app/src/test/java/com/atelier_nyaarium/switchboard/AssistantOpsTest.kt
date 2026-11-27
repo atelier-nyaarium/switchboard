@@ -2,8 +2,6 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.assistant.CarryRefusal
 import com.atelier_nyaarium.switchboard.assistant.safetyLines
-import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
-import com.atelier_nyaarium.switchboard.proto.AssistantFieldValue
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarried
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarriedIntegration
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarriedWatcher
@@ -13,7 +11,6 @@ import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeReport
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeSealed
 import com.atelier_nyaarium.switchboard.proto.AssistantIntegration
-import com.atelier_nyaarium.switchboard.proto.AssistantUnexpectedValues
 import com.atelier_nyaarium.switchboard.proto.AssistantSource
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
@@ -799,15 +796,6 @@ class AssistantOpsTest {
 		)
 		assertEquals("Checked 5m ago · 2 in its inbox", sourceHealth(source(lastSuccessAt = 1L), ago))
 		assertEquals("Not checked yet", sourceHealth(source(), ago))
-	}
-
-	@Test
-	fun settingsNameValuesOutsideTheListsByLabel() {
-		val specs = listOf(AssistantFieldSpec.Text("type", "Type"))
-		val seen = AssistantUnexpectedValues(listOf(AssistantFieldValue("type", "WorkflowRun"), AssistantFieldValue("odd", "x")), capped = true)
-
-		assertEquals(listOf("Type: WorkflowRun", "Odd: x", "and more"), unexpectedLines(source().copy(fieldSpecs = specs, unexpected = seen)))
-		assertEquals(emptyList<String>(), unexpectedLines(source()))
 	}
 
 	@Test

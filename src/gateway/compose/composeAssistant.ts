@@ -71,7 +71,7 @@ import { type ListPage, type ListQuery, type Source, type SourceEvent, told } fr
 import type { SourceActions } from "../assistant/sourceAction.js";
 import { createSourceEnabledStore } from "../assistant/sourceEnabled.js";
 import { type AssistantWake, createSourceLanes, memberKey, type SourceLanes } from "../assistant/sourceLane.js";
-import { createSourceStateStore, FRESH_STATE, goneAdded, unexpectedNow } from "../assistant/sourceState.js";
+import { createSourceStateStore, FRESH_STATE, goneAdded } from "../assistant/sourceState.js";
 import { createStatusMemo } from "../assistant/statusMemo.js";
 import { createTemperatureUnitStore } from "../assistant/temperatureUnit.js";
 import { ASSISTANT_WAITS } from "../assistant/waits.js";
@@ -446,7 +446,6 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 
 	const sourceOf = (source: Source): AssistantSource => {
 		const state = sourceState.get(source.id);
-		const specs = source.fieldSpecs;
 		return {
 			id: source.id,
 			label: source.label,
@@ -457,8 +456,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			...(state.nextPollAt !== undefined ? { nextPollAt: state.nextPollAt } : {}),
 			...(state.backoff ? { backoff: state.backoff } : {}),
 			...(state.stopped !== undefined ? { stopped: state.stopped } : {}),
-			fieldSpecs: [...specs],
-			unexpected: unexpectedNow(state, specs),
+			fieldSpecs: [...source.fieldSpecs],
 			...(source.secret === undefined ? {} : { secret: source.secret }),
 			actions: actionsOf(source.id),
 			enabled: enabled.enabled(source.id),

@@ -89,9 +89,9 @@ internal fun CardsSection(
 }
 
 private fun sideLabel(side: Side): String = when (side) {
-	Side.ELSE -> "Otherwise"
-	Side.CATCH -> "If it fails"
-	Side.THEN, Side.BODY -> ""
+	Side.Else -> "Otherwise"
+	Side.Catch -> "If it fails"
+	Side.Then, Side.Body -> ""
 }
 
 @Composable
