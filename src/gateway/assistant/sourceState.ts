@@ -34,7 +34,7 @@ const SourceStateSchema = z.strictObject({
 
 export type SourceState = z.infer<typeof SourceStateSchema>;
 
-// skew:source-unexpected: drop the key's read.
+// skew:source-unexpected
 const StoredStateSchema = SourceStateSchema.extend({ unexpected: z.unknown().optional() }).transform(
 	({ unexpected: _dropped, ...state }): SourceState => state,
 );

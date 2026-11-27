@@ -491,7 +491,6 @@ internal class AssistantOps(
 
 	private class EventRows(val rows: List<AutomationRow>, val functions: List<AutomationFunctionRow>?)
 
-	/** Null unless listed. */
 	private suspend fun eventRows(client: AssistantGateway, gatewayId: String): EventRows? {
 		val listing = attempt { client.automationListing(gatewayId) }
 		return when (val listed = listing?.rows) {

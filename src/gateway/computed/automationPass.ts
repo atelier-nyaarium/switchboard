@@ -96,7 +96,6 @@ export interface PassPorts {
 	noteAt(fire: Fire, path: string): string | null;
 	/** The lane told it already. */
 	laneTold(fire: Fire, path: string): boolean;
-	/** Its pinned step has errors. */
 	errorAt(fire: Fire, path: string): boolean;
 	windowOf(fire: Fire): number;
 	callAt(body: Automation, path: string): RunFunction | null;
@@ -141,7 +140,7 @@ export const CALL_FAILED = "a step in it failed";
 export const TOO_MANY_BESIDE = `more than ${RUN_STRANDS_MAX} steps would run at once`;
 export const TOO_MANY_KEPT = `more than ${FRAME_VARS_MAX} values would be kept`;
 export const SCRIPT_ERRORS = "its script has errors";
-/** Fixed; an issue's line can quote a value. */
+/** Fixed text protects values. */
 export const STEP_ERRORS = "this step has errors";
 const MESSAGE_UNREAD = "its message was not read before the restart";
 // skew:fire-tell: goes with the fire's `tell`.
@@ -582,7 +581,7 @@ export function createPass(ports: PassPorts): {
 				enter(pointer);
 				return;
 			}
-			// Judged once, at its turn.
+			// Check errors on entry.
 			if (found.startedAt === undefined && !ports.laneTold(fire, path) && ports.errorAt(fire, path)) {
 				end(path, failedAs(step, "unread", STEP_ERRORS), STEP_ERRORS);
 				return;

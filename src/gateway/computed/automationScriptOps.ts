@@ -17,13 +17,13 @@ import { membersOf } from "../../shared/script-types.js";
 import { oneLine } from "../../shared/system-reminder.js";
 import { parseScript, placeIssue, printScript, type ScriptTables, scriptNames } from "./automationScript.js";
 
-/** A step's issue, by its numbers. */
+/** Issue path indexes. */
 export interface StepIssueAt {
 	step: string;
 	param?: string;
 	start?: number;
 	end?: number;
-	/** A switch case, and its value. */
+	/** Switch case and value. */
 	case?: number;
 	chip?: number;
 	message: string;
@@ -36,7 +36,7 @@ export interface ScriptOpsDeps {
 	/** Throws for a trigger it cannot read. */
 	givenOf: (trigger: AutomationTrigger) => TriggerGiven;
 	vocabulary: () => ConsoleDescription;
-	/** Every step issue, in written order. */
+	/** Step issues in order. */
 	stepIssues: (
 		body: { params: readonly FunctionParam[]; steps: readonly FunctionStep[] },
 		trigger?: AutomationTrigger,

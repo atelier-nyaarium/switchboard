@@ -49,7 +49,7 @@ internal data class AutomationOffer(
 	val away: Boolean,
 	/** Null: this Gateway holds no functions. */
 	val functions: FunctionOffer? = null,
-	/** Null: one value, three tests. */
+	/** Null means legacy limits. */
 	val conditions: AutomationConditionServes? = null,
 ) {
 	fun action(kind: String): ActionOffer? = actions.find { it.kind == kind }

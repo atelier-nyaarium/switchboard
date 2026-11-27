@@ -8,7 +8,7 @@ export const TEST_LABELS = {
 	contains_not: "does not contain",
 } as const satisfies Record<RuleTest, string>;
 
-/** A condition holding several values. */
+/** Multiple condition values. */
 export const LIST_TEST_LABELS = {
 	is: "is any of",
 	is_not: "is none of",

@@ -53,7 +53,6 @@ internal fun CallFields(
 	said: AutomationSaid?,
 	edit: ((AutomationDraft) -> AutomationDraft) -> Unit,
 	reload: (String) -> Unit,
-	/** Functions holding errors. */
 	flagged: Set<String>,
 ) {
 	val key = step.key
@@ -234,7 +233,6 @@ internal fun CalleePage(
 	reload: (String) -> Unit,
 	rows: List<AutomationRow>,
 	kept: KeptScript,
-	/** The landed check's. */
 	issues: DrawnIssues?,
 	/** Its script, read-only. */
 	script: @Composable () -> Unit,

@@ -125,7 +125,7 @@ class ScriptDraftTest {
 		assertEquals(listOf(warning, error), scriptIssues(landed, null, landed.offered()))
 		assertEquals(error, markedIssue(listOf(warning, error)))
 		assertNull(markedIssue(listOf(warning)))
-		// Older Gateways send no level.
+		// Missing levels mean errors.
 		assertEquals(ScriptIssue(0, 1, "older"), markedIssue(listOf(ScriptIssue(0, 1, "older"))))
 		assertNotNull(functionSaveOf(landed, none, landed.offered(), confirmed = false))
 	}

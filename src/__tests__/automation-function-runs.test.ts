@@ -28,7 +28,6 @@ import {
 	FUNCTION_GONE,
 	FUNCTION_UNREAD,
 	NAME_TAKEN,
-	NO_SWITCH,
 	UNPARSED_ALONE,
 } from "../gateway/computed/automationValidity.js";
 import { holesOver } from "../gateway/liveConsole/holes.js";
@@ -151,7 +150,6 @@ function world(stored?: object) {
 			},
 			confirmed: true,
 		});
-	/** As the console saves it, issues included. */
 	const saveOp = (
 		body: AutomationInput,
 		steps: AutomationFunctionInput["steps"],
@@ -359,7 +357,7 @@ describe("a run through a function", () => {
 		]);
 	});
 
-	it("refuses a call at entry whose bound device went, after the run before it read its own", async () => {
+	it("fails a call at entry whose bound device went as its error, after the run before it read its own", async () => {
 		const w = world();
 		w.save(pointing(event, { keepTryingMin: 60 }), [turn("on")]);
 		await w.queueTwo();
@@ -370,7 +368,7 @@ describe("a run through a function", () => {
 		expect(w.effects).toEqual([`${PLUG}:on`, `${PLUG}:on`]);
 		expect(w.rows()).toEqual([
 			["device_set", "ran", undefined],
-			["run_function", "refused", NO_SWITCH],
+			["run_function", "refused", STEP_ERRORS],
 		]);
 		expect(w.where().at(-1)).toEqual(["0", "warm-up"]);
 	});
@@ -1338,7 +1336,7 @@ describe("a tree of steps", () => {
 		]);
 	});
 
-	it("warns of a case value its choice field no longer holds, and the case still runs on what it does hold", async () => {
+	it("warns of a case value its choice field no longer holds, which never matches, and the case still runs on what it does hold", async () => {
 		const w = world();
 		const saved = w.saveOp(pointing(event), [
 			{
@@ -1348,17 +1346,19 @@ describe("a tree of steps", () => {
 				default: [ifttt("other")],
 			},
 		]);
-		w.automations.fireEvents(
-			[{ automation: "warm", key: "k", names: { event: { value: { reason: "Mention" }, shown: "A pull" } } }],
-			w.at(),
-		);
-		await w.automations.settled();
+		for (const reason of ["Mention", "gone"]) {
+			w.automations.fireEvents(
+				[{ automation: "warm", key: reason, names: { event: { value: { reason }, shown: "A pull" } } }],
+				w.at(),
+			);
+			await w.automations.settled();
+		}
 
 		expect(saved).toMatchObject({
 			stored: true,
 			issues: [{ level: "warning", step: "0", case: 0, value: "gone" }],
 		});
-		expect(w.effects).toEqual(["ifttt:asked"]);
+		expect(w.effects).toEqual(["ifttt:asked", "ifttt:other"]);
 	});
 
 	it("saves a name already taken, a wait out of range, a blank condition or value, and a condition it cannot read, assigns or holds twice, at any depth, each as its error", () => {
@@ -1526,7 +1526,7 @@ describe("a function calling another", () => {
 
 		expect(w.effects).toEqual(["ifttt:inner:Level 7", "ifttt:inner:Level {level}"]);
 
-		// A filled text is a text: a number it can never be is the save's error.
+		// Text rejects numeric literals.
 		const counted = world();
 		counted.automations.save({
 			id: "h-count",
@@ -1595,6 +1595,25 @@ describe("a function calling another", () => {
 			["run_function", "refused"],
 			["ifttt_trigger", "ran"],
 			["ifttt_trigger", "ran"],
+		]);
+	});
+
+	it("fails a call whose read values do not fit its function as its error, a try catching it as unread", async () => {
+		const w = world();
+		inner(w, [turn("on")]);
+		const misfit = call("inner", { room: expr('"aa:bb:cc:dd:ee:09"') });
+		const saved = w.saveOp(pointing(hourly), [
+			{ kind: "try", steps: [misfit, ifttt("skipped")], catch: [ifttt("caught", "{e.code}")] },
+			ifttt("after"),
+		]);
+		await w.later(HOUR);
+
+		expect(saved.issues).toBeUndefined();
+		expect(w.effects).toEqual(["ifttt:caught:unread", "ifttt:after"]);
+		expect(w.rows()).toEqual([
+			["run_function", "refused", STEP_ERRORS],
+			["ifttt_trigger", "ran", undefined],
+			["ifttt_trigger", "ran", undefined],
 		]);
 	});
 
@@ -1998,7 +2017,6 @@ describe("a restart", () => {
 
 		it("saves an exit inside a task and a task kept under a name the function takes, each as its error, and counts a body's width", () => {
 			const many = Array.from({ length: 8 }, () => ifttt("x"));
-			/** Each save on a fresh store; its first issue's line. */
 			const said = (steps: Steps) => {
 				const saved = world().saveOp(pointing(hourly), steps);
 				return saved.stored ? (saved.issues?.[0]?.line ?? "stored") : saved.refusal?.line;
@@ -2017,9 +2035,9 @@ describe("a restart", () => {
 			expect(
 				[
 					[start(undefined, { kind: "parallel", steps: many }), ifttt("y")],
-					// A catch starts beside what its try started.
+					// Catch shares try's path.
 					[tried, { kind: "parallel", steps: many.slice(0, 7) }],
-					// An empty task runs nothing beside.
+					// Empty task adds none.
 					[...many.slice(0, 7).map(() => start(undefined)), { kind: "parallel", steps: many.slice(0, 1) }],
 				].map((steps) => widthOf(FunctionStepsSchema.parse(steps))),
 			).toEqual([9, 9, 1]);

@@ -128,7 +128,6 @@ class StepTreeTest {
 		val switch = trees[0] as StepDraft.Switch
 		assertEquals(listOf(listOf("mention", "Assign"), emptyList()), switch.cases.map { it.values })
 		assertEquals(3, (switch.cases.map { it.key } + switch.key).toSet().size)
-		// Edited by key.
 		val chain = chainOf(trees[2] as StepDraft.If)
 		val edited = replacedStep(listOf(trees[2]), chain[1].key) { (it as StepDraft.If).copy(condition = "b2") }.single()
 		assertEquals(stored[2].replace("\"when\":\"b\"", "\"when\":\"b2\""), written(edited))
@@ -151,11 +150,10 @@ class StepTreeTest {
 
 	@Test
 	fun anElseIfChainAddsNoDepth() {
-		// Each link an `if` alone in the one before's else.
 		val chain = (1..3).fold(listOf<StepDraft>(exit("last"))) { inner, link ->
 			listOf(StepDraft.If("i$link", "true", listOf(exit("t$link")), inner))
 		}
-		// Not alone: its else counts a level.
+		// Else lists add depth.
 		val beside = listOf(StepDraft.If("p", "true", emptyList(), listOf(exit("q"), chain.single())))
 
 		assertEquals(listOf(2, 3), listOf(depthOf(chain), depthOf(beside)))

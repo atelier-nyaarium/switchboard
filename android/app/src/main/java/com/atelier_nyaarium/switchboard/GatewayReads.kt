@@ -28,7 +28,7 @@ internal sealed interface ListAnswer<out T> {
 	data object Unreachable : ListAnswer<Nothing>
 }
 
-/** The one reading of a list answer; only the token says not served. */
+/** Only NOT_SERVED means unsupported. */
 internal fun <T> listAnswerOf(
 	answer: ConsoleClient.ValueAnswer,
 	rows: (kotlinx.serialization.json.JsonElement) -> List<T>?,

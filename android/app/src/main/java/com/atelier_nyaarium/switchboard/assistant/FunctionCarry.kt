@@ -37,7 +37,7 @@ internal sealed interface CarryRefusal {
 
 	data object UnnamedNotServed : CarryRefusal
 
-	/** A list of values, or a test, it lacks. */
+	/** Missing values or tests. */
 	data object ConditionsNotServed : CarryRefusal
 
 	/** Its list has not arrived. */
@@ -67,10 +67,9 @@ internal fun carriesFunctions(carried: AssistantHomeCarried?): Boolean =
 private fun carriedConditions(carried: AssistantHomeCarried?): List<AutomationCondition> =
 	carried?.automations.orEmpty().flatMap { (it.automation.trigger as? AutomationTrigger.Event)?.conditions.orEmpty() }
 
-/** Past one value and three tests. */
+/** Beyond legacy condition limits. */
 internal fun carriesListedConditions(carried: AssistantHomeCarried?): Boolean = !conditionsServed(carriedConditions(carried), null)
 
-/** Null when the destination holds every carried step kind and condition. */
 internal fun carryRefusal(
 	carried: AssistantHomeCarried?,
 	served: FunctionsServed,
@@ -90,7 +89,6 @@ internal fun carryRefusal(
 	return if (functions) stepRefusal(carried, serves.served, labelOf) else null
 }
 
-/** Null when the destination runs every carried step kind. */
 private fun stepRefusal(carried: AssistantHomeCarried?, held: AutomationFunctionServes, labelOf: (String) -> String?): CarryRefusal? {
 	val functions = carried?.functions.orEmpty()
 	if (held.unnamed != true && functions.any { it.function.name.isBlank() }) return CarryRefusal.UnnamedNotServed

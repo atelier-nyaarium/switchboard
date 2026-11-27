@@ -20,7 +20,7 @@ internal fun plugDraft(device: String, verb: String): ActionDraft.Filled =
 internal fun iftttDraft(event: String, value1: String = "", value2: String = "", value3: String = ""): ActionDraft.Filled =
 	ActionDraft.Filled("ifttt_trigger", mapOf("event" to event, "value1" to value1, "value2" to value2, "value3" to value3))
 
-/** An event trigger and a tell with no message. */
+/** Empty-message event tell. */
 internal fun tellOnlyOffer(away: Boolean = false): AutomationOffer = AutomationOffer(
 	triggers = listOf(
 		TriggerOffer(

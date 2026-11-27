@@ -46,27 +46,21 @@ private val MAX_VALUES = Protocol.Wire.CONDITION_VALUES_MAX
 private val ASCII_EDGES = setOf(0x20, 0x09, 0x0A, 0x0B, 0x0C, 0x0D)
 
 // skew:condition-lists
-/** Before `serves.conditions`. */
+/** Fallback tests without listing. */
 private val UNLISTED_TESTS = listOf("is", "is_not", "contains")
 
 internal fun trimRuleValue(value: String): String = value.trim { it.code in ASCII_EDGES }
 
-/** The text matcher's comparison. */
 private fun sameValue(a: String, b: String): Boolean = a.lowercase() == b.lowercase()
 
-/** One or many; blank is none. */
 internal fun valuesOf(condition: AutomationCondition): List<String> = when (val value = condition.value) {
 	is JsonArray -> value.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
 	is JsonPrimitive -> listOfNotNull(value.contentOrNull)
 	is JsonObject -> emptyList()
 }.filter { trimRuleValue(it).isNotEmpty() }
 
-/** Trimmed, deduped, one as string. */
 internal fun conditionOf(field: String, test: String, values: List<String>): AutomationCondition {
-	val kept = mutableListOf<String>()
-	for (value in values.map(::trimRuleValue)) {
-		if (value.isNotEmpty() && kept.none { sameValue(it, value) }) kept += value
-	}
+	val kept = values.map(::trimRuleValue).filter { it.isNotEmpty() }.distinct()
 	val value = when (kept.size) {
 		0 -> JsonPrimitive("")
 		1 -> JsonPrimitive(kept.single())
@@ -75,25 +69,19 @@ internal fun conditionOf(field: String, test: String, values: List<String>): Aut
 	return AutomationCondition(field, test, value)
 }
 
-/** Several values read as a list. */
 internal fun testLabel(test: String, values: Int = 1): String =
 	(if (values > 1) FieldTypes.LIST_TEST_LABELS else FieldTypes.TEST_LABELS)[test] ?: test
 
-/** The tests its Gateway takes. */
 internal fun servedTests(served: AutomationConditionServes?): List<String> = served?.tests ?: UNLISTED_TESTS
 
-/** Values one condition may list there. */
 internal fun valuesMax(served: AutomationConditionServes?): Int = served?.values?.toInt()?.coerceIn(1, MAX_VALUES) ?: 1
 
-/** Whether `served` holds them. */
 internal fun conditionsServed(conditions: List<AutomationCondition>, served: AutomationConditionServes?): Boolean =
 	conditions.all { valuesOf(it).size <= valuesMax(served) && it.test in servedTests(served) }
 
-/** Room for one more value. */
 internal fun addsValue(condition: AutomationCondition, served: AutomationConditionServes?): Boolean =
 	valuesOf(condition).size < valuesMax(served)
 
-/** Why typed text cannot join. */
 internal fun valueRefusal(condition: AutomationCondition, typed: String, served: AutomationConditionServes?): String? {
 	val value = trimRuleValue(typed)
 	val held = valuesOf(condition)
@@ -109,11 +97,9 @@ internal fun valueRefusal(condition: AutomationCondition, typed: String, served:
 internal fun valueAddable(condition: AutomationCondition, typed: String, served: AutomationConditionServes?): Boolean =
 	trimRuleValue(typed).isNotEmpty() && valueRefusal(condition, typed, served) == null
 
-/** How a condition takes one more value. */
 internal sealed interface ValueAdd {
 	data object Full : ValueAdd
 
-	/** Its choices not yet held. */
 	data class Pick(val choices: List<String>) : ValueAdd
 
 	data object Type : ValueAdd
@@ -165,20 +151,17 @@ internal data class SourceFields(val specs: List<AssistantFieldSpec>) {
 	fun valueLabelOf(field: String, value: String): String =
 		(specOf(field) as? AssistantFieldSpec.Enumeration)?.options?.find { it.value == value }?.label ?: value
 
-	/** Choices not held; null for text. */
 	fun choicesFor(condition: AutomationCondition): List<String>? {
 		val offered = (specOf(condition.field) as? AssistantFieldSpec.Enumeration)?.options?.map { it.value } ?: return null
 		val held = valuesOf(condition)
 		return offered.filter { it !in held }
 	}
 
-	/** Offered tests; a held one stays first. */
 	fun testsFor(condition: AutomationCondition, served: AutomationConditionServes?): List<String> {
 		val offered = testsOf(specOf(condition.field)).filter { it in servedTests(served) }
 		return if (condition.test in offered) offered else listOf(condition.test) + offered
 	}
 
-	/** Its line by level; silent while blank. */
 	fun issueOf(condition: AutomationCondition): CardIssue? {
 		val spec = specOf(condition.field)
 			?: return CardIssue(AutomationIssueLevel.UNARMED, "${fieldLabel(condition.field)} is not a field here")
@@ -193,7 +176,7 @@ internal data class SourceFields(val specs: List<AssistantFieldSpec>) {
 		return gone?.let { CardIssue(AutomationIssueLevel.WARNING, "no longer offered; it matches nothing", it) }
 	}
 
-	/** Gateway's fit; a vanished choice fits. */
+	/** Vanished choices remain valid. */
 	fun fits(condition: AutomationCondition): Boolean =
 		valuesOf(condition).isNotEmpty() && issueOf(condition)?.let { !drawsAsError(it.level) } != false
 }
@@ -320,7 +303,6 @@ internal data class AutomationDraft(
 	fun withoutCondition(at: Int): AutomationDraft =
 		onEvent { it.copy(conditions = it.conditions.filterIndexed { index, _ -> index != at }) }
 
-	/** The one edit of a held condition. */
 	fun changed(
 		at: Int,
 		field: String? = null,
@@ -358,7 +340,6 @@ internal data class AutomationDraft(
 	fun stepAt(key: String): StepDraft? =
 		findStep(steps, key) ?: callees.values.firstNotNullOfOrNull { findStep(it.steps, key) }
 
-	/** Its own, or a callee's; null when no tree shows it. */
 	fun cardsOf(function: String?): List<StepDraft>? = when (function) {
 		null, functionHere(this, null) -> steps
 		else -> callees[function]?.steps
@@ -383,7 +364,6 @@ internal data class AutomationDraft(
 	fun withAction(key: String, change: (ActionDraft) -> ActionDraft): AutomationDraft =
 		withStep(key) { step -> if (step is StepDraft.Do) step.copy(action = change(step.action)) else step }
 
-	/** Null leaves it. */
 	fun withSwitch(key: String, change: (StepDraft.Switch) -> StepDraft.Switch?): AutomationDraft =
 		withStep(key) { step -> (step as? StepDraft.Switch)?.let(change) ?: step }
 
@@ -403,7 +383,6 @@ internal data class AutomationDraft(
 		callees = callees.mapValues { (_, callee) -> callee.copy(steps = removedStep(callee.steps, key)) },
 	)
 
-	/** Adds an else-if link. */
 	fun plusElseIf(head: String): AutomationDraft {
 		val tree = treeHolding(head)
 		return withElseIf(stepsOf(tree), head)?.let { withTree(tree, it) } ?: this
@@ -451,7 +430,6 @@ internal data class AutomationDraft(
 		}
 	}
 
-	/** Null where the wire cannot carry it. */
 	fun builtTrigger(offer: AutomationOffer): AutomationTrigger? {
 		val built = triggerOf(trigger, offer, display) ?: return null
 		val unfit = built is AutomationTrigger.Event && built.conditions.any { condition ->
@@ -622,7 +600,7 @@ internal fun automationDraftOf(row: AutomationRow, context: EditContext, display
 internal fun fieldsOf(draft: AutomationDraft, sources: List<AssistantSource>): SourceFields =
 	SourceFields(sources.find { it.id == draft.source }?.fieldSpecs.orEmpty())
 
-/** The wire's parse alone. */
+/** Wire parse only. */
 internal fun fittingAutomation(draft: AutomationDraft, offer: AutomationOffer): Automation? = draft.toAutomation(offer)
 
 /** What its trigger gives a function. */
@@ -632,7 +610,6 @@ internal fun givenOf(draft: AutomationDraft, fields: SourceFields): TriggerGiven
 /** A crossing's measure; null otherwise. */
 internal fun measureOf(draft: AutomationDraft): String? = (draft.trigger as? TriggerDraft.Crossing)?.measure?.takeIf { it.isNotBlank() }
 
-/** What it cannot write; null where functions are not served. */
 internal fun draftRunsIssue(draft: AutomationDraft, fields: SourceFields, offer: AutomationOffer): RunsIssue? {
 	if (offer.functions == null) return null
 	runsIssue(draft.runsDraft(), draft.id, givenOf(draft, fields), offer)?.let { return it }
@@ -863,7 +840,7 @@ internal fun checkedReads(read: CheckRead, functionId: String): FunctionReads? {
 	return read.answer?.reads?.takeIf { pointerOf(automation) == functionId }
 }
 
-/** Only this op's ready check. */
+/** Only matching op's issues. */
 internal fun checkIssuesOf(read: CheckRead, op: ConsoleOp.AutomationSave?, draft: AutomationDraft, offer: AutomationOffer): DrawnIssues? {
 	val sent = op ?: return null
 	val check = checkedFor(read, sent)?.takeIf { it.ready } ?: return null

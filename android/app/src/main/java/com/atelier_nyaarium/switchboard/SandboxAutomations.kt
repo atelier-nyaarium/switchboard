@@ -539,7 +539,7 @@ internal class SandboxAutomationGateway(
 		line = line,
 	)
 
-	/** A copy's id unwritten. */
+	/** Copy id stays unwritten. */
 	private fun issuesOf(automation: Automation, function: Pair<String, AutomationFunction>?, copied: Boolean = false): List<AutomationIssue> = buildList {
 		unreadHole(automation)?.let { (span, line) -> add(spanIssue(Protocol.Wire.AutomationSaveRecord.AUTOMATION.wire, null, span, line)) }
 		val (id, body) = function ?: return@buildList

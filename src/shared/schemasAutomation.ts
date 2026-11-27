@@ -354,7 +354,7 @@ export const AutomationLastStepSchema = z
 		reason: z.string().max(LAST_STEP_REASON_MAX).optional(),
 		/** The side an `if` took. */
 		side: z.enum(["then", "else"]).optional(),
-		/** The case a `switch` took. */
+		/** Taken case index. */
 		case: z.number().int().nonnegative().optional(),
 		/** The function it ran in. */
 		function: z.string().optional(),
@@ -401,7 +401,7 @@ export const AutomationRowSchema = z
 		nextRunAt: z.number().int().optional(),
 		/** Absent from older builds. */
 		lastRun: AutomationLastRunSchema.optional(),
-		/** Errors in what it runs. */
+		/** Automation error count. */
 		errors: z.number().int().positive().optional(),
 	})
 	.meta({ id: "AutomationRow" });
@@ -560,7 +560,7 @@ export const ConsoleAutomationListResultSchema = z
 					})
 					.meta({ id: "AutomationFunctionServes" })
 					.optional(),
-				/** The tests a condition takes, and how many values. skew:condition-lists. */
+				/** Condition tests, value cap. skew:condition-lists. */
 				conditions: z
 					.object({
 						tests: z.array(z.string().max(16)).max(16),

@@ -15,12 +15,11 @@ import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationIssueLevel
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationSaveRecord
 
-/** A card's line and level. */
 internal data class CardIssue(val level: AutomationIssueLevel, val line: String, val chip: String? = null) {
 	val text: String get() = chip?.let { "$it: $line" } ?: line
 }
 
-/** Else the outline tone. */
+/** Warnings are nonblocking. */
 internal fun drawsAsError(level: AutomationIssueLevel): Boolean = when (level) {
 	AutomationIssueLevel.UNARMED, AutomationIssueLevel.ERROR -> true
 	AutomationIssueLevel.WARNING -> false
@@ -31,27 +30,21 @@ internal fun drawsAsError(level: AutomationIssueLevel): Boolean = when (level) {
 internal fun issueLevelOf(word: String?): AutomationIssueLevel =
 	AutomationIssueLevel.entries.find { it.wire == word } ?: AutomationIssueLevel.ERROR
 
-/** Answered issues, placed. */
 internal data class DrawnIssues(
-	/** By card key. */
 	val cards: Map<String, CardIssue>,
-	/** Held by no card. */
 	val rest: List<CardIssue>,
-	/** Other functions holding an error. */
 	val functions: Set<String>,
 )
 
-/** Its own function, or none. */
 private fun ownIssue(issue: AutomationIssue, draft: AutomationDraft): Boolean =
 	issue.record == AutomationSaveRecord.AUTOMATION.wire || issue.id == null || issue.id == functionHere(draft, null)
 
-/** The cards its step names. */
 private fun issueTree(issue: AutomationIssue, draft: AutomationDraft, flat: Boolean): List<StepDraft>? = when (issue.record) {
 	AutomationSaveRecord.AUTOMATION.wire -> draft.steps.takeIf { flat }
 	else -> draft.cardsOf(issue.id)
 }
 
-/** `flat`: no function written. */
+/** Flat writes omit functions. */
 internal fun drawnIssuesOf(issues: List<AutomationIssue>, draft: AutomationDraft, flat: Boolean, offer: AutomationOffer): DrawnIssues {
 	val cards = mutableMapOf<String, CardIssue>()
 	val rest = mutableListOf<CardIssue>()
@@ -62,7 +55,7 @@ internal fun drawnIssuesOf(issues: List<AutomationIssue>, draft: AutomationDraft
 		if (other != null && drawsAsError(level)) functions += other
 		val tree = issueTree(issue, draft, flat)
 		val key = issue.step?.let { path -> tree?.let { keyAt(it, path) } }
-		// Its chips draw it.
+		// Case chips render issues.
 		if (issue.case != null && key != null && tree?.let { findStep(it, key) } is StepDraft.Switch) continue
 		if (key == null) {
 			val named = other?.let { id -> draft.callees[id]?.name ?: offer.functions?.row(id)?.function?.name ?: id }
@@ -75,7 +68,6 @@ internal fun drawnIssuesOf(issues: List<AutomationIssue>, draft: AutomationDraft
 	return DrawnIssues(cards, rest, functions)
 }
 
-/** The check's, else its hint. */
 internal fun cardIssueOf(step: StepDraft, drawn: DrawnIssues?, hint: (StepDraft) -> String?): CardIssue? =
 	if (drawn != null) drawn.cards[step.key] else hint(step)?.let { CardIssue(AutomationIssueLevel.ERROR, it) }
 
@@ -103,12 +95,10 @@ internal sealed interface CardRow {
 		override val rowKey: String get() = "${slot.parent ?: "top"}/${slot.side?.number ?: ""}/add"
 	}
 
-	/** A side's header row. */
 	data class Branch(val parent: String, val label: BranchLabel, override val depth: Int) : CardRow {
 		override val rowKey: String get() = "$parent/${label.key}"
 	}
 
-	/** "+ Case" or "+ Else if". */
 	data class AddBranch(val parent: String, val kind: BranchKind, override val depth: Int, val full: Boolean) : CardRow {
 		override val rowKey: String get() = "$parent/${kind.name}/add"
 	}
@@ -119,7 +109,7 @@ internal enum class BranchKind { CASE, ELSE_IF }
 internal sealed interface BranchLabel {
 	val key: String
 
-	/** `taken`: last run's. */
+	/** Taken in last run. */
 	data class Case(val view: CaseView, val number: Int, val taken: Boolean) : BranchLabel {
 		override val key: String get() = view.case.key
 	}
@@ -128,7 +118,6 @@ internal sealed interface BranchLabel {
 		override val key: String get() = "default"
 	}
 
-	/** One chain link. */
 	data class Link(
 		val step: StepDraft.If,
 		val first: Boolean,
@@ -147,7 +136,6 @@ internal sealed interface BranchLabel {
 /** Paths under function calls. */
 internal fun runPathOf(path: String, pointing: Boolean): String = if (pointing) "0.$path" else path
 
-/** Links drawn as branches. */
 internal fun drawnAsChain(step: StepDraft): Boolean = step is StepDraft.If && chainOf(step).size > 1
 
 /** Cards in written order. */
@@ -156,7 +144,6 @@ internal fun cardsDraw(
 	issueOf: (StepDraft) -> CardIssue?,
 	lastRun: AutomationLastRun?,
 	pointing: Boolean,
-	/** Null for text. */
 	choicesOf: (String) -> List<AssistantFieldOption>? = { null },
 ): List<CardRow> {
 	val drawer = CardsDrawer(steps, issueOf, lastRun, pointing, choicesOf)
@@ -181,7 +168,7 @@ private class CardsDrawer(
 	fun rows(list: List<StepDraft>, base: String?, depth: Int): List<CardRow> =
 		list.withIndex().flatMap { (index, step) ->
 			val path = if (base == null) "$index" else "$base.$index"
-			// First link draws them.
+			// Head link owns status.
 			val own = !drawnAsChain(step)
 			val card = CardRow.Card(step, depth, path, issueOf(step).takeIf { own }, lastAt(path).takeIf { own }, runPathOf(path, pointing) == active)
 			listOf(card) + sideRows(step, path, depth + 1)
@@ -366,7 +353,6 @@ internal fun lastRunShown(draft: AutomationDraft, opened: AutomationDraft, row: 
 internal fun lastStepLine(card: CardRow.Card, running: Boolean): String? =
 	if (card.active && running) "Running now" else lastLineOf(card.step, card.last)
 
-/** Card or link. */
 internal fun lastLineOf(drawn: StepDraft, step: AutomationLastStep?): String? {
 	if (step == null) return null
 	val reason = step.reason?.let { ": $it" }.orEmpty()

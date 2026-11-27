@@ -12,6 +12,7 @@ interface Vectors {
 		cases: { values: string[] }[];
 		choices: string[] | null;
 		issues: ReturnType<typeof switchIssues>;
+		taken?: { shown: string; case: number }[];
 	}[];
 }
 
@@ -33,16 +34,12 @@ describe("the switch case vectors", () => {
 	for (const vector of vectors.issues) {
 		it(vector.name, () => {
 			expect(switchIssues(vector, vector.choices)).toEqual(vector.issues);
+			const taken = vector.taken ?? [];
+			expect(taken.map(({ shown }) => caseTaken(vector.cases, shown, vector.choices))).toEqual(
+				taken.map((held) => held.case),
+			);
 		});
 	}
-});
-
-describe("the case a subject takes", () => {
-	const cases = [{ values: ["Mention", "assign"] }, { values: ["review"] }];
-
-	it("is the first holding it ignoring case, else past the last", () => {
-		expect([" MENTION ", "review", "other"].map((shown) => caseTaken(cases, shown))).toEqual([0, 1, 2]);
-	});
 });
 
 describe("a choice field's options", () => {

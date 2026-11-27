@@ -2891,7 +2891,7 @@ Rough; refined before building.
 
 **The switch step (Q99 to Q102):**
 
-- A step kind beside `if`: a subject expression, cases each holding values and steps, and a default. The first case naming the value runs, else the default. A choice compares exactly, text ignoring case. No fall-through and no names.
+- A step kind beside `if`: a subject expression, cases each holding values and steps, and a default. The first case naming the value runs, else the default. Values compare ignoring case (the Opus block says why). No fall-through and no names.
 - Script: `switch (subject) { case "a", "b" { ... } default { ... } }`, printed and parsed by the Gateway, round-tripping.
 - The walk numbers its sides (each case, then default), replayed on both runtimes; the engine, the failure table, strands and width, retire, and the last run's side taken all follow the If's rules.
 - Issues, never refusals (Q102): a typed value given twice is an error on that chip, and a run that reaches the switch fails there, `try` catching it. A value its choice field no longer holds is a warning: that case never matches.
@@ -2929,7 +2929,7 @@ Written before the build from Questions 98 to 104, checked against the tree on 2
 **Value lists (Q98).**
 
 - `AssistantRuleConditionSchema.value` becomes `string | string[]`; one value stays a string, so every stored row and older reader is unchanged. An older phone decodes a list as `AutomationTrigger.Unknown` and keeps it as sent, where a field beside `value` would be dropped by `ignoreUnknownKeys` on a re-save. `AutomationConditionSchema` shares the shape. Check the codegen carries `string | string[]`; if not, one generated union serializer.
-- `RULE_TESTS` gains `contains_not`. `TEST_LABELS` (is, is not, contains, does not contain) and `LIST_TEST_LABELS` (is any of, is none of, contains any of, contains none of) live in `field-types.ts` and are generated into `FieldTypes`. `CONDITION_VALUES_MAX = 16` in `wire-vocabulary.ts`.
+- `RULE_TESTS` gains `contains_not`. `TEST_LABELS` (is, is not, contains, does not contain) and `LIST_TEST_LABELS` (is any of, is none of, contains any of, contains none of) live in `field-types.ts` and are generated into `FieldTypes`. `CONDITION_VALUES_MAX` in `wire-vocabulary.ts` (256, with every count an owner writes against).
 - `canonicalConditions` trims each value, drops duplicates under the matcher's comparison, and collapses one value back to a string, so no stored condition holds a duplicate.
 - `holds`: any-of for `is` and `contains`, none-of for `is_not` and `contains_not`. A missing field still fails every test.
 - A vanished choice is a warning, as in Q101: `conditionIssue` stops calling it invalid, and the value matches nothing.

@@ -76,7 +76,7 @@ private fun followed(
 	}
 }
 
-/** A side a step holds; `number` is its place in a path. */
+/** Side index in path. */
 internal sealed class Side(val number: Int) {
 	data object Then : Side(0)
 
@@ -88,11 +88,10 @@ internal sealed class Side(val number: Int) {
 
 	data class Case(val index: Int) : Side(index)
 
-	/** Past the last case. */
 	data class Default(val at: Int) : Side(at)
 }
 
-/** The one reader of a stored step's lists, in written order. */
+/** Stored-side order is canonical. */
 internal fun sidesOf(step: FunctionStep): List<Pair<Side, List<FunctionStep>>> = when (step) {
 	is FunctionStep.If -> listOf(Side.Then to step.steps.orEmpty(), Side.Else to step.`else`.orEmpty())
 	is FunctionStep.Switch ->

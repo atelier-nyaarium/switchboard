@@ -128,7 +128,7 @@ internal fun newAutomationGateways(registry: GatewayRegistry, reachable: List<St
 	}
 }
 
-/** What a Gateway says of functions and conditions; unread is never none. */
+/** Unread differs from absent. */
 internal sealed interface FunctionsServed {
 	data class Serves(val served: AutomationFunctionServes, val conditions: AutomationConditionServes? = null) : FunctionsServed
 

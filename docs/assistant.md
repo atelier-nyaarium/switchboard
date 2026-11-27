@@ -552,7 +552,7 @@ cannot rewrite what sorts its own events.
   included. A number or bytes field takes no tests, and a kind the phone does not know is shown
   but never offered (`docs/fields.md`).
 - **The stored form:** `canonicalConditions` trims each value of ASCII whitespace at its edges
-  (`trimRuleValue`), drops a blank and a value equal to an earlier one case aside, and stores one
+  (`trimRuleValue`), drops a blank and an exact repeat of an earlier value, and stores one
   value left as a string, none as blank. The phone's `conditionOf` writes the same form, pinned by
   the vectors.
 - **One check:** `conditionsIssue` in `schemasAssistantRules.ts` names an undeclared field, a test

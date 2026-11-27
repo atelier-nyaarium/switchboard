@@ -139,7 +139,7 @@ class AutomationCheckTest {
 		val read = CheckRead(op, ConsoleAutomationCheckResult(ready = true, issues = issues))
 		val drawn = checkIssuesOf(read, op, draft, offer)!!
 
-		// Issues leave Save standing.
+		// Issues never block saves.
 		assertNull(checkSaidOf(read.answer, draft, context))
 		assertTrue(saveAllowedAfterCheck(checkSaidOf(read.answer, draft, context), null, draft, offer))
 		// Error outranks warning.
@@ -148,7 +148,7 @@ class AutomationCheckTest {
 		assertEquals(setOf("elsewhere"), drawn.functions)
 		assertEquals(drawn.cards[step.key], cardIssueOf(step, drawn) { "its own hint" })
 		assertNull(cardIssueOf(step, drawn.copy(cards = emptyMap())) { "its own hint" })
-		// Hints until this op's check.
+		// Hints precede check results.
 		assertNull(checkIssuesOf(read, saveOp(automation.copy(enabled = false)), draft, offer))
 		assertNull(checkIssuesOf(CheckRead(op, refused(Protocol.Wire.AutomationSaveRefusalCode.NO_KEY.wire)), op, draft, offer))
 		assertEquals(CardIssue(AutomationIssueLevel.ERROR, "its own hint"), cardIssueOf(step, null) { "its own hint" })

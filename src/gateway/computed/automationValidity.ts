@@ -108,7 +108,7 @@ export interface StepIssue {
 	end?: number;
 	/** A switch case's number. */
 	case?: number;
-	/** A value's place in its case. */
+	/** Value index in case. */
 	chip?: number;
 	value?: string;
 	message: string;
@@ -116,10 +116,7 @@ export interface StepIssue {
 	why?: StepWhy;
 }
 
-/**
- * `unrunnable`: no catalogue row; `alone`: a script beside steps; `shadows`: a held name hides an entity;
- * `unready`: no hole reader yet; `vanished`: a case value its choice field no longer holds.
- */
+/** Step issue causes. */
 export type StepWhy = "unrunnable" | "alone" | "shadows" | "unready" | "vanished";
 
 /** Why a call cannot run its function. */
@@ -128,7 +125,7 @@ export type CallIssue = { kind: "unfit" } | { kind: "switch"; param: string };
 /** Why a call stops. */
 export type CallCut = "loop" | "budget" | "private" | "gone" | "left" | "unread";
 
-/** A call step's place. */
+/** Call path. */
 export interface CallPlace {
 	via: string;
 	step: string;
@@ -136,15 +133,15 @@ export interface CallPlace {
 
 export type BodyIssue =
 	| { at: "trigger"; message: string }
-	/** A condition's choice that left its source. */
+	/** Missing choice option. */
 	| { at: "choice"; message: string }
 	| { at: "action"; index: number; issue: StepIssue }
-	/** `step`: numbers under its function. */
+	/** Function-relative step path. */
 	| { at: "step"; via: string; step: string; issue: StepIssue }
 	| { at: "call"; function: string; why: CallCut }
-	/** `call` absent: the automation's pointer. */
+	/** Missing call marks pointer. */
 	| { at: "fit"; function: string; issue: CallIssue; call?: CallPlace }
-	/** A declared value that shadows. */
+	/** Shadowing parameter. */
 	| { at: "name"; function: string; param: string };
 
 const CUT_LINES: Readonly<Record<CallCut, string>> = {
@@ -168,7 +165,7 @@ const LINES: { [A in BodyIssue["at"]]: (issue: Extract<BodyIssue, { at: A }>) =>
 
 export const lineOf = (issue: BodyIssue): string => (LINES[issue.at] as (held: BodyIssue) => string)(issue);
 
-/** `refuses`: the store cannot hold it, or the judge cannot judge it. */
+/** Store or judge refusal. */
 export type IssueLevel = "refuses" | AutomationIssueLevel;
 
 const CUT_LEVELS: Readonly<Record<CallCut, IssueLevel>> = {
@@ -190,7 +187,6 @@ const WHY_LEVELS: Readonly<Record<StepWhy, IssueLevel>> = {
 
 const stepLevel = (issue: StepIssue): IssueLevel => (issue.why ? WHY_LEVELS[issue.why] : "error");
 
-/** The one policy over an issue. */
 export function levelOf(issue: BodyIssue): IssueLevel {
 	switch (issue.at) {
 		case "trigger":
@@ -209,13 +205,11 @@ export function levelOf(issue: BodyIssue): IssueLevel {
 	}
 }
 
-/** It cannot be held, or never fires. */
 const unarms = (issue: BodyIssue): boolean => {
 	const level = levelOf(issue);
 	return level === "refuses" || level === "unarmed";
 };
 
-/** A run stops there. */
 const stops = (level: IssueLevel): boolean => level === "refuses" || level === "error";
 
 const line = (text: string): string => text.slice(0, SAVE_LINE_MAX);
@@ -234,7 +228,7 @@ const SWITCH_LINES: Readonly<Record<SwitchIssueWhy, (value: string) => string>> 
 	vanished: (value) => `${value} is no longer one of its values`,
 };
 
-/** A switch's case issues, in written order. */
+/** Switch issues by case. */
 const caseIssues = (step: Extract<FunctionStep, { kind: "switch" }>, choices: readonly string[] | null): StepIssue[] =>
 	switchIssues(step, choices).map(({ why, case: at, chip, value }) => ({
 		case: at,
@@ -509,10 +503,10 @@ export function createAutomationValidity(
 		},
 	};
 
-	/** A word of the language, or an entity. */
+	/** Reserved name or entity. */
 	const reservedName = (name: string): boolean => RESERVED_NAMES.has(name) || deps.holes?.()?.entity(name) === true;
 
-	/** Errors, then a shadowing name. */
+	/** Errors before shadowing names. */
 	const stepIssue = (fn: Checked, step: FunctionStep, address: Address): StepIssue | null => {
 		const issue = (STEPS[step.kind] as (fn: Checked, step: FunctionStep, address: Address) => StepIssue | null)(
 			fn,
@@ -525,7 +519,7 @@ export function createAutomationValidity(
 		return { param: step.kind === "let" ? "name" : "as", message: NAME_RESERVED, why: "shadows" };
 	};
 
-	/** Its check's issue, then a switch's others. */
+	/** Primary issue first. */
 	const issuesAt = (
 		fn: Checked,
 		step: FunctionStep,
@@ -539,7 +533,6 @@ export function createAutomationValidity(
 		return [...(issue ? [issue] : []), ...rest];
 	};
 
-	/** A run stops at its turn. */
 	const stepStops = (fn: Checked, step: FunctionStep, address: Address): boolean => {
 		const issue = stepIssue(fn, step, address);
 		return issue !== null && stops(stepLevel(issue));
@@ -680,23 +673,22 @@ export function createAutomationValidity(
 		return null;
 	};
 
-	/** Unarming issue; read every time. */
+	/** Recomputed unarming issue. */
 	const automationIssue = (body: Automation, functions: FunctionOf | null = functionOf): string | null => {
 		const issue = first(assessBody(body, functions), unarms);
 		return issue && lineOf(issue);
 	};
 
-	/** What it holds now, each once. */
+	/** Current issues, once each. */
 	const issuesOf = (body: Automation, functions: FunctionOf = functionOf): AutomationIssue[] =>
 		answersOf(assessBody(body, functions));
 
-	/** What the store cannot hold. */
 	function writeIssue(body: Automation, functions: FunctionOf): string | null {
 		const issue = first(assessBody(body, functions), (held) => levelOf(held) === "refuses");
 		return issue && lineOf(issue);
 	}
 
-	/** Its first step the store cannot hold. */
+	/** First refused function step. */
 	function functionIssue(fn: AutomationFunction): OwnerIssue | null {
 		for (const { step, path, address } of stepsOf(fn)) {
 			const issue = stepIssue(fn, step, address);
@@ -706,7 +698,7 @@ export function createAutomationValidity(
 		return null;
 	}
 
-	/** Every step issue; a trigger adds warnings. */
+	/** Trigger enables choice warnings. */
 	function stepIssuesOf(
 		fn: AutomationFunction,
 		trigger?: AutomationTrigger,
@@ -720,7 +712,6 @@ export function createAutomationValidity(
 		);
 	}
 
-	/** A run stops at this flat action. */
 	const actionStops = (body: Automation, action: LeafAction): boolean => {
 		const issue = argsIssue(action.kind, literalArgs(action), AUTOMATION_TRIGGER_NAMES[body.trigger.kind]);
 		return issue !== null && stops(stepLevel(issue));
@@ -752,6 +743,7 @@ export function createAutomationValidity(
 	return {
 		triggerIssue,
 		givenOf,
+		choicesOf,
 		assessBody,
 		automationIssue,
 		issuesOf,

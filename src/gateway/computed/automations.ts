@@ -106,7 +106,7 @@ import {
 import { type HeldLastRun, type RunStamp, settledRuns } from "./automationLastRun.js";
 import { COOLING, type Log, type LogRow, logged, loggedFor, lostRow, triggerRow } from "./automationLog.js";
 import { clip, type Dropped, memberOf, outboxOf, ownerOf, told } from "./automationOutbox.js";
-import { createPass, droppedRows, FRAME_UNREAD, NEWER_SET, untold } from "./automationPass.js";
+import { createPass, droppedRows, FRAME_UNREAD, NEWER_SET, STEP_ERRORS, untold } from "./automationPass.js";
 import {
 	type Attempt,
 	type AutomationActionPorts,
@@ -266,7 +266,6 @@ export interface AutomationHoles {
 	fill: (text: string, names: Readonly<FireNames>) => Promise<{ text: string; failed: number }>;
 	/** Null when it fails. */
 	evaluate: (source: string, names: Readonly<FireNames>) => Promise<{ value: unknown } | null>;
-	/** As a hole prints it; null when it fails. */
 	shown: (source: string, names: Readonly<FireNames>) => Promise<string | null>;
 	entity: (name: string) => boolean;
 }
@@ -282,11 +281,9 @@ export interface AutomationsDeps {
 	onQueued?: () => void;
 	/** Why an event trigger cannot run here. */
 	eventIssue?: (trigger: EventTrigger) => string | null;
-	/** What healed in an event trigger. */
 	eventWarning?: (trigger: EventTrigger) => string | null;
 	/** A source's declared event fields; null when not held. */
 	eventFields?: (source: string) => readonly string[] | null;
-	/** A choice field's options, else null. */
 	eventChoices?: (source: string, field: string) => readonly string[] | null;
 	functionKey?: DurableStore;
 	entropy?: (size: number) => Buffer;
@@ -316,6 +313,7 @@ export function createAutomations(deps: AutomationsDeps) {
 	const {
 		triggerIssue,
 		givenOf,
+		choicesOf,
 		functionIssue,
 		stepIssuesOf,
 		assessBody,
@@ -930,7 +928,8 @@ export function createAutomations(deps: AutomationsDeps) {
 			above.length > 0
 				? calledEntryIssue(body, record.id, record.body, call.values ?? {})
 				: entryIssue(body, record.id, record.body);
-		if (unsound !== null) return { refused: unsound };
+		// Issue lines contain values.
+		if (unsound !== null) return { refused: STEP_ERRORS, code: "unread" };
 		const first = entered(written(record.body));
 		if (!("to" in first)) return { refused: FRAME_UNREAD };
 		const to = within(path, first.to);
@@ -955,7 +954,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		functions: [...new Set(Object.values(fire.frames ?? {}).map(functionStamp))].sort(),
 	});
 
-	/** In the fire's pinned bodies. */
+	/** Pinned fire bodies. */
 	const errorIn = (fire: Fire, path: string): boolean => {
 		const body = bodyOf(fire);
 		if (!body) return false;
@@ -1197,8 +1196,10 @@ export function createAutomations(deps: AutomationsDeps) {
 			}
 			case "switch": {
 				const shown = await shownOf(written.subject, names);
+				const trigger = bodyOf(fire)?.trigger;
+				const choices = trigger ? choicesOf(trigger, written.subject) : null;
 				if (shown === null) outcome = fail("unread", SUBJECT_UNREAD);
-				else outcome = { step: (held) => steered(held, caseTaken(written.cases, shown)) };
+				else outcome = { step: (held) => steered(held, caseTaken(written.cases, shown, choices)) };
 				break;
 			}
 			case "let": {
@@ -1370,7 +1371,6 @@ export function createAutomations(deps: AutomationsDeps) {
 		return resolved(kind, raw);
 	}
 
-	/** Null on failure. */
 	const evaluated = async (source: string, names: FireNames): Promise<{ value: unknown } | null> => {
 		try {
 			return (await deps.holes?.()?.evaluate(source, names)) ?? null;
@@ -1380,7 +1380,6 @@ export function createAutomations(deps: AutomationsDeps) {
 		}
 	};
 
-	/** Null on failure. */
 	const shownOf = async (source: string, names: FireNames): Promise<string | null> => {
 		try {
 			return (await deps.holes?.()?.shown(source, names)) ?? null;
@@ -1727,7 +1726,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		};
 	}
 
-	/** Issues a save would leave. */
+	/** Proposed save issues. */
 	const issuesLeft = (writes: readonly OwnerWrite[], id: string, sent: ReadonlySet<string>): AutomationIssue[] => {
 		const putAt = (at: string) => writes.find((row) => row.op === "put" && row.id === at);
 		const row = putAt(id);
@@ -1742,7 +1741,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		return issuesOf(body.data, lookup)
 			.slice(0, AUTOMATION_ISSUES_MAX)
 			.map((issue) => {
-				// Unwritten derived ids stay unanswered.
+				// Unwritten ids stay omitted.
 				if (issue.id === undefined || sent.has(issue.id) || functionOf(issue.id) !== null) return issue;
 				const { id: _derived, ...unnamed } = issue;
 				return unnamed;
@@ -1804,7 +1803,7 @@ export function createAutomations(deps: AutomationsDeps) {
 				.filter(isFunctionRecord)
 				.map((record) => ({ id: record.id, name: record.body.name, params: record.body.params })),
 		givenOf,
-		/** A refusal reads as error. */
+		/** Refusals use error level. */
 		stepIssuesOf(
 			body: { params: readonly FunctionParam[]; steps: readonly FunctionStep[] },
 			trigger?: AutomationTrigger,

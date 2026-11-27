@@ -88,7 +88,7 @@ export const stepOwnerIssue = (at: StepPlace, message: string): OwnerIssue => ({
 	code: STEP_ISSUE_CODE,
 });
 
-/** The step a step issue names. */
+/** Issue step path. */
 export function stepPlaceOf(issue: OwnerIssue | undefined): StepPlace | undefined {
 	if (issue?.code !== STEP_ISSUE_CODE) return undefined;
 	const [, step, param] = issue.path;

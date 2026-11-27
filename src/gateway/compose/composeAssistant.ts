@@ -182,11 +182,10 @@ export interface AssistantStage {
 	bindAutomations: (automations: AssistantAutomations) => void;
 	/** Null when the trigger can run. */
 	eventIssue: (trigger: EventTrigger) => string | null;
-	/** What healed: it runs on. */
+	/** Warnings still run. */
 	eventWarning: (trigger: EventTrigger) => string | null;
 	/** A source's declared event fields; null when not held. */
 	eventFields: (source: string) => readonly string[] | null;
-	/** A choice field's options, else null. */
 	eventChoices: (source: string, field: string) => readonly string[] | null;
 	eventSentence: (trigger: EventTrigger) => string;
 	/** Over the live first page. */

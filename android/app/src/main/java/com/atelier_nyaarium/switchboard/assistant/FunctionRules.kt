@@ -120,7 +120,7 @@ internal fun valueIssue(param: FunctionParam, text: String, offer: AutomationOff
 	else -> null
 }
 
-/** Only what cannot be written. */
+/** Write blockers only. */
 internal sealed interface RunsIssue {
 	data object NoSteps : RunsIssue
 
@@ -130,7 +130,6 @@ internal sealed interface RunsIssue {
 	/** Requires a named function. */
 	data class NeedsName(val key: String) : RunsIssue
 
-	/** A callee it cannot write. */
 	data class InCallee(val name: String) : RunsIssue
 
 	data object NameWithValues : RunsIssue
@@ -174,7 +173,6 @@ private fun flatIssue(steps: List<StepDraft>, offer: AutomationOffer): RunsIssue
 	return unwritable(steps, offer, emptyList())?.let { RunsIssue.NotAStep(it.key) }
 }
 
-/** A callee it cannot write. */
 internal fun calleeIssue(callee: CalleeDraft, offer: AutomationOffer): RunsIssue? = when {
 	callee.steps.isEmpty() -> RunsIssue.NoSteps
 	else -> unwritable(callee.steps, offer, callee.params)?.let { RunsIssue.NotAStep(it.key) }
@@ -203,7 +201,6 @@ private fun paramIssues(params: List<FunctionParam>, given: TriggerGiven): List<
 	}
 }
 
-/** Null when it can be written. */
 internal fun runsIssue(runs: RunsDraft, selfId: String, given: TriggerGiven, offer: AutomationOffer): RunsIssue? =
 	when (runs) {
 		is RunsDraft.Kept -> null
@@ -211,7 +208,7 @@ internal fun runsIssue(runs: RunsDraft, selfId: String, given: TriggerGiven, off
 		is RunsDraft.Pointing -> if (runs.steps.isEmpty()) RunsIssue.NoSteps else pointingIssue(runs, selfId, given, offer)
 	}
 
-/** Named function's value line. */
+/** Named-function value guidance. */
 internal fun runsNote(runs: RunsDraft, given: TriggerGiven, offer: AutomationOffer): RunsNote? {
 	val pointing = runs as? RunsDraft.Pointing ?: return null
 	if (pointing.name.isBlank()) return null
@@ -267,9 +264,8 @@ internal data class RunsView(
 	val moved: Boolean = false,
 	/** Named, or unnamed where held. */
 	val valuesAllowed: Boolean = false,
-	/** Until the check lands. */
+	/** Pre-check guidance. */
 	val note: RunsNote? = null,
-	/** Held by no card. */
 	val issues: List<CardIssue> = emptyList(),
 ) {
 	/** No empty header. */
@@ -279,7 +275,7 @@ internal data class RunsView(
 internal fun canAddValue(view: RunsView): Boolean =
 	!view.kept && view.valuesAllowed && view.values.count { it.param != null } < Protocol.Wire.FUNCTION_PARAMS_MAX
 
-/** Cards draw an empty body. */
+/** Empty bodies stay cardless. */
 private fun blockIssue(issue: RunsIssue?): RunsIssue? = when (issue) {
 	null, RunsIssue.NoSteps -> null
 	is RunsIssue.NotAStep,
@@ -301,7 +297,6 @@ internal fun runsView(
 	rows: List<AutomationRow>,
 	said: AutomationSaid? = null,
 	read: CheckRead = CheckRead(),
-	/** The landed check's, placed. */
 	drawn: DrawnIssues? = null,
 ): RunsView? {
 	val functions = offer.functions ?: return null
@@ -366,7 +361,6 @@ internal fun functionLine(row: AutomationRow, functions: List<AutomationFunction
 
 internal const val SCRIPT_ERRORS_LINE = "Its script has errors. It will not run."
 
-/** "2 errors"; null when none. */
 internal fun rowErrorsLine(row: AutomationRow): String? =
 	row.errors?.takeIf { it > 0 }?.let { if (it == 1L) "1 error" else "$it errors" }
 

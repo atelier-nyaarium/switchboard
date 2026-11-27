@@ -144,7 +144,7 @@ describe("the assistant's session through the console", () => {
 				automation: { trigger: { conditions: [{ value: "atelier/switchboard" }] } },
 			},
 		});
-		// Saves, and never fires.
+		// Saved but unarmed.
 		expect(sensors).toMatchObject({ stored: true, row: { invalid: expect.any(String) } });
 		expect(listed.automations.map((row) => row.id)).toEqual(["carried", "sensors"]);
 		expect(after.automations).toEqual(listed.automations);

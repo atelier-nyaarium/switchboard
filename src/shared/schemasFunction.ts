@@ -17,13 +17,13 @@ export const WAIT_MINUTES_MAX = 1_440;
 export const FUNCTION_PARAMS_MAX = 256;
 /** Maximum concurrent steps. */
 export const RUN_STRANDS_MAX = 256;
-/** Variables a run keeps. */
+/** Run variables. */
 export const FRAME_VARS_MAX = 16;
 /** A run's variables, and `e`. */
 export const RUN_NAMES_MAX = FRAME_VARS_MAX + 1;
 export const FUNCTION_NAME_MAX = 80;
 export const STEP_TEXT_MAX = 1_000;
-/** Values one step names. */
+/** Step argument values. */
 export const STEP_ARGS_MAX = 256;
 /** A script's whole text. */
 export const SCRIPT_SOURCE_MAX = 24_000;
@@ -45,7 +45,7 @@ export const StepArgSchema = z
 	.discriminatedUnion("kind", [
 		/** As written; an action's text parameter alone fills its holes. */
 		z.strictObject({ kind: z.literal("literal"), value: LiteralValueSchema }),
-		/** A quoted string with a hole is one; blank is an error. */
+		/** Blank hole text fails. */
 		z.strictObject({ kind: z.literal("expression"), text: z.string().max(STEP_TEXT_MAX) }),
 	])
 	.meta({ id: "StepArg" });
@@ -54,12 +54,12 @@ export type StepArg = z.infer<typeof StepArgSchema>;
 /** A list a step holds. */
 const side = () => z.array(FunctionStepSchema).max(FUNCTION_STEPS_MAX);
 
-/** As `WALK_ENTRIES_MAX`. */
+/** Walk-entry limit. */
 export const SWITCH_CASES_MAX = 256;
-/** As `WALK_ENTRIES_MAX`. */
+/** Walk-entry limit. */
 export const SWITCH_CASE_VALUES_MAX = 256;
 
-/** No values is an error. */
+/** Empty cases error. */
 export const SwitchCaseSchema = z
 	.strictObject({
 		values: z.array(z.string().max(ASSISTANT_RULE_VALUE_MAX)).max(SWITCH_CASE_VALUES_MAX),
@@ -81,7 +81,7 @@ export const FunctionStepSchema = z
 		}),
 		z.strictObject({
 			kind: z.literal("if"),
-			/** One expression; blank is an error. */
+			/** Blank expressions fail. */
 			when: z.string().max(STEP_TEXT_MAX),
 			/** The side taken when it holds. */
 			get steps() {
@@ -91,10 +91,10 @@ export const FunctionStepSchema = z
 				return side().optional();
 			},
 		}),
-		/** First matching case runs, else the default. */
+		/** First match, else default. */
 		z.strictObject({
 			kind: z.literal("switch"),
-			/** One expression; blank is an error. */
+			/** Blank expressions fail. */
 			subject: z.string().max(STEP_TEXT_MAX),
 			get cases() {
 				return z.array(SwitchCaseSchema).max(SWITCH_CASES_MAX);
@@ -181,11 +181,11 @@ export const FUNCTION_STATEMENT_KINDS = Object.keys(STATEMENTS) as FunctionStep[
 const countOf = (steps: readonly FunctionStep[]): number =>
 	steps.reduce((sum, step) => sum + 1 + sidesOf(step).reduce((held, side) => held + countOf(side.steps), 0), 0);
 
-/** An `if` alone in an else. */
+/** Else-if chain link. */
 const chained = (step: FunctionStep, side: HeldSide<FunctionStep>): boolean =>
 	step.kind === "if" && side.side === "else" && side.steps.length === 1 && side.steps[0]?.kind === "if";
 
-/** A flat list is one deep; an else-if adds none. */
+/** Else-if adds no depth. */
 const depthOf = (steps: readonly FunctionStep[]): number =>
 	steps.reduce(
 		(deepest, step) =>

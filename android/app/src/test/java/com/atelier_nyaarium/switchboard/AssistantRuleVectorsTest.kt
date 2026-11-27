@@ -44,7 +44,7 @@ class AssistantRuleVectorsTest {
 		return AssistantFieldSpec.Enumeration(field, label, options)
 	}
 
-	/** As typed, before the editor's write. */
+	/** Before editor normalization. */
 	private fun valueOf(o: JsonObject): JsonElement {
 		o["values"]?.let { return it }
 		o["valuesPastMax"]?.let { past ->
@@ -74,7 +74,6 @@ class AssistantRuleVectorsTest {
 			assertEquals(name, o["parses"]?.jsonPrimitive?.boolean ?: true, fitted != null)
 			assertEquals(name, fits, rules.fits(condition))
 			assertEquals(name, o["warning"]?.jsonPrimitive?.boolean ?: false, issue?.level == AutomationIssueLevel.WARNING)
-			// A line, unless the value is blank.
 			assertEquals(name, !fits && valuesOf(condition).isNotEmpty(), issue?.let { drawsAsError(it.level) } == true)
 			if (fits) o["canonical"]?.let { assertEquals(name, it, fitted?.conditions?.single()?.value) }
 		}

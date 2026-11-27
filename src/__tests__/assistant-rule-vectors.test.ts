@@ -16,7 +16,6 @@ import { CONDITION_VALUES_MAX } from "../shared/wire-vocabulary.js";
 type Typed = {
 	value?: string;
 	values?: string[];
-	/** Past `CONDITION_VALUES_MAX`. */
 	valuesPastMax?: number;
 	codes?: number[];
 	times?: number;
@@ -41,7 +40,7 @@ const corpus = JSON.parse(
 
 const specs = z.array(AssistantFieldSpecSchema).parse(corpus.specs);
 
-// The phone sends each value trimmed.
+// Phone values arrive trimmed.
 const typed = (vector: Typed): string | string[] => {
 	if (vector.values) return vector.values.map(trimRuleValue);
 	if (vector.valuesPastMax !== undefined)

@@ -703,7 +703,6 @@ describe("an automation that runs a function", () => {
 
 	describe("a function's steps, checked as a flat action is", () => {
 		const step = (args: Record<string, StepArg>, action = "device_set") => ({ kind: "do", action, args }) as const;
-		/** Its issues, lines aside; a refusal as it came. */
 		const issuedWith = (
 			steps: AutomationFunctionInput["steps"],
 			values: Record<string, string> = { room: PLUG },

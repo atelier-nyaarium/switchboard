@@ -12,7 +12,6 @@ import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationIssueLevel
 internal val SWITCH_CASES = Protocol.Wire.SWITCH_CASES_MAX
 internal val CASE_VALUES = Protocol.Wire.SWITCH_CASE_VALUES_MAX
 
-/** Trimmed, then lower case. */
 internal fun caseKey(value: String): String = trimRuleValue(value).lowercase()
 
 private const val EVENT = "event"
@@ -28,13 +27,10 @@ internal fun choiceFieldOf(subject: String): String? {
 }
 
 internal enum class SwitchIssueWhy(val wire: String) {
-	/** No values. */
 	EMPTY("empty"),
 
-	/** A value given before. */
 	TWICE("twice"),
 
-	/** Not a choice. */
 	VANISHED("vanished"),
 }
 
@@ -47,7 +43,7 @@ internal data class SwitchIssue(
 	val value: String? = null,
 )
 
-/** `choices`: null for text. */
+/** Null choices mean text. */
 internal fun switchIssues(cases: List<List<String>>, choices: List<String>?): List<SwitchIssue> {
 	val offered = choices?.map(::caseKey)?.toSet()
 	val seen = mutableSetOf<String>()
@@ -66,17 +62,15 @@ internal fun switchIssues(cases: List<List<String>>, choices: List<String>?): Li
 	return issues
 }
 
-/** Null for text. */
 internal fun switchOptions(subject: String, fields: SourceFields): List<AssistantFieldOption>? =
 	choiceFieldOf(subject)?.let { fields.specOf(it) as? AssistantFieldSpec.Enumeration }?.options
 
-/** Options no case holds. */
 internal fun optionsLeft(step: StepDraft.Switch, options: List<AssistantFieldOption>): List<AssistantFieldOption> {
 	val used = step.cases.flatMap { it.values }.map(::caseKey).toSet()
 	return options.filter { caseKey(it.value) !in used }
 }
 
-/** Falls to default. */
+/** Default takes unmatched values. */
 internal fun defaultLine(step: StepDraft.Switch, options: List<AssistantFieldOption>?): String {
 	val left = options?.let { optionsLeft(step, it).map { option -> option.label } } ?: return "Anything else"
 	return if (left.isEmpty()) "Anything new" else "${left.joinToString(", ")}, and anything new"
@@ -84,7 +78,7 @@ internal fun defaultLine(step: StepDraft.Switch, options: List<AssistantFieldOpt
 
 internal data class CaseChip(val value: String, val label: String, val issue: CardIssue?)
 
-/** Its + chip. */
+/** + chip choices. */
 internal sealed interface CaseAdd {
 	data class Pick(val options: List<AssistantFieldOption>) : CaseAdd
 
@@ -93,7 +87,6 @@ internal sealed interface CaseAdd {
 	data object Full : CaseAdd
 }
 
-/** A CASE row. */
 internal data class CaseView(val case: CaseDraft, val chips: List<CaseChip>, val issue: CardIssue?, val add: CaseAdd)
 
 private fun issueLine(issue: SwitchIssue): String = when (issue.why) {
@@ -102,7 +95,6 @@ private fun issueLine(issue: SwitchIssue): String = when (issue.why) {
 	SwitchIssueWhy.VANISHED -> "No longer one of its values"
 }
 
-/** Issues on chips. */
 internal fun caseViews(step: StepDraft.Switch, options: List<AssistantFieldOption>?): List<CaseView> {
 	val issues = switchIssues(step.cases.map { it.values }, options?.map { it.value })
 	val labelOf = { value: String -> options?.firstOrNull { caseKey(it.value) == caseKey(value) }?.label ?: value }
@@ -123,11 +115,10 @@ internal fun caseViews(step: StepDraft.Switch, options: List<AssistantFieldOptio
 	}
 }
 
-/** Values, or default. */
 internal fun caseLabel(step: StepDraft.Switch, number: Int): String =
 	step.cases.getOrNull(number)?.values?.joinToString(", ")?.ifEmpty { "a case with no value" } ?: "default"
 
-/** Null when unwritable. */
+/** Null when invalid. */
 internal fun caseValueOf(typed: String): String? =
 	trimRuleValue(typed).takeIf { it.isNotEmpty() && it.length <= Protocol.Wire.ASSISTANT_RULE_VALUE_MAX }
 
@@ -141,9 +132,7 @@ internal fun withCaseValue(step: StepDraft.Switch, case: String, value: String):
 internal fun withoutCaseValue(step: StepDraft.Switch, case: String, at: Int): StepDraft.Switch =
 	onCase(step, case) { held -> held.copy(values = held.values.filterIndexed { index, _ -> index != at }) }
 
-/** Null when full. */
 internal fun withCase(step: StepDraft.Switch): StepDraft.Switch? =
 	step.takeIf { it.cases.size < SWITCH_CASES }?.copy(cases = step.cases + CaseDraft(freshKey(), emptyList(), emptyList()))
 
-/** Steps included. */
 internal fun withoutCase(step: StepDraft.Switch, case: String): StepDraft.Switch = step.copy(cases = step.cases.filter { it.key != case })

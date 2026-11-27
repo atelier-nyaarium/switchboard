@@ -74,11 +74,11 @@ export const AutomationSaveRefusalSchema = z
 	.meta({ id: "AutomationSaveRefusal" });
 export type AutomationSaveRefusal = z.infer<typeof AutomationSaveRefusalSchema>;
 
-/** What an issue does to a landed save. */
+/** Saved issue severity. */
 export const AUTOMATION_ISSUE_LEVELS = [
 	/** It never fires. */
 	"unarmed",
-	/** A run fails at it. */
+	/** Run fails here. */
 	"error",
 	/** It runs on. */
 	"warning",
@@ -91,9 +91,9 @@ export const AutomationIssueSchema = z
 	.object({
 		level: z.enum(AUTOMATION_ISSUE_LEVELS),
 		record: z.enum(SAVE_RECORDS),
-		/** The function's, under `function`. */
+		/** Function id. */
 		id: z.string().optional(),
-		/** The walk's numbers under `record`. */
+		/** Record-relative path. */
 		step: z.string().regex(STEP_PATH_RE).max(64).optional(),
 		param: z.string().max(32).optional(),
 		start: z.number().int().nonnegative().optional(),
@@ -102,7 +102,7 @@ export const AutomationIssueSchema = z
 		case: z.number().int().nonnegative().optional(),
 		/** A case's value. */
 		value: z.string().max(SAVE_LINE_MAX).optional(),
-		/** Shown as written; never decided from. */
+		/** Display text; never evaluated. */
 		line: z.string().max(SAVE_LINE_MAX),
 	})
 	.meta({ id: "AutomationIssue" });
@@ -161,7 +161,7 @@ export const ConsoleAutomationCheckResultSchema = z
 		refusal: AutomationSaveRefusalSchema.optional(),
 		/** Its body's reads. */
 		reads: FunctionReadsSchema.optional(),
-		/** What it would save with. */
+		/** Proposed save issues. */
 		issues: z.array(AutomationIssueSchema).max(AUTOMATION_ISSUES_MAX).optional(),
 	})
 	.meta({ id: "ConsoleAutomationCheckResult" });
@@ -175,7 +175,7 @@ export const ConsoleAutomationSaveResultSchema = z
 		/** The called functions it wrote. */
 		called: z.array(AutomationFunctionRowSchema).max(FUNCTIONS_MAX).optional(),
 		refusal: AutomationSaveRefusalSchema.optional(),
-		/** What it saved with. */
+		/** Saved issues. */
 		issues: z.array(AutomationIssueSchema).max(AUTOMATION_ISSUES_MAX).optional(),
 	})
 	.meta({ id: "ConsoleAutomationSaveResult" });

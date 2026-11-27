@@ -197,7 +197,6 @@ internal fun scriptPending(draft: AutomationDraft, offer: AutomationOffer): Bool
 internal fun scriptIssues(draft: AutomationDraft, tree: String?, offer: AutomationOffer): List<ScriptIssue> =
 	draft.scriptOf(tree)?.answer?.takeIf { scriptCurrent(draft, tree, offer) }?.issues.orEmpty()
 
-/** First error, marked. */
 internal fun markedIssue(issues: List<ScriptIssue>): ScriptIssue? = issues.firstOrNull { drawsAsError(issueLevelOf(it.level)) }
 
 /** Confirm newly introduced errors. */
@@ -247,13 +246,11 @@ internal data class ScriptLine(
 
 private val CASE_WORDS = setOf("case", "default")
 
-/** Line offsets. */
 private fun lineBounds(text: String): List<Pair<Int, Int>> {
 	var start = 0
 	return text.split("\n").map { line -> (start to start + line.length).also { start += line.length + 1 } }
 }
 
-/** Where case lines begin. */
 private fun caseStarts(text: String): List<Int> {
 	val tokens = lexScript(text).filter { it.kind != ConsoleTokenKind.COMMENT }
 	return tokens.filterIndexed { at, token ->

@@ -72,7 +72,7 @@ internal val STEPS_PER_LIST = Protocol.Wire.FUNCTION_STEPS_MAX
 internal val STEPS_TOTAL = Protocol.Wire.FUNCTION_STEPS_TOTAL_MAX
 internal val STEPS_DEPTH = Protocol.Wire.FUNCTION_DEPTH_MAX
 
-/** Its sides, each with its number, in written order. */
+/** Numbered sides, in order. */
 internal fun sidesOf(step: StepDraft): List<Pair<Side, List<StepDraft>>> = when (step) {
 	is StepDraft.If -> listOf(Side.Then to step.then, Side.Else to step.otherwise)
 	is StepDraft.Try -> listOf(Side.Body to step.body, Side.Catch to step.catch)
@@ -100,7 +100,7 @@ private fun withSide(step: StepDraft, side: Side, list: List<StepDraft>): StepDr
 	is StepDraft.Do, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Call, is StepDraft.Kept -> step
 }
 
-/** Each side's list changed; keys kept. */
+/** Side edits preserve keys. */
 private fun withSidesMapped(step: StepDraft, change: (List<StepDraft>) -> List<StepDraft>): StepDraft =
 	sidesOf(step).fold(step) { held, (side, list) -> withSide(held, side, change(list)) }
 
@@ -110,7 +110,7 @@ internal fun everyStep(steps: List<StepDraft>): List<StepDraft> =
 
 internal fun findStep(steps: List<StepDraft>, key: String): StepDraft? = everyStep(steps).firstOrNull { it.key == key }
 
-/** An `if` alone in an else. */
+/** Single-if else chain. */
 private fun chained(step: StepDraft, side: Side, list: List<StepDraft>): Boolean =
 	step is StepDraft.If && side == Side.Else && list.singleOrNull() is StepDraft.If
 
@@ -132,7 +132,7 @@ internal fun withoutLink(steps: List<StepDraft>, link: String): List<StepDraft> 
 	return replacedStep(steps, before.key) { before.copy(otherwise = dropped.otherwise) }
 }
 
-/** One list deep is one; an else-if adds none. */
+/** Links add no depth. */
 internal fun depthOf(steps: List<StepDraft>): Int =
 	steps.maxOfOrNull { step ->
 		maxOf(1, sidesOf(step).maxOfOrNull { (side, list) -> (if (chained(step, side, list)) 0 else 1) + depthOf(list) } ?: 0)
@@ -277,12 +277,12 @@ private fun callStepOf(draft: StepDraft.Call, params: List<FunctionParam>?): Fun
 	return FunctionStep.Call(function = draft.function, values = JsonObject(values).takeIf { values.isNotEmpty() })
 }
 
-/** A number, or unreadable text. */
+/** Number or raw text. */
 private fun minutesText(arg: StepArg): String? {
 	val literal = (arg as? StepArg.Literal)?.value as? JsonPrimitive ?: return null
 	if (literal.isString) return literal.content.takeIf { parseDecimal(it.trim()) == null }
 	return literal.content.takeIf { literal.doubleOrNull != null }
-}
+	}
 
 /** Null when unwritable. */
 internal fun stepOfDraft(
@@ -316,7 +316,7 @@ internal fun stepOfDraft(
 		is StepDraft.Kept -> draft.step
 	}
 
-/** Whole stays whole; else as typed. */
+/** Integral numbers; invalid text stays raw. */
 private fun minutesOf(text: String): JsonPrimitive {
 	val trimmed = text.trim()
 	val decimal = parseDecimal(trimmed) ?: return JsonPrimitive(text)

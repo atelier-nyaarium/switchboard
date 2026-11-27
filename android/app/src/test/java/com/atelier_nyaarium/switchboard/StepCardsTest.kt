@@ -368,7 +368,7 @@ class StepCardsTest {
 		val body = written((functionSaveOf(draft, none, FN_OFFER, confirmed = false)!!.function as AutomationSaveFunction.Edit).body)
 		assertEquals(listOf("", "soon"), listOf((body[0] as FunctionStep.If).`when`, (treeOf(body[1], FN_OFFER) as StepDraft.Wait).minutes))
 		assertEquals(body, body.map { stepOfDraft(treeOf(it, FN_OFFER), FN_OFFER, calleeParams = listed(FN_OFFER)) })
-		// Numeric text stays kept.
+		// Numeric text stays raw.
 		assertTrue(treeOf(FunctionStep.Wait(StepArg.Literal(JsonPrimitive("5"))), FN_OFFER) is StepDraft.Kept)
 		val unpicked = draft.copy(steps = broken + StepDraft.Call("c", "", emptyMap()))
 		assertEquals(RunsIssue.NotAStep("c"), draftRunsIssue(unpicked, none, FN_OFFER))

@@ -65,7 +65,6 @@ internal fun CardsSection(
 	kept: Map<String, KeptLine> = emptyMap(),
 	/** Opens script at offset. */
 	onScriptAt: ((Int) -> Unit)? = null,
-	/** The landed check's. */
 	issues: DrawnIssues? = null,
 ) {
 	val functionParams = if (tree == null) (draft.runs as? RunsHead.Points)?.pointing?.params.orEmpty() else draft.callees[tree]?.params.orEmpty()
@@ -358,7 +357,6 @@ private fun CaseValueEntry(enabled: Boolean, onDone: () -> Unit, onAdd: (String)
 	}
 }
 
-/** Opens its expression editor. */
 @Composable
 private fun ConditionField(value: String, label: String, enabled: Boolean, refused: Boolean, onOpen: () -> Unit) {
 	Box {

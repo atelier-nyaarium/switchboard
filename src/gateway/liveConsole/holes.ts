@@ -175,7 +175,6 @@ export async function evaluateHole(
 	return only && !more && !only.assigned ? { value: only.value } : null;
 }
 
-/** As a hole prints it; null when it fails. */
 export async function shownHole(
 	source: string,
 	names: Readonly<Record<string, HoleName>>,

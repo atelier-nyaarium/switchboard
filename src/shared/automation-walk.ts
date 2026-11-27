@@ -114,7 +114,7 @@ type Walked = { actions: Sealed<AutomationAction> };
 /** Concurrent `parallel` and `start`. */
 export const SIDES = ["then", "else", "try", "catch", "parallel", "start"] as const;
 type Fixed = (typeof SIDES)[number];
-/** A switch's case; its default follows the last. */
+/** Default follows case indexes. */
 export type CaseSide = `case:${number}`;
 export type Side = Fixed | CaseSide;
 
@@ -125,13 +125,12 @@ const isCase = (side: Side): side is CaseSide => side.startsWith("case:");
 /** Within one body: indexes and sides, ending on an index. */
 export type Address = readonly (number | Side)[];
 
-/** A step's first list is 0, its second 1; a case its own number. */
+/** Side indexes identify branches. */
 export const sideNumber = (side: Side): number => {
 	if (isCase(side)) return Number(side.slice("case:".length));
 	return side === "else" || side === "catch" ? 1 : 0;
 };
 
-/** What `sidesOf` reads of a step. */
 export interface Branching<T> {
 	kind: string;
 	steps?: readonly T[];
@@ -141,17 +140,15 @@ export interface Branching<T> {
 	default?: readonly T[];
 }
 
-/** A step known by its sides alone. */
 export interface TreeStep extends Branching<TreeStep> {}
 
-/** One list a step holds. */
 export interface HeldSide<T> {
 	side: Side;
 	number: number;
 	steps: readonly T[];
 }
 
-/** Keyed by every kind; `cases` ends with the default. */
+/** Switch map includes default. */
 const SIDES_BY_KIND: { readonly [K in StepKind]: readonly Fixed[] | "cases" } = {
 	if: ["then", "else"],
 	switch: "cases",
@@ -195,11 +192,11 @@ const listOf = <T>(step: Branching<T>, side: Side): readonly T[] | undefined => 
 	return number < (step.cases?.length ?? 0) ? step.cases?.[number]?.steps : step.default;
 };
 
-/** The one reader of a step's lists. */
+/** Sole step-list reader. */
 export const sidesOf = <T>(step: Branching<T>): HeldSide<T>[] =>
 	sidesNamed(step).map((side) => ({ side, number: sideNumber(side), steps: listOf(step, side) ?? [] }));
 
-/** `lists` in `sidesOf` order; an absent side left empty stays absent. */
+/** Empty lists stay absent. */
 export const withSides = (step: FunctionStep, lists: readonly (readonly FunctionStep[])[]): FunctionStep => {
 	if (step.kind === "switch") {
 		const { default: fallback, ...rest } = step;

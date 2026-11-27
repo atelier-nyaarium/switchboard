@@ -298,7 +298,6 @@ describe("a function's steps as script", () => {
 		const over = FUNCTION_STEPS_TOTAL_MAX;
 		const many = Array.from({ length: over + 1 }, (_, index) => `x${index} = ${index}`).join("\n");
 		const deep = `${"if (a) {\n".repeat(FUNCTION_DEPTH_MAX)}exit\n${"}\n".repeat(FUNCTION_DEPTH_MAX)}`;
-		// Eight steps a block.
 		const wide = Array.from(
 			{ length: FUNCTION_STEPS_TOTAL_MAX / 8 + 1 },
 			() => `if (a) {\n${Array.from({ length: 7 }, () => "exit").join("\n")}\n}`,

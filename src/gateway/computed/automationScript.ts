@@ -96,7 +96,7 @@ export type ScriptParse = ScriptRead &
 	);
 
 const ISSUES_MAX = 8;
-/** A case value's place. */
+/** Case value index. */
 const casePlace = (number: number, chip: number): string => `case:${number}:${chip}`;
 const CALL = AUTOMATION_ACTIONS.run_function.call;
 export const SCRIPT_UNWRITABLE = "it holds a step a script cannot write";
@@ -594,7 +594,6 @@ export function parseScript(source: string, tables: ScriptTables): ScriptParse {
 		};
 	};
 
-	/** A quoted constant. */
 	const caseValue = (node: ConsoleNode, place: { step: string; param: string }): string => {
 		if (node.kind === "template" && !node.grouped) fail(node.start, node.end, "a case value takes no hole");
 		if (node.kind !== "literal" || node.grouped || typeof node.value !== "string") {

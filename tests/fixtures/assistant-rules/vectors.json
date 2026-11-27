@@ -163,12 +163,21 @@
 			"canonical": "mention"
 		},
 		{
-			"name": "text drops a repeat case aside",
+			"name": "text keeps a value that differs only by case",
 			"field": "repository",
 			"test": "contains",
-			"values": ["Atelier", "nyaa", "ATELIER"],
+			"values": ["Atelier", "nyaa", "ATELIER", "nyaa"],
 			"fits": true,
-			"canonical": ["Atelier", "nyaa"]
+			"canonical": ["Atelier", "nyaa", "ATELIER"]
+		},
+		{
+			"name": "a choice keeps its renamed value beside the stale one",
+			"field": "reason",
+			"test": "is",
+			"values": ["Mention", "mention"],
+			"fits": true,
+			"warning": true,
+			"canonical": ["Mention", "mention"]
 		},
 		{
 			"name": "a blank in a list is dropped",
@@ -273,6 +282,14 @@
 			"field": "reason",
 			"test": "is",
 			"values": ["mention", "retired"],
+			"fields": { "reason": "mention" },
+			"holds": true
+		},
+		{
+			"name": "a renamed choice beside its stale value matches",
+			"field": "reason",
+			"test": "is",
+			"values": ["Mention", "mention"],
 			"fields": { "reason": "mention" },
 			"holds": true
 		},

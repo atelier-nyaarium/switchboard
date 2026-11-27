@@ -158,7 +158,7 @@ class FunctionDraftTest {
 
 		assertEquals(listOf(ValueSource.Unset, ValueSource.Unset), waiting.values.map { it.source })
 		assertEquals(com.atelier_nyaarium.switchboard.assistant.RunsNote.Unset("lamp"), waiting.note)
-		// Unset values still save.
+		// Unset values save.
 		assertNull((written(functionSaveOf(picked, none, serving.offer, confirmed = false)!!.automation).single() as AutomationAction.RunFunction).values)
 		val set = picked.withFunctionValue(valueKey(picked, "lamp"), SANDBOX_SWITCH).withFunctionValue(valueKey(picked, "times"), "3")
 		val op = functionSaveOf(set, none, serving.offer, confirmed = false)!!
@@ -170,7 +170,7 @@ class FunctionDraftTest {
 			},
 			(written(op.automation).single() as AutomationAction.RunFunction).values,
 		)
-		// Unreadable numbers go as typed.
+		// Unreadable numbers stay raw.
 		val mistyped = set.withFunctionValue(valueKey(picked, "times"), "two")
 		assertEquals(
 			buildJsonObject {

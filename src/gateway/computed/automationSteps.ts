@@ -73,7 +73,7 @@ export const StepSchema = z.strictObject({
 		.optional(),
 	/** The side an `if` took. */
 	side: z.enum(["then", "else"]).optional(),
-	/** The case a `switch` took. */
+	/** Taken case index. */
 	case: z.number().int().nonnegative().max(SWITCH_CASES_MAX).optional(),
 	/** When a `wait` ends. */
 	until: z.number().int().optional(),
@@ -207,7 +207,7 @@ export const failedAs = (step: Step, code: FailureCode, message: string, errors?
 		: {}),
 });
 
-/** Ends a steering step; a number is a case. */
+/** Switch case index. */
 export const steered = (step: Step, taken?: "then" | "else" | number): Step => ({
 	...ending(step, "done", "done"),
 	...(typeof taken === "number" ? { case: taken } : taken ? { side: taken } : {}),

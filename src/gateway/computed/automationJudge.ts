@@ -110,7 +110,6 @@ const CUT_CODES: Readonly<Record<CallCut, AutomationSaveRefusalCode>> = {
 	unread: "newer_function",
 };
 
-/** A refusing issue, as a save's refusal. */
 const refusalOf = (issue: BodyIssue): AutomationSaveRefusal => {
 	switch (issue.at) {
 		case "call":
@@ -414,7 +413,6 @@ function judgeSave(
 		if (unknown && gained !== undefined)
 			return refused(FUNCTION_PRIVATE, { code: "private", record: "function", id: gained });
 	}
-	// Its own row may echo unchecked.
 	if (!toggle) {
 		const cannot = view.assess(next, functionNext).find((issue) => levelOf(issue) === "refuses");
 		if (cannot) return refused(lineOf(cannot), refusalOf(cannot));

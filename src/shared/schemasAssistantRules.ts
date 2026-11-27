@@ -41,7 +41,7 @@ export const AssistantFieldSpecSchema = z
 				.array(AssistantFieldOptionSchema)
 				.min(1)
 				.max(64)
-				// A switch case compares ignoring case.
+				// Switch cases ignore case.
 				.refine(
 					(options) => new Set(options.map((option) => option.value.toLowerCase())).size === options.length,
 					"two options differ only by case",
@@ -82,7 +82,7 @@ export const AssistantRuleConditionSchema = z
 	.object({
 		field: z.string().min(1).max(64),
 		test: z.enum(RULE_TESTS),
-		/** One value, or several. Blank saves, and never fires. */
+		/** Blank values save unarmed. */
 		value: z.union([conditionValue, z.array(conditionValue).max(CONDITION_VALUES_MAX)]),
 	})
 	.meta({ id: "AssistantRuleCondition" });
@@ -90,19 +90,16 @@ export const AssistantRuleConditionSchema = z
 export type AssistantRuleCondition = z.infer<typeof AssistantRuleConditionSchema>;
 export type ConditionValue = AssistantRuleCondition["value"];
 
-/** One or many; blank is none. */
+/** Blank values mean none. */
 export const valuesOf = ({ value }: Pick<AssistantRuleCondition, "value">): string[] =>
 	(typeof value === "string" ? [value] : value).filter((held) => trimRuleValue(held) !== "");
 
-/** The text matcher's comparison. */
+/** Case-insensitive text. */
 const sameValue = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 
-/** Trimmed, each once, one as a string. */
+/** Trimmed, unique, singleton string. */
 function canonicalValue(values: readonly string[]): ConditionValue {
-	const kept: string[] = [];
-	for (const value of values.map(trimRuleValue)) {
-		if (!kept.some((held) => sameValue(held, value))) kept.push(value);
-	}
+	const kept = [...new Set(values.map(trimRuleValue))];
 	if (kept.length === 0) return "";
 	return kept.length === 1 ? (kept[0] as string) : kept;
 }
@@ -117,7 +114,7 @@ function conditionIssue(condition: AssistantRuleCondition, specs: readonly Assis
 	return null;
 }
 
-/** As a condition is stored and read. */
+/** Condition wire format. */
 export const canonicalConditions = (conditions: readonly AssistantRuleCondition[]): AssistantRuleCondition[] =>
 	conditions.map((condition) => ({ ...condition, value: canonicalValue(valuesOf(condition)) }));
 
@@ -133,7 +130,7 @@ export function conditionsIssue(
 	return null;
 }
 
-/** A choice its field no longer holds; it matches nothing. */
+/** Reports unavailable choices. */
 export function conditionsWarning(
 	conditions: readonly AssistantRuleCondition[],
 	specs: readonly AssistantFieldSpec[],
@@ -147,7 +144,7 @@ export function conditionsWarning(
 	return null;
 }
 
-/** Any of, else none of. */
+/** Any or none. */
 const ANY_OF = { is: true, is_not: false, contains: true, contains_not: false } as const satisfies Record<
 	RuleTest,
 	boolean
@@ -157,12 +154,12 @@ const WITHIN = { is: false, is_not: false, contains: true, contains_not: true } 
 	boolean
 >;
 
-/** Missing fields fail every test. */
+/** Missing fields never match. */
 function holds(condition: AssistantRuleCondition, spec: AssistantFieldSpec, fields: Readonly<Record<string, string>>) {
 	if (!Object.hasOwn(fields, condition.field)) return false;
 	const actual = fields[condition.field] ?? "";
 	const values = valuesOf(condition);
-	// A choice no longer offered matches nothing.
+	// Unavailable choices never match.
 	const hit =
 		spec.kind === "enumeration"
 			? values.some((wanted) => wanted === actual && spec.options.some((option) => option.value === wanted))

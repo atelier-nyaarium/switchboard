@@ -457,7 +457,6 @@ internal fun runsNoteLine(note: RunsNote): String = when (note) {
 	}
 }
 
-/** Null when it saved clean. */
 internal fun savedIssuesLine(issues: List<AutomationIssue>): String? {
 	val errors = issues.count { drawsAsError(issueLevelOf(it.level)) }
 	val warnings = issues.size - errors

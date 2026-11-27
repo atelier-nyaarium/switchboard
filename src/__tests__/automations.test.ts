@@ -293,7 +293,7 @@ describe("automations", () => {
 		automations.ownerPut("review", review(), 0);
 		automations.ownerPut("off", review({ enabled: false }), 0);
 		const elsewhere = review({ trigger: { kind: "event", source: "gmail", conditions: [] } });
-		// Saves, and never fires.
+		// Saved but unarmed.
 		expect(automations.ownerPut("elsewhere", elsewhere, 0)).toMatchObject({
 			stored: true,
 			row: { invalid: expect.any(String) },
