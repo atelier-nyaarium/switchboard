@@ -437,7 +437,7 @@ internal fun pickerChoices(given: TriggerGiven, functions: List<AutomationFuncti
 		}
 
 /** Stored sentence, trigger unchanged. */
-internal fun pickerSubtitle(trigger: TriggerDraft, opened: TriggerDraft, sentence: String?): String? = sentence.takeIf { trigger == opened }
+internal fun pickerSubtitle(trigger: TriggerDraft, opened: TriggerDraft, sentence: String?): String? = sentence.takeIf { unkeyed(trigger) == unkeyed(opened) }
 
 /** How a save came back. */
 internal sealed interface SaveAnswer {

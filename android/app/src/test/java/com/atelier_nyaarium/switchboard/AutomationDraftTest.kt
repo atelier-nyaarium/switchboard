@@ -22,6 +22,7 @@ import com.atelier_nyaarium.switchboard.assistant.SwitchOffer
 import com.atelier_nyaarium.switchboard.assistant.TextPreview
 import com.atelier_nyaarium.switchboard.assistant.TriggerChoice
 import com.atelier_nyaarium.switchboard.assistant.TriggerDraft
+import com.atelier_nyaarium.switchboard.assistant.conditionDraftsOf
 import com.atelier_nyaarium.switchboard.assistant.actionDraftOf
 import com.atelier_nyaarium.switchboard.assistant.actionFields
 import com.atelier_nyaarium.switchboard.assistant.ParamOffer
@@ -169,7 +170,7 @@ private fun event(vararg conditions: AutomationCondition, tell: String = "now", 
 )
 
 private fun eventDraft(vararg conditions: AutomationCondition) =
-	AutomationDraft("a", TriggerDraft.Event("github", conditions.toList()), listOf(StepDraft.Do(EVENT_ACTION_KEY, toldDraft("now"))), true, 0L, HERE)
+	AutomationDraft("a", TriggerDraft.Event("github", conditionDraftsOf(conditions.toList())), listOf(StepDraft.Do(EVENT_ACTION_KEY, toldDraft("now"))), true, 0L, HERE)
 
 private val quietly: (ActionDraft) -> ActionDraft = { toldDraft("quietly") }
 
@@ -206,19 +207,35 @@ class AutomationDraftTest {
 	@Test
 	fun aConditionSavesTrimmedEachValueOnceAndSavesBlankOrOffItsList() {
 		val draft = newAutomationDraft(EditContext(TELL_ONLY, listOf(source("github"))))!!.withCondition(fields)
-		val typed = draft.changed(0, values = { it + " mention " })
-		val listed = typed.changed(0, values = { it + listOf("review_requested", "mention") })
-		val off = typed.changed(0, values = { it + "retired" })
+		val first = draft.conditionDrafts.single().key
+		val typed = draft.changed(first, values = { it + " mention " })
+		val listed = typed.changed(first, values = { it + listOf("review_requested", "mention") })
+		val off = typed.changed(first, values = { it + "retired" })
 
 		assertEquals(reason(), draft.conditions.single())
 		assertEquals(event(reason()), fittingAutomation(draft, TELL_ONLY))
 		assertEquals(event(reason("mention")), fittingAutomation(typed, TELL_ONLY))
 		assertEquals(event(reason("mention", "review_requested")), fittingAutomation(listed, TELL_ONLY))
-		assertEquals(listOf("mention"), valuesOf(listed.changed(0, values = { it - "review_requested" }).conditions.single()))
+		assertEquals(listOf("mention"), valuesOf(listed.changed(first, values = { it - "review_requested" }).conditions.single()))
 		assertEquals(event(reason("mention", "retired")), fittingAutomation(off, TELL_ONLY))
 		assertEquals(AutomationIssueLevel.WARNING, fields.issueOf(off.conditions.single())?.level)
 		assertEquals(listOf(true, false), listOf(off, draft).map { fields.fits(it.conditions.single()) })
-		assertEquals(event(), fittingAutomation(typed.withoutCondition(0), TELL_ONLY))
+		assertEquals(event(), fittingAutomation(typed.withoutCondition(first), TELL_ONLY))
+	}
+
+	@Test
+	fun aConditionKeepsItsKeyAndValuesWhenOneAboveItIsRemoved() {
+		val draft = eventDraft(reason("mention"), conditionOf("repository", "contains", listOf("atelier")))
+		val (above, below) = draft.conditionDrafts
+		val removed = draft.withoutCondition(above.key)
+		val added = removed.withCondition(fields).changed(below.key, values = { it + "nyaa" })
+
+		assertEquals(listOf(below), removed.conditionDrafts)
+		assertEquals(below.key, added.conditionDrafts.first().key)
+		assertEquals(listOf("atelier", "nyaa"), valuesOf(added.conditionDrafts.first().condition))
+		assertEquals(listOf(reason()), added.conditions.drop(1))
+		assertEquals(2, added.conditionDrafts.map { it.key }.toSet().size)
+		assertEquals(false, draft.changedFrom(eventDraft(reason("mention"), conditionOf("repository", "contains", listOf("atelier")))))
 	}
 
 	@Test
@@ -245,8 +262,11 @@ class AutomationDraftTest {
 		val onText = eventDraft(conditionOf("repository", "contains", listOf("atelier", "nyaa")))
 		val onChoice = eventDraft(reason("mention", test = "is_not"))
 
-		assertEquals(reason(), onText.withField(0, "reason", fields).conditions.single())
-		assertEquals(conditionOf("repository", "is_not", emptyList()), onChoice.withField(0, "repository", fields).conditions.single())
+		assertEquals(reason(), onText.withField(onText.conditionDrafts.single().key, "reason", fields).conditions.single())
+		assertEquals(
+			conditionOf("repository", "is_not", emptyList()),
+			onChoice.withField(onChoice.conditionDrafts.single().key, "repository", fields).conditions.single(),
+		)
 		assertEquals(listOf("is", "is_not"), testsOf(fields.specOf("reason")))
 		assertEquals(listOf("review_requested"), fields.choicesFor(reason("mention", "subscribed")))
 		assertEquals(emptyList<AutomationCondition>(), onText.withSource("other").conditions)
@@ -282,8 +302,9 @@ class AutomationDraftTest {
 	@Test
 	fun theEditorAllowsEditingSavingAndDeletingOnlyWhenItCan() {
 		val valid = automationDraftOf(row("a", event(reason("mention"))), HERE)!!
-		val blank = valid.changed(0, values = { emptyList() })
-		val long = valid.changed(0, values = { listOf("x".repeat(201)) })
+		val first = valid.conditionDrafts.single().key
+		val blank = valid.changed(first, values = { emptyList() })
+		val long = valid.changed(first, values = { listOf("x".repeat(201)) })
 		val held = AutomationSlot.Held("a")
 		val can = { slot: AutomationSlot, draft: AutomationDraft, offered: Boolean, busy: Boolean, gone: Boolean ->
 			automationEditing(slot, draft, fields, offered, busy, gone, TELL_ONLY)
@@ -323,8 +344,8 @@ class AutomationDraftTest {
 		assertEquals(listOf(reason("mention")), save.draft.conditions)
 		val expectedDelete = automationDraftOf(newer, HERE)!!
 		assertEquals(
-			expectedDelete.copy(steps = unkeyed(expectedDelete.steps)),
-			delete.draft.copy(steps = unkeyed(delete.draft.steps)),
+			expectedDelete.copy(trigger = unkeyed(expectedDelete.trigger), steps = unkeyed(expectedDelete.steps)),
+			delete.draft.copy(trigger = unkeyed(delete.draft.trigger), steps = unkeyed(delete.draft.steps)),
 		)
 		assertEquals(AutomationOutcome.Done, outcomeOf(AutomationSaved.Stored(newer), draft, false, HERE))
 		assertEquals(AutomationOutcome.Said("no"), outcomeOf(AutomationSaved.Refused("no"), draft, false, HERE))

@@ -192,6 +192,7 @@ const CANONICAL: Record<string, FunctionStep[]> = {
 			cases: [
 				{ values: ["mention", 'a "quoted" {brace}'], steps: [tell("Mentioned")] },
 				{ values: ["ci_activity"], steps: [] },
+				{ values: [], steps: [{ kind: "exit" }] },
 			],
 			default: [{ kind: "switch", subject: "label", cases: [{ values: ["x"], steps: [{ kind: "exit" }] }] }],
 		},
@@ -573,10 +574,18 @@ describe("a function's steps as script", () => {
 		]);
 	});
 
+	it("prints a case with no values as `case {` and reads it back as one", () => {
+		const empty: FunctionStep = { kind: "switch", subject: "label", cases: [{ values: [], steps: [] }] };
+
+		expect(print([empty])).toBe("switch (label) {\n\tcase {\n\t}\n}");
+		expect(stepsOf(print([empty]))).toEqual([empty]);
+		expect(spansOf('switch (label) {\n\tcase\n\tcase "a", {\n\t}\n}')).toEqual(["case", "case"]);
+	});
+
 	it("refuses a case or a default outside a switch, one after its default, and a line that is neither", () => {
 		expect(spansOf('case "a" {\n}\ndefault {\n}\nswitch label {\n}')).toEqual(["case", "default", "label"]);
 		expect(spansOf('switch (label) {\n\tdefault {\n\t}\n\tcase "a" {\n\t}\n}\nexit')).toEqual(["case"]);
-		expect(spansOf("switch (label) {\n\texit\n\tcase {\n\t}\n}\nx = 1")).toEqual(["exit", "case"]);
+		expect(spansOf("switch (label) {\n\texit\n\tcase {\n\t}\n}\nx = 1")).toEqual(["exit"]);
 		expect(stepsOf('switch (label) {\n\tcase "a" {\n\t}\n}\nexit')).toHaveLength(2);
 	});
 
@@ -779,7 +788,7 @@ function drawn(seed: number): FunctionStep[] {
 							kind: "switch",
 							subject: draw.pick(EXPRESSIONS),
 							cases: Array.from({ length: 1 + draw.int(3) }, () => ({
-								values: Array.from({ length: 1 + draw.int(3) }, constant),
+								values: Array.from({ length: draw.int(4) }, constant),
 								steps: list(depth + 1, 2),
 							})),
 							...(draw.chance(0.5) ? { default: list(depth + 1, 2) } : {}),
@@ -1105,6 +1114,8 @@ describe("the script's console reads", () => {
 			['"MENTION"', "error"],
 			['"gone"', "warning"],
 		]);
+		const empty = parse({ text: "switch (event.reason) {\n\tcase {\n\t}\n}" });
+		expect([empty.steps?.length, empty.issues?.map((issue) => issue.level)]).toEqual([1, ["error"]]);
 	});
 
 	it("says a printed step it cannot write back reads only, and still spans each step", () => {

@@ -245,6 +245,7 @@ internal fun AutomationEditorPage(
 			callee,
 			draft,
 			offer,
+			fields,
 			can.edit,
 			said,
 			textRead = { text -> previewRead(ops, gatewayId, previewAsk(trigger.takeIf { text != null }, text, scope)) },
@@ -299,6 +300,7 @@ internal fun AutomationEditorPage(
 				CardsSection(
 					draft = draft,
 					offer = offer,
+					fields = fields,
 					enabled = can.edit,
 					said = said,
 					textRead = textRead,

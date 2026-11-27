@@ -25,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -121,54 +122,8 @@ private fun EventForm(
 		enabled = enabled,
 	)
 	val served = offer.conditions
-	draft.conditions.forEachIndexed { index, condition ->
-		if (index > 0) {
-			Text("and", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-		}
-		val values = valuesOf(condition)
-		Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-			Box(Modifier.weight(1f)) {
-				PickMenu(
-					label = "Field",
-					choices = fields.ruleFields,
-					picked = condition.field,
-					labelOf = fields::fieldLabelOf,
-					onPick = { field -> edit { it.withField(index, field, fields) } },
-					enabled = enabled,
-				)
-			}
-			Box(Modifier.weight(0.8f)) {
-				PickMenu(
-					label = "Test",
-					choices = fields.testsFor(condition, served),
-					picked = condition.test,
-					labelOf = { testLabel(it, values.size) },
-					onPick = { test -> edit { it.changed(index, test = { test }) } },
-					enabled = enabled,
-				)
-			}
-			IconButton(onClick = hapticClick { edit { it.withoutCondition(index) } }, enabled = enabled) {
-				Icon(Icons.Default.Close, contentDescription = "Remove condition")
-			}
-		}
-		ValueChips(values, { value -> fields.valueLabelOf(condition.field, value) }, enabled) { value ->
-			edit { it.changed(index, values = { held -> held - value }) }
-		}
-		when (val add = valueAddOf(condition, fields, served)) {
-			ValueAdd.Full -> Unit
-			ValueAdd.Type -> ValueEntry(condition, served, enabled) { typed ->
-				edit { it.changed(index, values = { held -> held + typed }) }
-			}
-			is ValueAdd.Pick -> PickMenu(
-				label = if (values.isEmpty()) "Value" else "Add value",
-				choices = add.choices,
-				picked = null,
-				labelOf = { value -> fields.valueLabelOf(condition.field, value) },
-				onPick = { value -> edit { it.changed(index, values = { held -> held + value }) } },
-				enabled = enabled,
-			)
-		}
-		CardIssueLine(fields.issueOf(condition))
+	draft.conditionDrafts.forEachIndexed { index, held ->
+		key(held.key) { ConditionRow(index, held, fields, served, enabled, edit) }
 	}
 	if (draft.conditions.size < MAX_CONDITIONS && fields.ruleFields.isNotEmpty()) {
 		TextButton(onClick = hapticClick { edit { it.withCondition(fields) } }, enabled = enabled) {
@@ -190,6 +145,65 @@ private fun EventForm(
 	}
 	var open by rememberSaveable(draft.id) { mutableStateOf(false) }
 	MatchesFold(read.answer, read.failed, open) { open = !open }
+}
+
+@Composable
+private fun ConditionRow(
+	index: Int,
+	held: ConditionDraft,
+	fields: SourceFields,
+	served: AutomationConditionServes?,
+	enabled: Boolean,
+	edit: ((AutomationDraft) -> AutomationDraft) -> Unit,
+) {
+	val (key, condition) = held
+	if (index > 0) {
+		Text("and", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+	}
+	val values = valuesOf(condition)
+	Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+		Box(Modifier.weight(1f)) {
+			PickMenu(
+				label = "Field",
+				choices = fields.ruleFields,
+				picked = condition.field,
+				labelOf = fields::fieldLabelOf,
+				onPick = { field -> edit { it.withField(key, field, fields) } },
+				enabled = enabled,
+			)
+		}
+		Box(Modifier.weight(0.8f)) {
+			PickMenu(
+				label = "Test",
+				choices = fields.testsFor(condition, served),
+				picked = condition.test,
+				labelOf = { testLabel(it, values.size) },
+				onPick = { test -> edit { it.changed(key, test = { test }) } },
+				enabled = enabled,
+			)
+		}
+		IconButton(onClick = hapticClick { edit { it.withoutCondition(key) } }, enabled = enabled) {
+			Icon(Icons.Default.Close, contentDescription = "Remove condition")
+		}
+	}
+	ValueChips(values, { value -> fields.valueLabelOf(condition.field, value) }, enabled) { value ->
+		edit { it.changed(key, values = { listed -> listed - value }) }
+	}
+	when (val add = valueAddOf(condition, fields, served)) {
+		ValueAdd.Full -> Unit
+		ValueAdd.Type -> ValueEntry(condition, served, enabled) { typed ->
+			edit { it.changed(key, values = { listed -> listed + typed }) }
+		}
+		is ValueAdd.Pick -> PickMenu(
+			label = if (values.isEmpty()) "Value" else "Add value",
+			choices = add.choices,
+			picked = null,
+			labelOf = { value -> fields.valueLabelOf(condition.field, value) },
+			onPick = { value -> edit { it.changed(key, values = { listed -> listed + value }) } },
+			enabled = enabled,
+		)
+	}
+	CardIssueLine(fields.issueOf(condition))
 }
 
 @OptIn(ExperimentalLayoutApi::class)

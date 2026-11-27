@@ -374,9 +374,8 @@ export function printScript(steps: readonly FunctionStep[], tables: ScriptTables
 				case "switch": {
 					lines.push(`${indent}switch (${canonicalExpression(step.subject)}) {`);
 					for (const [number, held] of step.cases.entries()) {
-						lines.push(
-							`${indent}\tcase ${held.values.map((each) => quoteConsoleString(each)).join(", ")} {`,
-						);
+						const values = held.values.map((each) => ` ${quoteConsoleString(each)}`).join(",");
+						lines.push(`${indent}\tcase${values} {`);
 						block(held.steps, `${indent}\t\t`, `${path}.${number}.`);
 						lines.push(`${indent}\t}`);
 					}

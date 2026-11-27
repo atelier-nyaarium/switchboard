@@ -2965,6 +2965,10 @@ Written before the build from Questions 98 to 104, checked against the tree on 2
 
 **Order** (each ends green): 1, the sides table, no behaviour change; 2, "Seen outside its lists"; 3, the Gateway's saves never block (`levelOf`, the run's check, the issue answers, row `errors`, parse levels); 4, the phone's gate and issue drawing; 5, value lists; 6, the switch on the Gateway (schema, walk and vectors, frames and table, pass, checks and vectors, script, serves); 7, the switch on the phone and the map; 8, flat else-if.
 
+### Bug Classes
+
+- **A load-time compatibility read that fixes old data in memory and leaves the file stale** (stores restored through a lenient reader: `createVaultDecisions`, `createSourceStateStore`). Round 1: the vault's `watcher` rewrite at load wrote once and ignored whether the write landed. Round 2: the source state's `unexpected` key was dropped in memory and written only on a later `put`, so an idle source kept it. Each was patched in place; a shared "restore lenient, rewrite checked until it lands" helper in `durable-store.ts` is the architecture fix, so a window can close only once every store has rewritten.
+
 **Defect classes to watch:** hand readers of sides (slice 1 closes it); an issue policy scattered across boundaries instead of one `levelOf`; two judges of a save (the phone gates only what it cannot write); the case comparison and the condition's one-or-many read each in one function per runtime, pinned by vectors; labels copied instead of generated.
 
 ## Painpoints

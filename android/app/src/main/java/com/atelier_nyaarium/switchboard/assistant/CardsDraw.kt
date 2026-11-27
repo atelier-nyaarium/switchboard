@@ -460,9 +460,9 @@ internal fun callLine(
 }
 
 /** Trigger inputs appear given. */
-internal fun callRows(draft: AutomationDraft, offer: AutomationOffer, function: String): List<ValueRow>? {
+internal fun callRows(draft: AutomationDraft, offer: AutomationOffer, fields: SourceFields, function: String): List<ValueRow>? {
 	val params = calleeParams(draft, offer, function) ?: return null
-	return valueRows(params, givenOf(draft, fieldsOf(draft, draft.context.sources)), emptyMap(), measureOf(draft))
+	return valueRows(params, givenOf(draft, fields), emptyMap(), measureOf(draft))
 }
 
 /** Affected automations' sentences. */

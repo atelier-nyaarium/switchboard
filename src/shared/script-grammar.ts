@@ -267,11 +267,11 @@ class ScriptParser extends ConsoleParser {
 		return otherwise && { kind: "if", when, then, otherwise, start: word.start, end: otherwise.end };
 	}
 
-	/** `case "a", "b" { }`. */
+	/** Value-less case syntax. */
 	private casing(word: ConsoleToken): ScriptCase | null {
 		this.at++;
 		const values: ConsoleNode[] = [];
-		while (true) {
+		while (values.length > 0 || !this.is("{")) {
 			const token = this.next;
 			if (!token || token.kind === "newline" || token.kind === "comment" || this.is("{")) {
 				this.issue("incomplete", word.start, word.end, 'a case needs its values: case "a", "b" {');

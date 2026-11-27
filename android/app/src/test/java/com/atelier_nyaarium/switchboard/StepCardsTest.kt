@@ -1,7 +1,15 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.assistant.AutomationContext
 import com.atelier_nyaarium.switchboard.assistant.BranchLabel
 import com.atelier_nyaarium.switchboard.assistant.CardRow
+import com.atelier_nyaarium.switchboard.assistant.HomeSources
+import com.atelier_nyaarium.switchboard.assistant.Served
+import com.atelier_nyaarium.switchboard.assistant.fieldsOf
+import com.atelier_nyaarium.switchboard.assistant.over
+import com.atelier_nyaarium.switchboard.assistant.switchOptions
+import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
+import com.atelier_nyaarium.switchboard.proto.AssistantSource
 import com.atelier_nyaarium.switchboard.assistant.CaseAdd
 import com.atelier_nyaarium.switchboard.assistant.CaseDraft
 import com.atelier_nyaarium.switchboard.assistant.SWITCH_CASES
@@ -264,6 +272,32 @@ class StepCardsTest {
 		val typed = text.filterIsInstance<CardRow.Branch>()
 		assertEquals(CaseAdd.Type, (typed.first().label as BranchLabel.Case).view.add)
 		assertEquals("Anything else", typed.firstNotNullOf { it.label as? BranchLabel.Default }.falls)
+	}
+
+	@Test
+	fun aSwitchsChipsAndAddMenuReadTheSourcesHeardNowNotThoseAtOpening() {
+		fun github(options: List<AssistantFieldOption>) = AssistantSource(
+			id = "github",
+			label = "GitHub",
+			grants = emptyList(),
+			unread = 0L,
+			fieldSpecs = listOf(AssistantFieldSpec.Enumeration("reason", "Reason", options)),
+			actions = emptyList(),
+			enabled = true,
+			triggers = true,
+		)
+		val event = Automation(enabled = true, trigger = AutomationTrigger.Event("github", emptyList()), actions = listOf(AutomationAction.TellAssistant("now")))
+		val switch = StepDraft.Switch("s", "event.reason", listOf(CaseDraft("c0", listOf("review_requested"), emptyList())), emptyList())
+		val draft = automationDraftOf(AutomationRow("mine", 2L, event, "A GitHub event"), EditContext(FN_OFFER, listOf(github(reasons))))!!
+			.copy(steps = listOf(switch))
+		val added = AssistantFieldOption("ci", "CI")
+		val now = AutomationContext(Served.Known(FN_OFFER), HomeSources.Known(listOf(github(reasons.take(2) + added))))
+		val fields = fieldsOf(draft, now.over(draft.context).sources)
+		val case = cardsDraw(draft.steps, { null }, null, pointing = false) { switchOptions(it, fields) }
+			.firstNotNullOf { (it as? CardRow.Branch)?.label as? BranchLabel.Case }
+
+		assertEquals(listOf(AutomationIssueLevel.WARNING), case.view.chips.map { it.issue?.level })
+		assertEquals(CaseAdd.Pick(reasons.take(2) + added), case.view.add)
 	}
 
 	@Test

@@ -388,6 +388,7 @@ describe("a source's lane", () => {
 
 		const restored = stateIn(dir);
 		expect(restored.get("github")).toEqual(kept);
+		expect(JSON.parse(fs.readFileSync(file, "utf8")).watchers.github).toEqual(kept);
 		expect(restored.put("github", { ...restored.get("github"), unread: 4 })).toBe(true);
 		expect(JSON.parse(fs.readFileSync(file, "utf8")).watchers.github).toEqual({ ...kept, unread: 4 });
 	});

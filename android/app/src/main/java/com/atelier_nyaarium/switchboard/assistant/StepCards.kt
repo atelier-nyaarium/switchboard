@@ -49,6 +49,8 @@ private val INDENT = 16.dp
 internal fun CardsSection(
 	draft: AutomationDraft,
 	offer: AutomationOffer,
+	/** The page's current fields. */
+	fields: SourceFields,
 	enabled: Boolean,
 	said: AutomationSaid?,
 	/** Null asks nothing. */
@@ -71,7 +73,6 @@ internal fun CardsSection(
 	val valueNames = functionParams.filter { it.param.name.isNotBlank() }.map { it.key }.toSet()
 	val plugs = plugChoices(functionParams, offer)
 	val calleeParams = calleeParamsOf(draft, offer)
-	val fields = fieldsOf(draft, draft.context.sources)
 	val rows = cardsDraw(
 		draft.stepsOf(tree),
 		{ step -> cardIssueOf(step, issues) { cardHint(it, offer, valueNames, calleeParams) } },
@@ -92,7 +93,7 @@ internal fun CardsSection(
 		key(row.rowKey) {
 			Box(Modifier.padding(start = INDENT * row.depth)) {
 				when (row) {
-					is CardRow.Card -> StepCard(row, draft, offer, plugs, valueNames, enabled, said, textRead, conditionRead, asked, running, edit, reload, tree, kept[row.step.key], onScriptAt, flagged)
+					is CardRow.Card -> StepCard(row, draft, offer, fields, plugs, valueNames, enabled, said, textRead, conditionRead, asked, running, edit, reload, tree, kept[row.step.key], onScriptAt, flagged)
 					is CardRow.SideLabel -> Text(
 						sideLabel(row.side),
 						style = MaterialTheme.typography.labelLarge,
@@ -122,6 +123,7 @@ private fun StepCard(
 	row: CardRow.Card,
 	draft: AutomationDraft,
 	offer: AutomationOffer,
+	fields: SourceFields,
 	plugs: List<PlugChoice>,
 	valueNames: Set<String>,
 	enabled: Boolean,
@@ -183,7 +185,7 @@ private fun StepCard(
 					)
 					is StepDraft.Exit -> Text("Ends the run here.", style = MaterialTheme.typography.bodySmall, color = dim)
 					is StepDraft.Try -> Unit
-					is StepDraft.Call -> CallFields(step, draft, offer, tree, enabled, said, edit, reload, flagged)
+					is StepDraft.Call -> CallFields(step, draft, offer, fields, tree, enabled, said, edit, reload, flagged)
 					is StepDraft.Kept -> if (kept != null) {
 						Text(kept.text, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
 						onScriptAt?.let { open -> TextButton(onClick = hapticClick { open(kept.at) }, enabled = enabled) { Text("Edit in script") } }

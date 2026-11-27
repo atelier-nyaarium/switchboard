@@ -102,13 +102,19 @@ internal enum class IntervalUnit(val minutes: Long, val label: String) {
 	DAYS(1_440, "days"),
 }
 
+/** Key minted once. */
+internal data class ConditionDraft(val key: String, val condition: AutomationCondition)
+
+internal fun conditionDraftsOf(conditions: List<AutomationCondition>): List<ConditionDraft> =
+	conditions.map { ConditionDraft(freshKey(), it) }
+
 /** A trigger as the editor holds it: numbers as typed, in the owner's unit. */
 internal sealed interface TriggerDraft {
 	val kind: String
 
 	data class Event(
 		val source: String,
-		val conditions: List<AutomationCondition>,
+		val conditions: List<ConditionDraft>,
 		/** Blank for none. */
 		val coolDownMin: String = "",
 	) : TriggerDraft {
@@ -190,7 +196,11 @@ internal fun coolDownSecOf(typed: String): Long? {
 
 /** Null for a kind the editor does not draw. */
 internal fun triggerDraftOf(trigger: AutomationTrigger, offer: AutomationOffer, display: String?): TriggerDraft? = when (trigger) {
-	is AutomationTrigger.Event -> TriggerDraft.Event(trigger.source, trigger.conditions, trigger.coolDownSec?.let(::coolDownTyped).orEmpty())
+	is AutomationTrigger.Event -> TriggerDraft.Event(
+		trigger.source,
+		conditionDraftsOf(trigger.conditions),
+		trigger.coolDownSec?.let(::coolDownTyped).orEmpty(),
+	)
 	is AutomationTrigger.Crossing -> {
 		val number = offer.number(trigger.device, trigger.measure)
 		val decimals = number?.decimals ?: 1
@@ -210,6 +220,11 @@ internal fun triggerDraftOf(trigger: AutomationTrigger, offer: AutomationOffer, 
 		TriggerDraft.Interval((trigger.everyMin / unit.minutes).toString(), unit)
 	}
 	is AutomationTrigger.Value, is AutomationTrigger.Unknown -> null
+}
+
+internal fun unkeyed(trigger: TriggerDraft): TriggerDraft = when (trigger) {
+	is TriggerDraft.Event -> trigger.copy(conditions = trigger.conditions.map { it.copy(key = "") })
+	is TriggerDraft.Crossing, is TriggerDraft.Time, is TriggerDraft.Interval -> trigger
 }
 
 internal fun triggerIssue(trigger: TriggerDraft, offer: AutomationOffer): String? = when (trigger) {
@@ -251,7 +266,7 @@ internal fun triggerOf(trigger: TriggerDraft, offer: AutomationOffer, display: S
 	return when (trigger) {
 		is TriggerDraft.Event -> AutomationTrigger.Event(
 			source = trigger.source,
-			conditions = trigger.conditions.map { conditionOf(it.field, it.test, valuesOf(it)) },
+			conditions = trigger.conditions.map { (_, held) -> conditionOf(held.field, held.test, valuesOf(held)) },
 			coolDownSec = trigger.coolDownMin.takeIf { it.isNotBlank() }?.let { coolDownSecOf(it) ?: return null },
 		)
 		is TriggerDraft.Crossing -> {

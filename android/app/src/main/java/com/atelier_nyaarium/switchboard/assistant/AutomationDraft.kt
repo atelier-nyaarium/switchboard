@@ -278,7 +278,9 @@ internal data class AutomationDraft(
 	/** Blank unless an event triggers it. */
 	val source: String get() = event?.source.orEmpty()
 
-	val conditions: List<AutomationCondition> get() = event?.conditions.orEmpty()
+	val conditionDrafts: List<ConditionDraft> get() = event?.conditions.orEmpty()
+
+	val conditions: List<AutomationCondition> get() = conditionDrafts.map { it.condition }
 
 	private fun onEvent(change: (TriggerDraft.Event) -> TriggerDraft.Event): AutomationDraft =
 		event?.let { copy(trigger = change(it)) } ?: this
@@ -287,31 +289,32 @@ internal data class AutomationDraft(
 		if (conditions.size >= MAX_CONDITIONS) return this
 		val spec = fields.specs.firstOrNull { testsOf(it).isNotEmpty() } ?: return this
 		val test = testsOf(spec).first()
-		return onEvent { it.copy(conditions = it.conditions + conditionOf(spec.field, test, emptyList())) }
+		return onEvent { it.copy(conditions = it.conditions + ConditionDraft(freshKey(), conditionOf(spec.field, test, emptyList()))) }
 	}
 
-	fun withField(at: Int, field: String, fields: SourceFields): AutomationDraft {
-		val held = conditions.getOrNull(at) ?: return this
+	fun withField(key: String, field: String, fields: SourceFields): AutomationDraft {
+		val held = conditionDrafts.firstOrNull { it.key == key }?.condition ?: return this
 		if (field == held.field) return this
 		val was = fields.specOf(held.field)
 		val now = fields.specOf(field)
 		val keepsValues = was is AssistantFieldSpec.Text && now is AssistantFieldSpec.Text
 		val test = held.test.takeIf { it in testsOf(now) } ?: testsOf(now).firstOrNull() ?: held.test
-		return changed(at, field = field, test = { test }, values = { if (keepsValues) it else emptyList() })
+		return changed(key, field = field, test = { test }, values = { if (keepsValues) it else emptyList() })
 	}
 
-	fun withoutCondition(at: Int): AutomationDraft =
-		onEvent { it.copy(conditions = it.conditions.filterIndexed { index, _ -> index != at }) }
+	fun withoutCondition(key: String): AutomationDraft =
+		onEvent { it.copy(conditions = it.conditions.filter { held -> held.key != key }) }
 
 	fun changed(
-		at: Int,
+		key: String,
 		field: String? = null,
 		test: (String) -> String = { it },
 		values: (List<String>) -> List<String> = { it },
 	): AutomationDraft = onEvent { event ->
 		event.copy(
-			conditions = event.conditions.mapIndexed { index, held ->
-				if (index == at) conditionOf(field ?: held.field, test(held.test), values(valuesOf(held))) else held
+			conditions = event.conditions.map { draft ->
+				val held = draft.condition
+				if (draft.key == key) draft.copy(condition = conditionOf(field ?: held.field, test(held.test), values(valuesOf(held)))) else draft
 			},
 		)
 	}
@@ -460,7 +463,7 @@ internal data class AutomationDraft(
 	}
 
 	fun changedFrom(opened: AutomationDraft): Boolean =
-		trigger != opened.trigger ||
+		unkeyed(trigger) != unkeyed(opened.trigger) ||
 			unkeyed(steps) != unkeyed(opened.steps) ||
 			enabled != opened.enabled ||
 			runs != opened.runs ||

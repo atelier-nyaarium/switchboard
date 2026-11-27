@@ -3,6 +3,7 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.assistant.AutomationDraft
 import com.atelier_nyaarium.switchboard.assistant.EditContext
 import com.atelier_nyaarium.switchboard.assistant.TriggerDraft
+import com.atelier_nyaarium.switchboard.assistant.conditionDraftsOf
 import com.atelier_nyaarium.switchboard.assistant.SourceFields
 import com.atelier_nyaarium.switchboard.assistant.StepDraft
 import com.atelier_nyaarium.switchboard.assistant.drawsAsError
@@ -65,7 +66,7 @@ class AssistantRuleVectorsTest {
 			val o = case.jsonObject
 			val name = o["name"]!!.jsonPrimitive.content
 			val condition = AutomationCondition(o["field"]!!.jsonPrimitive.content, o["test"]!!.jsonPrimitive.content, valueOf(o))
-			val trigger = TriggerDraft.Event("github", listOf(condition))
+			val trigger = TriggerDraft.Event("github", conditionDraftsOf(listOf(condition)))
 			val offer = tellOnlyOffer()
 			val draft = AutomationDraft("a", trigger, listOf(StepDraft.Do("tell", toldDraft("now"))), enabled = true, revision = 0L, EditContext(offer, emptyList()))
 			val fitted = fittingAutomation(draft, offer)?.trigger as? AutomationTrigger.Event

@@ -47,6 +47,16 @@ const SnapshotSchema = z.strictObject({
 
 type Snapshot = z.infer<typeof SnapshotSchema>;
 
+// skew:source-unexpected
+const heldUnexpected = (loaded: unknown): boolean => {
+	if (typeof loaded !== "object" || loaded === null || !("watchers" in loaded)) return false;
+	const { watchers } = loaded;
+	if (typeof watchers !== "object" || watchers === null) return false;
+	return Object.values(watchers).some(
+		(held: unknown) => typeof held === "object" && held !== null && Object.hasOwn(held, "unexpected"),
+	);
+};
+
 export const FRESH_STATE: SourceState = { cursor: null, newest: 0, primed: false, unread: 0, capped: false };
 
 export const isGone = (state: SourceState, event: Pick<SourceEvent, "id" | "at">): boolean =>
@@ -83,6 +93,17 @@ export interface SourceStateStore {
 export function createSourceStateStore(store: DurableStore): SourceStateStore {
 	const loaded = store.load();
 	let state: Snapshot = loaded === null ? { v: 1, watchers: {} } : SnapshotSchema.parse(loaded);
+	if (heldUnexpected(loaded)) {
+		// Puts retry failed saves.
+		commitChecked(
+			store,
+			state,
+			(landed) => {
+				state = landed;
+			},
+			{ label: "assistant source state" },
+		);
+	}
 	const held = (sourceId: string) => (Object.hasOwn(state.watchers, sourceId) ? state.watchers[sourceId] : undefined);
 	return {
 		get: (sourceId) => structuredClone(held(sourceId) ?? FRESH_STATE),

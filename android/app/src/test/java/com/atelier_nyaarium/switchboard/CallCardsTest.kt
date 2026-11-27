@@ -261,7 +261,7 @@ class CallCardsTest {
 
 		assertEquals(
 			listOf(ValueSource.FromTrigger, ValueSource.Unset),
-			com.atelier_nyaarium.switchboard.assistant.callRows(draft, draft.context.offer, "chime")!!.map { it.source },
+			com.atelier_nyaarium.switchboard.assistant.callRows(draft, draft.context.offer, none, "chime")!!.map { it.source },
 		)
 	}
 

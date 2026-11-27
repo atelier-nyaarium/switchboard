@@ -48,6 +48,7 @@ internal fun CallFields(
 	step: StepDraft.Call,
 	draft: AutomationDraft,
 	offer: AutomationOffer,
+	fields: SourceFields,
 	tree: String?,
 	enabled: Boolean,
 	said: AutomationSaid?,
@@ -87,7 +88,7 @@ internal fun CallFields(
 	}
 	val names = callNames(draft, offer, tree, key)
 	val dim = MaterialTheme.colorScheme.onSurfaceVariant
-	for (row in step.function.takeIf { it.isNotBlank() }?.let { callRows(draft, offer, it) }.orEmpty()) {
+	for (row in step.function.takeIf { it.isNotBlank() }?.let { callRows(draft, offer, fields, it) }.orEmpty()) {
 		val param = row.param ?: continue
 		when (val source = row.source) {
 			ValueSource.FromTrigger -> Text("${param.name} from the trigger", style = MaterialTheme.typography.bodySmall, color = dim)
@@ -224,6 +225,7 @@ internal fun CalleePage(
 	callee: CalleeDraft,
 	draft: AutomationDraft,
 	offer: AutomationOffer,
+	fields: SourceFields,
 	enabled: Boolean,
 	said: AutomationSaid?,
 	textRead: @Composable (String?) -> PreviewRead,
@@ -267,6 +269,7 @@ internal fun CalleePage(
 			else CardsSection(
 				draft = draft,
 				offer = offer,
+				fields = fields,
 				enabled = enabled,
 				said = said,
 				textRead = textRead,
