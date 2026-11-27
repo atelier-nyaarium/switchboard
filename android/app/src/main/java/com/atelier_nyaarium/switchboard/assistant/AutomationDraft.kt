@@ -383,6 +383,10 @@ internal data class AutomationDraft(
 	fun withAction(key: String, change: (ActionDraft) -> ActionDraft): AutomationDraft =
 		withStep(key) { step -> if (step is StepDraft.Do) step.copy(action = change(step.action)) else step }
 
+	/** Null leaves it. */
+	fun withSwitch(key: String, change: (StepDraft.Switch) -> StepDraft.Switch?): AutomationDraft =
+		withStep(key) { step -> (step as? StepDraft.Switch)?.let(change) ?: step }
+
 	/** Statements mint function IDs. */
 	fun plusStep(slot: Slot, step: StepDraft, tree: String? = null): AutomationDraft {
 		val into = if (slot.parent != null) treeHolding(slot.parent) else tree
@@ -398,6 +402,17 @@ internal data class AutomationDraft(
 		steps = removedStep(steps, key),
 		callees = callees.mapValues { (_, callee) -> callee.copy(steps = removedStep(callee.steps, key)) },
 	)
+
+	/** Adds an else-if link. */
+	fun plusElseIf(head: String): AutomationDraft {
+		val tree = treeHolding(head)
+		return withElseIf(stepsOf(tree), head)?.let { withTree(tree, it) } ?: this
+	}
+
+	fun minusLink(link: String): AutomationDraft {
+		val tree = treeHolding(link)
+		return withTree(tree, withoutLink(stepsOf(tree), link))
+	}
 
 	fun movedTo(key: String, slot: Slot): AutomationDraft {
 		val tree = treeHolding(key)
@@ -485,7 +500,7 @@ internal fun callTargets(steps: List<StepDraft>): List<String> = everyStep(steps
 	when (step) {
 		is StepDraft.Call -> listOf(step.function)
 		is StepDraft.Kept -> callsIn(listOf(step.step))
-		is StepDraft.Do, is StepDraft.If, is StepDraft.Try, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note -> emptyList()
+		is StepDraft.Do, is StepDraft.If, is StepDraft.Try, is StepDraft.Switch, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note -> emptyList()
 	}
 }.filter { it.isNotBlank() }
 

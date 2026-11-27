@@ -186,7 +186,7 @@ private fun unwritable(steps: List<StepDraft>, offer: AutomationOffer, params: L
 		when (step) {
 			is StepDraft.Do -> stepOf(step.action, offer, params) == null
 			is StepDraft.Call -> step.function.isBlank()
-			is StepDraft.If, is StepDraft.Try, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept -> false
+			is StepDraft.If, is StepDraft.Try, is StepDraft.Switch, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept -> false
 		}
 	}
 

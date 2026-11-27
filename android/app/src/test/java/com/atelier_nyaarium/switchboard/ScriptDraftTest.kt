@@ -251,6 +251,29 @@ class ScriptDraftTest {
 	}
 
 	@Test
+	fun aSwitchMarksTheCaseItTookAndPassesTheRest() {
+		val text = "switch (event.reason) {\n\tcase \"mention\" {\n\t\texit\n\t}\n\tcase \"assign\" {\n\t}\n\tdefault {\n\t\texit\n\t}\n}"
+		val exit = text.indexOf("exit")
+		val statements = listOf(
+			ScriptStatement("0", 0, text.length.toLong()),
+			ScriptStatement("0.0.0", exit.toLong(), exit + 4L),
+			ScriptStatement("0.2.0", text.lastIndexOf("exit").toLong(), text.lastIndexOf("exit") + 4L),
+		)
+		fun marks(case: Long) = scriptLines(
+			text,
+			statements,
+			AutomationLastRun(0L, 2L, listOf(AutomationLastStep("0.0", "switch", outcome = "ran", case = case)), running = false),
+			pointing = true,
+		).map { it.mark }
+
+		assertEquals(
+			listOf(LineMark.RAN, LineMark.UNREACHED, LineMark.UNREACHED, null, LineMark.RAN, null, LineMark.UNREACHED, LineMark.UNREACHED, null, null),
+			marks(1L),
+		)
+		assertEquals(LineMark.RAN, marks(2L)[6])
+	}
+
+	@Test
 	fun aKeptCardShowsItsFirstLineOfScriptAndWhereItStarts() {
 		val cards = listOf(
 			StepDraft.Kept("kept", FunctionStep.Let("humid", StepArg.Literal(JsonPrimitive("1")))),

@@ -196,17 +196,17 @@
 			"canonical": ["mention", "retired"]
 		},
 		{
-			"name": "sixteen values fit",
+			"name": "the most values fit",
 			"field": "repository",
 			"test": "contains",
-			"values": ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p"],
+			"valuesPastMax": 0,
 			"fits": true
 		},
 		{
-			"name": "seventeen do not",
+			"name": "one more does not",
 			"field": "repository",
 			"test": "contains",
-			"values": ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q"],
+			"valuesPastMax": 1,
 			"fits": false,
 			"parses": false
 		}

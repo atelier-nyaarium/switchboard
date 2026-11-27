@@ -11,10 +11,13 @@ import {
 	trimRuleValue,
 } from "../shared/schemasAssistantRules.js";
 import { AutomationTriggerSchema } from "../shared/schemasAutomation.js";
+import { CONDITION_VALUES_MAX } from "../shared/wire-vocabulary.js";
 
 type Typed = {
 	value?: string;
 	values?: string[];
+	/** Past `CONDITION_VALUES_MAX`. */
+	valuesPastMax?: number;
 	codes?: number[];
 	times?: number;
 	around?: string;
@@ -41,6 +44,8 @@ const specs = z.array(AssistantFieldSpecSchema).parse(corpus.specs);
 // The phone sends each value trimmed.
 const typed = (vector: Typed): string | string[] => {
 	if (vector.values) return vector.values.map(trimRuleValue);
+	if (vector.valuesPastMax !== undefined)
+		return Array.from({ length: CONDITION_VALUES_MAX + vector.valuesPastMax }, (_, at) => `v${at}`);
 	const base = (vector.codes ? String.fromCodePoint(...vector.codes) : (vector.value ?? "")).repeat(
 		vector.times ?? 1,
 	);

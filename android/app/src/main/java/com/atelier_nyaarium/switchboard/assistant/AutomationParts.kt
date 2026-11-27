@@ -374,6 +374,7 @@ internal fun saidText(draft: AutomationDraft, at: SaidAt): String = when (at) {
 	is SaidAt.Card -> when (val step = draft.stepAt(at.key)) {
 		is StepDraft.Do -> (step.action as? ActionDraft.Filled)?.values?.get(at.param).orEmpty()
 		is StepDraft.If -> step.condition.takeIf { at.param == WHEN }.orEmpty()
+		is StepDraft.Switch -> step.subject.takeIf { at.param == SUBJECT }.orEmpty()
 		is StepDraft.Wait -> step.minutes.takeIf { at.param == MINUTES }.orEmpty()
 		is StepDraft.Call -> when (val value = step.values[at.param]) {
 			is CallValue.Typed -> value.text
@@ -394,7 +395,8 @@ private fun drawsField(draft: AutomationDraft, at: SaidAt, offer: AutomationOffe
 	is SaidAt.Card -> draft.runs !is RunsHead.Kept && when (val step = draft.stepAt(at.key)) {
 		is StepDraft.Do -> (step.action as? ActionDraft.Filled)?.let { card -> actionFields(card, offer).any { it.param?.name == at.param } } == true
 		is StepDraft.Call -> calleeParams(draft, offer, step.function).orEmpty().any { it.name == at.param }
-		is StepDraft.If, is StepDraft.Try, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept, null -> false
+		is StepDraft.If, is StepDraft.Try, is StepDraft.Switch, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept,
+		null -> false
 	}
 }
 

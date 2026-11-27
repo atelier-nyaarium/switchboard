@@ -29,14 +29,22 @@ import {
 	FUNCTION_UNREAD,
 	NAME_TAKEN,
 	NO_SWITCH,
-	TOO_WIDE,
 	UNPARSED_ALONE,
 } from "../gateway/computed/automationValidity.js";
 import { holesOver } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
+import { RUN_FRAMES_MAX, WALK_ENTRIES_MAX, widthOf } from "../shared/automation-walk.js";
 import { unknown } from "../shared/expressions.js";
 import { type AutomationInput, AutomationSchema, type AutomationTrigger } from "../shared/schemasAutomation.js";
-import { type AutomationFunctionInput, FunctionSchema, type StepArg } from "../shared/schemasFunction.js";
+import {
+	type AutomationFunctionInput,
+	FUNCTION_DEPTH_MAX,
+	FUNCTION_STEPS_TOTAL_MAX,
+	FunctionSchema,
+	FunctionStepsSchema,
+	RUN_STRANDS_MAX,
+	type StepArg,
+} from "../shared/schemasFunction.js";
 
 const REGISTRY = createConsoleRegistry([]);
 const roots: string[] = [];
@@ -1422,26 +1430,25 @@ describe("a tree of steps", () => {
 		]);
 	});
 
-	it("refuses a body nested past its depth or holding too many steps, and counts an else-if at its parent's depth", () => {
+	it("refuses a body nested past its depth or holding too many steps", () => {
 		const nest = (depth: number): AutomationFunctionInput["steps"] =>
 			depth === 0 ? [{ kind: "exit" }] : [{ kind: "if", when: "true", steps: nest(depth - 1) }];
-		const chain = (links: number): AutomationFunctionInput["steps"] =>
-			links === 0 ? [] : [{ kind: "if", when: "true", steps: [{ kind: "exit" }], else: chain(links - 1) }];
-		const elsePair = (depth: number): AutomationFunctionInput["steps"] =>
-			depth === 0
-				? [{ kind: "exit" }]
-				: [{ kind: "if", when: "true", else: [{ kind: "exit" }, ...elsePair(depth - 1)] }];
-		const wide = (lists: number): AutomationFunctionInput["steps"] =>
-			Array.from({ length: lists }, () => ({
-				kind: "if" as const,
-				when: "true",
-				steps: Array.from({ length: 8 }, () => ({ kind: "exit" as const })),
-			}));
+		// Only the total binds.
+		const wide = (total: number): AutomationFunctionInput["steps"] => [
+			{ kind: "if", when: "true", steps: Array.from({ length: total - 2 }, () => ({ kind: "exit" as const })) },
+			{ kind: "exit" },
+		];
 		const parses = (steps: AutomationFunctionInput["steps"]) =>
 			FunctionSchema.safeParse({ name: "Deep", params: [], steps }).success;
 
-		expect([nest(3), nest(4), wide(3), wide(4)].map(parses)).toEqual([true, false, true, false]);
-		expect([chain(8), elsePair(3), elsePair(4)].map(parses)).toEqual([true, true, false]);
+		expect(
+			[
+				nest(FUNCTION_DEPTH_MAX - 1),
+				nest(FUNCTION_DEPTH_MAX),
+				wide(FUNCTION_STEPS_TOTAL_MAX),
+				wide(FUNCTION_STEPS_TOTAL_MAX + 1),
+			].map(parses),
+		).toEqual([true, false, true, false]);
 	});
 });
 
@@ -1622,12 +1629,14 @@ describe("a function calling another", () => {
 		]);
 	});
 
-	it("refuses at the save a body that would enter more functions than one run may", () => {
+	it("refuses at the save a body one run could not walk to its end", () => {
 		const w = world();
 		held(w, "leaf", [ifttt("leaf")]);
 		inner(w, [toLeaf]);
-		const few = w.save(pointing(hourly), calls(7));
-		const many = w.save(pointing(hourly), calls(8), { automation: 1, function: 1 });
+		// Three steps a call.
+		const most = Math.floor(WALK_ENTRIES_MAX / 3);
+		const few = w.save(pointing(hourly), calls(most));
+		const many = w.save(pointing(hourly), calls(most + 1), { automation: 1, function: 1 });
 
 		expect([few.stored, many.stored]).toEqual([true, false]);
 	});
@@ -1635,15 +1644,20 @@ describe("a function calling another", () => {
 	it("fails the calls past what one run may enter, when edits behind a waiting run made its path longer", async () => {
 		const w = world();
 		held(w, "leaf", [ifttt("leaf")]);
+		held(w, "pad", [{ kind: "note", text: "pad" }]);
 		inner(w, [toLeaf]);
-		w.save(pointing(hourly), [{ kind: "wait", minutes: lit(5) }, ...calls(7)]);
+		// Frames per edited call.
+		const each = 51;
+		const entered = (RUN_FRAMES_MAX - 1) / each;
+		w.save(pointing(hourly), [{ kind: "wait", minutes: lit(5) }, ...calls(entered + 2)]);
 		await w.later(HOUR);
 		w.save(pointing(hourly), [passing], { automation: 1, function: 1 });
-		const longer = inner(w, [toLeaf, toLeaf], { automation: 1, function: 1 });
+		const pads = Array.from({ length: each - 2 }, () => call("pad", { room: expr("room") }));
+		const longer = inner(w, [toLeaf, ...pads], { automation: 1, function: 1 });
 		await w.later(5 * 60_000 + 1_000);
 
 		expect(longer.stored).toBe(true);
-		expect(w.effects).toEqual(Array.from({ length: 10 }, () => "ifttt:leaf"));
+		expect(w.effects).toEqual(Array.from({ length: entered }, () => "ifttt:leaf"));
 		expect(w.rows().filter(([, , reason]) => reason === TOO_MANY_CALLS).length).toBe(2);
 	});
 
@@ -1982,7 +1996,7 @@ describe("a restart", () => {
 			expect(w.effects).toEqual(["ifttt:after:5 yes yes"]);
 		});
 
-		it("saves an exit inside a task, a task kept under a name the function takes, and a body too wide, each as its error", () => {
+		it("saves an exit inside a task and a task kept under a name the function takes, each as its error, and counts a body's width", () => {
 			const many = Array.from({ length: 8 }, () => ifttt("x"));
 			/** Each save on a fresh store; its first issue's line. */
 			const said = (steps: Steps) => {
@@ -1998,13 +2012,17 @@ describe("a restart", () => {
 			expect([
 				said([start(undefined, { kind: "exit" })]),
 				said([start("room", ifttt("x"))]),
-				said([start(undefined, { kind: "parallel", steps: many }), ifttt("y")]),
-				// A catch starts beside what its try started.
-				said([tried, { kind: "parallel", steps: many.slice(0, 7) }]),
 				said([start("t", ifttt("x")), awaiting("all(t)", "done_t")]),
-				// An empty task runs nothing beside.
-				said([...many.slice(0, 7).map(() => start(undefined)), { kind: "parallel", steps: many.slice(0, 1) }]),
-			]).toEqual([EXIT_BESIDE, NAME_TAKEN, TOO_WIDE, TOO_WIDE, "stored", "stored"]);
+			]).toEqual([EXIT_BESIDE, NAME_TAKEN, "stored"]);
+			expect(
+				[
+					[start(undefined, { kind: "parallel", steps: many }), ifttt("y")],
+					// A catch starts beside what its try started.
+					[tried, { kind: "parallel", steps: many.slice(0, 7) }],
+					// An empty task runs nothing beside.
+					[...many.slice(0, 7).map(() => start(undefined)), { kind: "parallel", steps: many.slice(0, 1) }],
+				].map((steps) => widthOf(FunctionStepsSchema.parse(steps))),
+			).toEqual([9, 9, 1]);
 			expect(said([awaiting("nowhere")])).not.toBe("stored");
 		});
 
@@ -2119,14 +2137,12 @@ describe("a restart", () => {
 			]);
 		});
 
-		it("saves an exit beside running steps and a block wider than a run may hold, each as its error", () => {
+		it("saves an exit beside running steps as its error, and a block of blocks as it is", () => {
 			const leaves = world().saveOp(pointing(hourly), [block(ifttt("a"), lane({ kind: "exit" }))]);
 			const three = () => block(ifttt("a"), ifttt("b"), ifttt("c"));
-			const wide = world().saveOp(pointing(hourly), [block(three(), three(), three())]);
 			const fits = world().saveOp(pointing(hourly), [block(three(), three(), ifttt("d"), ifttt("e"))]);
 
 			expect(leaves).toMatchObject({ stored: true, issues: [{ level: "error", step: "0.0.1.0.0" }] });
-			expect(wide).toMatchObject({ stored: true, issues: [{ level: "error", step: "0" }] });
 			expect(fits).toMatchObject({ stored: true });
 			expect(fits).not.toHaveProperty("issues");
 		});
@@ -2160,29 +2176,40 @@ describe("a restart", () => {
 			]);
 		});
 
-		it("refuses a block that would pass a run's cap at its turn, which a save cannot see through a call", async () => {
+		it("refuses a block that would pass a run's cap at its turn, when edits behind a waiting run made it wider", async () => {
 			const w = world();
-			const waits = Array.from({ length: 5 }, () => ({ kind: "wait" as const, minutes: lit(1) }));
-			w.automations.save({
-				id: "h-wide",
-				body: { enabled: false, trigger: hourly, actions: [{ kind: "run_function", function: "wide" }] },
-				base: 0,
-				function: {
-					as: "edit",
-					id: "wide",
-					body: { name: "Wide", params: [], steps: [block(...waits)] },
-					base: 0,
-				},
-				confirmed: true,
-			});
+			const wait = (minutes: number) => ({ kind: "wait" as const, minutes: lit(minutes) });
+			const wide = (waits: number, bases: { automation: number; function: number }) =>
+				w.automations.save({
+					id: "h-wide",
+					body: { enabled: false, trigger: hourly, actions: [{ kind: "run_function", function: "wide" }] },
+					base: bases.automation,
+					function: {
+						as: "edit",
+						id: "wide",
+						body: {
+							name: "Wide",
+							params: [],
+							steps: [block(...Array.from({ length: waits }, () => wait(1)))],
+						},
+						base: bases.function,
+					},
+					confirmed: true,
+				});
+			wide(1, { automation: 0, function: 0 });
 			const saved = w.save(pointing(hourly), [
+				wait(5),
 				block({ kind: "call", function: "wide" }, { kind: "call", function: "wide" }),
 				ifttt("after"),
 			]);
 			await w.later(HOUR);
+			w.save(pointing(hourly), [ifttt("other")], { automation: 1, function: 1 });
+			// One fits, two pass.
+			const wider = wide(RUN_STRANDS_MAX / 2 + 1, { automation: 1, function: 1 });
+			await w.later(5 * 60_000 + 1_000);
 			await w.later(60_000);
 
-			expect(saved).toMatchObject({ stored: true });
+			expect([saved.stored, wider.stored]).toEqual([true, true]);
 			expect(w.rows().filter(([, , reason]) => reason === TOO_MANY_BESIDE)).toEqual([
 				["parallel", "refused", TOO_MANY_BESIDE],
 			]);

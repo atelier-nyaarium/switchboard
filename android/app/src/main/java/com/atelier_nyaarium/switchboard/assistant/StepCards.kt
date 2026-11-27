@@ -1,20 +1,27 @@
 package com.atelier_nyaarium.switchboard.assistant
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
@@ -28,7 +35,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.AutomationLastRun
@@ -63,11 +72,13 @@ internal fun CardsSection(
 	val valueNames = functionParams.filter { it.param.name.isNotBlank() }.map { it.key }.toSet()
 	val plugs = plugChoices(functionParams, offer)
 	val calleeParams = calleeParamsOf(draft, offer)
+	val fields = fieldsOf(draft, draft.context.sources)
 	val rows = cardsDraw(
 		draft.stepsOf(tree),
 		{ step -> cardIssueOf(step, issues) { cardHint(it, offer, valueNames, calleeParams) } },
 		lastRun,
 		pointing = draft.runs is RunsHead.Points,
+		choicesOf = { subject -> switchOptions(subject, fields) },
 	)
 	val flagged = issues?.functions.orEmpty()
 	val running = lastRun?.running == true
@@ -90,6 +101,10 @@ internal fun CardsSection(
 					)
 					is CardRow.AddSlot -> AddStep(slotOffers(draft, offer, row), enabled, nested = row.depth > 0, { freshAction(it, offer) }) { added ->
 						edit { held -> held.plusStep(row.slot, added, tree) }
+					}
+					is CardRow.Branch -> BranchRow(row, enabled, said, conditionRead, asked, edit)
+					is CardRow.AddBranch -> TextButton(onClick = hapticClick { edit { addedBranch(it, row) } }, enabled = enabled && !row.full) {
+						Text(addBranchText(row.kind))
 					}
 				}
 			}
@@ -138,13 +153,11 @@ private fun StepCard(
 			Column(Modifier.padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 				when (step) {
 					is StepDraft.Do -> ActionFields(key, step.action, offer, plugs, valueNames, enabled, said, textRead, asked, edit)
-					is StepDraft.If -> {
-						val refused = refusedHole(said, key, WHEN, step.condition)
-						val preview = conditionPreviewOf(step.condition, asked, conditionRead(step.condition))
-						ConditionField(step.condition, enabled, refused != null || preview is ConditionPreview.Refused) {
-							edit { it.copy(text = TextRef(key, WHEN)) }
-						}
-						ConditionPreviewBlock(step.condition, preview, refused)
+					is StepDraft.If -> if (!drawnAsChain(step)) ConditionBlock(step, "Condition", enabled, said, conditionRead, asked, edit)
+					is StepDraft.Switch -> {
+						val refused = refusedHole(said, key, SUBJECT, step.subject)
+						ConditionField(step.subject, "Subject", enabled, refused != null) { edit { it.copy(text = TextRef(key, SUBJECT)) } }
+						IssueLine(refused?.let { holeLine(step.subject, it.line, it.start, it.end) })
 					}
 					is StepDraft.Wait -> {
 						OutlinedTextField(
@@ -204,15 +217,156 @@ private fun MoveMenu(steps: List<StepDraft>, key: String, enabled: Boolean, onMo
 	}
 }
 
-/** Opens the condition editor. */
 @Composable
-private fun ConditionField(value: String, enabled: Boolean, refused: Boolean, onOpen: () -> Unit) {
+private fun ConditionBlock(
+	step: StepDraft.If,
+	label: String,
+	enabled: Boolean,
+	said: AutomationSaid?,
+	conditionRead: @Composable (String) -> PreviewRead,
+	asked: Boolean,
+	edit: ((AutomationDraft) -> AutomationDraft) -> Unit,
+) {
+	val refused = refusedHole(said, step.key, WHEN, step.condition)
+	val preview = conditionPreviewOf(step.condition, asked, conditionRead(step.condition))
+	ConditionField(step.condition, label, enabled, refused != null || preview is ConditionPreview.Refused) {
+		edit { it.copy(text = TextRef(step.key, WHEN)) }
+	}
+	ConditionPreviewBlock(step.condition, preview, refused)
+}
+
+@Composable
+private fun BranchRow(
+	row: CardRow.Branch,
+	enabled: Boolean,
+	said: AutomationSaid?,
+	conditionRead: @Composable (String) -> PreviewRead,
+	asked: Boolean,
+	edit: ((AutomationDraft) -> AutomationDraft) -> Unit,
+) {
+	val dim = MaterialTheme.colorScheme.onSurfaceVariant
+	Column(Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+		when (val label = row.label) {
+			is BranchLabel.Case -> {
+				BranchTitle("CASE", label.taken) {
+					IconButton(onClick = hapticClick { edit { it.withSwitch(row.parent) { held -> withoutCase(held, label.view.case.key) } } }, enabled = enabled) {
+						Icon(Icons.Default.Close, contentDescription = "Remove case")
+					}
+				}
+				CaseChips(label.view, enabled) { change -> edit { it.withSwitch(row.parent) { held -> change(held) } } }
+			}
+			is BranchLabel.Default -> {
+				BranchTitle("DEFAULT", label.taken)
+				Text(label.falls, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+			}
+			is BranchLabel.Link -> {
+				Row(verticalAlignment = Alignment.Top) {
+					Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+						ConditionBlock(label.step, "Expression", enabled, said, conditionRead, asked, edit)
+					}
+					if (!label.first) {
+						IconButton(onClick = hapticClick { edit { it.minusLink(label.step.key) } }, enabled = enabled) {
+							Icon(Icons.Default.Close, contentDescription = "Remove condition")
+						}
+					}
+				}
+				CardIssueLine(label.issue)
+				lastLineOf(label.step, label.last)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = dim) }
+			}
+			BranchLabel.Else -> BranchTitle("ELSE", taken = false)
+		}
+	}
+}
+
+@Composable
+private fun BranchTitle(text: String, taken: Boolean, end: @Composable () -> Unit = {}) {
+	Row(verticalAlignment = Alignment.CenterVertically) {
+		Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+		if (taken) Text("Last run", Modifier.padding(start = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+		Box(Modifier.weight(1f))
+		end()
+	}
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CaseChips(view: CaseView, enabled: Boolean, change: ((StepDraft.Switch) -> StepDraft.Switch?) -> Unit) {
+	val case = view.case.key
+	var typing by remember(case) { mutableStateOf(false) }
+	var picking by remember(case) { mutableStateOf(false) }
+	FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.Center) {
+		view.chips.forEachIndexed { at, chip ->
+			val tone = chip.issue?.let { if (drawsAsError(it.level)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline }
+			InputChip(
+				selected = false,
+				onClick = {},
+				enabled = enabled,
+				label = { Text(chip.label, maxLines = 1, color = tone ?: Color.Unspecified) },
+				border = tone?.let { BorderStroke(1.dp, it) },
+				trailingIcon = {
+					IconButton(onClick = hapticClick { change { held -> withoutCaseValue(held, case, at) } }, enabled = enabled) {
+						Icon(Icons.Default.Close, contentDescription = "Remove ${chip.label}")
+					}
+				},
+			)
+		}
+		when (val add = view.add) {
+			CaseAdd.Full -> Unit
+			CaseAdd.Type -> AssistChip(onClick = hapticClick { typing = true }, label = { Text("+") }, enabled = enabled)
+			is CaseAdd.Pick -> Box {
+				AssistChip(onClick = hapticClick { picking = true }, label = { Text("+") }, enabled = enabled)
+				DropdownMenu(expanded = picking, onDismissRequest = { picking = false }) {
+					for (option in add.options) {
+						DropdownMenuItem(
+							text = { Text(option.label) },
+							onClick = hapticClick {
+								picking = false
+								change { held -> withCaseValue(held, case, option.value) }
+							},
+						)
+					}
+				}
+			}
+		}
+	}
+	if (typing && view.add == CaseAdd.Type) CaseValueEntry(enabled, onDone = { typing = false }) { value -> change { held -> withCaseValue(held, case, value) } }
+	for (chip in view.chips) CardIssueLine(chip.issue)
+	CardIssueLine(view.issue)
+}
+
+@Composable
+private fun CaseValueEntry(enabled: Boolean, onDone: () -> Unit, onAdd: (String) -> Unit) {
+	var typed by remember { mutableStateOf("") }
+	val value = caseValueOf(typed)
+	val add = {
+		value?.let(onAdd)
+		typed = ""
+		onDone()
+	}
+	Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+		OutlinedTextField(
+			value = typed,
+			onValueChange = { typed = it },
+			label = { Text("Value") },
+			singleLine = true,
+			keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+			keyboardActions = KeyboardActions(onDone = { add() }),
+			enabled = enabled,
+			modifier = Modifier.weight(1f),
+		)
+		TextButton(onClick = hapticClick(add), enabled = enabled && value != null) { Text("Add") }
+	}
+}
+
+/** Opens its expression editor. */
+@Composable
+private fun ConditionField(value: String, label: String, enabled: Boolean, refused: Boolean, onOpen: () -> Unit) {
 	Box {
 		OutlinedTextField(
 			value = value,
 			onValueChange = {},
 			readOnly = true,
-			label = { Text("Condition") },
+			label = { Text(label) },
 			singleLine = true,
 			enabled = enabled,
 			isError = refused,

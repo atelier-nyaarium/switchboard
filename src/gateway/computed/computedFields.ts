@@ -20,8 +20,8 @@ import {
 import { inRange, roundTo, UNIT_CODES } from "../../shared/field-types.js";
 import { createOwnerRecords, type OwnerIssue, type OwnerRecord } from "../ownerRecords.js";
 
-export const COMPUTED_FIELDS_MAX = 64;
-export const COMPUTED_DEPTH_MAX = 4;
+export const COMPUTED_FIELDS_MAX = 256;
+export const COMPUTED_DEPTH_MAX = 256;
 export const COMPUTED_KIND = "computed_field";
 /** Transitions kept per field. */
 export const CHANGES_MAX = 16;

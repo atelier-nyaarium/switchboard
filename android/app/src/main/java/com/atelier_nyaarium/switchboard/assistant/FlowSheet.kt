@@ -61,7 +61,7 @@ internal fun flowSheet(graph: FlowGraph, facts: FlowFactsMap, rows: List<Automat
 			},
 		)
 		is FlowKey.Source, is FlowKey.Sensor, is FlowKey.Field, FlowKey.Clock, is FlowKey.Trigger,
-		is FlowKey.Switch, is FlowKey.Named, FlowKey.Assistant, FlowKey.Ifttt, is FlowKey.Other -> FlowSheet.OfThing(
+		is FlowKey.Plug, is FlowKey.Named, FlowKey.Assistant, FlowKey.Ifttt, is FlowKey.Other -> FlowSheet.OfThing(
 			label = node.label,
 			touches = graph.lines.indices
 				.filter { graph.lines[it].from == key || graph.lines[it].to == key }

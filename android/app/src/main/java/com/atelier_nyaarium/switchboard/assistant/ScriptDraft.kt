@@ -13,7 +13,9 @@ import com.atelier_nyaarium.switchboard.proto.ScriptIssue
 import com.atelier_nyaarium.switchboard.proto.ScriptName
 import com.atelier_nyaarium.switchboard.proto.ScriptStatement
 import com.atelier_nyaarium.switchboard.proto.ScriptType
+import com.atelier_nyaarium.switchboard.liveconsole.ConsoleTokenKind
 import com.atelier_nyaarium.switchboard.liveconsole.VariableShape
+import com.atelier_nyaarium.switchboard.liveconsole.lexScript
 
 internal data class ScriptEdit(
 	val text: String,
@@ -243,13 +245,48 @@ internal data class ScriptLine(
 	val said: String?,
 )
 
+private val CASE_WORDS = setOf("case", "default")
+
+/** Line offsets. */
+private fun lineBounds(text: String): List<Pair<Int, Int>> {
+	var start = 0
+	return text.split("\n").map { line -> (start to start + line.length).also { start += line.length + 1 } }
+}
+
+/** Where case lines begin. */
+private fun caseStarts(text: String): List<Int> {
+	val tokens = lexScript(text).filter { it.kind != ConsoleTokenKind.COMMENT }
+	return tokens.filterIndexed { at, token ->
+		token.kind == ConsoleTokenKind.IDENT && token.text in CASE_WORDS && (at == 0 || tokens[at - 1].kind == ConsoleTokenKind.NEWLINE)
+	}.map { it.start }
+}
+
+/** Case lines by switch. */
+private fun caseHeads(text: String, bounds: List<Pair<Int, Int>>, statements: List<ScriptStatement>): Map<Int, Pair<ScriptStatement, Int>> {
+	val counts = mutableMapOf<ScriptStatement, Int>()
+	val starts = caseStarts(text)
+	return bounds.withIndex().mapNotNull { (at, bound) ->
+		val (start, end) = bound
+		if (starts.none { it in start..end }) return@mapNotNull null
+		val owner = statements.filter { it.start.toInt() <= start && it.end.toInt() >= end }.maxByOrNull { it.start } ?: return@mapNotNull null
+		val number = counts.getOrDefault(owner, 0)
+		counts[owner] = number + 1
+		at to (owner to number)
+	}.toMap()
+}
+
 internal fun scriptLines(text: String, statements: List<ScriptStatement>, lastRun: AutomationLastRun?, pointing: Boolean): List<ScriptLine> {
 	val last = lastRun?.steps.orEmpty().associateBy { it.path }
 	val now = if (lastRun?.running == true) listOfNotNull(lastRun.active).toSet() + lastRun.beside.orEmpty() else emptySet()
-	var start = 0
-	return text.split("\n").map { line ->
-		val end = start + line.length
+	val bounds = lineBounds(text)
+	val heads = caseHeads(text, bounds, statements)
+	return bounds.mapIndexed { at, (start, end) ->
 		val opened = statements.firstOrNull { it.start.toInt() in start..end }
+		val head = heads[at]?.takeIf { opened == null }
+		val taken = head?.let { (owner, _) -> last[runPathOf(owner.step, pointing)]?.case }
+		if (lastRun != null && head != null && taken != null) {
+			return@mapIndexed ScriptLine(start, end, if (taken.toInt() == head.second) LineMark.RAN else LineMark.UNREACHED, null)
+		}
 		val run = opened?.let { runPathOf(it.step, pointing) }
 		val step = run?.let { last[it] }
 		val mark = when {
@@ -263,7 +300,7 @@ internal fun scriptLines(text: String, statements: List<ScriptStatement>, lastRu
 				Protocol.Wire.RunOutcome.UNCERTAIN, Protocol.Wire.RunOutcome.SUPPRESSED -> LineMark.NOT_CLEAN
 			}
 		}
-		ScriptLine(start, end, mark, step?.reason?.takeIf { mark == LineMark.FAILED }).also { start = end + 1 }
+		ScriptLine(start, end, mark, step?.reason?.takeIf { mark == LineMark.FAILED })
 	}
 }
 

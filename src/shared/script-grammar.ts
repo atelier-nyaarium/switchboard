@@ -5,7 +5,7 @@ import {
 	type ConsoleToken,
 	lexScript,
 } from "./live-console-grammar.js";
-import { SCRIPT_SOURCE_MAX } from "./schemasFunction.js";
+import { FUNCTION_DEPTH_MAX, SCRIPT_SOURCE_MAX } from "./schemasFunction.js";
 
 export const SCRIPT_RESERVED = [
 	"if",
@@ -26,7 +26,7 @@ export const SCRIPT_RESERVED = [
 ] as const;
 export type ScriptWord = (typeof SCRIPT_RESERVED)[number];
 
-export const SCRIPT_BLOCKS_MAX = 16;
+export const SCRIPT_BLOCKS_MAX = FUNCTION_DEPTH_MAX;
 export const SCRIPT_STATEMENT_NODES_MAX = 4_096;
 
 const RESERVED = new Set<string>(SCRIPT_RESERVED);

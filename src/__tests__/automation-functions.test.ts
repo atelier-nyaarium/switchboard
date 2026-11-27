@@ -16,6 +16,7 @@ import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import type { OwnerRecord } from "../gateway/ownerRecords.js";
 import { unknown } from "../shared/expressions.js";
 import {
+	AUTOMATIONS_MAX,
 	type Automation,
 	type AutomationInput,
 	AutomationSchema,
@@ -26,7 +27,12 @@ import {
 	type AutomationSaveRefusalCode,
 	SAVE_LINE_MAX,
 } from "../shared/schemasAutomationSave.js";
-import { type AutomationFunctionInput, FunctionSchema, type StepArg } from "../shared/schemasFunction.js";
+import {
+	type AutomationFunctionInput,
+	FUNCTIONS_MAX,
+	FunctionSchema,
+	type StepArg,
+} from "../shared/schemasFunction.js";
 
 const REGISTRY = createConsoleRegistry([
 	{ name: "sensors", description: "Paired sensors.", audiences: ["host", "owner"], members: {} },
@@ -926,13 +932,17 @@ describe("an automation that runs a function", () => {
 	it("names each store refusal by its own code: the total cap, a kind's cap, and a row a newer build holds", () => {
 		const row = (id: string, kind: string, body: object) => ({ id, kind, revision: 1, incarnation: id, body });
 		const flat = { enabled: true, trigger: hourly, actions: [{ kind: "tell_assistant", when: "now" }] };
-		const atTotal = open(
-			true,
-			Array.from({ length: 64 }, (_, at) => row(`f${at}`, "automation", flat)),
-		);
+		const automations = (count: number) =>
+			Array.from({ length: count }, (_, at) => row(`f${at}`, "automation", flat));
+		// Unknown kind: total only.
+		const atTotal = open(true, [
+			...automations(AUTOMATIONS_MAX - 1),
+			...Array.from({ length: FUNCTIONS_MAX + 1 }, (_, at) => row(`n${at}`, "geofence", {})),
+		]);
+		const atAutomations = open(true, automations(AUTOMATIONS_MAX));
 		const atFunctions = open(
 			true,
-			Array.from({ length: 32 }, (_, at) => row(`fn${at}`, "function", fn([tell]))),
+			Array.from({ length: FUNCTIONS_MAX }, (_, at) => row(`fn${at}`, "function", fn([tell]))),
 		);
 		const newer = open(true, [
 			row("later", "automation", { enabled: true, trigger: { kind: "geofence" }, actions: [] }),
@@ -940,6 +950,7 @@ describe("an automation that runs a function", () => {
 
 		expect([
 			refusalOf(atTotal.save("one-more", flat as AutomationInput, 0)),
+			refusalOf(atAutomations.save("one-more", flat as AutomationInput, 0)),
 			refusalOf(
 				atFunctions.save("a", pointing(hourly, "fresh"), 0, {
 					as: "edit",
@@ -950,17 +961,17 @@ describe("an automation that runs a function", () => {
 			),
 			refusalOf(newer.save("later", flat as AutomationInput, 0)),
 		]).toEqual([
-			{ code: "full", max: 64 },
-			{ code: "full", kind: "function", max: 32 },
+			{ code: "full", max: AUTOMATIONS_MAX + FUNCTIONS_MAX },
+			{ code: "full", kind: "automation", max: AUTOMATIONS_MAX },
+			{ code: "full", kind: "function", max: FUNCTIONS_MAX },
 			{ code: "newer_automation", id: "later" },
 		]);
 	});
 
 	it("repoints to a new function at the cap, the old one's removal making the room", () => {
 		const row = (id: string, kind: string, body: object) => ({ id, kind, revision: 1, incarnation: id, body });
-		const flat = { enabled: true, trigger: hourly, actions: [{ kind: "tell_assistant", when: "now" }] };
 		const { save, functions } = open(true, [
-			...Array.from({ length: 62 }, (_, at) => row(`f${at}`, "automation", flat)),
+			...Array.from({ length: FUNCTIONS_MAX - 1 }, (_, at) => row(`g${at}`, "function", fn([tell]))),
 			row("old", "function", fn([tell])),
 			row("x", "automation", pointing(hourly, "old")),
 		]);
@@ -968,7 +979,7 @@ describe("an automation that runs a function", () => {
 		const moved = save("x", pointing(hourly, "new"), 1, { as: "edit", id: "new", body: fn([tell]), base: 0 });
 
 		expect(moved.stored).toBe(true);
-		expect(functions()).toEqual(["new"]);
+		expect(functions().filter((id) => !id.startsWith("g"))).toEqual(["new"]);
 	});
 
 	it("names a copy under the Gateway's key, the same for a retried save and another for another automation", () => {

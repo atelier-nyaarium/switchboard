@@ -30,6 +30,7 @@ import com.atelier_nyaarium.switchboard.proto.AutomationLastStep
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.FunctionParam
 import com.atelier_nyaarium.switchboard.proto.FunctionStep
+import com.atelier_nyaarium.switchboard.proto.SwitchCase
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -94,18 +95,18 @@ class FlowMapTest {
 			listOf(
 				Triple(FlowKey.Sensor(SANDBOX_SENSOR), FlowKey.Automation("mine"), mapOf("mine" to emptySet<String>())),
 				Triple(FlowKey.Automation("mine"), FlowKey.Function("warm"), mapOf("mine" to setOf("0"))),
-				Triple(FlowKey.Function("warm"), FlowKey.Switch("plug-a"), mapOf("mine" to setOf("0.0"))),
+				Triple(FlowKey.Function("warm"), FlowKey.Plug("plug-a"), mapOf("mine" to setOf("0.0"))),
 				Triple(FlowKey.Function("warm"), FlowKey.Function("blink"), mapOf("mine" to setOf("0.1"), "downstairs" to setOf("0.1"))),
-				Triple(FlowKey.Function("blink"), FlowKey.Switch(SANDBOX_SWITCH), mapOf("mine" to setOf("0.1.0"), "downstairs" to setOf("0.1.0"))),
+				Triple(FlowKey.Function("blink"), FlowKey.Plug(SANDBOX_SWITCH), mapOf("mine" to setOf("0.1.0"), "downstairs" to setOf("0.1.0"))),
 				Triple(FlowKey.Sensor(SANDBOX_SENSOR), FlowKey.Automation("downstairs"), mapOf("downstairs" to emptySet())),
 				Triple(FlowKey.Automation("downstairs"), FlowKey.Function("warm"), mapOf("downstairs" to setOf("0"))),
-				Triple(FlowKey.Function("warm"), FlowKey.Switch("plug-b"), mapOf("downstairs" to setOf("0.0"))),
+				Triple(FlowKey.Function("warm"), FlowKey.Plug("plug-b"), mapOf("downstairs" to setOf("0.0"))),
 				Triple(FlowKey.Sensor(SANDBOX_SENSOR), FlowKey.Automation("lost"), mapOf("lost" to emptySet())),
 			),
 			shape,
 		)
 		assertEquals(listOf(FlowNote.Unfollowed("unread", Unfollowed.MISSING)), graph.node(FlowKey.Automation("lost"))?.notes)
-		assertEquals("Heater", graph.node(FlowKey.Switch("plug-a"))?.label)
+		assertEquals("Heater", graph.node(FlowKey.Plug("plug-a"))?.label)
 		assertEquals(mapOf("warm" to 0, "blink" to 1), functionDepths(graph))
 		val layout = flowLayout(graph, { it.label.length * 7f }, 360f)
 		val y = { key: FlowKey -> layout.boxes.getValue(key).center.y }
@@ -114,7 +115,7 @@ class FlowMapTest {
 			listOf(
 				y(FlowKey.Sensor(SANDBOX_SENSOR)) < y(FlowKey.Automation("mine")),
 				y(FlowKey.Function("warm")) < y(FlowKey.Function("blink")),
-				y(FlowKey.Function("blink")) < y(FlowKey.Switch(SANDBOX_SWITCH)),
+				y(FlowKey.Function("blink")) < y(FlowKey.Plug(SANDBOX_SWITCH)),
 			),
 		)
 	}
@@ -152,15 +153,15 @@ class FlowMapTest {
 		val caughtAbove = graph.lines.withIndex().single { (_, line) -> line.from == FlowKey.Function("bare") && "wrapped" in line.steps }.index
 		assertEquals(FlowWeight.THIN, weightOf(flowFacts(graph, flowRuns(rows + wrapped), prefer = "wrapped").lines[caughtAbove]))
 
-		assertEquals(Triple(FlowColour.RED, FlowPattern.SOLID, FlowWeight.THIN), lineStyle(FlowKey.Function("guarded"), FlowKey.Switch(SANDBOX_SWITCH), false))
+		assertEquals(Triple(FlowColour.RED, FlowPattern.SOLID, FlowWeight.THIN), lineStyle(FlowKey.Function("guarded"), FlowKey.Plug(SANDBOX_SWITCH), false))
 		assertEquals(true, facts.lines[graph.line(FlowKey.Function("guarded"), FlowKey.Assistant, true)].onFailure)
 		assertEquals(FlowColour.OK, colourOf(facts.nodes.getValue(FlowKey.Automation("caught"))))
-		assertEquals(Triple(FlowColour.RED, FlowPattern.SOLID, FlowWeight.THICK), lineStyle(FlowKey.Function("bare"), FlowKey.Switch(SANDBOX_SWITCH), false))
+		assertEquals(Triple(FlowColour.RED, FlowPattern.SOLID, FlowWeight.THICK), lineStyle(FlowKey.Function("bare"), FlowKey.Plug(SANDBOX_SWITCH), false))
 		assertEquals(Triple(FlowColour.RED, FlowPattern.SOLID, FlowWeight.THIN), lineStyle(FlowKey.Automation("loose"), FlowKey.Function("bare"), false))
 		assertEquals(FlowColour.RED, colourOf(facts.nodes.getValue(FlowKey.Automation("loose"))))
 		assertEquals(FlowColour.OK, colourOf(facts.lines[graph.line(FlowKey.Sensor(SANDBOX_SENSOR), FlowKey.Automation("loose"))]))
 		// The newest act on the lamp is the loose one's.
-		assertEquals(FlowColour.RED, colourOf(facts.nodes.getValue(FlowKey.Switch(SANDBOX_SWITCH))))
+		assertEquals(FlowColour.RED, colourOf(facts.nodes.getValue(FlowKey.Plug(SANDBOX_SWITCH))))
 	}
 
 	@Test
@@ -183,14 +184,14 @@ class FlowMapTest {
 
 		assertEquals(
 			Triple(FlowColour.AMBER, FlowPattern.MOVING_DASH, FlowWeight.THIN),
-			styles(facts.lines[graph.line(FlowKey.Automation("busy"), FlowKey.Switch(SANDBOX_SWITCH))]),
+			styles(facts.lines[graph.line(FlowKey.Automation("busy"), FlowKey.Plug(SANDBOX_SWITCH))]),
 		)
 		assertEquals(FlowPattern.MOVING_DASH, patternOf(facts.nodes.getValue(FlowKey.Automation("busy"))))
 		assertEquals(
 			listOf(FlowPattern.DOTS, FlowPattern.DOTS),
 			listOf(
 				patternOf(facts.nodes.getValue(FlowKey.Automation("off"))),
-				patternOf(facts.lines[graph.line(FlowKey.Automation("off"), FlowKey.Switch("plug-a"))]),
+				patternOf(facts.lines[graph.line(FlowKey.Automation("off"), FlowKey.Plug("plug-a"))]),
 			),
 		)
 		assertEquals(
@@ -222,13 +223,43 @@ class FlowMapTest {
 		val chosen = flowFacts(graph, flowRuns(rows), prefer = "mine")
 
 		assertEquals(listOf(FlowColour.RED, FlowColour.OK), listOf(colourOf(newest.lines[call]), colourOf(chosen.lines[call])))
-		val lamp = FlowKey.Switch(SANDBOX_SWITCH)
+		val lamp = FlowKey.Plug(SANDBOX_SWITCH)
 		assertEquals(listOf(FlowColour.RED, FlowColour.OK), listOf(colourOf(newest.nodes.getValue(lamp)), colourOf(chosen.nodes.getValue(lamp))))
 		assertEquals(
-			setOf(FlowKey.Switch("plug-a")),
-			flowReach(graph, FlowKey.Automation("mine")).map(FlowLine::to).filterIsInstance<FlowKey.Switch>().filter { it.device.startsWith("plug") }.toSet(),
+			setOf(FlowKey.Plug("plug-a")),
+			flowReach(graph, FlowKey.Automation("mine")).map(FlowLine::to).filterIsInstance<FlowKey.Plug>().filter { it.device.startsWith("plug") }.toSet(),
 		)
-		assertEquals(true, flowReach(graph, FlowKey.Automation("mine")).none { it.act == FlowAct.ACTS && it.to == FlowKey.Switch("plug-b") })
+		assertEquals(true, flowReach(graph, FlowKey.Automation("mine")).none { it.act == FlowAct.ACTS && it.to == FlowKey.Plug("plug-b") })
+	}
+
+	@Test
+	fun `a switch draws a line per case, shared by every automation that reaches its function`() {
+		val routed = functionRow(
+			"routed",
+			"Routed",
+			listOf("mine", "downstairs"),
+			steps = listOf(
+				FunctionStep.Switch(
+					subject = "event.reason",
+					cases = listOf(SwitchCase(listOf("mention", "assign"), listOf(plugStep("on"))), SwitchCase(listOf("review"), listOf(plugStep("off")))),
+					default = listOf(plugStep("on"), tell),
+				),
+			),
+		)
+		val rows = listOf(automationRow("mine", "Mine", listOf(point("routed", null))), automationRow("downstairs", "Downstairs", listOf(point("routed", null))))
+		val graph = flowGraph(input(rows).copy(functions = listOf(routed)))
+		val acts = graph.lines.filter { it.act == FlowAct.ACTS }
+
+		assertEquals(
+			listOf(
+				Triple(FlowKey.Plug(SANDBOX_SWITCH), "mention, assign", mapOf("mine" to setOf("0.0.0.0"), "downstairs" to setOf("0.0.0.0"))),
+				Triple(FlowKey.Plug(SANDBOX_SWITCH), "review", mapOf("mine" to setOf("0.0.1.0"), "downstairs" to setOf("0.0.1.0"))),
+				Triple(FlowKey.Plug(SANDBOX_SWITCH), "default", mapOf("mine" to setOf("0.0.2.0"), "downstairs" to setOf("0.0.2.0"))),
+				Triple(FlowKey.Assistant, "default", mapOf("mine" to setOf("0.0.2.1"), "downstairs" to setOf("0.0.2.1"))),
+			),
+			acts.map { Triple(it.to, it.case?.label, it.steps) },
+		)
+		assertEquals(true, acts.all { it.from == FlowKey.Function("routed") })
 	}
 
 	@Test
@@ -245,7 +276,7 @@ class FlowMapTest {
 		)
 		val graph = flowGraph(input(rows))
 		val facts = flowFacts(graph, flowRuns(rows))
-		val lamp = FlowKey.Switch(SANDBOX_SWITCH)
+		val lamp = FlowKey.Plug(SANDBOX_SWITCH)
 
 		assertEquals(FlowColour.RED, colourOf(facts.nodes.getValue(lamp)))
 		val sheet = flowSheet(graph, facts, rows, lamp) as com.atelier_nyaarium.switchboard.assistant.FlowSheet.OfThing

@@ -9,7 +9,7 @@ import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import type { ConsoleOp } from "../shared/console-protocol.js";
 import { unknown } from "../shared/expressions.js";
 import { type AutomationInput, AutomationSchema, type AutomationTrigger } from "../shared/schemasAutomation.js";
-import { type AutomationFunctionInput, FunctionSchema } from "../shared/schemasFunction.js";
+import { type AutomationFunctionInput, FUNCTIONS_MAX, FunctionSchema } from "../shared/schemasFunction.js";
 
 const REGISTRY = createConsoleRegistry([]);
 const roots: string[] = [];
@@ -132,7 +132,7 @@ describe("the automation save op", () => {
 		expect(listed.functions).toEqual([second.function, chime.function]);
 		expect(listed.automations.map((row) => row.id)).toEqual(["warm", "ring", "clock"]);
 		expect(listed.serves.functions).toEqual({
-			max: 32,
+			max: FUNCTIONS_MAX,
 			steps: ["tell_assistant", "device_set", "ifttt_trigger"],
 			statements: [
 				"do",

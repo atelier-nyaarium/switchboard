@@ -53,6 +53,7 @@ import {
 } from "../../shared/schemasAutomationSave.js";
 import {
 	type AutomationFunction,
+	FRAME_VARS_MAX,
 	FUNCTIONS_MAX,
 	type FunctionParam,
 	FunctionSchema,
@@ -78,7 +79,6 @@ import {
 	type Fire,
 	type FireNames,
 	FRAME_VAR_BYTES_MAX,
-	FRAME_VARS_MAX,
 	type Frame,
 	finished,
 	frameKey,
@@ -340,8 +340,8 @@ export function createAutomations(deps: AutomationsDeps) {
 	const store = createOwnerRecords<StoredBody>({
 		store: deps.records,
 		kinds: { [AUTOMATION_KIND]: AutomationSchema, [FUNCTION_KIND]: FunctionSchema },
-		max: AUTOMATIONS_MAX,
-		maxByKind: { [FUNCTION_KIND]: FUNCTIONS_MAX },
+		max: AUTOMATIONS_MAX + FUNCTIONS_MAX,
+		maxByKind: { [AUTOMATION_KIND]: AUTOMATIONS_MAX, [FUNCTION_KIND]: FUNCTIONS_MAX },
 		newIncarnation: deps.newIncarnation,
 		refusal: (candidate, others) => {
 			if (isFunctionRecord(candidate)) return functionIssue(candidate.body);

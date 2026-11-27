@@ -85,7 +85,7 @@ export const AUTOMATION_ISSUE_LEVELS = [
 ] as const;
 export type AutomationIssueLevel = (typeof AUTOMATION_ISSUE_LEVELS)[number];
 
-export const AUTOMATION_ISSUES_MAX = 64;
+export const AUTOMATION_ISSUES_MAX = 256;
 
 export const AutomationIssueSchema = z
 	.object({

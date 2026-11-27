@@ -276,6 +276,8 @@ import {
 	STEP_ARGS_MAX,
 	STEP_TEXT_MAX,
 	StepArgSchema,
+	SWITCH_CASE_VALUES_MAX,
+	SWITCH_CASES_MAX,
 	WAIT_MINUTES_MAX,
 } from "../src/shared/schemasFunction.js";
 import { RowRecipientSchema, RowStampSchema } from "../src/shared/schemasInbox.js";
@@ -1385,6 +1387,8 @@ const wireConstants: ReadonlyArray<readonly [string, string | number]> = [
 	["FUNCTION_PARAM_NAME_MAX", PARAM_NAME_MAX],
 	["STEP_ARGS_MAX", STEP_ARGS_MAX],
 	["STEP_TEXT_MAX", STEP_TEXT_MAX],
+	["SWITCH_CASES_MAX", SWITCH_CASES_MAX],
+	["SWITCH_CASE_VALUES_MAX", SWITCH_CASE_VALUES_MAX],
 	["SCRIPT_SOURCE_MAX", SCRIPT_SOURCE_MAX],
 	["WAIT_MINUTES_MAX", WAIT_MINUTES_MAX],
 	["RUN_NAMES_MAX", RUN_NAMES_MAX],

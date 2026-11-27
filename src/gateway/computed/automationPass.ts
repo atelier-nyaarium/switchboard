@@ -2,13 +2,12 @@
 
 import { below, byPath, caseSide, type RunFunction, within } from "../../shared/automation-walk.js";
 import { AUTOMATION_ACTIONS, type Automation, type AutomationAction } from "../../shared/schemasAutomation.js";
-import { RUN_STRANDS_MAX } from "../../shared/schemasFunction.js";
+import { FRAME_VARS_MAX, RUN_STRANDS_MAX } from "../../shared/schemasFunction.js";
 import { keptOf } from "../../shared/task-values.js";
 import {
 	claim,
 	claimedPaths,
 	type Fire,
-	FRAME_VARS_MAX,
 	type Frame,
 	finished,
 	holdsClaim,

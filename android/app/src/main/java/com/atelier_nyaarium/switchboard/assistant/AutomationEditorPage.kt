@@ -156,7 +156,8 @@ internal fun AutomationEditorPage(
 	val textOf = ref?.let { textParam(draft, it, offer) }
 	val shownText = ref?.let { textAt(draft, it, offer) }
 	val shownCondition = ref?.let { conditionAt(draft, it) }
-	if (ref != null && (shownCondition != null || (textOf != null && shownText != null))) {
+	val shownSubject = ref?.let { subjectAt(draft, it) }
+	if (ref != null && (shownCondition != null || shownSubject != null || (textOf != null && shownText != null))) {
 		val consoles by repo.liveConsoleOps.state.collectAsState()
 		val console = consoles[gatewayId]
 		LaunchedEffect(gatewayId) { repo.command { liveConsoleOps.open(gatewayId) } }
@@ -182,6 +183,25 @@ internal fun AutomationEditorPage(
 				onChange = { text -> edit { it.withStep(ref.key) { held -> (held as? StepDraft.If)?.copy(condition = text) ?: held } } },
 				onBack = { edit { it.copy(text = null) } },
 			) { text -> ConditionPreviewBlock(text, preview, refused) }
+			return
+		}
+		if (shownSubject != null) {
+			val here = names + runNamesHere(cards, ref.key)
+			val refused = refusedHole(said, ref.key, SUBJECT, shownSubject)
+			HoleTextEditor(
+				title = "Subject",
+				value = shownSubject,
+				max = Protocol.Wire.STEP_TEXT_MAX,
+				names = here,
+				mode = TextMode.EXPRESSION,
+				issueOf = { text -> subjectSpan(text, refused) },
+				description = console?.description,
+				ids = console?.ids,
+				shapes = nameShapes(here, fields.fields),
+				enabled = can.edit,
+				onChange = { text -> edit { it.withSwitch(ref.key) { held -> held.copy(subject = text) } } },
+				onBack = { edit { it.copy(text = null) } },
+			) { text -> IssueLine(refused?.let { holeLine(text, it.line, it.start, it.end) }) }
 			return
 		}
 		if (textOf != null && shownText != null) {

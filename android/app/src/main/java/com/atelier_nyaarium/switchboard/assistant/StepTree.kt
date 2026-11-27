@@ -6,6 +6,7 @@ import com.atelier_nyaarium.switchboard.proto.FunctionStep
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.FunctionParamType
 import com.atelier_nyaarium.switchboard.proto.StepArg
+import com.atelier_nyaarium.switchboard.proto.SwitchCase
 import com.atelier_nyaarium.switchboard.runIsolated
 import com.atelier_nyaarium.switchboard.wireJson
 import kotlinx.serialization.json.JsonObject
@@ -29,6 +30,14 @@ internal sealed interface StepDraft {
 
 	data class Try(override val key: String, val body: List<StepDraft>, val catch: List<StepDraft>) : StepDraft
 
+	data class Switch(
+		override val key: String,
+		/** One expression, as typed. */
+		val subject: String,
+		val cases: List<CaseDraft>,
+		val default: List<StepDraft>,
+	) : StepDraft
+
 	/** Minutes as typed. */
 	data class Wait(override val key: String, val minutes: String) : StepDraft
 
@@ -42,6 +51,9 @@ internal sealed interface StepDraft {
 	/** What cards do not draw, written back as it was read. */
 	data class Kept(override val key: String, val step: FunctionStep) : StepDraft
 }
+
+/** Key minted once. */
+internal data class CaseDraft(val key: String, val values: List<String>, val steps: List<StepDraft>)
 
 /** Null when unknown. */
 internal typealias CalleeParams = (String) -> List<FunctionParam>?
@@ -64,6 +76,8 @@ internal val STEPS_DEPTH = Protocol.Wire.FUNCTION_DEPTH_MAX
 internal fun sidesOf(step: StepDraft): List<Pair<Side, List<StepDraft>>> = when (step) {
 	is StepDraft.If -> listOf(Side.Then to step.then, Side.Else to step.otherwise)
 	is StepDraft.Try -> listOf(Side.Body to step.body, Side.Catch to step.catch)
+	is StepDraft.Switch ->
+		step.cases.mapIndexed { at, held -> Side.Case(at) to held.steps } + (Side.Default(step.cases.size) to step.default)
 	is StepDraft.Do, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Call, is StepDraft.Kept -> emptyList()
 }
 
@@ -77,6 +91,11 @@ private fun withSide(step: StepDraft, side: Side, list: List<StepDraft>): StepDr
 		Side.Body -> step.copy(body = list)
 		Side.Catch -> step.copy(catch = list)
 		Side.Then, Side.Else, is Side.Case, is Side.Default -> step
+	}
+	is StepDraft.Switch -> when (side) {
+		is Side.Case -> step.copy(cases = step.cases.mapIndexed { at, held -> if (at == side.index) held.copy(steps = list) else held })
+		is Side.Default -> step.copy(default = list)
+		Side.Then, Side.Else, Side.Body, Side.Catch -> step
 	}
 	is StepDraft.Do, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Call, is StepDraft.Kept -> step
 }
@@ -94,6 +113,24 @@ internal fun findStep(steps: List<StepDraft>, key: String): StepDraft? = everySt
 /** An `if` alone in an else. */
 private fun chained(step: StepDraft, side: Side, list: List<StepDraft>): Boolean =
 	step is StepDraft.If && side == Side.Else && list.singleOrNull() is StepDraft.If
+
+/** Else-if links, in order. */
+internal fun chainOf(step: StepDraft.If): List<StepDraft.If> =
+	generateSequence(step) { it.otherwise.singleOrNull() as? StepDraft.If }.toList()
+
+/** Null where caps refuse. */
+internal fun withElseIf(steps: List<StepDraft>, head: String): List<StepDraft>? {
+	val last = (findStep(steps, head) as? StepDraft.If)?.let { chainOf(it).last() } ?: return null
+	val link = StepDraft.If(freshKey(), "", emptyList(), last.otherwise)
+	return replacedStep(steps, last.key) { last.copy(otherwise = listOf(link)) }.takeIf(::fits)
+}
+
+/** Previous link takes else. */
+internal fun withoutLink(steps: List<StepDraft>, link: String): List<StepDraft> {
+	val before = everyStep(steps).filterIsInstance<StepDraft.If>().firstOrNull { it.otherwise.singleOrNull()?.key == link } ?: return steps
+	val dropped = before.otherwise.single() as? StepDraft.If ?: return steps
+	return replacedStep(steps, before.key) { before.copy(otherwise = dropped.otherwise) }
+}
 
 /** One list deep is one; an else-if adds none. */
 internal fun depthOf(steps: List<StepDraft>): Int =
@@ -197,12 +234,18 @@ internal fun treeOf(
 		step.steps.map { treeOf(it, offer, params, key) },
 		step.catch.map { treeOf(it, offer, params, key) },
 	)
+	is FunctionStep.Switch -> StepDraft.Switch(
+		key(),
+		step.subject,
+		step.cases.map { held -> CaseDraft(key(), held.values, held.steps.map { treeOf(it, offer, params, key) }) },
+		step.default.orEmpty().map { treeOf(it, offer, params, key) },
+	)
 	is FunctionStep.Wait -> minutesText(step.minutes)?.let { StepDraft.Wait(key(), it) } ?: StepDraft.Kept(key(), step)
 	is FunctionStep.Exit -> StepDraft.Exit(key())
 	is FunctionStep.Note -> StepDraft.Note(key(), step.text)
 	is FunctionStep.Call -> callValuesOf(step)?.let { StepDraft.Call(key(), step.function, it) } ?: StepDraft.Kept(key(), step)
 	is FunctionStep.Throw, is FunctionStep.Let, is FunctionStep.Parallel, is FunctionStep.Start, is FunctionStep.Await,
-	is FunctionStep.Switch, is FunctionStep.Unparsed, is FunctionStep.Unknown -> StepDraft.Kept(key(), step)
+	is FunctionStep.Unparsed, is FunctionStep.Unknown -> StepDraft.Kept(key(), step)
 }
 
 private fun callValuesOf(step: FunctionStep.Call): Map<String, CallValue>? =
@@ -259,6 +302,13 @@ internal fun stepOfDraft(
 			steps = draft.body.map { stepOfDraft(it, offer, params, calleeParams) ?: return null },
 			catch = draft.catch.map { stepOfDraft(it, offer, params, calleeParams) ?: return null },
 		)
+		is StepDraft.Switch -> {
+			val cases = draft.cases.map { held ->
+				SwitchCase(held.values, held.steps.map { stepOfDraft(it, offer, params, calleeParams) ?: return null })
+			}
+			val default = draft.default.map { stepOfDraft(it, offer, params, calleeParams) ?: return null }
+			FunctionStep.Switch(subject = draft.subject, cases = cases, default = default.takeIf { it.isNotEmpty() })
+		}
 		is StepDraft.Call -> callStepOf(draft, calleeParams(draft.function))
 		is StepDraft.Wait -> FunctionStep.Wait(StepArg.Literal(minutesOf(draft.minutes)))
 		is StepDraft.Exit -> FunctionStep.Exit
@@ -279,6 +329,7 @@ internal fun unkeyed(steps: List<StepDraft>): List<StepDraft> = steps.map { step
 		is StepDraft.Do -> step.copy(key = "")
 		is StepDraft.If -> step.copy(key = "")
 		is StepDraft.Try -> step.copy(key = "")
+		is StepDraft.Switch -> step.copy(key = "", cases = step.cases.map { it.copy(key = "") })
 		is StepDraft.Wait -> step.copy(key = "")
 		is StepDraft.Exit -> step.copy(key = "")
 		is StepDraft.Note -> step.copy(key = "")
@@ -301,6 +352,7 @@ internal fun cardLabel(step: StepDraft, offer: AutomationOffer): String = when (
 	is StepDraft.Do -> offer.labelOf(step.action.kind)
 	is StepDraft.If -> "If"
 	is StepDraft.Try -> "Try"
+	is StepDraft.Switch -> "Switch"
 	is StepDraft.Wait -> "Wait"
 	is StepDraft.Exit -> "Stop here"
 	is StepDraft.Note -> "Note"
@@ -313,9 +365,8 @@ internal fun cardLabel(step: StepDraft, offer: AutomationOffer): String = when (
 		is FunctionStep.Parallel -> "Together"
 		is FunctionStep.Start -> "Start a task"
 		is FunctionStep.Await -> "Wait for a task"
-		is FunctionStep.Switch -> "Switch"
 		is FunctionStep.Unparsed -> "Script with errors"
 		is FunctionStep.Unknown -> held.kind
-		is FunctionStep.Do, is FunctionStep.If, is FunctionStep.Try, is FunctionStep.Exit, is FunctionStep.Note -> "Step"
+		is FunctionStep.Do, is FunctionStep.If, is FunctionStep.Switch, is FunctionStep.Try, is FunctionStep.Exit, is FunctionStep.Note -> "Step"
 	}
 }

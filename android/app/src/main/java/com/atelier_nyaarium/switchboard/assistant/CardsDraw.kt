@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard.assistant
 
 import com.atelier_nyaarium.switchboard.parseDecimal
+import com.atelier_nyaarium.switchboard.proto.AssistantFieldOption
 import com.atelier_nyaarium.switchboard.proto.AutomationIssue
 import com.atelier_nyaarium.switchboard.proto.AutomationLastRun
 import com.atelier_nyaarium.switchboard.proto.AutomationLastStep
@@ -59,7 +60,10 @@ internal fun drawnIssuesOf(issues: List<AutomationIssue>, draft: AutomationDraft
 		val level = issueLevelOf(issue.level)
 		val other = issue.id?.takeUnless { ownIssue(issue, draft) }
 		if (other != null && drawsAsError(level)) functions += other
-		val key = issue.step?.let { path -> issueTree(issue, draft, flat)?.let { keyAt(it, path) } }
+		val tree = issueTree(issue, draft, flat)
+		val key = issue.step?.let { path -> tree?.let { keyAt(it, path) } }
+		// Its chips draw it.
+		if (issue.case != null && key != null && tree?.let { findStep(it, key) } is StepDraft.Switch) continue
 		if (key == null) {
 			val named = other?.let { id -> draft.callees[id]?.name ?: offer.functions?.row(id)?.function?.name ?: id }
 			rest += CardIssue(level, named?.let { "$it: ${issue.line}" } ?: issue.line, issue.value)
@@ -98,10 +102,53 @@ internal sealed interface CardRow {
 	data class AddSlot(val slot: Slot, override val depth: Int, val full: Boolean) : CardRow {
 		override val rowKey: String get() = "${slot.parent ?: "top"}/${slot.side?.number ?: ""}/add"
 	}
+
+	/** A side's header row. */
+	data class Branch(val parent: String, val label: BranchLabel, override val depth: Int) : CardRow {
+		override val rowKey: String get() = "$parent/${label.key}"
+	}
+
+	/** "+ Case" or "+ Else if". */
+	data class AddBranch(val parent: String, val kind: BranchKind, override val depth: Int, val full: Boolean) : CardRow {
+		override val rowKey: String get() = "$parent/${kind.name}/add"
+	}
+}
+
+internal enum class BranchKind { CASE, ELSE_IF }
+
+internal sealed interface BranchLabel {
+	val key: String
+
+	/** `taken`: last run's. */
+	data class Case(val view: CaseView, val number: Int, val taken: Boolean) : BranchLabel {
+		override val key: String get() = view.case.key
+	}
+
+	data class Default(val falls: String, val taken: Boolean) : BranchLabel {
+		override val key: String get() = "default"
+	}
+
+	/** One chain link. */
+	data class Link(
+		val step: StepDraft.If,
+		val first: Boolean,
+		val path: String,
+		val issue: CardIssue?,
+		val last: AutomationLastStep?,
+	) : BranchLabel {
+		override val key: String get() = step.key
+	}
+
+	data object Else : BranchLabel {
+		override val key: String get() = "else"
+	}
 }
 
 /** Paths under function calls. */
 internal fun runPathOf(path: String, pointing: Boolean): String = if (pointing) "0.$path" else path
+
+/** Links drawn as branches. */
+internal fun drawnAsChain(step: StepDraft): Boolean = step is StepDraft.If && chainOf(step).size > 1
 
 /** Cards in written order. */
 internal fun cardsDraw(
@@ -109,28 +156,103 @@ internal fun cardsDraw(
 	issueOf: (StepDraft) -> CardIssue?,
 	lastRun: AutomationLastRun?,
 	pointing: Boolean,
+	/** Null for text. */
+	choicesOf: (String) -> List<AssistantFieldOption>? = { null },
 ): List<CardRow> {
-	val last = lastRun?.steps.orEmpty().associateBy { it.path }
-	val active = lastRun?.active
+	val drawer = CardsDrawer(steps, issueOf, lastRun, pointing, choicesOf)
+	val top = Slot(null, null, steps.size)
+	return drawer.rows(steps, null, 0) + CardRow.AddSlot(top, 0, drawer.full(top))
+}
+
+private class CardsDrawer(
+	val steps: List<StepDraft>,
+	val issueOf: (StepDraft) -> CardIssue?,
+	lastRun: AutomationLastRun?,
+	val pointing: Boolean,
+	val choicesOf: (String) -> List<AssistantFieldOption>?,
+) {
+	private val last = lastRun?.steps.orEmpty().associateBy { it.path }
+	private val active = lastRun?.active
+
 	fun full(slot: Slot) = insertedStep(steps, slot, StepDraft.Exit("probe")) == null
+
+	private fun lastAt(path: String) = last[runPathOf(path, pointing)]
+
 	fun rows(list: List<StepDraft>, base: String?, depth: Int): List<CardRow> =
 		list.withIndex().flatMap { (index, step) ->
 			val path = if (base == null) "$index" else "$base.$index"
-			val run = runPathOf(path, pointing)
-			val card = CardRow.Card(step, depth, path, issueOf(step), last[run], run == active)
-			listOf(card) + sidesOf(step).flatMap { (inner, held) ->
-				val label = if (inner == Side.Else || inner == Side.Catch) listOf(CardRow.SideLabel(step.key, inner, depth + 1)) else emptyList()
-				val slot = Slot(step.key, inner, held.size)
-				label + rows(held, "$path.${inner.number}", depth + 1) + CardRow.AddSlot(slot, depth + 1, full(slot))
-			}
+			// First link draws them.
+			val own = !drawnAsChain(step)
+			val card = CardRow.Card(step, depth, path, issueOf(step).takeIf { own }, lastAt(path).takeIf { own }, runPathOf(path, pointing) == active)
+			listOf(card) + sideRows(step, path, depth + 1)
 		}
-	val top = Slot(null, null, steps.size)
-	return rows(steps, null, 0) + CardRow.AddSlot(top, 0, full(top))
+
+	private fun side(parent: String, side: Side, list: List<StepDraft>, path: String, depth: Int): List<CardRow> {
+		val slot = Slot(parent, side, list.size)
+		return rows(list, "$path.${side.number}", depth) + CardRow.AddSlot(slot, depth, full(slot))
+	}
+
+	private fun sideRows(step: StepDraft, path: String, depth: Int): List<CardRow> = when (step) {
+		is StepDraft.If -> ifRows(step, path, depth)
+		is StepDraft.Switch -> switchRows(step, path, depth)
+		is StepDraft.Try ->
+			side(step.key, Side.Body, step.body, path, depth) + CardRow.SideLabel(step.key, Side.Catch, depth) +
+				side(step.key, Side.Catch, step.catch, path, depth)
+		is StepDraft.Do, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Call, is StepDraft.Kept -> emptyList()
+	}
+
+	private fun ifRows(step: StepDraft.If, path: String, depth: Int): List<CardRow> {
+		val links = chainOf(step)
+		val addLink = CardRow.AddBranch(step.key, BranchKind.ELSE_IF, depth, withElseIf(steps, step.key) == null)
+		if (links.size == 1) {
+			return side(step.key, Side.Then, step.then, path, depth) + addLink + CardRow.SideLabel(step.key, Side.Else, depth) +
+				side(step.key, Side.Else, step.otherwise, path, depth)
+		}
+		val paths = links.indices.runningFold(path) { at, _ -> "$at.${Side.Else.number}.0" }
+		val bodies = links.flatMapIndexed { index, link ->
+			val at = paths[index]
+			val label = BranchLabel.Link(link, index == 0, at, issueOf(link), lastAt(at))
+			listOf(CardRow.Branch(step.key, label, depth)) + side(link.key, Side.Then, link.then, at, depth)
+		}
+		val end = links.last()
+		return bodies + addLink + CardRow.Branch(step.key, BranchLabel.Else, depth) +
+			side(end.key, Side.Else, end.otherwise, paths[links.lastIndex], depth)
+	}
+
+	private fun switchRows(step: StepDraft.Switch, path: String, depth: Int): List<CardRow> {
+		val choices = choicesOf(step.subject)
+		val taken = lastAt(path)?.case?.toInt()
+		val cases = caseViews(step, choices).flatMapIndexed { number, view ->
+			listOf(CardRow.Branch(step.key, BranchLabel.Case(view, number, taken == number), depth)) +
+				side(step.key, Side.Case(number), view.case.steps, path, depth)
+		}
+		val fallback = BranchLabel.Default(defaultLine(step, choices), taken == step.cases.size)
+		return cases + CardRow.AddBranch(step.key, BranchKind.CASE, depth, step.cases.size >= SWITCH_CASES) +
+			CardRow.Branch(step.key, fallback, depth) + side(step.key, Side.Default(step.cases.size), step.default, path, depth)
+	}
+}
+
+internal fun addedBranch(draft: AutomationDraft, row: CardRow.AddBranch): AutomationDraft = when (row.kind) {
+	BranchKind.CASE -> draft.withSwitch(row.parent, ::withCase)
+	BranchKind.ELSE_IF -> draft.plusElseIf(row.parent)
+}
+
+internal fun addBranchText(kind: BranchKind): String = when (kind) {
+	BranchKind.CASE -> "+ Case"
+	BranchKind.ELSE_IF -> "+ Else if"
 }
 
 internal data class StatementOffer(val kind: String, val label: String)
 
-private val STATEMENTS = listOf("if" to "If", "try" to "Try", "wait" to "Wait", "exit" to "Stop here", "note" to "Note", "call" to "Call")
+private val STATEMENTS = listOf(
+	"if" to "If",
+	"switch" to "Switch",
+	"try" to "Try",
+	"wait" to "Wait",
+	"exit" to "Stop here",
+	"note" to "Note",
+	"call" to "Call",
+)
 
 private const val FRESH_WAIT_MIN = "5"
 
@@ -146,6 +268,7 @@ internal fun statementsOffered(draft: AutomationDraft, offer: AutomationOffer): 
 
 internal fun freshStatement(kind: String): StepDraft? = when (kind) {
 	"if" -> StepDraft.If(freshKey(), "", emptyList(), emptyList())
+	"switch" -> StepDraft.Switch(freshKey(), "", emptyList(), emptyList())
 	"try" -> StepDraft.Try(freshKey(), emptyList(), emptyList())
 	"wait" -> StepDraft.Wait(freshKey(), FRESH_WAIT_MIN)
 	"exit" -> StepDraft.Exit(freshKey())
@@ -182,6 +305,7 @@ internal fun holdsUnserved(steps: List<StepDraft>, offer: AutomationOffer): Bool
 
 private fun statementKind(step: StepDraft): String? = when (step) {
 	is StepDraft.If -> "if"
+	is StepDraft.Switch -> "switch"
 	is StepDraft.Try -> "try"
 	is StepDraft.Wait -> "wait"
 	is StepDraft.Exit -> "exit"
@@ -239,16 +363,19 @@ internal fun lastRunShown(draft: AutomationDraft, opened: AutomationDraft, row: 
 	return run
 }
 
-internal fun lastStepLine(card: CardRow.Card, running: Boolean): String? {
-	val step = card.last
-	if (card.active && running) return "Running now"
+internal fun lastStepLine(card: CardRow.Card, running: Boolean): String? =
+	if (card.active && running) "Running now" else lastLineOf(card.step, card.last)
+
+/** Card or link. */
+internal fun lastLineOf(drawn: StepDraft, step: AutomationLastStep?): String? {
 	if (step == null) return null
 	val reason = step.reason?.let { ": $it" }.orEmpty()
 	return when (Protocol.Wire.RunOutcome.entries.find { it.wire == step.outcome }) {
 		null -> if (step.outcome == null) "Started" else "Last run: ${step.outcome}$reason"
-		Protocol.Wire.RunOutcome.RAN -> when (step.side) {
-			"then" -> "Last run: it held"
-			"else" -> "Last run: it did not hold"
+		Protocol.Wire.RunOutcome.RAN -> when {
+			step.case != null -> (drawn as? StepDraft.Switch)?.let { "Last run: took ${caseLabel(it, step.case.toInt())}" } ?: "Last run: done"
+			step.side == "then" -> "Last run: it held"
+			step.side == "else" -> "Last run: it did not hold"
 			else -> "Last run: done"
 		}
 		Protocol.Wire.RunOutcome.REFUSED -> "Last run: failed$reason"
@@ -262,7 +389,7 @@ internal fun cardHint(step: StepDraft, offer: AutomationOffer, valueNames: Set<S
 	is StepDraft.Do -> actionHint(step.action, offer, valueNames)
 	is StepDraft.Wait -> step.minutes.takeIf { it.isNotBlank() }?.let(::waitIssue)
 	is StepDraft.Call -> callValueIssue(step, calleeParams)
-	is StepDraft.If, is StepDraft.Try, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept -> null
+	is StepDraft.If, is StepDraft.Try, is StepDraft.Switch, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept -> null
 }
 
 internal fun waitIssue(typed: String): String? {

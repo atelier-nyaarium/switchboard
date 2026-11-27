@@ -12,8 +12,10 @@ import com.atelier_nyaarium.switchboard.proto.AssistantFieldOption
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.AutomationCondition
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
+import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationIssueLevel
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -45,6 +47,9 @@ class AssistantRuleVectorsTest {
 	/** As typed, before the editor's write. */
 	private fun valueOf(o: JsonObject): JsonElement {
 		o["values"]?.let { return it }
+		o["valuesPastMax"]?.let { past ->
+			return JsonArray((0 until Protocol.Wire.CONDITION_VALUES_MAX + past.jsonPrimitive.int).map { JsonPrimitive("v$it") })
+		}
 		val base = o["codes"]?.jsonArray?.let { codes -> buildString { codes.forEach { appendCodePoint(it.jsonPrimitive.int) } } }
 			?: o["value"]?.jsonPrimitive?.content.orEmpty()
 		val around = o["around"]?.jsonPrimitive?.content.orEmpty()

@@ -17,8 +17,8 @@ import {
 } from "./schemasFunction.js";
 import { ASSISTANT_RULE_CONDITIONS_MAX, CONDITION_VALUES_MAX } from "./wire-vocabulary.js";
 
-export const AUTOMATIONS_MAX = 64;
-export const AUTOMATION_ACTIONS_MAX = 8;
+export const AUTOMATIONS_MAX = 256;
+export const AUTOMATION_ACTIONS_MAX = 256;
 export const AUTOMATION_MESSAGE_MAX = 1_000;
 const IFTTT_VALUE_MAX = 500;
 const IFTTT_EVENT_MAX = 80;

@@ -264,9 +264,11 @@ private fun FlowCanvas(
 				val lineFacts = facts.lines[index]
 				val dim = reach != null && line !in reach
 				drawLine(curve, lineFacts, palette, k, dash, if (dim) 0.25f else 1f)
-				lineFacts.said?.let { said ->
-					val text = "${said.reason} · ${clockOf(said.at)}"
-					val measured = measurer.measure(text, saidStyle.copy(color = palette.of(colourOf(lineFacts)), fontSize = saidStyle.fontSize * scale), maxLines = 1, overflow = TextOverflow.Ellipsis, constraints = Constraints(maxWidth = (MAP_LABEL_MAX * k).toInt()))
+				val said = lineFacts.said
+				val text = said?.let { "${it.reason} · ${clockOf(it.at)}" } ?: line.case?.label
+				if (text != null) {
+					val colour = if (said != null) palette.of(colourOf(lineFacts)) else palette.label.copy(alpha = 0.7f)
+					val measured = measurer.measure(text, saidStyle.copy(color = colour, fontSize = saidStyle.fontSize * scale), maxLines = 1, overflow = TextOverflow.Ellipsis, constraints = Constraints(maxWidth = (MAP_LABEL_MAX * k).toInt()))
 					val mid = curve.mid
 					val topLeft = Offset(mid.x * k - measured.size.width / 2f, mid.y * k - measured.size.height / 2f)
 					drawRect(palette.card.copy(alpha = if (dim) 0.25f else 0.9f), topLeft, Size(measured.size.width.toFloat(), measured.size.height.toFloat()))

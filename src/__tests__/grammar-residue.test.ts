@@ -122,6 +122,10 @@ describe("one lexer and one parser read the language", () => {
 		[`${PHONE}/assistant/AutomationParts.kt`]: ["lexConsoleText"],
 		// A value that is one name.
 		[`${PHONE}/assistant/RunsDraft.kt`]: ["lexConsole"],
+		// A choice subject's field.
+		[`${PHONE}/assistant/SwitchCases.kt`]: ["lexConsole"],
+		// A script's case lines.
+		[`${PHONE}/assistant/ScriptDraft.kt`]: ["lexScript"],
 		// The emulator's canned reads.
 		[`${PHONE}/SandboxAutomations.kt`]: ["lexConsole", "lexConsoleText"],
 	};

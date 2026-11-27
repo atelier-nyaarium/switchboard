@@ -51,7 +51,7 @@ export type Unfollowed = "not-expanded" | "missing" | "loop" | "budget";
 /** Steps one walk answers before it follows no further call. */
 export const WALK_ENTRIES_MAX = 256;
 /** Functions one run may enter; a walk follows no call past it. */
-export const RUN_FRAMES_MAX = 16;
+export const RUN_FRAMES_MAX = 256;
 
 export interface UnfollowedCall<R extends Unfollowed = Unfollowed> {
 	reach: "unfollowedCall";

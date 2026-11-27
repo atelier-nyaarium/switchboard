@@ -92,11 +92,25 @@ Router's record names. That Gateway feeds it events. The session decides what to
       "Every" (a count of minutes, hours or days). An event also takes an optional Cool-down, and every
       automation a "Keep trying" in minutes, blank for the Gateway's ten. Runs is a list of cards
       (`cardsDraw` in `assistant/CardsDraw.kt`): an action, an If with its Condition and its two
-      sides ("Otherwise" for the second), a Try with "If it fails", a Wait, "Stop here" and a Note,
-      each side indented under its card and each list ending in "+ Add", which offers the Gateway's
-      actions and then the statements it runs (`statementsOffered`). A card has a move menu (up or
-      down its own list) and its remove, and shows how the last run went on it while the editor
-      shows what is stored (`lastRunShown`). A body holding a statement the Gateway does not run
+      sides ("Otherwise" for the second), a Switch, a Try with "If it fails", a Wait, "Stop here"
+      and a Note, each side indented under its card and each list ending in "+ Add", which offers
+      the Gateway's actions and then the statements it runs (`statementsOffered`). An If offers
+      "+ Else if", which puts a fresh If in the last link's else, holding what that else held
+      (`withElseIf`). An If whose else is exactly one If is drawn as one flat card (`chainOf`):
+      "If" once in its header, then a branch per link with its Expression and body, a later link
+      removable (`withoutLink`), and ELSE last. The stored form is unchanged, and each edit names
+      its link's own key, so an untouched chain writes back byte for byte. A Switch draws its
+      Subject, then one CASE branch per case labelled by its value chips, its steps under it,
+      "+ Case", and DEFAULT last with a faint line naming what falls to it: the choices no case
+      holds, then "and anything new" (`defaultLine`). A chip's + offers the choices the switch
+      does not yet hold where the subject is `event.<field>` naming a choice field of the
+      trigger's source, else a typed value (`caseViews`). `assistant/SwitchCases.kt` twins
+      `switch-cases.ts` on `tests/fixtures/switch-cases/vectors.json`, so a value given twice is an
+      error on its later chip and a vanished choice a warning, drawn on the chips before the check
+      answers; the check's issues for a case are not drawn again on the card. The case the last run
+      took is marked on its branch, its card and its script line (`scriptLines`). A card has a move
+      menu (up or down its own list) and its remove, and shows how the last run went on it while
+      the editor shows what is stored (`lastRunShown`). A body holding a statement the Gateway does not run
       opens read-only. A Call card picks a named function (less any whose calls reach back to
       this one) or "New function", and draws one row per value the function declares: typed by its
       type, or a name read where the call runs, with Clear; a value the trigger gives reads
@@ -118,7 +132,8 @@ Router's record names. That Gateway feeds it events. The session decides what to
       keyboard for the hole under the cursor. Its back arrow returns to the automation with the
       text kept. An If's Condition opens the same page in expression mode (`TextMode.EXPRESSION`):
       one expression, bare names, and under it "True right now", "False right now" or why it cannot
-      tell, from `automation_preview`'s `condition` (`conditionAsk`). Any text that holds a hole shows the Gateway's filled form in a box labelled
+      tell, from `automation_preview`'s `condition` (`conditionAsk`). A Switch's Subject opens it
+      too, with no preview (`subjectAt`). Any text that holds a hole shows the Gateway's filled form in a box labelled
       Preview, or the hole it refused, on both pages. A dangerous action says "Asks once when saved", and the save asks "Run
       without asking?" before it sends again. Delete sits in the top bar's menu and asks first, as
       every record page's removal does (`RemoveMenu`); "Run now" sits above it for a saved
@@ -516,13 +531,13 @@ An automation is one owner record, kept per Gateway like routines and policies:
 edits it on the phone; only owner ops and what a home move carries write it, so the assistant
 cannot rewrite what sorts its own events.
 
-- **A record:** a phone-minted id, `enabled`, a `trigger` and one to 8 `actions`, at most 64 per
-  Gateway. An `event` trigger names a source and up to 8 conditions, all of which must hold; none
+- **A record:** a phone-minted id, `enabled`, a `trigger` and one to 256 `actions`, at most 256 per
+  Gateway. An `event` trigger names a source and up to 256 conditions, all of which must hold; none
   takes every event. The other triggers and the actions are in `docs/fields.md`. `tell_assistant`
   takes `when`: `now` wakes, `quietly` leaves the event in the inbox. A tell with a `message` is
   told through the automations' outbox as its own event, so the lane decides a wake only from tells
   with none. A condition is a field the source declares, a test and its value: one string, or a
-  list of up to `CONDITION_VALUES_MAX` (16). `valuesOf` is the one read of either shape, on both
+  list of up to `CONDITION_VALUES_MAX` (256). `valuesOf` is the one read of either shape, on both
   runtimes, and the phone writes through `conditionOf`.
 - **Every match fires:** an event that does not say how it tells asks its source's armed event
   automations, enabled and valid, through `conditionsMatch`. Any match that tells `now` wakes, and
@@ -549,7 +564,7 @@ cannot rewrite what sorts its own events.
   declarations on every read and never stored, so a declaration change moves no revision. An unfit
   automation saves, arms nothing and is listed with `invalid` and its reason.
 - **The phone's Save gate is the Gateway's parse:** `fittingAutomation` in `AutomationDraft.kt`
-  refuses only what the wire cannot carry (a value past 200 characters, more than 16 values), so a
+  refuses only what the wire cannot carry (a value past 200 characters, more than 256 values), so a
   blank or unfit condition saves and the Gateway reads it `invalid`. `SourceFields.issueOf` draws
   each condition's line by level and `fits` decides the preview.
   `tests/fixtures/assistant-rules/vectors.json` pins the parse, the fit, the warning and the stored
@@ -598,7 +613,9 @@ cannot rewrite what sorts its own events.
   to the literal its pointer or call gives. `flowFacts` maps the last runs onto it by step path
   (how its newest part ended, whether it happened or is happening, where a failure nothing caught
   began, whether it runs only on failure), and colour, pattern and weight are each one `when` over
-  a fact, as the key ruled. Tapping selects and dims what is outside its reach, and the card under
+  a fact, as the key ruled. A step inside a switch case draws its own line per case, labelled by
+  the case's values or "default" (`FlowCase`), shared by every automation that reaches that
+  function. A plug is `FlowKey.Plug`. Tapping selects and dims what is outside its reach, and the card under
   the band says what was tapped; Replay plays the selected automation's last run by its step times
   (a beat a step when it has none), each long gap shortened.
 

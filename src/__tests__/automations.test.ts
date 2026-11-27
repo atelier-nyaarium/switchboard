@@ -1756,7 +1756,7 @@ describe("automations", () => {
 			).toEqual(["tell_assistant ran", "device_set ran", "device_set ran", "ifttt_trigger ran"]);
 		});
 
-		it("lists today's automations beside a stored function, counts the function in the one total, and keeps it as written", () => {
+		it("lists today's automations beside a stored function, which counts against no automation, and keeps it as written", () => {
 			const dir = fresh();
 			fs.cpSync(path.join(import.meta.dirname, "fixtures", "automation-state-8.14.84"), dir, { recursive: true });
 			const file = path.join(dir, "automations.json");
@@ -1786,7 +1786,7 @@ describe("automations", () => {
 			fields.put("band", hotBand, 0);
 
 			const listed = automations.list().map((record) => record.id);
-			const room = Array.from({ length: AUTOMATIONS_MAX - 2 }, (_, at) =>
+			const room = Array.from({ length: AUTOMATIONS_MAX - 1 }, (_, at) =>
 				automations.ownerPut(`a${at}`, iceBucket(), 0),
 			).every((put) => put.stored);
 			const over = automations.ownerPut("over", iceBucket(), 0);

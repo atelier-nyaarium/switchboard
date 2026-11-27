@@ -95,6 +95,7 @@ import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationCondition
 import com.atelier_nyaarium.switchboard.proto.AutomationConditionServes
+import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationIssueLevel
 import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
 import com.atelier_nyaarium.switchboard.proto.AutomationPreviewHole
@@ -577,7 +578,10 @@ class AutomationPartsTest {
 			doesText(leftBehind, Served.Known(away)).split(" · "),
 		)
 		assertEquals("Switch a plug: Desk lamp, On · Tell the assistant: Now", doesText(leftBehind, Served.Known(FULL)))
-		assertEquals(emptyList<ActionOffer>(), addableActions(FULL, List(8) { index -> StepDraft.Do("action-$index", toldDraft("now")) }))
+		assertEquals(
+			emptyList<ActionOffer>(),
+			addableActions(FULL, List(Protocol.Wire.AUTOMATION_ACTIONS_MAX) { index -> StepDraft.Do("action-$index", toldDraft("now")) }),
+		)
 	}
 
 	@Test

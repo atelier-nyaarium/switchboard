@@ -229,7 +229,7 @@
 			}
 		],
 		"functions": {
-			"max": 32,
+			"max": 256,
 			"steps": ["tell_assistant", "device_set", "ifttt_trigger"],
 			"paramTypes": ["device", "text", "number"],
 			"statements": [
@@ -249,6 +249,6 @@
 			"unnamed": true,
 			"script": true
 		},
-		"conditions": { "tests": ["is", "is_not", "contains", "contains_not"], "values": 16 }
+		"conditions": { "tests": ["is", "is_not", "contains", "contains_not"], "values": 256 }
 	}
 }

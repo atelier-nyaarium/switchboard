@@ -30,10 +30,16 @@ internal const val WHEN = "when"
 /** Wait minutes parameter. */
 internal const val MINUTES = "minutes"
 
+/** Switch subject parameter. */
+internal const val SUBJECT = "subject"
+
 internal enum class TextMode { HOLES, EXPRESSION, SCRIPT }
 
 internal fun conditionAt(draft: AutomationDraft, ref: TextRef): String? =
 	(draft.stepAt(ref.key) as? StepDraft.If)?.condition?.takeIf { ref.param == WHEN }
+
+internal fun subjectAt(draft: AutomationDraft, ref: TextRef): String? =
+	(draft.stepAt(ref.key) as? StepDraft.Switch)?.subject?.takeIf { ref.param == SUBJECT }
 
 /** Kept names; catch failure. */
 internal fun runNamesHere(steps: List<StepDraft>, key: String): List<NameHere> {
@@ -210,6 +216,8 @@ internal fun refusedSpan(text: String, preview: TextPreview, refused: Automation
 }
 
 /** Clamped condition span. */
+internal fun subjectSpan(text: String, refused: AutomationSaid.Hole?): IntRange? = refused?.let { spanOf(text, it.start, it.end) }
+
 internal fun conditionSpan(text: String, preview: ConditionPreview, refused: AutomationSaid.Hole?): IntRange? {
 	val (start, end) = when {
 		preview is ConditionPreview.Refused -> preview.start to preview.end

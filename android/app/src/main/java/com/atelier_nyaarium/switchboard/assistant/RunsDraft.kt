@@ -461,5 +461,6 @@ private fun stepAction(draft: StepDraft, offer: AutomationOffer): AutomationActi
 		is ActionDraft.Filled -> actionOf(action, offer)
 		is ActionDraft.Kept -> null
 	}
-	is StepDraft.If, is StepDraft.Try, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Call, is StepDraft.Kept -> null
+	is StepDraft.If, is StepDraft.Try, is StepDraft.Switch, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Call,
+	is StepDraft.Kept -> null
 }

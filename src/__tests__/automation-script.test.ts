@@ -19,7 +19,14 @@ import { lexConsole, lexConsoleText, parseConsoleText } from "../shared/live-con
 import type { AutomationTrigger } from "../shared/schemasAutomation.js";
 import { ConsoleOpSchema } from "../shared/schemasConsoleOp.js";
 import { ConsoleOpResultSchema } from "../shared/schemasConsoleResults.js";
-import { FunctionSchema, type FunctionStep, FunctionStepSchema, type StepArg } from "../shared/schemasFunction.js";
+import {
+	FUNCTION_DEPTH_MAX,
+	FUNCTION_STEPS_TOTAL_MAX,
+	FunctionSchema,
+	type FunctionStep,
+	FunctionStepSchema,
+	type StepArg,
+} from "../shared/schemasFunction.js";
 import { ConsoleScriptParseResultSchema, ConsoleScriptPrintResultSchema } from "../shared/schemasScript.js";
 
 const LAMP = "aa:bb:cc:dd:ee:01";
@@ -288,15 +295,17 @@ describe("a function's steps as script", () => {
 	});
 
 	it("refuses a body past a function's bounds at the first step over, and a value too long", () => {
-		const many = Array.from({ length: 9 }, (_, index) => `x${index} = ${index}`).join("\n");
-		const deep = "if (a) {\nif (a) {\nif (a) {\nif (a) {\nexit\n}\n}\n}\n}";
+		const over = FUNCTION_STEPS_TOTAL_MAX;
+		const many = Array.from({ length: over + 1 }, (_, index) => `x${index} = ${index}`).join("\n");
+		const deep = `${"if (a) {\n".repeat(FUNCTION_DEPTH_MAX)}exit\n${"}\n".repeat(FUNCTION_DEPTH_MAX)}`;
+		// Eight steps a block.
 		const wide = Array.from(
-			{ length: 5 },
+			{ length: FUNCTION_STEPS_TOTAL_MAX / 8 + 1 },
 			() => `if (a) {\n${Array.from({ length: 7 }, () => "exit").join("\n")}\n}`,
 		).join("\n");
 		const long = `x = "${"a".repeat(1001)}"`;
 
-		expect(spansOf(many)).toEqual(["x8 = 8"]);
+		expect(spansOf(many)).toEqual([`x${over} = ${over}`]);
 		expect(spansOf(deep)).toEqual(["exit"]);
 		expect(read(wide).issues).toMatchObject([{ start: wide.lastIndexOf("if (a) {") }]);
 		expect(spansOf(long)).toEqual([long.slice(4)]);

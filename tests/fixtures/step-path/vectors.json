@@ -1,5 +1,5 @@
 {
-	"_comment": "A function's step paths. `paths` lists every step at every depth in written order with its numbers under the function: an index, then a side (0 for an if's then or a try's body, 1 for an else or a catch), then an index in that side. `src/shared/automation-walk.ts` `stepsOf` and the phone's `stepPaths` in `assistant/StepTree.kt` both answer `paths` for each case's `steps`; `order` is `byPath` sorting `given` into `sorted`, on both runtimes.",
+	"_comment": "A function's step paths. `paths` lists every step at every depth in written order with its numbers under the function: an index, then a side (0 for an if's then or a try's body, 1 for an else or a catch, a switch case's number, and the number past the last case for its default), then an index in that side. `src/shared/automation-walk.ts` `stepsOf` and the phone's `stepPaths` in `assistant/StepTree.kt` both answer `paths` for each case's `steps`; `order` is `byPath` sorting `given` into `sorted`, on both runtimes.",
 	"cases": [
 		{
 			"name": "a flat list",
@@ -188,6 +188,51 @@
 				}
 			],
 			"paths": ["0", "0.0.0", "0.0.1", "0.0.1.0.0", "1"]
+		},
+		{
+			"name": "a switch's cases in order, an empty case, then its default past the last",
+			"steps": [
+				{
+					"kind": "switch",
+					"subject": "event.reason",
+					"cases": [
+						{
+							"values": ["mention"],
+							"steps": [
+								{
+									"kind": "exit"
+								}
+							]
+						},
+						{
+							"values": ["assign"],
+							"steps": []
+						},
+						{
+							"values": ["review_requested", "subscribed"],
+							"steps": [
+								{
+									"kind": "note",
+									"text": "a"
+								},
+								{
+									"kind": "exit"
+								}
+							]
+						}
+					],
+					"default": [
+						{
+							"kind": "note",
+							"text": "b"
+						}
+					]
+				},
+				{
+					"kind": "exit"
+				}
+			],
+			"paths": ["0", "0.0.0", "0.2.0", "0.2.1", "0.3.0", "1"]
 		}
 	],
 	"order": [

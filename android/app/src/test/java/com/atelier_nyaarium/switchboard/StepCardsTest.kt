@@ -1,6 +1,21 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.assistant.BranchLabel
 import com.atelier_nyaarium.switchboard.assistant.CardRow
+import com.atelier_nyaarium.switchboard.assistant.CaseAdd
+import com.atelier_nyaarium.switchboard.assistant.CaseDraft
+import com.atelier_nyaarium.switchboard.assistant.SWITCH_CASES
+import com.atelier_nyaarium.switchboard.assistant.addedBranch
+import com.atelier_nyaarium.switchboard.assistant.caseValueOf
+import com.atelier_nyaarium.switchboard.assistant.chainOf
+import com.atelier_nyaarium.switchboard.assistant.lastLineOf
+import com.atelier_nyaarium.switchboard.assistant.unkeyed
+import com.atelier_nyaarium.switchboard.assistant.withCaseValue
+import com.atelier_nyaarium.switchboard.assistant.withoutCase
+import com.atelier_nyaarium.switchboard.assistant.withoutCaseValue
+import com.atelier_nyaarium.switchboard.proto.AssistantFieldOption
+import com.atelier_nyaarium.switchboard.proto.Protocol
+import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationIssueLevel
 import com.atelier_nyaarium.switchboard.assistant.ConditionPreview
 import com.atelier_nyaarium.switchboard.assistant.EditContext
 import com.atelier_nyaarium.switchboard.assistant.PreviewRead
@@ -177,16 +192,9 @@ class StepCardsTest {
 		)
 
 		val rows = cardsDraw(tree, { null }, run, pointing = true)
-		val shape = rows.map { row ->
-			when (row) {
-				is CardRow.Card -> "${row.depth}:${row.step.key}@${row.path}"
-				is CardRow.SideLabel -> "${row.depth}:${row.side}"
-				is CardRow.AddSlot -> "${row.depth}:+${row.slot.parent ?: "top"}"
-			}
-		}
 		assertEquals(
-			listOf("0:a@0", "1:b@0.0.0", "1:+a", "1:Else", "1:c@0.1.0", "1:+a", "0:d@1", "1:+d", "1:Catch", "1:e@1.1.0", "1:+d", "0:+top"),
-			shape,
+			listOf("0:a@0", "1:b@0.0.0", "1:+a", "1:+ELSE_IF", "1:Else", "1:c@0.1.0", "1:+a", "0:d@1", "1:+d", "1:Catch", "1:e@1.1.0", "1:+d", "0:+top"),
+			shapeOf(rows),
 		)
 		val nested = cardsDraw(deep, { null }, null, pointing = false).filterIsInstance<CardRow.Card>()
 		assertEquals(listOf("0:t@0", "1:i@0.0.0", "2:k@0.0.0.0.0"), nested.map { "${it.depth}:${it.step.key}@${it.path}" })
@@ -196,6 +204,110 @@ class StepCardsTest {
 		assertEquals("Last run: failed: not home", lastStepLine(cards.getValue("c"), running = true))
 		assertEquals("Running now", lastStepLine(cards.getValue("d"), running = true))
 		assertNull(lastStepLine(cards.getValue("b"), running = true))
+	}
+
+	private fun shapeOf(rows: List<CardRow>): List<String> = rows.map { row ->
+		when (row) {
+			is CardRow.Card -> "${row.depth}:${row.step.key}@${row.path}"
+			is CardRow.SideLabel -> "${row.depth}:${row.side}"
+			is CardRow.AddSlot -> "${row.depth}:+${row.slot.parent ?: "top"}"
+			is CardRow.AddBranch -> "${row.depth}:+${row.kind}"
+			is CardRow.Branch -> "${row.depth}:" + when (val label = row.label) {
+				is BranchLabel.Case -> "CASE ${label.view.chips.joinToString(",") { it.label }}"
+				is BranchLabel.Default -> "DEFAULT"
+				is BranchLabel.Link -> "IF ${label.step.key}@${label.path}"
+				BranchLabel.Else -> "ELSE"
+			}
+		}
+	}
+
+	private val reasons = listOf(
+		AssistantFieldOption("mention", "Mention"),
+		AssistantFieldOption("assign", "Assign"),
+		AssistantFieldOption("review_requested", "Review requested"),
+	)
+
+	@Test
+	fun aSwitchDrawsACaseRowPerCaseWithIssuesOnItsChipsThenItsDefault() {
+		val switch = StepDraft.Switch(
+			"s",
+			"event.reason",
+			listOf(
+				CaseDraft("c0", listOf("mention", "gone"), listOf(on("x"))),
+				CaseDraft("c1", listOf("Assign", " MENTION "), emptyList()),
+				CaseDraft("c2", emptyList(), emptyList()),
+			),
+			listOf(on("y")),
+		)
+		val run = AutomationLastRun(0L, 2L, listOf(AutomationLastStep("0", "switch", outcome = "ran", case = 1L)), running = false)
+		val rows = cardsDraw(listOf(switch), { null }, run, pointing = false) { subject -> reasons.takeIf { subject == "event.reason" } }
+
+		assertEquals(
+			listOf(
+				"0:s@0", "1:CASE Mention,gone", "1:x@0.0.0", "1:+s", "1:CASE Assign,Mention", "1:+s", "1:CASE ", "1:+s",
+				"1:+CASE", "1:DEFAULT", "1:y@0.3.0", "1:+s", "0:+top",
+			),
+			shapeOf(rows),
+		)
+		val cases = rows.filterIsInstance<CardRow.Branch>().mapNotNull { it.label as? BranchLabel.Case }
+		val warning = AutomationIssueLevel.WARNING
+		val error = AutomationIssueLevel.ERROR
+		assertEquals(listOf(listOf(null, warning), listOf(null, error), emptyList()), cases.map { case -> case.view.chips.map { it.issue?.level } })
+		assertEquals(listOf(null, null, error), cases.map { it.view.issue?.level })
+		assertEquals(listOf(false, true, false), cases.map { it.taken })
+		// Unused choices only.
+		assertEquals(CaseAdd.Pick(listOf(reasons[2])), cases[0].view.add)
+		assertEquals("Review requested, and anything new", rows.filterIsInstance<CardRow.Branch>().firstNotNullOf { it.label as? BranchLabel.Default }.falls)
+		assertEquals("Last run: took Assign,  MENTION ", lastStepLine(rows.first() as CardRow.Card, running = false))
+
+		val text = cardsDraw(listOf(switch.copy(subject = "event.title")), { null }, null, pointing = false) { null }
+		val typed = text.filterIsInstance<CardRow.Branch>()
+		assertEquals(CaseAdd.Type, (typed.first().label as BranchLabel.Case).view.add)
+		assertEquals("Anything else", typed.firstNotNullOf { it.label as? BranchLabel.Default }.falls)
+	}
+
+	@Test
+	fun aSwitchsCasesAndValuesAreEditedByKeyUpToTheirCaps() {
+		val draft = opened().copy(steps = listOf(StepDraft.Switch("s", "event.reason", emptyList(), emptyList())), newFunctionId = "fn-own")
+		val add = { held: com.atelier_nyaarium.switchboard.assistant.AutomationDraft ->
+			cardsDraw(held.steps, { null }, null, pointing = false).filterIsInstance<CardRow.AddBranch>().single()
+		}
+		val one = addedBranch(draft, add(draft))
+		val case = (one.steps.single() as StepDraft.Switch).cases.single().key
+		val valued = one.withSwitch("s") { withCaseValue(it, case, "mention") }.withSwitch("s") { withCaseValue(it, case, "assign") }
+		val trimmed = valued.withSwitch("s") { withoutCaseValue(it, case, 0) }
+
+		assertEquals(listOf("assign"), (trimmed.steps.single() as StepDraft.Switch).cases.single().values)
+		assertEquals(emptyList<CaseDraft>(), (trimmed.withSwitch("s") { withoutCase(it, case) }.steps.single() as StepDraft.Switch).cases)
+		val nearly = draft.withSwitch("s") { it.copy(cases = List(SWITCH_CASES - 1) { at -> CaseDraft("k$at", listOf("v$at"), emptyList()) }) }
+		val full = addedBranch(nearly, add(nearly))
+		assertEquals(SWITCH_CASES, (full.steps.single() as StepDraft.Switch).cases.size)
+		assertTrue(add(full).full)
+		assertEquals(listOf(null, "mention"), listOf(caseValueOf("  "), caseValueOf(" mention ")))
+	}
+
+	@Test
+	fun anElseIfChainDrawsOneBranchPerLinkAndAddsOrDropsALinkWithEveryOtherKeyKept() {
+		val chain = listOf(
+			StepDraft.If("a", "value > 30", listOf(on("b")), listOf(StepDraft.If("c", "value > 20", listOf(on("d")), listOf(on("e"))))),
+		)
+		val run = AutomationLastRun(0L, 2L, listOf(AutomationLastStep("0.1.0", "if", outcome = "ran", side = "then")), running = false)
+		val rows = cardsDraw(chain, { null }, run, pointing = false)
+
+		assertEquals(
+			listOf("0:a@0", "1:IF a@0", "1:b@0.0.0", "1:+a", "1:IF c@0.1.0", "1:d@0.1.0.0.0", "1:+c", "1:+ELSE_IF", "1:ELSE", "1:e@0.1.0.1.0", "1:+c", "0:+top"),
+			shapeOf(rows),
+		)
+		val links = rows.filterIsInstance<CardRow.Branch>().mapNotNull { it.label as? BranchLabel.Link }
+		assertEquals(listOf(null, "Last run: it held"), links.map { lastLineOf(it.step, it.last) })
+
+		val draft = opened().copy(steps = chain, newFunctionId = "fn-own")
+		val longer = addedBranch(draft, rows.filterIsInstance<CardRow.AddBranch>().single())
+		val third = chainOf(longer.steps.single() as StepDraft.If)
+		assertEquals(listOf("a", "c"), third.take(2).map { it.key })
+		assertEquals(listOf("", "e"), listOf(third[2].condition, third[2].otherwise.single().key))
+		assertEquals(unkeyed(chain), unkeyed(longer.minusLink(third[2].key).steps))
+		assertEquals(listOf("a", "e"), everyStep(draft.minusLink("c").steps).filter { it.key != "b" }.map { it.key })
 	}
 
 	@Test
@@ -296,15 +408,15 @@ class StepCardsTest {
 	@Test
 	fun addSlotsStopAtTheFlatCapOnlyWhereStepsMustStayPlain() {
 		val full = opened(older).let { draft ->
-			(2..8).fold(draft) { held, _ -> held.plusAction(plugDraft(SANDBOX_SWITCH, "off")) }
+			(2..Protocol.Wire.AUTOMATION_ACTIONS_MAX).fold(draft) { held, _ -> held.plusAction(plugDraft(SANDBOX_SWITCH, "off")) }
 		}
 		val top = CardRow.AddSlot(Slot(null, null, full.steps.size), 0, full = false)
 
-		assertEquals(8, full.steps.size)
+		assertEquals(Protocol.Wire.AUTOMATION_ACTIONS_MAX, full.steps.size)
 		assertTrue(slotOffers(full, older, top).empty)
 		val served = slotOffers(full, FN_OFFER, top)
 		assertTrue(served.actions.isNotEmpty())
-		assertEquals(listOf("if", "try", "wait", "exit", "note", "call"), served.statements.map { it.kind })
+		assertEquals(listOf("if", "switch", "try", "wait", "exit", "note", "call"), served.statements.map { it.kind })
 		assertTrue(slotOffers(full, FN_OFFER, top.copy(full = true)).empty)
 	}
 

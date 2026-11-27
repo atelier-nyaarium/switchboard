@@ -34,9 +34,9 @@ internal sealed interface FlowKey {
 
 	data class Function(val id: String) : FlowKey
 
-	data class Switch(val device: String) : FlowKey
+	data class Plug(val device: String) : FlowKey
 
-	/** Expression switch per body. */
+	/** Expression plug per body. */
 	data class Named(val owner: FlowKey, val expression: String) : FlowKey
 
 	data object Assistant : FlowKey
@@ -51,7 +51,7 @@ internal fun roleOf(key: FlowKey): FlowRole = when (key) {
 	is FlowKey.Source, is FlowKey.Sensor, is FlowKey.Field, FlowKey.Clock, is FlowKey.Trigger -> FlowRole.START
 	is FlowKey.Automation -> FlowRole.AUTOMATION
 	is FlowKey.Function -> FlowRole.FUNCTION
-	is FlowKey.Switch, is FlowKey.Named, FlowKey.Assistant, FlowKey.Ifttt, is FlowKey.Other -> FlowRole.ACTED
+	is FlowKey.Plug, is FlowKey.Named, FlowKey.Assistant, FlowKey.Ifttt, is FlowKey.Other -> FlowRole.ACTED
 }
 
 /** Sheet note beside node. */
@@ -69,6 +69,15 @@ internal data class FlowNode(val key: FlowKey, val label: String, val notes: Lis
 
 internal enum class FlowAct { STARTS, POINTS, CALLS, ACTS }
 
+/** Switch side, per body. */
+internal data class FlowCase(
+	val function: String,
+	/** Path under function. */
+	val step: String,
+	val number: Int,
+	val label: String,
+)
+
 internal data class FlowLine(
 	val from: FlowKey,
 	val to: FlowKey,
@@ -77,6 +86,8 @@ internal data class FlowLine(
 	val onFailure: Boolean,
 	/** Paths by automation. */
 	val steps: Map<String, Set<String>>,
+	/** One line per case. */
+	val case: FlowCase? = null,
 )
 
 /** Owner, guard, entered function. */
@@ -141,9 +152,11 @@ private fun pointerGivenOf(raw: JsonElement): SiteGiven? = (raw as? JsonPrimitiv
 /** Call-site bindings and parent. */
 private data class Site(val given: Map<String, SiteGiven>, val outer: String?)
 
+private data class LineKey(val from: FlowKey, val to: FlowKey, val act: FlowAct, val onFailure: Boolean, val case: FlowCase?)
+
 private class Builder(val input: FlowInput) {
 	val nodes = linkedMapOf<FlowKey, FlowNode>()
-	val lines = linkedMapOf<Triple<FlowKey, FlowKey, Pair<FlowAct, Boolean>>, MutableMap<String, MutableSet<String>>>()
+	val lines = linkedMapOf<LineKey, MutableMap<String, MutableSet<String>>>()
 	val steps = linkedMapOf<String, MutableMap<String, FlowStep>>()
 	private val functionRows = input.functions.associateBy { it.id }
 
@@ -161,8 +174,8 @@ private class Builder(val input: FlowInput) {
 		if (note !in held.notes) nodes[key] = held.copy(notes = held.notes + note)
 	}
 
-	fun line(from: FlowKey, to: FlowKey, act: FlowAct, onFailure: Boolean, automation: String, path: String?) {
-		val held = lines.getOrPut(Triple(from, to, act to onFailure)) { linkedMapOf() }
+	fun line(from: FlowKey, to: FlowKey, act: FlowAct, onFailure: Boolean, automation: String, path: String?, case: FlowCase? = null) {
+		val held = lines.getOrPut(LineKey(from, to, act, onFailure, case)) { linkedMapOf() }
 		val paths = held.getOrPut(automation) { linkedSetOf() }
 		if (path != null) paths += path
 	}
@@ -181,15 +194,15 @@ private class Builder(val input: FlowInput) {
 			?: input.numbers.firstOrNull { it.device == device }?.label
 			?: device
 
-	fun switchKey(device: String): FlowKey {
-		val key = FlowKey.Switch(device)
+	fun plugKey(device: String): FlowKey {
+		val key = FlowKey.Plug(device)
 		node(key, input.switches.firstOrNull { it.device == device }?.name ?: device)
 		return key
 	}
 
 	fun actedOf(action: AutomationAction): FlowKey? = when (action) {
 		is AutomationAction.TellAssistant -> FlowKey.Assistant.also { node(it, ASSISTANT_LABEL) }
-		is AutomationAction.DeviceSet -> switchKey(action.device)
+		is AutomationAction.DeviceSet -> plugKey(action.device)
 		is AutomationAction.IftttTrigger -> FlowKey.Ifttt.also { node(it, IFTTT_LABEL) }
 		is AutomationAction.RunFunction -> null
 		is AutomationAction.Unknown -> FlowKey.Other(action.kind).also { node(it, action.kind) }
@@ -217,7 +230,7 @@ private fun deviceOf(raw: JsonElement?, site: String?, sites: Map<String, Site>,
 	var at = site
 	repeat(sites.size + 1) {
 		when (val held = given) {
-			is SiteGiven.Literal -> return b.switchKey(held.text)
+			is SiteGiven.Literal -> return b.plugKey(held.text)
 			is SiteGiven.Expression -> {
 				val outer = at?.let { sites[it] }
 				val next = if (BARE_NAME.matches(held.text)) outer?.given?.get(held.text) else null
@@ -281,6 +294,7 @@ internal fun flowGraph(input: FlowInput): FlowGraph {
 					val owner = if (b.named(entry.via)) FlowKey.Function(entry.via) else self
 					val (guarded, caught) = guardOf(entry, held)
 					val site = siteAbove(sites, entry.path)
+					val case = caseOf(entry, held, site)
 					when (val step = entry.step) {
 						is FunctionStep.Do -> {
 							reached[entry.path] = FlowStep(owner, guarded)
@@ -290,14 +304,14 @@ internal fun flowGraph(input: FlowInput): FlowGraph {
 								ACTION_IFTTT -> FlowKey.Ifttt.also { b.node(it, IFTTT_LABEL) }
 								else -> FlowKey.Other(step.action).also { b.node(it, step.action) }
 							}
-							target?.let { b.line(owner, it, FlowAct.ACTS, caught, row.id, entry.path) }
+							target?.let { b.line(owner, it, FlowAct.ACTS, caught, row.id, entry.path, case) }
 						}
 						is FunctionStep.Call -> {
 							reached[entry.path] = FlowStep(owner, guarded, enters = step.function)
 							sites[entry.path] = Site(step.values.orEmpty().mapNotNull { (k, v) -> givenOf(v)?.let { k to it } }.toMap(), site)
 							if (entry.path !in unfollowed && b.named(step.function)) {
 								b.node(FlowKey.Function(step.function), b.functionOf(step.function)!!.name)
-								b.line(owner, FlowKey.Function(step.function), FlowAct.CALLS, caught, row.id, entry.path)
+								b.line(owner, FlowKey.Function(step.function), FlowAct.CALLS, caught, row.id, entry.path, case)
 							}
 						}
 						is FunctionStep.Unparsed -> {
@@ -316,7 +330,7 @@ internal fun flowGraph(input: FlowInput): FlowGraph {
 	return FlowGraph(
 		nodes = b.nodes.values.toList(),
 		lines = b.lines.map { (key, steps) ->
-			FlowLine(key.first, key.second, key.third.first, key.third.second, steps.mapValues { it.value.toSet() })
+			FlowLine(key.from, key.to, key.act, key.onFailure, steps.mapValues { it.value.toSet() }, key.case)
 		},
 		steps = b.steps,
 		enabled = input.rows.associate { it.id to it.automation.enabled },
@@ -341,6 +355,23 @@ private fun guardOf(entry: WalkStep, held: Map<String, WalkStep>): Pair<Boolean,
 		}
 	}
 	return guarded to caught
+}
+
+private const val DEFAULT_LABEL = "default"
+
+/** Nearest same-body case. */
+private fun caseOf(entry: WalkStep, held: Map<String, WalkStep>, site: String?): FlowCase? {
+	val parts = entry.path.split('.')
+	for (cut in parts.size - 1 downTo 1) {
+		val at = parts.subList(0, cut).joinToString(".")
+		val above = held[at] ?: continue
+		if (above.via != entry.via) return null
+		val step = above.step as? FunctionStep.Switch ?: continue
+		val number = parts[cut].toIntOrNull() ?: return null
+		val label = step.cases.getOrNull(number)?.values?.joinToString(", ") ?: DEFAULT_LABEL
+		return FlowCase(entry.via, site?.let { at.removePrefix("$it.") } ?: at, number, label)
+	}
+	return null
 }
 
 /** How its newest part ended. */
@@ -493,7 +524,7 @@ internal fun flowFacts(graph: FlowGraph, runs: Map<String, AutomationLastRun>, p
 				val started = graph.lines.filter { it.from == key }.map { (it.to as FlowKey.Automation).id }
 				if (started.any { runs[it] != null || graph.ranAt[it] != null }) told else NOTHING
 			}
-			is FlowKey.Switch, is FlowKey.Named, FlowKey.Assistant, FlowKey.Ifttt, is FlowKey.Other -> {
+			is FlowKey.Plug, is FlowKey.Named, FlowKey.Assistant, FlowKey.Ifttt, is FlowKey.Other -> {
 				val into = graph.lines.withIndex().filter { it.value.to == key }
 					.let { all -> all.filter { prefer != null && prefer in it.value.steps }.ifEmpty { all } }
 				into.mapNotNull { (index, _) -> lineAt[index]?.let { it to lineFacts[index] } }

@@ -209,7 +209,7 @@ class FunctionRulesTest {
 		assertEquals(RunsIssue.BadParam("Lamp", ParamIssue.INVALID), issue(listOf(FunctionParam("Lamp", "text"))))
 		assertEquals(RunsIssue.BadParam("lamp", ParamIssue.DUPLICATE), issue(listOf(FunctionParam("lamp", "text"), FunctionParam("lamp", "number"))))
 		assertNull(issue(listOf(FunctionParam("device", "text"))))
-		assertEquals(RunsIssue.TooManyParams, issue((1..9).map { FunctionParam("v$it", "text") }))
+		assertEquals(RunsIssue.TooManyParams, issue((0..Protocol.Wire.FUNCTION_PARAMS_MAX).map { FunctionParam("v$it", "text") }))
 		// Values stay on an unnamed function only where the Gateway holds one.
 		assertNull(issue(listOf(FunctionParam("lamp", "device")), name = ""))
 		assertEquals(RunsIssue.NameWithValues, issue(listOf(FunctionParam("lamp", "device")), name = "", offer = older))

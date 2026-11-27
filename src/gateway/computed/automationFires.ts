@@ -58,8 +58,6 @@ export const FailureSchema = OneFailureSchema.extend({
 	errors: z.array(OneFailureSchema).max(RUN_STRANDS_MAX).optional(),
 });
 
-/** Variables a run keeps. */
-export const FRAME_VARS_MAX = 16;
 /** One variable's JSON. */
 export const FRAME_VAR_BYTES_MAX = 1_024;
 

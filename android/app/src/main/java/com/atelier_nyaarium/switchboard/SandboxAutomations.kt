@@ -31,6 +31,7 @@ import com.atelier_nyaarium.switchboard.proto.FunctionReads
 import com.atelier_nyaarium.switchboard.proto.FunctionStep
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.StepArg
+import com.atelier_nyaarium.switchboard.proto.SwitchCase
 import kotlinx.serialization.json.JsonObject
 import com.atelier_nyaarium.switchboard.assistant.reached
 import com.atelier_nyaarium.switchboard.assistant.callsOf
@@ -152,7 +153,7 @@ internal val SANDBOX_SERVES = AutomationServes(
 		max = Protocol.Wire.FUNCTIONS_MAX.toLong(),
 		steps = listOf("tell_assistant", "device_set", "ifttt_trigger"),
 		paramTypes = listOf("device", "text", "number"),
-		statements = listOf("do", "if", "try", "exit", "throw", "let", "wait", "note", "unparsed", "call"),
+		statements = listOf("do", "if", "switch", "try", "exit", "throw", "let", "wait", "note", "unparsed", "call"),
 		unnamed = true,
 		script = true,
 	),
@@ -335,6 +336,34 @@ internal class SandboxAutomationGateway(
 					),
 				),
 			)),
+			"fn-reason" to (1L to AutomationFunction(
+				name = "",
+				params = emptyList(),
+				steps = listOf(
+					FunctionStep.Switch(
+						subject = "event.reason",
+						cases = listOf(
+							SwitchCase(listOf("mention"), listOf(step("tell_assistant", "when" to StepArg.Literal(JsonPrimitive("now"))))),
+							SwitchCase(
+								listOf("review_requested", "assign"),
+								listOf(step("device_set", "device" to StepArg.Literal(JsonPrimitive(SANDBOX_SWITCH)), "verb" to StepArg.Literal(JsonPrimitive("on")))),
+							),
+						),
+						default = listOf(
+							FunctionStep.If(
+								`when` = "event.repository == \"switchboard\"",
+								steps = listOf(step("tell_assistant", "when" to StepArg.Literal(JsonPrimitive("quietly")))),
+								`else` = listOf(
+									FunctionStep.If(
+										`when` = "event.type == \"Release\"",
+										steps = listOf(step("tell_assistant", "when" to StepArg.Literal(JsonPrimitive("now")))),
+									),
+								),
+							),
+						),
+					),
+				),
+			)),
 			SANDBOX_MOVING_FUNCTION to (1L to AutomationFunction(
 				name = "Night lamp",
 				params = emptyList(),
@@ -440,6 +469,18 @@ internal class SandboxAutomationGateway(
 					mapOf("lamp" to SANDBOX_SWITCH, "message" to "Good morning"),
 				),
 				pointing("lamp-off", AutomationTrigger.Time("23:00", (1L..7L).toList(), "America/Los_Angeles"), SANDBOX_MOVING_FUNCTION, "Every day at 23:00"),
+				pointing("by-reason", AutomationTrigger.Event("github", emptyList()), "fn-reason", "GitHub: every event").copy(
+					lastRun = AutomationLastRun(
+						at = now() - 30 * MINUTE_MS,
+						revision = 1L,
+						steps = listOf(
+							AutomationLastStep("0", "run_function", outcome = "ran"),
+							AutomationLastStep("0.0", "switch", outcome = "ran", case = 1L, function = "fn-reason"),
+							AutomationLastStep("0.0.1.0", "device_set", outcome = "ran", function = "fn-reason"),
+						),
+						running = false,
+					),
+				),
 				pointing(
 					"humid",
 					AutomationTrigger.Crossing(SANDBOX_SENSOR, "humidity", "above", 60.0, 2.0, 600L),

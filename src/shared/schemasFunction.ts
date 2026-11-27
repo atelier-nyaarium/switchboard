@@ -6,23 +6,25 @@ import { RULE_ID_RE } from "./schemasAssistantRules.js";
 import { ASSISTANT_RULE_VALUE_MAX } from "./wire-vocabulary.js";
 
 /** Store-wide total. */
-export const FUNCTIONS_MAX = 32;
+export const FUNCTIONS_MAX = 256;
 /** In one list. */
-export const FUNCTION_STEPS_MAX = 8;
+export const FUNCTION_STEPS_MAX = 256;
 /** Across every depth. */
-export const FUNCTION_STEPS_TOTAL_MAX = 32;
-export const FUNCTION_DEPTH_MAX = 4;
+export const FUNCTION_STEPS_TOTAL_MAX = 256;
+export const FUNCTION_DEPTH_MAX = 256;
 /** A day. */
 export const WAIT_MINUTES_MAX = 1_440;
-export const FUNCTION_PARAMS_MAX = 8;
+export const FUNCTION_PARAMS_MAX = 256;
 /** Maximum concurrent steps. */
-export const RUN_STRANDS_MAX = 8;
+export const RUN_STRANDS_MAX = 256;
+/** Variables a run keeps. */
+export const FRAME_VARS_MAX = 16;
 /** A run's variables, and `e`. */
-export const RUN_NAMES_MAX = 17;
+export const RUN_NAMES_MAX = FRAME_VARS_MAX + 1;
 export const FUNCTION_NAME_MAX = 80;
 export const STEP_TEXT_MAX = 1_000;
-/** The widest action row's parameters. */
-export const STEP_ARGS_MAX = 4;
+/** Values one step names. */
+export const STEP_ARGS_MAX = 256;
 /** A script's whole text. */
 export const SCRIPT_SOURCE_MAX = 24_000;
 export const FUNCTION_PARAM_TYPES = ["device", "text", "number"] as const;
@@ -52,9 +54,10 @@ export type StepArg = z.infer<typeof StepArgSchema>;
 /** A list a step holds. */
 const side = () => z.array(FunctionStepSchema).max(FUNCTION_STEPS_MAX);
 
-export const SWITCH_CASES_MAX = 16;
-/** An enumeration's most options. */
-export const SWITCH_CASE_VALUES_MAX = 64;
+/** As `WALK_ENTRIES_MAX`. */
+export const SWITCH_CASES_MAX = 256;
+/** As `WALK_ENTRIES_MAX`. */
+export const SWITCH_CASE_VALUES_MAX = 256;
 
 /** No values is an error. */
 export const SwitchCaseSchema = z
