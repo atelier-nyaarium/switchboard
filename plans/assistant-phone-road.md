@@ -2876,7 +2876,7 @@ Still owed here: the owner's own use of it, and the list below.
 - **The walk (2026-11-26):** the owner's phone, re-paired, on this build: Automations List and Map, the editor's Runs in Cards and Script, the script page, Sources, a sensor's page. One defect: an automation the lane told alone kept no steps, so the map drew it as never run while the list said "Ran 1d ago". The map now reads its last-ran time (`FlowGraph.ranAt`). The Key became a Legend button drawing the designer's legend, each sample through the map's own draw calls, and a test holds that it shows every colour, pattern and weight.
 - **Still owed here:** `vault-watcher-grants` and `automation-serves` once ql-2815 runs this build; the 2026-12-10 windows the phone, daemons and Gateways write (all but ql now current); a real notification and a sensor crossing reaching the assistant.
 
-## Phase 2.7h - Value lists, the switch and saves that never block (Q98 to Q104)
+## Phase 2.7h - Value lists, the switch and saves that never block (Q98 to Q104) ✅
 
 Rough; refined before building.
 
