@@ -500,13 +500,15 @@ private fun FlowKeyDialog(onDismiss: () -> Unit) {
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 						modifier = Modifier.padding(top = 8.dp),
 					)
-					for (row in group.rows) {
-						Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-							Canvas(Modifier.size(56.dp, 24.dp)) { drawSample(row, palette, density, dash, measurer, style) }
-							Column(Modifier.weight(1f)) {
-								Text(row.title, style = MaterialTheme.typography.bodyMedium)
-								row.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+					for (pair in group.rows.chunked(2)) {
+						Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+							for (row in pair) {
+								Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+									Canvas(Modifier.size(48.dp, 24.dp)) { drawSample(row, palette, density, dash, measurer, style) }
+									Text(row.title, style = MaterialTheme.typography.bodySmall)
+								}
 							}
+							if (pair.size == 1) Spacer(Modifier.weight(1f))
 						}
 					}
 				}
