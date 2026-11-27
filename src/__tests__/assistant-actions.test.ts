@@ -23,6 +23,7 @@ import type {
 import { sourceText } from "../mcp/assistant/actionFront.js";
 import { processAmbient } from "../shared/ambient.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
+import { createRestoreRepairs } from "../shared/durable-store.js";
 import { ConsolePushEntrySchema } from "../shared/federation-protocol.js";
 import { ACTION_FRONT_ROUTES, type ActionRunResult } from "../shared/schemasActionFront.js";
 import { ASSISTANT_ACTIONS } from "../shared/schemasAssistantActions.js";
@@ -145,6 +146,7 @@ async function placed(listed: string[] = [], pageSize = 50) {
 		},
 	};
 	const assistant = composeAssistant({
+		repairs: createRestoreRepairs(),
 		dataDir,
 		localGatewayId: LOCAL_GATEWAY,
 		domainId: () => "home",

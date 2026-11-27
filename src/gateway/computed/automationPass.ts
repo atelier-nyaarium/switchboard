@@ -2,7 +2,7 @@
 
 import { below, byPath, caseSide, type RunFunction, within } from "../../shared/automation-walk.js";
 import { AUTOMATION_ACTIONS, type Automation, type AutomationAction } from "../../shared/schemasAutomation.js";
-import { FRAME_VARS_MAX, RUN_STRANDS_MAX } from "../../shared/schemasFunction.js";
+import { FRAME_VARS_MAX, type FunctionStep, RUN_STRANDS_MAX } from "../../shared/schemasFunction.js";
 import { keptOf } from "../../shared/task-values.js";
 import {
 	claim,
@@ -35,7 +35,6 @@ import {
 	moved,
 	stepAt,
 	strandOf,
-	type TreeStep,
 	taskOf,
 } from "./automationFrames.js";
 import { NOT_HOME } from "./automationJudge.js";
@@ -85,7 +84,7 @@ export interface PassPorts {
 		call: RunFunction,
 	): { fire: Fire; first: string } | { refused: string; code?: FailureCode };
 	/** The steps the frame at `site` runs. */
-	frameBody(fire: Fire, site: string): readonly TreeStep[] | null;
+	frameBody(fire: Fire, site: string): readonly FunctionStep[] | null;
 	bodyOf(fire: Fire): Automation | null;
 	actionOf(fire: Fire, path: string): AutomationAction | null;
 	stepAt(fire: Fire, path: string): AutomationEffect | null;
@@ -315,13 +314,31 @@ export function createPass(ports: PassPorts): {
 	};
 
 	/** How an ended step moves its frame. */
-	const howOf = (kind: string, step: Step): Ended => {
+	const howOf = (kind: FunctionStep["kind"], step: Step): Ended => {
 		if (step.verdict !== "done") return { how: kind === "throw" ? "thrown" : "failed", failure: failureOf(step) };
-		if (kind === "if") return { how: "took", side: step.side ?? null };
-		if (kind === "switch") return { how: "took", side: step.case === undefined ? null : caseSide(step.case) };
-		if (kind === "try") return { how: "took", side: "try" };
-		if (kind === "exit") return { how: "exit" };
-		return { how: "done" };
+		switch (kind) {
+			case "if":
+				return { how: "took", side: step.side ?? null };
+			case "switch":
+				return { how: "took", side: step.case === undefined ? null : caseSide(step.case) };
+			case "try":
+				return { how: "took", side: "try" };
+			case "exit":
+				return { how: "exit" };
+			case "do":
+			case "parallel":
+			case "start":
+			case "await":
+			case "throw":
+			case "let":
+			case "wait":
+			case "note":
+			case "unparsed":
+			case "call":
+				return { how: "done" };
+			default:
+				return kind satisfies never;
+		}
 	};
 
 	/** Strand root across calls. */

@@ -8,7 +8,7 @@ import type { Automations } from "../gateway/computed/automations.js";
 import type { ComputedFields } from "../gateway/computed/computedFields.js";
 import { createDeviceStore } from "../gateway/devices/store.js";
 import { alertId, alertPrefix, createThresholdConversion } from "../gateway/devices/thresholdConversion.js";
-import { openDurable } from "../shared/durable-store.js";
+import { createRestoreRepairs, openDurable } from "../shared/durable-store.js";
 import type { Automation, AutomationInput } from "../shared/schemasAutomation.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
 
@@ -98,6 +98,7 @@ function fixture(seed: Seed = {}, failWrites = 0) {
 			sightings: () => warm,
 		});
 		const pair = openAutomationPair({
+			repairs: createRestoreRepairs(),
 			dataDir,
 			newIncarnation: () => ambient.newId(),
 			now: () => ambient.now(),

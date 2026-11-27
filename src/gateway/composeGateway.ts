@@ -194,6 +194,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	});
 	const assistant = composeAssistant({
 		dataDir: bootstrap.dataDir,
+		repairs: stores.repairs,
 		localGatewayId: bootstrap.localGatewayId,
 		domainId: () => context.domainId(),
 		ambient: bootstrap.ambient,
@@ -535,6 +536,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	});
 	const policies = composePolicies({
 		dataDir: bootstrap.dataDir,
+		repairs: stores.repairs,
 		onPolicyMoved: (policyId) => vault?.policyMoved(policyId),
 		onPoliciesListed: (listed) => vault?.policiesListed(listed),
 	});
@@ -595,6 +597,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	});
 	const automationStage = composeAutomations({
 		dataDir: bootstrap.dataDir,
+		repairs: stores.repairs,
 		newIncarnation: () => bootstrap.ambient.newId(),
 		now: () => bootstrap.ambient.now(),
 		input: devices!.sensorInput,

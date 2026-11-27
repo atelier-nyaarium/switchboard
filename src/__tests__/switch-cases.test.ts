@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { AssistantFieldSpecSchema } from "../shared/schemasAssistantRules.js";
-import { caseKey, caseTaken, choiceFieldOf, switchIssues } from "../shared/switch-cases.js";
+import { AssistantFieldSpecSchema, caseKey } from "../shared/schemasAssistantRules.js";
+import { caseTaken, choiceFieldOf, switchIssues } from "../shared/switch-cases.js";
 
 interface Vectors {
 	keys: { value: string; key: string }[];

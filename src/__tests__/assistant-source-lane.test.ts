@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import type { PollAnswer, Source, SourceEvent } from "../gateway/assistant/source.js";
 import {
 	type AssistantWake,
@@ -20,7 +20,7 @@ import {
 	type SourceStateStore,
 } from "../gateway/assistant/sourceState.js";
 import { ChannelDeliveryCoordinator } from "../gateway/channelDelivery.js";
-import { DurableStore } from "../shared/durable-store.js";
+import { createRestoreRepairs, DurableStore } from "../shared/durable-store.js";
 import { type EventMember, PendingDeliveryStore } from "../shared/pending-delivery-store.js";
 import type { RuleAction } from "../shared/schemasAssistantRules.js";
 import { type FakeAmbient, fakeAmbient } from "../testing/fakeAmbient.js";
@@ -40,7 +40,8 @@ function stateDir(): string {
 	return dir;
 }
 
-const stateIn = (dir: string): SourceStateStore => createSourceStateStore(new DurableStore(dir, "assistant-watchers"));
+const stateIn = (dir: string): SourceStateStore =>
+	createSourceStateStore(new DurableStore(dir, "assistant-watchers"), createRestoreRepairs());
 
 const thread = (id: string, at: number, reason = "mention"): SourceEvent => ({
 	id,
@@ -379,18 +380,33 @@ describe("a source's lane", () => {
 		expect(state.get("github")).toMatchObject({ unread: 2, gone: [{ id: "x", at: 500 }] });
 	});
 
-	it("restores a state stored with an `unexpected` key, keeping the rest and writing it back without", () => {
+	it("drops a stored `unexpected` key from an idle source, a failed rewrite landing on a later persist pass", () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const dir = stateDir();
 		const file = path.join(dir, "assistant-watchers.json");
 		const kept = { ...FRESH_STATE, cursor: "c9", primed: true, unread: 3 };
 		const unexpected = { values: [{ field: "reason", value: "ci_new" }], capped: false };
 		fs.writeFileSync(file, JSON.stringify({ v: 1, watchers: { github: { ...kept, unexpected } } }));
+		const disk = new DurableStore(dir, "assistant-watchers");
+		let failing = true;
+		const store = {
+			load: () => disk.load(),
+			saveChecked: (state: unknown) => {
+				if (failing) throw new Error("disk full");
+				disk.saveChecked(state);
+			},
+		};
+		const repairs = createRestoreRepairs();
 
-		const restored = stateIn(dir);
+		const restored = createSourceStateStore(store, repairs);
 		expect(restored.get("github")).toEqual(kept);
+		expect(repairs.pending()).toEqual(["assistant source state"]);
+
+		failing = false;
+		repairs.retry();
 		expect(JSON.parse(fs.readFileSync(file, "utf8")).watchers.github).toEqual(kept);
-		expect(restored.put("github", { ...restored.get("github"), unread: 4 })).toBe(true);
-		expect(JSON.parse(fs.readFileSync(file, "utf8")).watchers.github).toEqual({ ...kept, unread: 4 });
+		expect(repairs.pending()).toEqual([]);
+		warn.mockRestore();
 	});
 
 	it("commits only once every push is queued, polling a failed one again from the checkpoint with doubling backoff", async () => {

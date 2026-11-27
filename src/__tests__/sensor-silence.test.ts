@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createAutomations } from "../gateway/computed/automations.js";
 import type { ComputedFields } from "../gateway/computed/computedFields.js";
 import { type HeardSensor, SILENCE_HOLD_MS } from "../gateway/computed/sensorSilence.js";
-import { openDurable } from "../shared/durable-store.js";
+import { createRestoreRepairs, openDurable } from "../shared/durable-store.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -48,6 +48,7 @@ function world(dir: string) {
 		openDurable(dir, "automations", (records) =>
 			openDurable(dir, "automation-state", (state) =>
 				createAutomations({
+					repairs: createRestoreRepairs(),
 					records,
 					state,
 					fields: NO_FIELDS,

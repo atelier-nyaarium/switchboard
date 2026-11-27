@@ -3,7 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPolicyStore } from "../gateway/policies/store.js";
-import { type DurableStore, DurableStoreInstalledError, openDurable } from "../shared/durable-store.js";
+import {
+	createRestoreRepairs,
+	type DurableStore,
+	DurableStoreInstalledError,
+	openDurable,
+} from "../shared/durable-store.js";
 import {
 	type AuthorizationPolicy,
 	MAX_POLICIES_PER_GATEWAY,
@@ -22,7 +27,9 @@ const fresh = () => {
 	return root;
 };
 const open = (dataDir: string, moved: string[] = []) =>
-	openDurable(dataDir, "policies", (store) => createPolicyStore({ store, onChanged: (id) => moved.push(id) }));
+	openDurable(dataDir, "policies", (store) =>
+		createPolicyStore({ store, repairs: createRestoreRepairs(), onChanged: (id) => moved.push(id) }),
+	);
 
 const policy = (id: string, over: Partial<AuthorizationPolicy> = {}): AuthorizationPolicy => ({
 	id,
@@ -230,7 +237,11 @@ describe("policy store", () => {
 				if (fail) throw fail;
 			},
 		} as unknown as DurableStore;
-		const store = createPolicyStore({ store: durable, onChanged: (id) => moved.push(id) });
+		const store = createPolicyStore({
+			store: durable,
+			repairs: createRestoreRepairs(),
+			onChanged: (id) => moved.push(id),
+		});
 
 		expect(store.put(policy("apt"))).toMatchObject({ stored: false, revision: 0, refusal: { code: "unwritten" } });
 		expect(store.list()).toEqual([]);
@@ -248,7 +259,7 @@ describe("policy store", () => {
 			throw new Error("vault gone");
 		});
 		const store = openDurable(dataDir, "policies", (durable) =>
-			createPolicyStore({ store: durable, onChanged: hook }),
+			createPolicyStore({ store: durable, repairs: createRestoreRepairs(), onChanged: hook }),
 		);
 
 		expect(store.put(policy("apt"))).toMatchObject({ stored: true, revision: 1 });

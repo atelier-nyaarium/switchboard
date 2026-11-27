@@ -24,6 +24,7 @@ export interface PersistenceStageDeps {
 		| "blobStore"
 		| "maxBlobStoreBytes"
 		| "sessionResumeDurable"
+		| "repairs"
 	>;
 	sessions: Pick<SessionsStage, "sessionStore" | "registry" | "presence" | "sessionResumeSnapshot">;
 	context: FederationContext;
@@ -118,6 +119,7 @@ export function composePersistence({
 						: stores.sessionResumeDurable.save(sessions.sessionResumeSnapshot(cleanShutdown)),
 			},
 			{ name: "replay-guard", run: () => context.slice()?.replayPersist() },
+			{ name: "restore-repairs", run: () => stores.repairs.retry() },
 		]);
 
 	// Shutdown flush persists under the fence. Shut down before cutting.

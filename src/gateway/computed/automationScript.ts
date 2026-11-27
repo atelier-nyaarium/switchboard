@@ -387,6 +387,8 @@ export function printScript(steps: readonly FunctionStep[], tables: ScriptTables
 					lines.push(`${indent}}`);
 					break;
 				}
+				default:
+					step satisfies never;
 			}
 			spans.push({ step: path, first, last: lines.length - 1, skip: 0 });
 		}

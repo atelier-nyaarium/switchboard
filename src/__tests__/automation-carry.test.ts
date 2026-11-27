@@ -11,6 +11,7 @@ import { holesOver } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { carriedFunctionsOf } from "../shared/automation-carry.js";
 import { callsOf, pointerOf } from "../shared/automation-walk.js";
+import { createRestoreRepairs } from "../shared/durable-store.js";
 import { unknown } from "../shared/expressions.js";
 import { AssistantHomeSealedSchema, readableSealed } from "../shared/schemasAssistantHome.js";
 import {
@@ -81,6 +82,7 @@ function destination(
 	fs.writeFileSync(path.join(dir, "automation-function-key.json"), JSON.stringify({ key: KEY.toString("base64") }));
 	let n = 0;
 	const { automations } = openAutomationPair({
+		repairs: createRestoreRepairs(),
 		dataDir: dir,
 		newIncarnation: () => `a${++n}`,
 		now: () => now.at,

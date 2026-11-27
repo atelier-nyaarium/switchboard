@@ -13,6 +13,7 @@ import {
 import { processAmbient } from "../shared/ambient.js";
 import { ASSISTANT_HOLD_PATH } from "../shared/assistant-hold.js";
 import { ASSISTANT_RESERVE_KEY, ASSISTANT_SESSION_NAME, ASSISTANT_TEAM } from "../shared/assistant-session.js";
+import { createRestoreRepairs } from "../shared/durable-store.js";
 import { ACTION_FRONT_ROUTES } from "../shared/schemasActionFront.js";
 import type { AssistantHomeRecord, AssistantHomeSealed } from "../shared/schemasAssistantHome.js";
 import type { AssistantFieldSpec } from "../shared/schemasAssistantRules.js";
@@ -137,6 +138,7 @@ function stage(options: StageOptions = {}) {
 		},
 	};
 	const assistant = composeAssistant({
+		repairs: createRestoreRepairs(),
 		dataDir,
 		localGatewayId: LOCAL_GATEWAY,
 		domainId: () => options.domainId ?? "home",

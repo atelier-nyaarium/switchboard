@@ -1,6 +1,7 @@
 // The automation state file: its shape and its restore.
 
 import { z } from "zod";
+import type { Decoded } from "../../shared/durable-store.js";
 import { type Automation, AutomationSchema } from "../../shared/schemasAutomation.js";
 import { type AutomationFunction, FunctionSchema } from "../../shared/schemasFunction.js";
 import { FIRES_MAX, type Fire, readFire } from "./automationFires.js";
@@ -168,8 +169,8 @@ const readable = <T>(rows: Record<string, unknown>, schema: z.ZodType<T>): Recor
 		}),
 	);
 
-/** `changed`: the first write must land it. */
-export function restore(raw: unknown, now: number): { state: State; changed: boolean } {
+/** Stale: fires dropped. */
+export function restore(raw: unknown, now: number): Decoded<State> {
 	const loose = LooseStateSchema.parse(raw ?? EMPTY);
 	const automations: State["automations"] = {};
 	for (const [id, row] of Object.entries(loose.automations)) {
@@ -216,7 +217,7 @@ export function restore(raw: unknown, now: number): { state: State; changed: boo
 		lastRuns: settledRuns(readable(loose.lastRuns, HeldLastRunSchema), new Set(fires.map((fire) => fire.member))),
 		order: loose.order,
 	};
-	return { state, changed: lost > 0 };
+	return { value: state, stale: lost > 0 };
 }
 
 /** As written: the log's rows bare, what stands beside them. */

@@ -205,6 +205,88 @@ export function restoreDurable(name: string, restore: () => void): void {
 	}
 }
 
+export interface Decoded<T> {
+	value: T;
+	/** File holds older form. */
+	stale: boolean;
+}
+
+interface Repair {
+	pending: () => boolean;
+	retry: () => void;
+}
+
+/** Unlanded restore rewrites. */
+export interface RestoreRepairs {
+	/** Labels still pending. */
+	pending(): string[];
+	/** One persist pass. */
+	retry(): void;
+	/** Same label replaces. */
+	track(label: string, repair: Repair): void;
+}
+
+export function createRestoreRepairs(): RestoreRepairs {
+	const repairs = new Map<string, Repair>();
+	return {
+		pending: () => [...repairs].filter(([, repair]) => repair.pending()).map(([label]) => label),
+		retry: () => {
+			for (const repair of repairs.values()) repair.retry();
+		},
+		track: (label, repair) => {
+			repairs.set(label, repair);
+		},
+	};
+}
+
+export interface Held<T> {
+	readonly value: T;
+	/** Failure keeps memory. */
+	commit(next: T, options?: Pick<CommitCheckedOptions, "onLanded">): CheckedCommit;
+}
+
+export interface HeldOptions<T> {
+	store: Pick<DurableStore, "load" | "saveChecked">;
+	/** Log and health label. */
+	label: string;
+	/** Throws to quarantine. */
+	decode: (raw: unknown) => Decoded<T>;
+	/** Defaults to the value. */
+	encode?: (value: T) => unknown;
+	repairs: RestoreRepairs;
+}
+
+/** Rewrites stale until landed. */
+export function restoreHeld<T>({ store, label, decode, encode, repairs }: HeldOptions<T>): Held<T> {
+	const decoded = decode(store.load());
+	let value = decoded.value;
+	let stale = decoded.stale;
+	const write = (next: T, options: CommitCheckedOptions): CheckedCommit =>
+		commitChecked(
+			store,
+			next,
+			(landed) => {
+				value = landed;
+				stale = false;
+			},
+			{ ...options, snapshot: encode ? encode(next) : next },
+		);
+	if (stale) write(value, { label });
+	repairs.track(label, {
+		pending: () => stale,
+		retry: () => {
+			// Quiet; health names it.
+			if (stale) write(value, {});
+		},
+	});
+	return {
+		get value() {
+			return value;
+		},
+		commit: (next, options = {}) => write(next, { label, onLanded: options.onLanded }),
+	};
+}
+
 /** One contained step of a persist pass: a save, a sweep, or the snapshot build feeding one. */
 export interface PersistStep {
 	name: string;

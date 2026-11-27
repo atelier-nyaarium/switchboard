@@ -23,7 +23,7 @@ import {
 import { type ComputedField, createComputedFields } from "../gateway/computed/computedFields.js";
 import { fillHoles, holesOver } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
-import { openDurable } from "../shared/durable-store.js";
+import { createRestoreRepairs, openDurable } from "../shared/durable-store.js";
 import { type FieldRef, known, refKey, unknown, type Value } from "../shared/expressions.js";
 import {
 	AUTOMATIONS_MAX,
@@ -98,6 +98,7 @@ function world(dir: string, home = true) {
 	let gated: string | null = null;
 	const open = () => {
 		const pair = openAutomationPair({
+			repairs: createRestoreRepairs(),
 			dataDir: dir,
 			newIncarnation: () => `a${++n}`,
 			now: () => {

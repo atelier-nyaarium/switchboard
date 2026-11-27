@@ -6,7 +6,7 @@ import { createOutboxSource } from "../gateway/assistant/outboxSource.js";
 import { CLOCK_GRACE_MS, clockIssue, clockSentence, nextSlot } from "../gateway/computed/automationClock.js";
 import { createAutomations } from "../gateway/computed/automations.js";
 import type { ComputedFields } from "../gateway/computed/computedFields.js";
-import { openDurable } from "../shared/durable-store.js";
+import { createRestoreRepairs, openDurable } from "../shared/durable-store.js";
 import type { AutomationInput, ClockTrigger } from "../shared/schemasAutomation.js";
 import { type FakeAmbient, fakeAmbient } from "../testing/fakeAmbient.js";
 
@@ -50,6 +50,7 @@ function open(dir: string, ambient: FakeAmbient, disk = { failing: false, writes
 				save(value);
 			};
 			return createAutomations({
+				repairs: createRestoreRepairs(),
 				records,
 				state,
 				fields: NO_FIELDS,

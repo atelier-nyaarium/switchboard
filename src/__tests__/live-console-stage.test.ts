@@ -11,6 +11,7 @@ import { createDeviceStore } from "../gateway/devices/store.js";
 import { withDoing } from "../gateway/liveConsole/doing.js";
 import { type ConsoleReaders, consoleEntities } from "../gateway/liveConsole/entities.js";
 import { CONSOLE_TEXT_BYTES } from "../gateway/liveConsole/render.js";
+import { createRestoreRepairs } from "../shared/durable-store.js";
 import type { HostOpResult } from "../shared/host-op.js";
 import type { ConsoleAssistantStateResult, TemperatureUnit } from "../shared/schemasAssistant.js";
 import { CONSOLE_VALUE_BYTES } from "../shared/schemasLiveConsole.js";
@@ -518,6 +519,7 @@ describe("live console read-only fence", () => {
 			onIngested: (keys) => fields?.inputsChanged(keys),
 		});
 		const pair = openAutomationPair({
+			repairs: createRestoreRepairs(),
 			dataDir,
 			newIncarnation: () => ambient.newId(),
 			now: () => ambient.now(),

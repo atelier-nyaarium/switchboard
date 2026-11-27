@@ -20,7 +20,10 @@ export interface RoutesStageDeps {
 	ambient: Ambient;
 	identity: () => Identity;
 	context: FederationContext;
-	stores: Pick<StoresStage, "jobs" | "capabilityStore" | "daemonCapabilityStore" | "blobStore" | "boardReplays">;
+	stores: Pick<
+		StoresStage,
+		"jobs" | "capabilityStore" | "daemonCapabilityStore" | "blobStore" | "boardReplays" | "repairs"
+	>;
 	sessions: Pick<
 		SessionsStage,
 		| "registry"
@@ -79,6 +82,7 @@ export function composeRoutes(deps: RoutesStageDeps): RoutesStage {
 			sessionStore: sessions.sessionStore,
 			presence: sessions.presence,
 			backstop: () => sessions.purgeQueue.tally(),
+			pendingRepairs: () => stores.repairs.pending(),
 			hostSpawnPoints: sessions.hostSpawnPoints,
 			routerClient: f?.routerClient ?? null,
 			sealer: f?.sealer ?? null,

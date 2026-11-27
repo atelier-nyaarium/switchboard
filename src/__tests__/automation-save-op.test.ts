@@ -7,6 +7,7 @@ import { composeAutomations } from "../gateway/compose/composeAutomations.js";
 import { holesOver } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import type { ConsoleOp } from "../shared/console-protocol.js";
+import { createRestoreRepairs } from "../shared/durable-store.js";
 import { unknown } from "../shared/expressions.js";
 import { type AutomationInput, AutomationSchema, type AutomationTrigger } from "../shared/schemasAutomation.js";
 import { type AutomationFunctionInput, FUNCTIONS_MAX, FunctionSchema } from "../shared/schemasFunction.js";
@@ -43,6 +44,7 @@ function stage() {
 	roots.push(dir);
 	let n = 0;
 	const { console } = composeAutomations({
+		repairs: createRestoreRepairs(),
 		dataDir: dir,
 		newIncarnation: () => `a${++n}`,
 		now: () => 1_000,

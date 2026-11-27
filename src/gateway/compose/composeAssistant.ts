@@ -11,7 +11,7 @@ import {
 } from "../../shared/assistant-session.js";
 import { EVENT_GIVEN_FIELDS, type EventGivenField } from "../../shared/automation-fit.js";
 import { SEND_BOUND_MS } from "../../shared/console-protocol.js";
-import { openDurable } from "../../shared/durable-store.js";
+import { openDurable, type RestoreRepairs } from "../../shared/durable-store.js";
 import { errorName } from "../../shared/error-name.js";
 import { LIST_TEST_LABELS, TEST_LABELS } from "../../shared/field-types.js";
 import { isSpawnWorkdirPath } from "../../shared/host-op.js";
@@ -138,6 +138,7 @@ export interface AssistantHomePort {
 
 export interface AssistantStageDeps {
 	dataDir: string;
+	repairs: RestoreRepairs;
 	localGatewayId: string;
 	/** The active Domain, which scopes the home mark. */
 	domainId: () => string | null;
@@ -255,7 +256,9 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	};
 
 	// An older build reads these names.
-	const sourceState = openDurable(deps.dataDir, "assistant-watchers", (store) => createSourceStateStore(store));
+	const sourceState = openDurable(deps.dataDir, "assistant-watchers", (store) =>
+		createSourceStateStore(store, deps.repairs),
+	);
 	const enabled = openDurable(deps.dataDir, "assistant-watcher-enabled", (store) => createSourceEnabledStore(store));
 	// Unknown source returns undefined.
 	const specsOf = (sourceId: string) => sources.find((candidate) => candidate.id === sourceId)?.fieldSpecs;

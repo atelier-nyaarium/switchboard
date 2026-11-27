@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { openAutomationPair } from "../gateway/compose/composeAutomations.js";
 import { holesOver } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
+import { createRestoreRepairs } from "../shared/durable-store.js";
 import { unknown } from "../shared/expressions.js";
 
 const REGISTRY = createConsoleRegistry([]);
@@ -43,6 +44,7 @@ function restored(fixture: string) {
 		fs.copyFileSync(path.join(FIXTURES, fixture, name), path.join(dir, name));
 	let n = 0;
 	const { automations } = openAutomationPair({
+		repairs: createRestoreRepairs(),
 		dataDir: dir,
 		newIncarnation: () => `a${++n}`,
 		now: () => 6_000_000,

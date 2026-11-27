@@ -22,7 +22,7 @@ import {
 import { canonicalJson } from "../../shared/canonical-json.js";
 import { chainedTimer } from "../../shared/chained-timer.js";
 import type { ConsoleOp } from "../../shared/console-protocol.js";
-import { commitChecked, type DurableStore, writeChecked } from "../../shared/durable-store.js";
+import { type DurableStore, type RestoreRepairs, restoreHeld, writeChecked } from "../../shared/durable-store.js";
 import { errorName } from "../../shared/error-name.js";
 import {
 	AUTOMATION_ACTIONS,
@@ -273,6 +273,8 @@ export interface AutomationHoles {
 export interface AutomationsDeps {
 	records: DurableStore;
 	state: DurableStore;
+	/** Retries the state's rewrite. */
+	repairs: RestoreRepairs;
 	fields: ComputedFields;
 	newIncarnation: () => string;
 	now: () => number;
@@ -304,10 +306,6 @@ export interface AutomationsDeps {
 }
 
 export function createAutomations(deps: AutomationsDeps) {
-	const restored = restore(deps.state.load(), deps.now());
-	let state: State = restored.state;
-	/** A restore that dropped fires writes once. */
-	let unwritten = restored.changed;
 	/** Silence counts from here. */
 	const startedAt = deps.now();
 	const {
@@ -459,29 +457,27 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	const commit = (next: State): boolean => {
 		const landing = { ...next, versions: pinned(next), functionVersions: pinnedFunctions(next), ...pruned(next) };
-		return commitChecked(
-			deps.state,
-			landing,
-			(landed) => {
-				state = landed;
-			},
-			{ label: "automation state", snapshot: storedOf(landing) },
-		).landed;
+		return state.commit(landing).landed;
 	};
 
-	{
-		const versions = pinned(state);
-		const functionVersions = pinnedFunctions(state);
-		if (
-			canonicalJson(versions) !== canonicalJson(state.versions) ||
-			canonicalJson(functionVersions) !== canonicalJson(state.functionVersions)
-		)
-			unwritten = true;
-		state = { ...state, versions, functionVersions };
-	}
+	const state = restoreHeld({
+		store: deps.state,
+		label: "automation state",
+		repairs: deps.repairs,
+		encode: storedOf,
+		decode: (raw) => {
+			const { value, stale } = restore(raw, deps.now());
+			const versions = pinned(value);
+			const functionVersions = pinnedFunctions(value);
+			const repinned =
+				canonicalJson(versions) !== canonicalJson(value.versions) ||
+				canonicalJson(functionVersions) !== canonicalJson(value.functionVersions);
+			return { value: { ...value, versions, functionVersions }, stale: stale || repinned };
+		},
+	});
 
 	/** The body a fire fired with. */
-	const bodyOf = (fire: Fire): Automation | null => own(state.versions, versionKey(fire)) ?? null;
+	const bodyOf = (fire: Fire): Automation | null => own(state.value.versions, versionKey(fire)) ?? null;
 
 	/** Still what its automation runs: the same body but for `enabled`, each function it entered unchanged. */
 	const lastRunStands = (id: string, held: HeldLastRun): boolean => {
@@ -496,7 +492,7 @@ export function createAutomations(deps: AutomationsDeps) {
 	};
 
 	const frameFunction = (frame: Frame): AutomationFunction | null =>
-		own(state.functionVersions, frameKey(frame)) ?? liveFunction(frame) ?? null;
+		own(state.value.functionVersions, frameKey(frame)) ?? liveFunction(frame) ?? null;
 
 	/** The `do` step written at a frame's path, in the body its frame pinned. */
 	const writtenStep = (fire: Fire, path: string): WrittenDo | null => {
@@ -593,10 +589,10 @@ export function createAutomations(deps: AutomationsDeps) {
 	}
 
 	const workOf = (): Work => ({
-		log: state.log,
-		fires: [...state.fires],
-		firedAt: state.firedAt,
-		order: state.order,
+		log: state.value.log,
+		fires: [...state.value.fires],
+		firedAt: state.value.firedAt,
+		order: state.value.order,
 	});
 
 	/** `notes`: owner texts, holes unfilled. */
@@ -691,7 +687,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		const verdict = admit(work.fires, recorded, {
 			// Each event carries its own.
 			supersede: !light && !event && !manual,
-			earlier: (member) => state.fires.some((stored) => stored.member === member),
+			earlier: (member) => state.value.fires.some((stored) => stored.member === member),
 			...(event ? { waitingMax: WAITING_EVENTS_MAX } : {}),
 			tells: (held) => tellsOnly(held, held === recorded ? record.body : bodyOf(held)),
 		});
@@ -716,7 +712,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			const trigger = watched(record);
 			if (!trigger || !armed(record)) continue;
 			const { field, becomes } = trigger;
-			const saved = own(state.automations, record.id);
+			const saved = own(state.value.automations, record.id);
 			const held = unsaved[record.id];
 			const was = held?.revision === record.revision && saved?.revision !== record.revision ? held : saved;
 			if (held && was === held) baselines[record.id] = held;
@@ -781,14 +777,14 @@ export function createAutomations(deps: AutomationsDeps) {
 			checkpoints[record.id] = at;
 		}
 		const next: State = {
-			...state,
+			...state.value,
 			automations: checkpoints,
 			log: work.log,
 			fires: work.fires,
 			firedAt: work.firedAt,
 			order: work.order,
 		};
-		if (canonicalJson(next) === canonicalJson(state)) {
+		if (canonicalJson(next) === canonicalJson(state.value)) {
 			pump();
 			return true;
 		}
@@ -809,7 +805,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		const nexts = records.list().flatMap((record) => {
 			const { trigger } = record.body;
 			if (!isClock(trigger) || !armed(record)) return [];
-			const next = nextSlot(trigger, own(state.slots, record.id)?.at ?? now);
+			const next = nextSlot(trigger, own(state.value.slots, record.id)?.at ?? now);
 			return next === null ? [] : [next];
 		});
 		if (nexts.length === 0) return;
@@ -829,7 +825,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		for (const record of records.list()) {
 			const { trigger } = record.body;
 			if (!isClock(trigger) || !armed(record)) continue;
-			const held = own(state.slots, record.id);
+			const held = own(state.value.slots, record.id);
 			if (!held || held.revision !== record.revision || held.incarnation !== record.incarnation) {
 				// A saved clock starts from now.
 				slots[record.id] = { revision: record.revision, incarnation: record.incarnation, at: now };
@@ -859,14 +855,14 @@ export function createAutomations(deps: AutomationsDeps) {
 			slots[record.id] = { ...kept, at: walk.at, ...(skip !== undefined && walk.at < skip ? { skip } : {}) };
 		}
 		const next: State = {
-			...state,
+			...state.value,
 			slots,
 			log: work.log,
 			fires: work.fires,
 			firedAt: work.firedAt,
 			order: work.order,
 		};
-		const landed = canonicalJson(next) === canonicalJson(state) || commit(next);
+		const landed = canonicalJson(next) === canonicalJson(state.value) || commit(next);
 		pump();
 		rearm(now, landed);
 		return landed;
@@ -1001,14 +997,15 @@ export function createAutomations(deps: AutomationsDeps) {
 		const due: string[] = [];
 		for (const record of all.filter(isFunctionRecord)) {
 			if (used.has(record.id)) continue;
-			const at = Math.min(own(state.unusedFunctions, record.id) ?? now, now);
+			const at = Math.min(own(state.value.unusedFunctions, record.id) ?? now, now);
 			if (now - at >= FUNCTION_UNUSED_KEEP_MS) due.push(record.id);
 			else since[record.id] = at;
 		}
 		if (due.length > 0 && !write({ kind: "sweep", ids: due }).written) {
-			for (const id of due) since[id] = own(state.unusedFunctions, id) ?? now;
+			for (const id of due) since[id] = own(state.value.unusedFunctions, id) ?? now;
 		}
-		if (canonicalJson(since) !== canonicalJson(state.unusedFunctions)) commit({ ...state, unusedFunctions: since });
+		if (canonicalJson(since) !== canonicalJson(state.value.unusedFunctions))
+			commit({ ...state.value, unusedFunctions: since });
 	}
 
 	/** A notice with no room waits. */
@@ -1017,8 +1014,8 @@ export function createAutomations(deps: AutomationsDeps) {
 		if (stopped || !deps.sensorsHeard || !deps.isHome()) return true;
 		const now = deps.now();
 		const gateway = deps.gatewayName ?? "This Gateway";
-		const found = silenceNotices(state.silences, deps.sensorsHeard(), now, gateway, startedAt);
-		let { queue, log } = state;
+		const found = silenceNotices(state.value.silences, deps.sensorsHeard(), now, gateway, startedAt);
+		let { queue, log } = state.value;
 		let silences = found.held;
 		const dropped: Dropped = new Map();
 		for (const notice of found.notices) {
@@ -1034,9 +1031,9 @@ export function createAutomations(deps: AutomationsDeps) {
 			for (const [owner, count] of room.dropped) dropped.set(owner, (dropped.get(owner) ?? 0) + count);
 		}
 		log = droppedRows(log, dropped, now, null);
-		const next: State = { ...state, queue, log, silences };
-		if (canonicalJson(next) === canonicalJson(state)) return true;
-		const queued = next.queue.lastAt !== state.queue.lastAt;
+		const next: State = { ...state.value, queue, log, silences };
+		if (canonicalJson(next) === canonicalJson(state.value)) return true;
+		const queued = next.queue.lastAt !== state.value.queue.lastAt;
 		const landed = commit(next);
 		if (landed && queued) deps.onQueued?.();
 		return landed;
@@ -1053,7 +1050,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			read: toRead,
 			queued,
 		} = automationPass.pass({
-			state,
+			state: state.value,
 			now,
 			home,
 			recover: recovering,
@@ -1068,11 +1065,12 @@ export function createAutomations(deps: AutomationsDeps) {
 			},
 		});
 		// An unlanded pass is retried whole, its claim with it.
-		if ((unwritten || canonicalJson(next) !== canonicalJson(state)) && !commit(next)) return;
+		if (canonicalJson(next) !== canonicalJson(state.value) && !commit(next)) return;
 		recovering = false;
-		unwritten = false;
 		for (const [key, { ref }] of [...spent]) {
-			const claimed = state.fires.some((held) => held.member === ref.member && held.steps[ref.path]?.claimed);
+			const claimed = state.value.fires.some(
+				(held) => held.member === ref.member && held.steps[ref.path]?.claimed,
+			);
 			if (!claimed) spent.delete(key);
 		}
 		// Register claims before answers.
@@ -1083,7 +1081,7 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	/** A held fire and the body it fired with. */
 	const heldWork = (member: string) => {
-		const fire = state.fires.find((held) => held.member === member);
+		const fire = state.value.fires.find((held) => held.member === member);
 		const body = fire && bodyOf(fire);
 		return fire && body ? { fire, body } : null;
 	};
@@ -1128,7 +1126,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		reading = launch(
 			async () => {
 				const moved = await readStep(held.fire, ref);
-				const after = state.fires.find((fire) => fire.member === ref.member);
+				const after = state.value.fires.find((fire) => fire.member === ref.member);
 				// Unchanged read must not repump.
 				return moved && (after === undefined || canonicalJson(after) !== before);
 			},
@@ -1140,7 +1138,7 @@ export function createAutomations(deps: AutomationsDeps) {
 	}
 
 	const patched = (member: string, patch: Partial<Fire>): Fire[] =>
-		state.fires.map((held) => (held.member === member ? { ...held, ...patch } : held));
+		state.value.fires.map((held) => (held.member === member ? { ...held, ...patch } : held));
 
 	/** Call values over names, then the frame's variables and a catch's `e`. */
 	const scopeOf = (fire: Fire, at: Pick<WalkStep, "path">): FireNames => {
@@ -1164,7 +1162,7 @@ export function createAutomations(deps: AutomationsDeps) {
 	/** A condition, a value, the minutes or a thrown text, read once at its turn. */
 	/** True pumps again: its run is over. */
 	const unwanted = (rows: LogRow[], log: Log, current: Fire | undefined, step: Step | undefined): boolean => {
-		const landed = rows.length > 0 && commit({ ...state, log });
+		const landed = rows.length > 0 && commit({ ...state.value, log });
 		return landed || !current || (step !== undefined && isEnded(step));
 	};
 
@@ -1238,11 +1236,20 @@ export function createAutomations(deps: AutomationsDeps) {
 				}
 				break;
 			}
-			default:
+			// The pass handles these.
+			case "try":
+			case "exit":
+			case "note":
+			case "parallel":
+			case "start":
+			case "unparsed":
+			case "call":
 				return false;
+			default:
+				return written satisfies never;
 		}
-		const log = rows.reduce(logged, state.log);
-		const current = state.fires.find((held) => sameRun(held, fire));
+		const log = rows.reduce(logged, state.value.log);
+		const current = state.value.fires.find((held) => sameRun(held, fire));
 		const step = current?.steps[ref.path];
 		const frame = current?.frames?.[site];
 		if (!current || !step || isEnded(step) || step.until !== undefined || step.awaits !== undefined || !frame) {
@@ -1267,13 +1274,13 @@ export function createAutomations(deps: AutomationsDeps) {
 		});
 		const failed =
 			outcome.reason === undefined ? [] : [automationPass.endedRow(current, ref.path, next, outcome.reason)];
-		return commit({ ...state, fires, log: failed.reduce(logged, log) });
+		return commit({ ...state.value, fires, log: failed.reduce(logged, log) });
 	}
 
 	/** Another fire set this switch since; a toggle never outdates a toggle. */
 	const outdated = (fire: Fire, path: string, action: AutomationAction): boolean => {
 		const target = isEffect(action) ? switchOf(action) : null;
-		const newer = target ? own(state.landedSets, target.device) : undefined;
+		const newer = target ? own(state.value.landedSets, target.device) : undefined;
 		return (
 			newer !== undefined &&
 			newer.member !== fire.member &&
@@ -1317,8 +1324,8 @@ export function createAutomations(deps: AutomationsDeps) {
 		if (written?.kind === "call") read = await calledOf(fire, ref.path, written);
 		else if (!at) read = { refused: FRAME_UNREAD };
 		else read = await valuesOf(fire, at, rows);
-		const log = rows.reduce(logged, state.log);
-		const current = state.fires.find((held) => sameRun(held, fire));
+		const log = rows.reduce(logged, state.value.log);
+		const current = state.value.fires.find((held) => sameRun(held, fire));
 		const step = current?.steps[ref.path];
 		const site = siteIn(fire, ref.path);
 		const frame = site === null ? undefined : current?.frames?.[site];
@@ -1328,14 +1335,14 @@ export function createAutomations(deps: AutomationsDeps) {
 			const ended = refusedUnsent(step);
 			const fires = patched(ref.member, { steps: { ...current.steps, [ref.path]: ended } });
 			return commit({
-				...state,
+				...state.value,
 				fires,
 				log: logged(log, automationPass.endedRow(current, ref.path, ended, read.refused)),
 			});
 		}
 		const resolved = { ...frame.resolved, [ref.path]: read.action };
 		const fires = patched(ref.member, { frames: { ...current.frames, [site]: { ...frame, resolved } } });
-		return commit({ ...state, fires, log });
+		return commit({ ...state.value, fires, log });
 	}
 
 	/** Holes filled, expressions read. */
@@ -1452,8 +1459,8 @@ export function createAutomations(deps: AutomationsDeps) {
 	async function readOwnTell(fire: Fire, ref: StepRef, tell: Tell): Promise<boolean> {
 		const rows: LogRow[] = [];
 		const filled = await fillerOf(fire, ref.path, rows)(tell.message ?? "");
-		const log = rows.reduce(logged, state.log);
-		const current = state.fires.find((held) => sameRun(held, fire));
+		const log = rows.reduce(logged, state.value.log);
+		const current = state.value.fires.find((held) => sameRun(held, fire));
 		const step = current?.steps[ref.path];
 		if (!current || !step || isEnded(step)) return unwanted(rows, log, current, step);
 		const { message: _written, ...bare } = tell;
@@ -1461,25 +1468,25 @@ export function createAutomations(deps: AutomationsDeps) {
 		// An empty fill tells with no message.
 		const read: Tell = message === "" ? bare : { ...bare, message };
 		const resolved = { ...current.resolved, [ref.path]: read };
-		return commit({ ...state, fires: patched(ref.member, { resolved }), log });
+		return commit({ ...state.value, fires: patched(ref.member, { resolved }), log });
 	}
 
 	/** Outcomes in one write. */
 	const landSpent = (): void => {
-		const landed = automationPass.settle(state.fires, state, deps.now(), false, spent, isRunning);
+		const landed = automationPass.settle(state.value.fires, state.value, deps.now(), false, spent, isRunning);
 		const fires = landed.fires.filter((fire) => !finished(fire));
 		const next: State = {
-			...state,
+			...state.value,
 			log: landed.log,
 			ran: landed.ran,
 			landedSets: landed.landedSets,
 			lastRuns: landed.lastRuns,
 			fires,
 		};
-		if (canonicalJson(next) !== canonicalJson(state) && commit(next)) spent.clear();
+		if (canonicalJson(next) !== canonicalJson(state.value) && commit(next)) spent.clear();
 	};
 
-	const outbox = outboxOf(() => state.queue, deps.now);
+	const outbox = outboxOf(() => state.value.queue, deps.now);
 
 	/** One band per crossing. */
 	const derivedFields = (): DerivedField[] =>
@@ -1492,9 +1499,9 @@ export function createAutomations(deps: AutomationsDeps) {
 	const rowOf = (record: OwnerRecord<Automation>): AutomationRow => {
 		const invalid = records.invalidOf(record.id);
 		const errors = issuesOf(record.body).filter((issue) => issue.level === "error").length;
-		const slot = own(state.slots, record.id);
-		const lastRanAt = own(state.ran, record.id);
-		const held = own(state.lastRuns, record.id);
+		const slot = own(state.value.slots, record.id);
+		const lastRanAt = own(state.value.ran, record.id);
+		const held = own(state.value.lastRuns, record.id);
 		const lastRun = held && lastRunStands(record.id, held) ? held : undefined;
 		const { trigger } = record.body;
 		const current = slot?.revision === record.revision ? slot : undefined;
@@ -1516,8 +1523,11 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	/** A revived id starts unrun. */
 	const forgetRan = (ids: readonly string[]): void => {
-		if (!ids.some((id) => Object.hasOwn(state.ran, id))) return;
-		commit({ ...state, ran: Object.fromEntries(Object.entries(state.ran).filter(([id]) => !ids.includes(id))) });
+		if (!ids.some((id) => Object.hasOwn(state.value.ran, id))) return;
+		commit({
+			...state.value,
+			ran: Object.fromEntries(Object.entries(state.value.ran).filter(([id]) => !ids.includes(id))),
+		});
 	};
 
 	const judged = (intent: AutomationIntent, held: readonly OwnerRecord<Automation>[]) =>
@@ -1542,10 +1552,10 @@ export function createAutomations(deps: AutomationsDeps) {
 			const owner = ownerOf(member);
 			return owner !== null && gone.has(owner);
 		};
-		const events = state.queue.events.filter((event) => !owned(event.member));
-		const fires = state.fires.map((held) => (gone.has(held.automation) ? untold(held) : held));
-		const next: State = { ...state, queue: { ...state.queue, events }, fires };
-		if (canonicalJson(next) !== canonicalJson(state) && !commit(next)) {
+		const events = state.value.queue.events.filter((event) => !owned(event.member));
+		const fires = state.value.fires.map((held) => (gone.has(held.automation) ? untold(held) : held));
+		const next: State = { ...state.value, queue: { ...state.value.queue, events }, fires };
+		if (canonicalJson(next) !== canonicalJson(state.value) && !commit(next)) {
 			console.warn("[automations] a removed automation's queued events were not dropped");
 		}
 	};
@@ -1855,7 +1865,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		/** Fires each match once per event. */
 		fireEvents(matched: readonly { automation: string; key: string; names: FireNames }[], at: number): void {
 			const work = workOf();
-			const fired = [...state.fired];
+			const fired = [...state.value.fired];
 			for (const { automation, key, names } of matched) {
 				const record = records.get(automation);
 				if (!record || !armed(record)) continue;
@@ -1868,11 +1878,11 @@ export function createAutomations(deps: AutomationsDeps) {
 				fired.push(member);
 				fire(work, record, { member, seq: 0, at }, names, fieldsOf(names));
 			}
-			if (fired.length === state.fired.length) return;
-			const lost = fired.length - state.fired.length;
+			if (fired.length === state.value.fired.length) return;
+			const lost = fired.length - state.value.fired.length;
 			if (
 				commit({
-					...state,
+					...state.value,
 					fires: work.fires,
 					fired: fired.slice(-FIRED_MAX),
 					log: work.log,
@@ -1892,15 +1902,15 @@ export function createAutomations(deps: AutomationsDeps) {
 			const { trigger } = record.body;
 			if (trigger.kind === "event" && !deps.isHome()) return { ran: false, refusal: "away" };
 			const member = memberOf(record.id, record.incarnation, "manual", callId);
-			if (state.fired.includes(member)) return { ran: true };
+			if (state.value.fired.includes(member)) return { ran: true };
 			// An event by hand has no event.
 			const names = trigger.kind === "event" ? {} : namesNow(trigger);
 			const work = workOf();
 			const admitted = fire(work, record, { member, seq: 0, at: deps.now() }, names, fieldsOf(names), true);
 			const next = {
-				...state,
+				...state.value,
 				fires: work.fires,
-				fired: [...state.fired, member].slice(-FIRED_MAX),
+				fired: [...state.value.fired, member].slice(-FIRED_MAX),
 				log: work.log,
 				firedAt: work.firedAt,
 				order: work.order,
@@ -1917,9 +1927,9 @@ export function createAutomations(deps: AutomationsDeps) {
 		noteEvents(ids: readonly string[], at: number): void {
 			if (ids.length === 0) return;
 			const live = new Set(records.list().map((record) => record.id));
-			const ran = Object.fromEntries(Object.entries(state.ran).filter(([id]) => live.has(id)));
+			const ran = Object.fromEntries(Object.entries(state.value.ran).filter(([id]) => live.has(id)));
 			for (const id of ids) if (live.has(id)) ran[id] = at;
-			commit({ ...state, ran });
+			commit({ ...state.value, ran });
 		},
 		/** Read-time validity; never stored. */
 		invalidOf: (id: string): string | null => records.invalidOf(id),
@@ -1949,13 +1959,16 @@ export function createAutomations(deps: AutomationsDeps) {
 		/** Clear events, then drain; a repeat retries. */
 		/** False when the write did not land. */
 		emptyOutbox(): boolean {
-			return state.queue.events.length === 0 || commit({ ...state, queue: { ...state.queue, events: [] } });
+			return (
+				state.value.queue.events.length === 0 ||
+				commit({ ...state.value, queue: { ...state.value.queue, events: [] } })
+			);
 		},
 		clear(members: readonly string[]): boolean {
-			const events = state.queue.events.filter((event) => !members.includes(event.member));
+			const events = state.value.queue.events.filter((event) => !members.includes(event.member));
 			if (
-				events.length !== state.queue.events.length &&
-				!commit({ ...state, queue: { ...state.queue, events } })
+				events.length !== state.value.queue.events.length &&
+				!commit({ ...state.value, queue: { ...state.value.queue, events } })
 			) {
 				return false;
 			}
@@ -1972,18 +1985,18 @@ export function createAutomations(deps: AutomationsDeps) {
 				const { trigger } = record.body;
 				if (trigger.kind !== "event" || trigger.source !== sourceId || !armed(record)) return [];
 				const cool = trigger.coolDownSec ?? 0;
-				const cooling = cool > 0 && coolingAt(state.firedAt, record, now, cool);
+				const cooling = cool > 0 && coolingAt(state.value.firedAt, record, now, cool);
 				return [{ id: record.id, trigger, when: laneTellWhen(record.body, functionOf), cooling }];
 			});
 		},
-		log: (): readonly LogRow[] => state.log.rows,
+		log: (): readonly LogRow[] => state.value.log.rows,
 		/** Null before it ran, or once what it runs changed. */
 		lastRun: (id: string): AutomationLastRun | null => {
-			const held = own(state.lastRuns, id);
+			const held = own(state.value.lastRuns, id);
 			return held && lastRunStands(id, held) ? held.run : null;
 		},
-		checkpoint: (id: string) => own(state.automations, id) ?? null,
-		queued: () => state.queue,
+		checkpoint: (id: string) => own(state.value.automations, id) ?? null,
+		queued: () => state.value.queue,
 		outbox,
 	};
 }

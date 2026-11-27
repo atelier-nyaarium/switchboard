@@ -12,6 +12,7 @@ import {
 import type { ComputedFields } from "../gateway/computed/computedFields.js";
 import { processAmbient } from "../shared/ambient.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
+import { createRestoreRepairs } from "../shared/durable-store.js";
 import { AssistantSourceSchema } from "../shared/schemasAssistant.js";
 import type { AssistantHomeRecord, AssistantHomeSealed } from "../shared/schemasAssistantHome.js";
 import { type AssistantFieldSpec, AssistantFieldSpecSchema, conditionsMatch } from "../shared/schemasAssistantRules.js";
@@ -124,6 +125,7 @@ function stage(
 		usableHere: async () => true,
 	};
 	const assistant = composeAssistant({
+		repairs: createRestoreRepairs(),
 		dataDir,
 		localGatewayId: LOCAL_GATEWAY,
 		domainId: () => "home",

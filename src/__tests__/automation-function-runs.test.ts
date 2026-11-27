@@ -33,6 +33,7 @@ import {
 import { holesOver } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { RUN_FRAMES_MAX, WALK_ENTRIES_MAX, widthOf } from "../shared/automation-walk.js";
+import { createRestoreRepairs } from "../shared/durable-store.js";
 import { unknown } from "../shared/expressions.js";
 import { type AutomationInput, AutomationSchema, type AutomationTrigger } from "../shared/schemasAutomation.js";
 import {
@@ -100,6 +101,7 @@ function world(stored?: object) {
 	let evaluating: AutomationHoles["evaluate"] = holesOver(REGISTRY).evaluate;
 	const open = () =>
 		composeAutomations({
+			repairs: createRestoreRepairs(),
 			dataDir: dir,
 			newIncarnation: () => `a${++n}`,
 			now: () => clock,

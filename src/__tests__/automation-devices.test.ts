@@ -8,6 +8,7 @@ import { AUTOMATION_ATTEMPT_MS, composeDevices } from "../gateway/compose/compos
 import { type Automations, BACKOFF_MIN_MS } from "../gateway/computed/automations.js";
 import { type DeviceDriverError, DeviceDriverFailure } from "../gateway/devices/driver.js";
 import { createKasaTransport, KASA_CONNECT_MS } from "../gateway/devices/kasa/transport.js";
+import { createRestoreRepairs } from "../shared/durable-store.js";
 import { unknown } from "../shared/expressions.js";
 import type { AutomationInput } from "../shared/schemasAutomation.js";
 import { fakeAmbient } from "../testing/fakeAmbient.js";
@@ -105,6 +106,7 @@ async function plugs() {
 	/** Saves each automation and fires it by name. */
 	const automationsOf = (saved: Record<string, AutomationInput>) => {
 		const { automations } = openAutomationPair({
+			repairs: createRestoreRepairs(),
 			dataDir: dir,
 			newIncarnation: () => `a${++n}`,
 			now: () => ambient.now(),

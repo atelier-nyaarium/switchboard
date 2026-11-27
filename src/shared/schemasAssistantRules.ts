@@ -14,6 +14,9 @@ export type RuleAction = (typeof RULE_ACTIONS)[number];
 /** ASCII whitespace edges only. */
 export const trimRuleValue = (value: string): string => value.replace(/^[ \t\n\v\f\r]+|[ \t\n\v\f\r]+$/g, "");
 
+/** Trimmed, then lower case. */
+export const caseKey = (value: string): string => trimRuleValue(value).toLowerCase();
+
 const fieldName = z.string().min(1).max(64);
 const fieldLabel = z.string().min(1).max(80);
 
@@ -43,7 +46,7 @@ export const AssistantFieldSpecSchema = z
 				.max(64)
 				// Switch cases ignore case.
 				.refine(
-					(options) => new Set(options.map((option) => option.value.toLowerCase())).size === options.length,
+					(options) => new Set(options.map((option) => caseKey(option.value))).size === options.length,
 					"two options differ only by case",
 				),
 		}),

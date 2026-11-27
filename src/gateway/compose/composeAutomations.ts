@@ -1,6 +1,6 @@
 // Computed fields and automations, built as a pair, with the automation console handlers.
 
-import { type DurableStore, openDurable } from "../../shared/durable-store.js";
+import { type DurableStore, openDurable, type RestoreRepairs } from "../../shared/durable-store.js";
 import {
 	AUTOMATION_SERVES,
 	type AutomationNumberOffer,
@@ -30,7 +30,12 @@ export interface AutomationPairDeps {
 	input: ComputedFieldsDeps["input"];
 	/** Runs before each drain. */
 	beforeDrain?: () => void;
-	automations: Omit<AutomationsDeps, "records" | "state" | "fields" | "newIncarnation" | "now" | "functionKey">;
+	/** Retries a restore's rewrite. */
+	repairs: RestoreRepairs;
+	automations: Omit<
+		AutomationsDeps,
+		"records" | "state" | "repairs" | "fields" | "newIncarnation" | "now" | "functionKey"
+	>;
 	/** Tests inject faults here. */
 	opened?: (name: AutomationStoreName, store: DurableStore) => void;
 }
@@ -73,6 +78,7 @@ export function openAutomationPair(deps: AutomationPairDeps): AutomationPair {
 				...deps.automations,
 				records,
 				state,
+				repairs: deps.repairs,
 				fields,
 				functionKey,
 				newIncarnation: deps.newIncarnation,

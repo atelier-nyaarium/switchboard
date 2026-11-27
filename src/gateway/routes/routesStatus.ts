@@ -19,6 +19,8 @@ export interface StatusRoutesDeps {
 	presence?: { snapshot(): TeamInfo[] };
 	/** What 7 day removals still found. Zero is healthy. */
 	backstop?: () => import("../purgeQueue.js").BackstopTally;
+	/** Unrewritten stores; empty healthy. */
+	pendingRepairs?: () => string[];
 	sessionStore?: Pick<import("../../shared/session-store.js").SessionStore, "touchLive">;
 	tryLocalAddress: (name: string) => Address | null;
 	provedLocalSession: (req: Request) => boolean;
@@ -33,6 +35,7 @@ export function createStatusRoutes({
 	routerCertFp,
 	presence,
 	backstop,
+	pendingRepairs,
 	sessionStore,
 	tryLocalAddress,
 	provedLocalSession,
@@ -76,6 +79,7 @@ export function createStatusRoutes({
 			// Registration may be refused while the socket remains connected.
 			router_registered: routerClient?.isRegistered() ?? false,
 			...(backstop ? { backstop: backstop() } : {}),
+			...(pendingRepairs ? { pendingRepairs: pendingRepairs() } : {}),
 		});
 	}
 

@@ -44,6 +44,7 @@ export interface RoutesDeps {
 	daemonCapabilityStore?: Pick<import("./daemonCapabilities.js").DaemonCapabilityStore, "snapshot">;
 	presence?: { snapshot(): TeamInfo[] };
 	backstop?: () => import("./purgeQueue.js").BackstopTally;
+	pendingRepairs?: () => string[];
 	// `known` separates no reply from an empty catalog.
 	hostSpawnPoints?: HostSpawnState;
 	config: GatewayConfig;
@@ -145,6 +146,7 @@ export function createRoutes(deps: RoutesDeps) {
 		routerCertFp: deps.routerCertFp,
 		presence: deps.presence,
 		backstop: deps.backstop,
+		pendingRepairs: deps.pendingRepairs,
 		sessionStore: deps.sessionStore,
 		tryLocalAddress,
 		provedLocalSession,

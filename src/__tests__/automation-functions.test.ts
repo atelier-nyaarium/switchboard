@@ -14,6 +14,7 @@ import { FUNCTION_UNREAD } from "../gateway/computed/automationValidity.js";
 import { holesOver } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import type { OwnerRecord } from "../gateway/ownerRecords.js";
+import { createRestoreRepairs } from "../shared/durable-store.js";
 import { unknown } from "../shared/expressions.js";
 import {
 	AUTOMATIONS_MAX,
@@ -83,6 +84,7 @@ function open(home = true, seed: object[] = [], keyFile?: string) {
 	let atHome = home;
 	const switches = new Set([PLUG, LAMP]);
 	const { automations } = openAutomationPair({
+		repairs: createRestoreRepairs(),
 		dataDir: dir,
 		newIncarnation: () => `a${++n}`,
 		now: () => 1_000,

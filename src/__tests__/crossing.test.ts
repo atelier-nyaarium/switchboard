@@ -8,6 +8,7 @@ import { previewAutomation } from "../gateway/computed/automationPreview.js";
 import type { AutomationHoles } from "../gateway/computed/automations.js";
 import { holesOver } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
+import { createRestoreRepairs } from "../shared/durable-store.js";
 import { known, refKey, type Value } from "../shared/expressions.js";
 import {
 	AUTOMATION_SERVES,
@@ -39,6 +40,7 @@ function world() {
 	let clock = 1_000;
 	let n = 0;
 	const { fields, automations: opened } = openAutomationPair({
+		repairs: createRestoreRepairs(),
 		dataDir: dir,
 		newIncarnation: () => `a${++n}`,
 		now: () => clock,

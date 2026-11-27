@@ -1,8 +1,5 @@
 import { parseConsoleExpression } from "./live-console-grammar.js";
-import { trimRuleValue } from "./schemasAssistantRules.js";
-
-/** Trimmed, then lower case. */
-export const caseKey = (value: string): string => trimRuleValue(value).toLowerCase();
+import { caseKey } from "./schemasAssistantRules.js";
 
 /** Exact event field member. */
 export function choiceFieldOf(subject: string): string | null {

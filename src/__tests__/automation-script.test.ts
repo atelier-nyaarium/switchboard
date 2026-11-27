@@ -14,6 +14,7 @@ import {
 import { withDoing } from "../gateway/liveConsole/doing.js";
 import { holesOver } from "../gateway/liveConsole/holes.js";
 import { type ConsoleEntity, createConsoleRegistry } from "../gateway/liveConsole/registry.js";
+import { createRestoreRepairs } from "../shared/durable-store.js";
 import { unknown } from "../shared/expressions.js";
 import { lexConsole, lexConsoleText, parseConsoleText } from "../shared/live-console-grammar.js";
 import type { AutomationTrigger } from "../shared/schemasAutomation.js";
@@ -900,6 +901,7 @@ function stage() {
 	roots.push(dir);
 	let n = 0;
 	const { console, automations } = composeAutomations({
+		repairs: createRestoreRepairs(),
 		dataDir: dir,
 		newIncarnation: () => `a${++n}`,
 		now: () => 1_000,

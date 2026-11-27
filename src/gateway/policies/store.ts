@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { canonicalJson } from "../../shared/canonical-json.js";
 import { capFifo } from "../../shared/cap-fifo.js";
-import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
+import { type Decoded, type DurableStore, type RestoreRepairs, restoreHeld } from "../../shared/durable-store.js";
 import {
 	type AuthorizationPolicy,
 	AuthorizationPolicySchema,
@@ -21,9 +21,11 @@ import { selectorKey } from "../../shared/selector-key.js";
 
 export interface PolicyStoreDeps {
 	/** Poisoned files start fresh. */
-	store: DurableStore;
+	store: Pick<DurableStore, "load" | "saveChecked">;
 	/** Called after each landed write. */
 	onChanged: (policyId: string) => void;
+	/** Retries a restore's rewrite. */
+	repairs: RestoreRepairs;
 }
 
 export interface PolicyPutResult {
@@ -70,13 +72,13 @@ const StoredPoliciesSchema = z.array(
  * A key that is not its own `selectorKey`, or is over the bound, is dropped, never re-keyed:
  * re-keying could select lines the owner never approved. A policy left with none is dropped.
  */
-function heldKeys(stored: AuthorizationPolicy[]): { held: AuthorizationPolicy[]; dropped: boolean } {
-	let dropped = false;
+function heldKeys(stored: AuthorizationPolicy[]): Decoded<AuthorizationPolicy[]> {
+	let stale = false;
 	const held: AuthorizationPolicy[] = [];
 	for (const policy of stored) {
 		const keys = policy.selectorKeys.filter((key) => key.length <= MAX_SELECTOR_LEN && selectorKey(key) === key);
 		if (keys.length < policy.selectorKeys.length) {
-			dropped = true;
+			stale = true;
 			const gone = policy.selectorKeys.length - keys.length;
 			console.warn(
 				`[policy] restore dropped ${gone} key(s) from ${policy.id}${keys.length ? "" : " and the policy"}`,
@@ -90,7 +92,7 @@ function heldKeys(stored: AuthorizationPolicy[]): { held: AuthorizationPolicy[];
 				: policy.revision;
 		held.push(frozen({ ...policy, selectorKeys: keys, revision }));
 	}
-	return { held, dropped };
+	return { value: held, stale };
 }
 
 /** Bounds the buried set. */
@@ -149,37 +151,35 @@ function restoreRefusal(policies: AuthorizationPolicy[]): string | null {
 }
 
 export function createPolicyStore(deps: PolicyStoreDeps) {
-	const { store } = deps;
-	const { held: restored, dropped } = heldKeys(StoredPoliciesSchema.parse(store.load() ?? []));
-	const poisoned = restoreRefusal(restored);
-	if (poisoned) throw new Error(poisoned);
-	let policies: AuthorizationPolicy[] = restored;
-	if (dropped) commitChecked(store, restored, () => undefined, { label: "policy" });
+	const stored = restoreHeld({
+		store: deps.store,
+		label: "policy",
+		repairs: deps.repairs,
+		decode: (raw) => {
+			const restored = heldKeys(StoredPoliciesSchema.parse(raw ?? []));
+			const poisoned = restoreRefusal(restored.value);
+			if (poisoned) throw new Error(poisoned);
+			return restored;
+		},
+	});
 
 	/** What a deleted id last held, so a delayed put cannot land it back. Not durable. */
 	const buried = new Map<string, number>();
 
 	/** On disk before reported. */
 	const commit = (next: AuthorizationPolicy[], policyId: string): boolean =>
-		commitChecked(
-			store,
-			next,
-			(landed) => {
-				policies = landed;
-			},
-			{ label: "policy", onLanded: () => deps.onChanged(policyId) },
-		).landed;
+		stored.commit(next, { onLanded: () => deps.onChanged(policyId) }).landed;
 
-	const held = (id: string): AuthorizationPolicy | undefined => policies.find((policy) => policy.id === id);
+	const held = (id: string): AuthorizationPolicy | undefined => stored.value.find((policy) => policy.id === id);
 
 	const list = (): AuthorizationPolicy[] =>
-		[...policies].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+		[...stored.value].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 
 	const get = (id: string): AuthorizationPolicy | null => held(id) ?? null;
 
 	/** The one enabled policy that answers a key, unique by construction. */
 	const byKey = (key: string): AuthorizationPolicy | null =>
-		policies.find((policy) => policy.enabled && policy.selectorKeys.includes(key)) ?? null;
+		stored.value.find((policy) => policy.enabled && policy.selectorKeys.includes(key)) ?? null;
 
 	const put = (incoming: AuthorizationPolicy, options: PolicyPutOptions = {}): PolicyPutResult => {
 		const current = held(incoming.id);
@@ -192,7 +192,7 @@ export function createPolicyStore(deps: PolicyStoreDeps) {
 		if (policyRefusal(candidate) !== null) return putRefused(held0, { code: "no_command" });
 		const shape = shapeRefusal(candidate);
 		if (shape) return putRefused(held0, shape);
-		const context = contextRefusal(candidate, policies);
+		const context = contextRefusal(candidate, stored.value);
 		if (context) return putRefused(held0, context);
 		if (current) {
 			// A repeat is a lost answer.
@@ -208,8 +208,8 @@ export function createPolicyStore(deps: PolicyStoreDeps) {
 		if (held0 >= REVISION_CEILING) return putRefused(held0, { code: "spent" });
 		const policy = frozen({ ...candidate, revision: held0 + 1 });
 		const next = current
-			? policies.map((existing) => (existing.id === policy.id ? policy : existing))
-			: [...policies, policy];
+			? stored.value.map((existing) => (existing.id === policy.id ? policy : existing))
+			: [...stored.value, policy];
 		if (!commit(next, policy.id)) return putRefused(held0, { code: "unwritten" });
 		return { stored: true, revision: policy.revision, policy };
 	};
@@ -228,7 +228,7 @@ export function createPolicyStore(deps: PolicyStoreDeps) {
 		if (!going) return deleteRefused({ code: "gone" });
 		if (base !== going.revision) return deleteRefused({ code: "moved" });
 		const deleted = commit(
-			policies.filter((policy) => policy.id !== id),
+			stored.value.filter((policy) => policy.id !== id),
 			id,
 		);
 		if (!deleted) return deleteRefused({ code: "unwritten" });

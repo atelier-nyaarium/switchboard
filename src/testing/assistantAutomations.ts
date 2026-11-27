@@ -3,7 +3,7 @@
 import type { AssistantStage } from "../gateway/compose/composeAssistant.js";
 import { createAutomations } from "../gateway/computed/automations.js";
 import type { ComputedFields } from "../gateway/computed/computedFields.js";
-import { openDurable } from "../shared/durable-store.js";
+import { createRestoreRepairs, openDurable } from "../shared/durable-store.js";
 import {
 	type Automation,
 	type AutomationCondition,
@@ -43,6 +43,7 @@ export function boundAutomations(
 	const automations = openDurable(dataDir, "automations", (records) =>
 		openDurable(dataDir, "automation-state", (state) =>
 			createAutomations({
+				repairs: createRestoreRepairs(),
 				records,
 				state,
 				fields,

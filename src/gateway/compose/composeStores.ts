@@ -3,7 +3,13 @@
 import type { Ambient } from "../../shared/ambient.js";
 import { BlobStore } from "../../shared/blob-store.js";
 import { type BoardReply, isBoardReply } from "../../shared/board-structure.js";
-import { DurableStore, openDurable, restoreDurable } from "../../shared/durable-store.js";
+import {
+	createRestoreRepairs,
+	DurableStore,
+	openDurable,
+	type RestoreRepairs,
+	restoreDurable,
+} from "../../shared/durable-store.js";
 import { PendingDeliveryStore } from "../../shared/pending-delivery-store.js";
 import { PendingJobStore } from "../../shared/pending-job-store.js";
 import type { PlanePersistedState } from "../../shared/plane-registry.js";
@@ -45,6 +51,8 @@ export interface StoresStage {
 	capabilityStore: CapabilityStore;
 	daemonCapabilityStore: DaemonCapabilityStore;
 	restored: RestoredState;
+	/** Pending restore rewrites. */
+	repairs: RestoreRepairs;
 }
 
 export function composeStores(deps: StoresStageDeps): StoresStage {
@@ -90,6 +98,7 @@ export function composeStores(deps: StoresStageDeps): StoresStage {
 		capabilityStore,
 		daemonCapabilityStore,
 		restored: readRestoredState(sessionResumeDurable),
+		repairs: createRestoreRepairs(),
 	};
 }
 

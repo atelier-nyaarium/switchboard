@@ -1,7 +1,7 @@
 // What a source keeps between polls, and the threads it hides.
 
 import { z } from "zod";
-import { commitChecked, type DurableStore } from "../../shared/durable-store.js";
+import { type Decoded, type DurableStore, type RestoreRepairs, restoreHeld } from "../../shared/durable-store.js";
 import type { SourceEvent } from "./source.js";
 
 export const MAX_GONE = 256;
@@ -35,9 +35,7 @@ const SourceStateSchema = z.strictObject({
 export type SourceState = z.infer<typeof SourceStateSchema>;
 
 // skew:source-unexpected
-const StoredStateSchema = SourceStateSchema.extend({ unexpected: z.unknown().optional() }).transform(
-	({ unexpected: _dropped, ...state }): SourceState => state,
-);
+const StoredStateSchema = SourceStateSchema.extend({ unexpected: z.unknown().optional() });
 
 /** The stored key keeps its word, so the build before sources reads it. */
 const SnapshotSchema = z.strictObject({
@@ -45,17 +43,22 @@ const SnapshotSchema = z.strictObject({
 	watchers: z.record(z.string(), StoredStateSchema),
 });
 
-type Snapshot = z.infer<typeof SnapshotSchema>;
+interface Snapshot {
+	v: 1;
+	watchers: Record<string, SourceState>;
+}
 
-// skew:source-unexpected
-const heldUnexpected = (loaded: unknown): boolean => {
-	if (typeof loaded !== "object" || loaded === null || !("watchers" in loaded)) return false;
-	const { watchers } = loaded;
-	if (typeof watchers !== "object" || watchers === null) return false;
-	return Object.values(watchers).some(
-		(held: unknown) => typeof held === "object" && held !== null && Object.hasOwn(held, "unexpected"),
+function decodeSnapshot(raw: unknown): Decoded<Snapshot> {
+	if (raw === null) return { value: { v: 1, watchers: {} }, stale: false };
+	let stale = false;
+	const watchers = Object.fromEntries(
+		Object.entries(SnapshotSchema.parse(raw).watchers).map(([sourceId, { unexpected, ...state }]) => {
+			if (unexpected !== undefined) stale = true;
+			return [sourceId, state];
+		}),
 	);
-};
+	return { value: { v: 1, watchers }, stale };
+}
 
 export const FRESH_STATE: SourceState = { cursor: null, newest: 0, primed: false, unread: 0, capped: false };
 
@@ -90,25 +93,19 @@ export interface SourceStateStore {
 	put(sourceId: string, next: SourceState): boolean;
 }
 
-export function createSourceStateStore(store: DurableStore): SourceStateStore {
-	const loaded = store.load();
-	let state: Snapshot = loaded === null ? { v: 1, watchers: {} } : SnapshotSchema.parse(loaded);
-	if (heldUnexpected(loaded)) {
-		// Puts retry failed saves.
-		commitChecked(
-			store,
-			state,
-			(landed) => {
-				state = landed;
-			},
-			{ label: "assistant source state" },
-		);
-	}
-	const held = (sourceId: string) => (Object.hasOwn(state.watchers, sourceId) ? state.watchers[sourceId] : undefined);
+export function createSourceStateStore(
+	store: Pick<DurableStore, "load" | "saveChecked">,
+	repairs: RestoreRepairs,
+): SourceStateStore {
+	const state = restoreHeld({ store, label: "assistant source state", decode: decodeSnapshot, repairs });
+	const held = (sourceId: string) => {
+		const { watchers } = state.value;
+		return Object.hasOwn(watchers, sourceId) ? watchers[sourceId] : undefined;
+	};
 	return {
 		get: (sourceId) => structuredClone(held(sourceId) ?? FRESH_STATE),
 		put(sourceId, next) {
-			const sources = { ...state.watchers };
+			const sources = { ...state.value.watchers };
 			// A source id stays a plain key.
 			Object.defineProperty(sources, sourceId, {
 				value: SourceStateSchema.parse(next),
@@ -116,15 +113,7 @@ export function createSourceStateStore(store: DurableStore): SourceStateStore {
 				writable: true,
 				configurable: true,
 			});
-			const written: Snapshot = { v: 1, watchers: sources };
-			return commitChecked(
-				store,
-				written,
-				(landed) => {
-					state = landed;
-				},
-				{ label: "assistant source state" },
-			).landed;
+			return state.commit({ v: 1, watchers: sources }).landed;
 		},
 	};
 }
