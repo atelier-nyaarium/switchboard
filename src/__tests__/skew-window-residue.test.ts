@@ -30,15 +30,13 @@ const comments = files.flatMap((file) =>
 		.filter((row): row is { where: string; text: string } => row.text !== null),
 );
 
-const today = (): string => {
-	const now = new Date();
-	const pad = (n: number) => String(n).padStart(2, "0");
-	return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-};
+/** UTC, as CI reads it. */
+const today = (): string => new Date().toISOString().slice(0, 10);
 
 describe("skew windows", () => {
-	it("tags every dated comment with a window instead of a date", () => {
-		const dated = comments.filter((row) => DATE.test(row.text) && !row.text.includes("skew:"));
+	it("names a window by its tag, never by a date in a comment", () => {
+		// A tag stands for its date.
+		const dated = comments.filter((row) => DATE.test(row.text));
 		expect(dated.map((row) => `${row.where}: ${row.text.trim()}`)).toEqual([]);
 	});
 

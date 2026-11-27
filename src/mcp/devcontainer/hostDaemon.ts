@@ -442,7 +442,7 @@ interface WakeMessage {
 	workdirHint?: string;
 	// Proves which record.
 	sessionToken?: string;
-	/** Absent from an older Gateway. */
+	/** Absent from an older Gateway. skew:wake-launch-id. */
 	launchId?: string;
 	/** Create intent; absent is wake. */
 	door?: unknown;

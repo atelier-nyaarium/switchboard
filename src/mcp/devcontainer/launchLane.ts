@@ -27,7 +27,7 @@ export interface LaunchRequest {
 	workdir?: string;
 	/** Containers: where a wake says the project is. */
 	projectPath?: string;
-	/** The Gateway's id; absent from an older Gateway. */
+	/** The Gateway's id; absent from an older Gateway. skew:wake-launch-id. */
 	launchId?: string;
 }
 
@@ -462,7 +462,7 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 		const pane = physicalPane(target);
 		const tail = joinable(pane, taker, req);
 		if (tail) {
-			// An older Gateway's repeated wake is the same request.
+			// skew:wake-launch-id: an older Gateway's repeated wake is the same request.
 			const repeat = !taker.launchId && !taker.reply && tail.takers.some((held) => !held.launchId && !held.reply);
 			if (!repeat) join(tail, taker);
 			return;
@@ -599,7 +599,7 @@ export function createLaunchLane(deps: LaunchLaneDeps) {
 			for (const unit of liveUnits()) {
 				for (const taker of unit.takers) {
 					if (taker.team !== team || taker.launchId !== launchId || taker.answered) continue;
-					// An older Gateway cancels wakes alone.
+					// skew:wake-launch-id: an older Gateway cancels wakes alone.
 					if (!launchId && taker.reply) continue;
 					hit = true;
 					deps.log(`the Gateway gave up on ${team}${launchId ? ` (${launchId})` : ""}`);

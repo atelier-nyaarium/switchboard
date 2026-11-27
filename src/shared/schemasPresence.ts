@@ -48,7 +48,7 @@ export const GatewaySpawnPointsSchema = z
 		gatewayId: z.string().min(1),
 		// Host is implicit.
 		hostSpawns: z.array(z.string().min(1).max(64)).max(8),
-		// skew:presence-harness: required, once every Gateway sends it.
+		// skew:spawn-points-required: required, once every Gateway sends it.
 		harnessSpawns: HarnessSpawnsSchema.optional(),
 		// skew:harness-spawns: drop both, once every reader takes `harnessSpawns`.
 		claudeSpawns: SpawnListSchema,

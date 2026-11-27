@@ -40,7 +40,6 @@ const ROUTE_WAIT_MS = new Map<string, number>([
 	["/assistant/actions", ASSISTANT_WAITS.list],
 	["/assistant/list", ASSISTANT_WAITS.list],
 	["/assistant/run", PHONE_ROUTE_WAIT_MS],
-	// Remove after 2026-11-16: an older plugin's doors.
 	// Unasked sends wake targets.
 	["/assistant/send", Math.max(SEND_ROUTE_WAIT_CAP_MS, DEFAULT_WAKE_TIMEOUT_MS + POST_WAKE_SETTLE_MS)],
 	["/assistant/send/collect", SEND_ROUTE_WAIT_CAP_MS],

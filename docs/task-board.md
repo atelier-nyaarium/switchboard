@@ -48,8 +48,6 @@ clear structure with sealed title, body and attachment filenames. It never opens
   reaches its holder. A rank-only change is never announced.
 - The phone runs the same rule over its pending writes, renumbering after each, so a drag shows where
   the Router will put it.
-- A Router that finds ranks stored as text numbers them in their old order and the board sweep stores
-  them. That reading goes after 2026-11-13.
 
 ## Attachments
 

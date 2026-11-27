@@ -209,9 +209,8 @@ is kept because a session told "unknown" about its own run, after its session wa
 it, would report a routine broken that is merely somewhere else.
 
 A session names its run as `routineId@instant` (`occurrenceIdOf`), so two check-ins at one instant
-in the assistant's session never share a snapshot, a report or a memory. A bare instant, from a nudge
-queued before the routine id joined, counts only when it names exactly one of the caller's runs; that
-fallback is dated for removal. The phone names an occurrence by its instant alone, since it always
+in the assistant's session never share a snapshot, a report or a memory; a bare instant names no run.
+The phone names an occurrence by its instant alone, since it always
 says the routine beside it and reads the id with `Number`. `deliveryKey` names a delivery row, and
 none of the three is interchangeable with another.
 

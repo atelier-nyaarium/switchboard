@@ -130,7 +130,7 @@ export interface LegacyCreateSessionOp {
 	launchId?: string;
 }
 
-/** What an older Gateway may still send. */
+/** What an older Gateway may still send. skew:create-by-wake. */
 export type DaemonHostOp = HostOp | LegacyCreateSessionOp;
 
 export type HostJsonValue = null | boolean | number | string | HostJsonValue[] | { [key: string]: HostJsonValue };

@@ -108,7 +108,7 @@ function recordIssue(entry: {
 	return body && entry.body && entry.body.length <= RECORD_SUMMARY_MAX ? null : "a response carries its summary";
 }
 
-// skew:federation-harness: required, once every Gateway names it.
+// skew:reply-reader: required, once every Gateway names it.
 /** Who reads the reply. An unknown word reads as absent. */
 export const RelayedReaderSchema = z.enum(REPLY_READERS).optional().catch(undefined);
 

@@ -28,8 +28,8 @@ const UNSEEN = "a writer's build could not be read when its date passed";
 export const SKEW_WINDOWS = {
 	"harness-unnamed": {
 		closes: "2026-12-10",
-		from: ["phone", "plugin", "daemon"],
-		in: ["gateway", "phone"],
+		from: ["phone", "plugin", "daemon", "gateway"],
+		in: ["gateway", "daemon", "phone"],
 		ends: "Delete `unnamed`; every sender names its CLI.",
 		moved: UNSEEN,
 	},
@@ -47,25 +47,18 @@ export const SKEW_WINDOWS = {
 		ends: "A register's `harness` becomes required.",
 		moved: UNSEEN,
 	},
-	"presence-harness": {
+	"spawn-points-required": {
 		closes: "2026-12-10",
 		from: ["gateway"],
 		in: ["phone", "router"],
-		ends: "A presence row's `harness` becomes required.",
+		ends: "A spawn-points answer's `harnessSpawns` becomes required.",
 		moved: UNSEEN,
 	},
 	"harness-spawns": {
 		closes: "2026-12-10",
-		from: ["daemon"],
-		in: ["gateway", "phone"],
-		ends: "Drop the per-CLI spawn lists; every reader takes `harnessSpawns`.",
-		moved: UNSEEN,
-	},
-	"federation-harness": {
-		closes: "2026-12-10",
-		from: ["gateway"],
-		in: ["router", "phone"],
-		ends: "A federated row's `harness` becomes required.",
+		from: ["daemon", "gateway"],
+		in: ["daemon", "gateway", "router"],
+		ends: "Drop the per-CLI spawn lists the daemon sends beside `harnessSpawns`, and the readers of them.",
 		moved: UNSEEN,
 	},
 	"create-by-wake": {
@@ -93,7 +86,7 @@ export const SKEW_WINDOWS = {
 		closes: "2026-12-10",
 		from: ["gateway"],
 		in: ["gateway"],
-		ends: "A held job's `reader` becomes required.",
+		ends: "A held job's and a relayed op's `reader` become required.",
 		moved: UNSEEN,
 	},
 	"minted-session-id": {
@@ -112,16 +105,16 @@ export const SKEW_WINDOWS = {
 	},
 	"routine-kind": {
 		closes: "2026-12-10",
-		from: ["phone"],
-		in: ["gateway"],
-		ends: "A routine target's `kind` becomes required.",
+		from: ["phone", "gateway"],
+		in: ["gateway", "phone"],
+		ends: 'A routine target\'s `kind` becomes required; first stamp `kind: "spawn"` at load, since the store holds routines saved before it.',
 		moved: UNSEEN,
 	},
 	"home-integrations": {
 		closes: "2026-12-10",
-		from: ["phone"],
-		in: ["gateway", "router"],
-		ends: "A carried home's `integrations` becomes required.",
+		from: ["phone", "router"],
+		in: ["gateway", "phone"],
+		ends: "A carried home's `integrations` becomes required; the Router keeps an older phone's sealed nulls until the next move, so re-seal or keep it nullish on read.",
 		moved: UNSEEN,
 	},
 	"assistant-state-catalogue": {
@@ -179,10 +172,11 @@ export const SKEW_WINDOWS = {
 		ends: "The assistant state's `temperatureUnit` becomes required.",
 	},
 	"home-temperature-unit": {
-		closes: "2026-11-27",
-		from: ["phone"],
-		in: ["gateway", "router"],
-		ends: "A carried home's `temperatureUnit` becomes required.",
+		closes: "2026-12-10",
+		from: ["phone", "router"],
+		in: ["gateway", "phone"],
+		ends: "A carried home's `temperatureUnit` becomes required; the Router keeps an older phone's sealed nulls until the next move, so re-seal or keep it nullish on read.",
+		moved: "the Router holds homes an older phone sealed",
 	},
 	"devices-required": {
 		closes: "2026-11-28",
@@ -248,7 +242,7 @@ export const SKEW_WINDOWS = {
 		closes: "2026-12-12",
 		from: ["gateway"],
 		in: ["phone"],
-		ends: "Drop the change word from before `sources-changed`.",
+		ends: "Drop the change word from before `sources-changed`; two weeks after `sources-changed` closes.",
 	},
 	"session-store-legacy": {
 		closes: "2026-12-11",
