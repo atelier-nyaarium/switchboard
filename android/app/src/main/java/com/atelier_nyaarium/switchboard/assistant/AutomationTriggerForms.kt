@@ -8,12 +8,14 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
@@ -29,6 +31,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.ClockPickerDialog
@@ -36,6 +39,8 @@ import com.atelier_nyaarium.switchboard.EXACT_KEYBOARD
 import com.atelier_nyaarium.switchboard.PickMenu
 import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.AssistantSource
+import com.atelier_nyaarium.switchboard.proto.AutomationCondition
+import com.atelier_nyaarium.switchboard.proto.AutomationConditionServes
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 
 internal val NUMBER_KEYS = KeyboardOptions(keyboardType = KeyboardType.Decimal)
@@ -89,7 +94,7 @@ internal fun TriggerSection(
 		onPick = { choice -> edit { it.swapped(choice.kinds) { freshTrigger(choice, offer, firstSource, zone) } } },
 	)
 	when (val trigger = draft.trigger) {
-		is TriggerDraft.Event -> EventForm(draft, sources, fields, enabled, read, edit)
+		is TriggerDraft.Event -> EventForm(draft, offer, sources, fields, enabled, read, edit)
 		is TriggerDraft.Crossing -> CrossingForm(trigger, offer, draft.display, enabled, edit)
 		is TriggerDraft.Time, is TriggerDraft.Interval -> ClockForm(trigger, offer, zone, enabled, edit)
 	}
@@ -99,6 +104,7 @@ internal fun TriggerSection(
 @Composable
 private fun EventForm(
 	draft: AutomationDraft,
+	offer: AutomationOffer,
 	sources: List<AssistantSource>,
 	fields: SourceFields,
 	enabled: Boolean,
@@ -114,10 +120,12 @@ private fun EventForm(
 		trailingOf = { id -> "not offered".takeUnless { sources.any { it.id == id && it.triggers } } },
 		enabled = enabled,
 	)
+	val served = offer.conditions
 	draft.conditions.forEachIndexed { index, condition ->
 		if (index > 0) {
 			Text("and", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		}
+		val values = valuesOf(condition)
 		Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
 			Box(Modifier.weight(1f)) {
 				PickMenu(
@@ -129,13 +137,13 @@ private fun EventForm(
 					enabled = enabled,
 				)
 			}
-			Box(Modifier.weight(0.7f)) {
+			Box(Modifier.weight(0.8f)) {
 				PickMenu(
 					label = "Test",
-					choices = testsOf(fields.specOf(condition.field)),
+					choices = fields.testsFor(condition, served),
 					picked = condition.test,
-					labelOf = ::testLabel,
-					onPick = { test -> edit { now -> now.changed(index) { it.copy(test = test) } } },
+					labelOf = { testLabel(it, values.size) },
+					onPick = { test -> edit { it.changed(index, test = { test }) } },
 					enabled = enabled,
 				)
 			}
@@ -143,29 +151,24 @@ private fun EventForm(
 				Icon(Icons.Default.Close, contentDescription = "Remove condition")
 			}
 		}
-		val values = fields.choicesFor(condition.field, condition.value)
-		if (values != null) {
-			PickMenu(
-				label = "Value",
-				choices = values,
-				picked = condition.value.takeIf { trimRuleValue(it).isNotEmpty() },
+		ValueChips(values, { value -> fields.valueLabelOf(condition.field, value) }, enabled) { value ->
+			edit { it.changed(index, values = { held -> held - value }) }
+		}
+		when (val add = valueAddOf(condition, fields, served)) {
+			ValueAdd.Full -> Unit
+			ValueAdd.Type -> ValueEntry(condition, served, enabled) { typed ->
+				edit { it.changed(index, values = { held -> held + typed }) }
+			}
+			is ValueAdd.Pick -> PickMenu(
+				label = if (values.isEmpty()) "Value" else "Add value",
+				choices = add.choices,
+				picked = null,
 				labelOf = { value -> fields.valueLabelOf(condition.field, value) },
-				onPick = { value -> edit { now -> now.changed(index) { it.copy(value = value) } } },
-				trailingOf = { value -> "not offered".takeUnless { fields.offers(condition.field, value) } },
+				onPick = { value -> edit { it.changed(index, values = { held -> held + value }) } },
 				enabled = enabled,
-			)
-		} else {
-			OutlinedTextField(
-				value = condition.value,
-				onValueChange = { value -> edit { now -> now.changed(index) { it.copy(value = value) } } },
-				label = { Text("Value") },
-				singleLine = true,
-				keyboardOptions = EXACT_KEYBOARD,
-				enabled = enabled,
-				modifier = Modifier.fillMaxWidth(),
 			)
 		}
-		IssueLine(fields.issueOf(condition))
+		CardIssueLine(fields.issueOf(condition))
 	}
 	if (draft.conditions.size < MAX_CONDITIONS && fields.ruleFields.isNotEmpty()) {
 		TextButton(onClick = hapticClick { edit { it.withCondition(fields) } }, enabled = enabled) {
@@ -187,6 +190,58 @@ private fun EventForm(
 	}
 	var open by rememberSaveable(draft.id) { mutableStateOf(false) }
 	MatchesFold(read.answer, read.failed, open) { open = !open }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ValueChips(values: List<String>, labelOf: (String) -> String, enabled: Boolean, onRemove: (String) -> Unit) {
+	if (values.isEmpty()) return
+	FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+		for (value in values) {
+			InputChip(
+				selected = false,
+				onClick = {},
+				enabled = enabled,
+				label = { Text(labelOf(value), maxLines = 1) },
+				trailingIcon = {
+					IconButton(onClick = hapticClick { onRemove(value) }, enabled = enabled) {
+						Icon(Icons.Default.Close, contentDescription = "Remove ${labelOf(value)}")
+					}
+				},
+			)
+		}
+	}
+}
+
+@Composable
+private fun ValueEntry(
+	condition: AutomationCondition,
+	served: AutomationConditionServes?,
+	enabled: Boolean,
+	onAdd: (String) -> Unit,
+) {
+	var typed by rememberSaveable { mutableStateOf("") }
+	val addable = valueAddable(condition, typed, served)
+	val add = {
+		if (addable) {
+			onAdd(typed)
+			typed = ""
+		}
+	}
+	Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+		OutlinedTextField(
+			value = typed,
+			onValueChange = { typed = it },
+			label = { Text(if (valuesOf(condition).isEmpty()) "Value" else "Add value") },
+			singleLine = true,
+			keyboardOptions = EXACT_KEYBOARD.copy(imeAction = ImeAction.Done),
+			keyboardActions = KeyboardActions(onDone = { add() }),
+			enabled = enabled,
+			modifier = Modifier.weight(1f),
+		)
+		TextButton(onClick = hapticClick(add), enabled = enabled && addable) { Text("Add") }
+	}
+	IssueLine(valueRefusal(condition, typed, served))
 }
 
 @Composable

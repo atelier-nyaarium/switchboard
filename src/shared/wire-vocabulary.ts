@@ -71,5 +71,7 @@ export const ROUTINE_FORGET_DAYS_MAX = 365;
 /** Condition bounds, so the phone's editor refuses what the Gateway would. */
 export const ASSISTANT_RULE_CONDITIONS_MAX = 8;
 export const ASSISTANT_RULE_VALUE_MAX = 200;
+/** Values one condition lists. */
+export const CONDITION_VALUES_MAX = 16;
 
 export const ASSISTANT_ROLE = "assistant";

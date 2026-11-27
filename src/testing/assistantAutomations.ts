@@ -35,7 +35,7 @@ export const bandField = (field: string, device: string) =>
 	}) as unknown as ComputedFields;
 
 export function boundAutomations(
-	assistant: Pick<AssistantStage, "bindAutomations" | "eventIssue" | "eventSentence" | "placed">,
+	assistant: Pick<AssistantStage, "bindAutomations" | "eventIssue" | "eventWarning" | "eventSentence" | "placed">,
 	dataDir: string,
 	now: () => number,
 	fields: ComputedFields = NO_FIELDS,
@@ -50,6 +50,7 @@ export function boundAutomations(
 				now,
 				isHome: () => assistant.placed(),
 				eventIssue: assistant.eventIssue,
+				eventWarning: assistant.eventWarning,
 				eventSentence: assistant.eventSentence,
 			}),
 		),

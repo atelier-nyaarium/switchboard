@@ -8,6 +8,7 @@ import com.atelier_nyaarium.switchboard.liveconsole.lexConsoleText
 import com.atelier_nyaarium.switchboard.parseDecimal
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationCondition
+import com.atelier_nyaarium.switchboard.proto.AutomationConditionServes
 import com.atelier_nyaarium.switchboard.proto.AutomationFunctionRow
 import com.atelier_nyaarium.switchboard.proto.AutomationServes
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
@@ -48,6 +49,8 @@ internal data class AutomationOffer(
 	val away: Boolean,
 	/** Null: this Gateway holds no functions. */
 	val functions: FunctionOffer? = null,
+	/** Null: one value, three tests. */
+	val conditions: AutomationConditionServes? = null,
 ) {
 	fun action(kind: String): ActionOffer? = actions.find { it.kind == kind }
 
@@ -71,6 +74,7 @@ internal fun offerOf(serves: AutomationServes, away: Boolean, functions: List<Au
 		switches = serves.switches.map { SwitchOffer(it.device, it.name) },
 		away = away,
 		functions = serves.functions?.let { FunctionOffer(it, functions.orEmpty()) },
+		conditions = serves.conditions,
 	)
 
 /** Stored text, minted while its unit was unknown. */
@@ -247,7 +251,7 @@ internal fun triggerOf(trigger: TriggerDraft, offer: AutomationOffer, display: S
 	return when (trigger) {
 		is TriggerDraft.Event -> AutomationTrigger.Event(
 			source = trigger.source,
-			conditions = trigger.conditions.map { it.copy(value = trimRuleValue(it.value)) },
+			conditions = trigger.conditions.map { conditionOf(it.field, it.test, valuesOf(it)) },
 			coolDownSec = trigger.coolDownMin.takeIf { it.isNotBlank() }?.let { coolDownSecOf(it) ?: return null },
 		)
 		is TriggerDraft.Crossing -> {

@@ -78,7 +78,7 @@ describe("what the Kotlin phone encodes", () => {
 	it("carries each event automation as the store keeps it", () => {
 		const carried = carriedOf(sealed[0])?.automations ?? [];
 
-		expect(carried.map(({ id }) => id)).toEqual(["mentions", "everything", "quiet", "off"]);
+		expect(carried.map(({ id }) => id)).toEqual(["mentions", "listed", "everything", "quiet", "off"]);
 		expect(carried.map(({ automation }) => canonicalAutomation(automation))).toEqual(
 			carried.map(({ automation }) => automation),
 		);

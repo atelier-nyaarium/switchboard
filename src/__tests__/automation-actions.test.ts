@@ -98,6 +98,7 @@ describe("the action catalogue", () => {
 
 		expect(listed.serves.actions).toEqual(JSON.parse(JSON.stringify(AUTOMATION_SERVES.actions)));
 		expect(listed.serves.triggers).toEqual([...AUTOMATION_SERVES.triggers]);
+		expect(listed.serves.conditions).toEqual(AUTOMATION_SERVES.conditions);
 	});
 
 	it("stores no IFTTT action the live request would refuse", () => {

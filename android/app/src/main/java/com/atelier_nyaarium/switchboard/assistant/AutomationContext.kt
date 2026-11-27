@@ -12,6 +12,7 @@ import com.atelier_nyaarium.switchboard.Lookup
 import com.atelier_nyaarium.switchboard.editStanding
 import com.atelier_nyaarium.switchboard.proto.AssistantSource
 import com.atelier_nyaarium.switchboard.proto.Automation
+import com.atelier_nyaarium.switchboard.proto.AutomationConditionServes
 import com.atelier_nyaarium.switchboard.proto.AutomationFunctionServes
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
@@ -127,9 +128,9 @@ internal fun newAutomationGateways(registry: GatewayRegistry, reachable: List<St
 	}
 }
 
-/** What a Gateway says of functions; unread is never none. */
+/** What a Gateway says of functions and conditions; unread is never none. */
 internal sealed interface FunctionsServed {
-	data class Serves(val served: AutomationFunctionServes) : FunctionsServed
+	data class Serves(val served: AutomationFunctionServes, val conditions: AutomationConditionServes? = null) : FunctionsServed
 
 	data object None : FunctionsServed
 
@@ -140,7 +141,7 @@ internal sealed interface FunctionsServed {
 
 internal fun functionsServed(registry: GatewayRegistry, home: AssistantHome, gatewayId: String): FunctionsServed =
 	when (val served = automationContext(registry, home, gatewayId).served) {
-		is Served.Known -> served.offer.functions?.served?.let(FunctionsServed::Serves) ?: FunctionsServed.None
+		is Served.Known -> served.offer.functions?.served?.let { FunctionsServed.Serves(it, served.offer.conditions) } ?: FunctionsServed.None
 		is Served.Unknown -> when (served.why) {
 			ListEmpty.NoRoster, ListEmpty.Reading, ListEmpty.None -> FunctionsServed.Reading
 			ListEmpty.Unreachable, ListEmpty.NoGateway -> FunctionsServed.Unreachable
@@ -158,7 +159,7 @@ internal fun actionLabelOn(registry: GatewayRegistry, home: AssistantHome, gatew
 
 /** A fresh listing's word. */
 internal fun functionsServedBy(listing: AutomationListing?): FunctionsServed = when (listing?.rows) {
-	is ListAnswer.Listed -> listing.serves?.functions?.let(FunctionsServed::Serves) ?: FunctionsServed.None
+	is ListAnswer.Listed -> listing.serves?.functions?.let { FunctionsServed.Serves(it, listing.serves?.conditions) } ?: FunctionsServed.None
 	ListAnswer.NotServed -> FunctionsServed.None
 	ListAnswer.Unreachable, null -> FunctionsServed.Unreachable
 }

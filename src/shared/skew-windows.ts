@@ -196,6 +196,12 @@ export const SKEW_WINDOWS = {
 		in: ["phone"],
 		ends: "`serves.functions` names its statements, `unnamed` and `script`, all required.",
 	},
+	"condition-lists": {
+		closes: "2026-12-10",
+		from: ["gateway"],
+		in: ["phone"],
+		ends: "`serves.conditions` becomes required.",
+	},
 	"source-unexpected": {
 		closes: "2026-12-10",
 		from: ["gateway"],

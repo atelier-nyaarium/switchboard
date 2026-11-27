@@ -1,5 +1,5 @@
 {
-	"_comment": "Shared validation vectors for TypeScript and Kotlin. `codes`, `times` and `around` construct the typed value; `canonical` gives the stored value. Trimming removes ASCII whitespace at edges, before the length counts.",
+	"_comment": "Shared validation vectors for TypeScript and Kotlin. `codes`, `times` and `around` construct the typed value, or `values` lists several; `canonical` gives the stored value. Trimming removes ASCII whitespace at edges, before the length counts. `parses: false` is refused by the wire; `warning` is a choice that left its list. `matches` is TypeScript only, since the phone never matches.",
 	"specs": [
 		{
 			"kind": "enumeration",
@@ -37,18 +37,21 @@
 			"fits": false
 		},
 		{
-			"name": "a choice no longer offered does not fit",
+			"name": "a choice no longer offered fits with a warning",
 			"field": "reason",
 			"test": "is",
 			"value": "retired",
-			"fits": false
+			"fits": true,
+			"warning": true,
+			"canonical": "retired"
 		},
 		{
 			"name": "a choice is its value, never its label",
 			"field": "reason",
 			"test": "is",
 			"value": "Mention",
-			"fits": false
+			"fits": true,
+			"warning": true
 		},
 		{
 			"name": "a padded choice is trimmed to the listed value",
@@ -116,8 +119,234 @@
 			"test": "contains",
 			"value": "x",
 			"times": 201,
+			"fits": false,
+			"parses": false
+		},
+		{ "name": "an undeclared field does not fit", "field": "kind", "test": "is", "value": "issue", "fits": false },
+		{
+			"name": "text takes does not contain",
+			"field": "repository",
+			"test": "contains_not",
+			"value": "fork",
+			"fits": true,
+			"canonical": "fork"
+		},
+		{
+			"name": "a choice takes no does not contain",
+			"field": "reason",
+			"test": "contains_not",
+			"value": "mention",
 			"fits": false
 		},
-		{ "name": "an undeclared field does not fit", "field": "kind", "test": "is", "value": "issue", "fits": false }
+		{
+			"name": "a choice takes a list",
+			"field": "reason",
+			"test": "is",
+			"values": ["mention", "review_requested"],
+			"fits": true,
+			"canonical": ["mention", "review_requested"]
+		},
+		{
+			"name": "a list keeps its order and drops a repeat once trimmed",
+			"field": "reason",
+			"test": "is_not",
+			"values": ["review_requested", " mention", "review_requested "],
+			"fits": true,
+			"canonical": ["review_requested", "mention"]
+		},
+		{
+			"name": "one value left is a plain value",
+			"field": "reason",
+			"test": "is",
+			"values": [" mention ", "mention"],
+			"fits": true,
+			"canonical": "mention"
+		},
+		{
+			"name": "text drops a repeat case aside",
+			"field": "repository",
+			"test": "contains",
+			"values": ["Atelier", "nyaa", "ATELIER"],
+			"fits": true,
+			"canonical": ["Atelier", "nyaa"]
+		},
+		{
+			"name": "a blank in a list is dropped",
+			"field": "repository",
+			"test": "is",
+			"values": ["", "app", "  "],
+			"fits": true,
+			"canonical": "app"
+		},
+		{
+			"name": "a list of blanks has no value",
+			"field": "repository",
+			"test": "is",
+			"values": ["", "   "],
+			"fits": false
+		},
+		{ "name": "an empty list has no value", "field": "repository", "test": "is", "values": [], "fits": false },
+		{
+			"name": "a list holding a choice no longer offered fits with a warning",
+			"field": "reason",
+			"test": "is",
+			"values": ["mention", "retired"],
+			"fits": true,
+			"warning": true,
+			"canonical": ["mention", "retired"]
+		},
+		{
+			"name": "sixteen values fit",
+			"field": "repository",
+			"test": "contains",
+			"values": ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p"],
+			"fits": true
+		},
+		{
+			"name": "seventeen do not",
+			"field": "repository",
+			"test": "contains",
+			"values": ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q"],
+			"fits": false,
+			"parses": false
+		}
+	],
+	"matches": [
+		{
+			"name": "is any of takes either choice",
+			"field": "reason",
+			"test": "is",
+			"values": ["mention", "review_requested"],
+			"fields": { "reason": "review_requested" },
+			"holds": true
+		},
+		{
+			"name": "is any of refuses another choice",
+			"field": "reason",
+			"test": "is",
+			"values": ["mention", "review_requested"],
+			"fields": { "reason": "ci_new" },
+			"holds": false
+		},
+		{
+			"name": "is none of refuses a listed choice",
+			"field": "reason",
+			"test": "is_not",
+			"values": ["mention", "review_requested"],
+			"fields": { "reason": "mention" },
+			"holds": false
+		},
+		{
+			"name": "is none of takes another choice",
+			"field": "reason",
+			"test": "is_not",
+			"values": ["mention", "review_requested"],
+			"fields": { "reason": "ci_new" },
+			"holds": true
+		},
+		{
+			"name": "a choice matches exactly",
+			"field": "reason",
+			"test": "is",
+			"value": "mention",
+			"fields": { "reason": "Mention" },
+			"holds": false
+		},
+		{
+			"name": "a choice no longer offered matches nothing",
+			"field": "reason",
+			"test": "is",
+			"value": "retired",
+			"fields": { "reason": "retired" },
+			"holds": false
+		},
+		{
+			"name": "is none of a choice no longer offered takes any choice",
+			"field": "reason",
+			"test": "is_not",
+			"value": "retired",
+			"fields": { "reason": "mention" },
+			"holds": true
+		},
+		{
+			"name": "a list with a choice no longer offered matches the rest",
+			"field": "reason",
+			"test": "is",
+			"values": ["mention", "retired"],
+			"fields": { "reason": "mention" },
+			"holds": true
+		},
+		{
+			"name": "text is any of, case aside",
+			"field": "repository",
+			"test": "is",
+			"values": ["atelier/app", "nyaa/core"],
+			"fields": { "repository": "NYAA/core" },
+			"holds": true
+		},
+		{
+			"name": "contains any of finds one part",
+			"field": "repository",
+			"test": "contains",
+			"values": ["fork", "app"],
+			"fields": { "repository": "atelier/App" },
+			"holds": true
+		},
+		{
+			"name": "contains any of finds none",
+			"field": "repository",
+			"test": "contains",
+			"values": ["fork", "core"],
+			"fields": { "repository": "atelier/app" },
+			"holds": false
+		},
+		{
+			"name": "does not contain refuses a part",
+			"field": "repository",
+			"test": "contains_not",
+			"value": "Fork",
+			"fields": { "repository": "atelier/fork-app" },
+			"holds": false
+		},
+		{
+			"name": "contains none of takes text holding none",
+			"field": "repository",
+			"test": "contains_not",
+			"values": ["fork", "archive"],
+			"fields": { "repository": "atelier/app" },
+			"holds": true
+		},
+		{
+			"name": "contains none of refuses text holding one",
+			"field": "repository",
+			"test": "contains_not",
+			"values": ["fork", "archive"],
+			"fields": { "repository": "archive/app" },
+			"holds": false
+		},
+		{
+			"name": "a missing field fails is none of",
+			"field": "reason",
+			"test": "is_not",
+			"values": ["mention", "review_requested"],
+			"fields": {},
+			"holds": false
+		},
+		{
+			"name": "a missing field fails contains none of",
+			"field": "repository",
+			"test": "contains_not",
+			"value": "fork",
+			"fields": {},
+			"holds": false
+		},
+		{
+			"name": "a condition that does not fit never matches",
+			"field": "reason",
+			"test": "contains",
+			"value": "ment",
+			"fields": { "reason": "mention" },
+			"holds": false
+		}
 	]
 }

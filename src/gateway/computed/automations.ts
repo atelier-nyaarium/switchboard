@@ -278,6 +278,8 @@ export interface AutomationsDeps {
 	onQueued?: () => void;
 	/** Why an event trigger cannot run here. */
 	eventIssue?: (trigger: EventTrigger) => string | null;
+	/** What healed in an event trigger. */
+	eventWarning?: (trigger: EventTrigger) => string | null;
 	/** A source's declared event fields; null when not held. */
 	eventFields?: (source: string) => readonly string[] | null;
 	functionKey?: DurableStore;

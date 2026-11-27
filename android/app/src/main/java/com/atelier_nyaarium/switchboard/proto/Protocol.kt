@@ -147,6 +147,7 @@ object Protocol {
 		const val MAX_POLICY_NAME_LEN: Int = 128
 		const val ASSISTANT_RULE_CONDITIONS_MAX: Int = 8
 		const val ASSISTANT_RULE_VALUE_MAX: Int = 200
+		const val CONDITION_VALUES_MAX: Int = 16
 		const val ASSISTANT_ROLE: String = "assistant"
 		const val PHONE_HOLD_PLANE: String = "phoneHold"
 		const val PHONE_HOLD_WINDOW_MS: Int = 600000
@@ -2603,7 +2604,7 @@ data class ConsoleAssistantStateResult(
 data class AutomationCondition(
 	val field: String,
 	val test: String,
-	val value: String,
+	val value: JsonElement,
 )
 
 @Serializable(with = AutomationTriggerSerializer::class)
@@ -3258,7 +3259,7 @@ data class AssistantHomePutResult(
 data class AssistantRuleCondition(
 	val field: String,
 	val test: String,
-	val value: String,
+	val value: JsonElement,
 )
 
 @Serializable
@@ -5628,6 +5629,8 @@ data class AutomationServes(
 	val switches: List<AutomationSwitchOffer>,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val functions: AutomationFunctionServes? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val conditions: AutomationConditionServes? = null,
 )
 
 @Serializable
@@ -5699,6 +5702,12 @@ data class AutomationFunctionServes(
 	val unnamed: Boolean? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val script: Boolean? = null,
+)
+
+@Serializable
+data class AutomationConditionServes(
+	val tests: List<String>,
+	val values: Long,
 )
 
 @Serializable
@@ -6215,11 +6224,13 @@ data class UnitDisplay(val unit: String, val display: String, val scale: Double,
 object FieldTypes {
 	val ROWS: Map<String, FieldTypeRow> = mapOf(
 		"enumeration" to FieldTypeRow("enumeration", "Choice", listOf("is", "is_not")),
-		"text" to FieldTypeRow("text", "Text", listOf("is", "is_not", "contains")),
+		"text" to FieldTypeRow("text", "Text", listOf("is", "is_not", "contains", "contains_not")),
 		"number" to FieldTypeRow("number", "Number", listOf()),
 		"bytes" to FieldTypeRow("bytes", "Bytes", listOf()),
 	)
-	val TEST_LABELS: Map<String, String> = mapOf("is" to "is", "is_not" to "is not", "contains" to "contains")
+	val TEST_LABELS: Map<String, String> = mapOf("is" to "is", "is_not" to "is not", "contains" to "contains", "contains_not" to "does not contain")
+	/** A condition holding several values. */
+	val LIST_TEST_LABELS: Map<String, String> = mapOf("is" to "is any of", "is_not" to "is none of", "contains" to "contains any of", "contains_not" to "contains none of")
 	val UNIT_SUFFIXES: Map<String, String> = mapOf("C" to " °C", "F" to " °F", "%" to "%")
 	val UNIT_DISPLAYS: List<UnitDisplay> = listOf(UnitDisplay("C", "F", 1.8, 32.0))
 	const val CONVERTED_DECIMALS: Int = 2

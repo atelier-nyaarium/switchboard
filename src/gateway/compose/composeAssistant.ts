@@ -13,7 +13,7 @@ import { EVENT_GIVEN_FIELDS, type EventGivenField } from "../../shared/automatio
 import { SEND_BOUND_MS } from "../../shared/console-protocol.js";
 import { openDurable } from "../../shared/durable-store.js";
 import { errorName } from "../../shared/error-name.js";
-import { TEST_LABELS } from "../../shared/field-types.js";
+import { LIST_TEST_LABELS, TEST_LABELS } from "../../shared/field-types.js";
 import { isSpawnWorkdirPath } from "../../shared/host-op.js";
 import { createFifo } from "../../shared/keyed-fifo.js";
 import { MIGRATING } from "../../shared/migration-fence.js";
@@ -32,7 +32,9 @@ import {
 	canonicalConditions,
 	conditionsIssue,
 	conditionsMatch,
+	conditionsWarning,
 	type RuleAction,
+	valuesOf,
 } from "../../shared/schemasAssistantRules.js";
 import type { AssistantSendRequest } from "../../shared/schemasAssistantSend.js";
 import {
@@ -180,6 +182,8 @@ export interface AssistantStage {
 	bindAutomations: (automations: AssistantAutomations) => void;
 	/** Null when the trigger can run. */
 	eventIssue: (trigger: EventTrigger) => string | null;
+	/** What healed: it runs on. */
+	eventWarning: (trigger: EventTrigger) => string | null;
 	/** A source's declared event fields; null when not held. */
 	eventFields: (source: string) => readonly string[] | null;
 	eventSentence: (trigger: EventTrigger) => string;
@@ -296,18 +300,23 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		if (source.selfTold) return `${source.label} events are told by their own automations`;
 		return conditionsIssue(canonicalConditions(trigger.conditions), source.fieldSpecs);
 	};
+	const eventWarning = (trigger: EventTrigger): string | null => {
+		const specs = specsOf(trigger.source);
+		return specs ? conditionsWarning(canonicalConditions(trigger.conditions), specs) : null;
+	};
 	const eventFields = (sourceId: string): readonly string[] | null =>
 		sources.find((candidate) => candidate.id === sourceId)?.fieldSpecs.map((spec) => spec.field) ?? null;
 	const eventSentence = (trigger: EventTrigger): string => {
 		const source = sources.find((candidate) => candidate.id === trigger.source);
 		const said = trigger.conditions.map((condition) => {
 			const spec = source?.fieldSpecs.find((candidate) => candidate.field === condition.field);
-			const option =
-				spec?.kind === "enumeration"
-					? spec.options.find((candidate) => candidate.value === condition.value)
-					: null;
-			const value = option ? inSentence(option.label) : condition.value;
-			return `${inSentence(spec?.label ?? condition.field)} ${TEST_LABELS[condition.test]} ${value}`;
+			const values = valuesOf(condition).map((value) => {
+				const option =
+					spec?.kind === "enumeration" ? spec.options.find((candidate) => candidate.value === value) : null;
+				return option ? inSentence(option.label) : value;
+			});
+			const labels = values.length > 1 ? LIST_TEST_LABELS : TEST_LABELS;
+			return `${inSentence(spec?.label ?? condition.field)} ${labels[condition.test]} ${values.join(", ")}`;
 		});
 		return `${source?.brief ?? source?.label ?? trigger.source}: ${said.length > 0 ? said.join(" and ") : "every event"}`;
 	};
@@ -877,6 +886,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			automations = bound;
 		},
 		eventIssue,
+		eventWarning,
 		eventFields,
 		eventSentence,
 		iftttTrigger: (params, bound) => ifttt.trigger(params, bound),

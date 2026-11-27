@@ -5,6 +5,7 @@ import com.atelier_nyaarium.switchboard.assistant.carriedFunctionsOf
 import com.atelier_nyaarium.switchboard.assistant.FunctionsServed
 import com.atelier_nyaarium.switchboard.assistant.actionLabelOn
 import com.atelier_nyaarium.switchboard.assistant.carriesFunctions
+import com.atelier_nyaarium.switchboard.assistant.carriesListedConditions
 import com.atelier_nyaarium.switchboard.assistant.carryRefusal
 import com.atelier_nyaarium.switchboard.assistant.functionsServed
 import com.atelier_nyaarium.switchboard.assistant.functionsServedBy
@@ -414,7 +415,7 @@ internal class AssistantOps(
 			abandoning == home -> null
 			else -> return@owned failed(ticket, homeRefusalText(UNROUTABLE, home))
 		}
-		if (carriesFunctions(carried)) {
+		if (carriesFunctions(carried) || carriesListedConditions(carried)) {
 			val labels: (String) -> String? = home?.let { actionLabelOn(state.value.gateways, state.value.assistantHome, it) } ?: { _ -> null }
 			carryRefusal(carried, servedAt(target), labels)?.let { return@owned failed(ticket, carryRefusalLine(it)) }
 		}

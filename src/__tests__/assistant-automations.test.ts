@@ -179,7 +179,7 @@ describe("an event automation", () => {
 
 		const unknown = automations.ownerPut("a", eventAutomation("gitlab", []), 0);
 		const selfTold = automations.ownerPut("b", eventAutomation("sensors", []), 0);
-		const outside = automations.ownerPut("c", eventAutomation("github", reason("nope")), 0);
+		const outside = automations.ownerPut("c", eventAutomation("github", reason("nope", "contains")), 0);
 		const blank = automations.ownerPut("d", eventAutomation("github", reason("   ")), 0);
 		const fits = automations.ownerPut("e", eventAutomation("github", reason("mention")), 0);
 		await stop();
@@ -233,10 +233,18 @@ describe("an event automation", () => {
 		expect(edited).toMatchObject({ stored: true, revision: 2, row: { sentence: "GitHub: reason is mention" } });
 	});
 
-	it("stays held when its source's fields no longer take it, listed invalid and armed for nothing", async () => {
+	it("stays held when its source drops a field it tests, listed invalid, and runs on with a warning when a choice leaves the list", async () => {
 		const dir = freshDir();
 		const first = await placed([listing()], dir);
-		first.automations.ownerPut("a", eventAutomation("github", reason("mention")), 0);
+		const listed: AutomationCondition[] = [{ field: "reason", test: "is", value: ["mention", "assign"] }];
+		const choice = eventAutomation("github", listed);
+		first.automations.ownerPut("a", choice, 0);
+		first.automations.ownerPut(
+			"b",
+			eventAutomation("github", [{ field: "repository", test: "is", value: "x" }]),
+			0,
+		);
+		const check = first.automations.checkOp({ automationId: "c", automation: choice, automationBase: 0 });
 		await first.stop();
 		const narrowed: AssistantFieldSpec[] = [
 			{
@@ -249,11 +257,18 @@ describe("an event automation", () => {
 
 		const { automations, stop } = await placed([listing([], narrowed)], dir);
 		const rows = automations.rows();
-		const armed = automations.eventsOf("github");
+		const armed = automations.eventsOf("github").map((held) => held.id);
 		await stop();
 
-		expect(rows).toMatchObject([{ id: "a", invalid: expect.stringContaining("mention") }]);
-		expect(armed).toEqual([]);
+		expect(rows.map((row) => [row.id, row.invalid === undefined, row.sentence])).toEqual([
+			["a", true, "GitHub: reason is any of mention, assigned"],
+			["b", false, "GitHub: repository is x"],
+		]);
+		expect(armed).toEqual(["a"]);
+		expect(check).toMatchObject({ ready: true, issues: [{ level: "warning", record: "automation" }] });
+		expect(
+			[{ reason: "mention" }, { reason: "assign" }].map((fields) => conditionsMatch(listed, narrowed, fields)),
+		).toEqual([false, true]);
 	});
 
 	it("takes every carried automation, one it cannot run listed invalid, each stored without the null a phone sealed for its label", async () => {
@@ -261,7 +276,7 @@ describe("an event automation", () => {
 			approveEverySend: true,
 			watchers: [],
 			automations: [
-				{ id: "unfit", automation: eventAutomation("github", reason("retired")) },
+				{ id: "unfit", automation: eventAutomation("github", reason("retired", "contains_not")) },
 				{ id: "lost", automation: eventAutomation("mail", []) },
 				{ id: "sealed", automation: { ...eventAutomation("github", reason("mention")), label: null } },
 			],

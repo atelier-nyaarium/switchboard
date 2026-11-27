@@ -2,12 +2,12 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
-import com.atelier_nyaarium.switchboard.proto.AutomationCondition
 import com.atelier_nyaarium.switchboard.proto.AutomationFunction
 import com.atelier_nyaarium.switchboard.proto.AutomationSaveFunction
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.FunctionStep
+import com.atelier_nyaarium.switchboard.assistant.conditionOf
 import com.atelier_nyaarium.switchboard.assistant.pointerOf
 import com.atelier_nyaarium.switchboard.assistant.written
 import com.atelier_nyaarium.switchboard.proto.FunctionParam
@@ -35,7 +35,7 @@ class SandboxAutomationGatewayTest {
 
 	private fun mention(tell: String = "now") = Automation(
 		enabled = true,
-		trigger = AutomationTrigger.Event("github", listOf(AutomationCondition("reason", "is", "mention"))),
+		trigger = AutomationTrigger.Event("github", listOf(conditionOf("reason", "is", listOf("mention")))),
 		actions = listOf(AutomationAction.TellAssistant(tell)),
 	)
 

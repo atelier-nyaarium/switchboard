@@ -53,7 +53,7 @@ import { crossingField } from "./crossingBand.js";
 
 export type ValidityDeps = Pick<
 	AutomationsDeps,
-	"fields" | "reading" | "eventIssue" | "eventFields" | "holes" | "actions"
+	"fields" | "reading" | "eventIssue" | "eventWarning" | "eventFields" | "holes" | "actions"
 >;
 
 type StepKind = (typeof FUNCTION_STEP_KINDS)[number];
@@ -130,6 +130,8 @@ export interface CallPlace {
 
 export type BodyIssue =
 	| { at: "trigger"; message: string }
+	/** A condition's choice that left its source. */
+	| { at: "choice"; message: string }
 	| { at: "action"; index: number; issue: StepIssue }
 	/** `step`: numbers under its function. */
 	| { at: "step"; via: string; step: string; issue: StepIssue }
@@ -150,6 +152,7 @@ const CUT_LINES: Readonly<Record<CallCut, string>> = {
 
 const LINES: { [A in BodyIssue["at"]]: (issue: Extract<BodyIssue, { at: A }>) => string } = {
 	trigger: (issue) => issue.message,
+	choice: (issue) => issue.message,
 	action: ({ issue }) => issue.message,
 	step: ({ issue }) => issue.message,
 	call: (issue) => CUT_LINES[issue.why],
@@ -185,6 +188,8 @@ export function levelOf(issue: BodyIssue): IssueLevel {
 	switch (issue.at) {
 		case "trigger":
 			return "unarmed";
+		case "choice":
+			return "warning";
 		case "action":
 		case "step":
 			return stepLevel(issue.issue);
@@ -218,6 +223,7 @@ const ANSWERS: {
 	[A in BodyIssue["at"]]: (issue: Extract<BodyIssue, { at: A }>, level: AutomationIssueLevel) => AutomationIssue;
 } = {
 	trigger: (issue, level) => ({ level, record: "automation", line: line(issue.message) }),
+	choice: (issue, level) => ({ level, record: "automation", line: line(issue.message) }),
 	action: ({ index, issue }, level) => ({
 		level,
 		record: "automation",
@@ -561,6 +567,8 @@ export function createAutomationValidity(
 	function* assessBody(body: Automation, functions: FunctionOf | null = functionOf): Generator<BodyIssue> {
 		const trigger = triggerIssue(body);
 		if (trigger !== null) yield { at: "trigger", message: trigger };
+		const healed = body.trigger.kind === "event" ? (deps.eventWarning?.(body.trigger) ?? null) : null;
+		if (healed !== null) yield { at: "choice", message: healed };
 		const names = AUTOMATION_TRIGGER_NAMES[body.trigger.kind];
 		const cuts: Record<Unfollowed, (id: string) => CallCut | null> = {
 			"not-expanded": () => null,

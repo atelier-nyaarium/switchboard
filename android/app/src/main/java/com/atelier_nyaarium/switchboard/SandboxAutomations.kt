@@ -46,7 +46,10 @@ import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationActionOffer
 import com.atelier_nyaarium.switchboard.proto.AutomationActionOption
 import com.atelier_nyaarium.switchboard.proto.AutomationActionParam
-import com.atelier_nyaarium.switchboard.proto.AutomationCondition
+import com.atelier_nyaarium.switchboard.assistant.conditionOf
+import com.atelier_nyaarium.switchboard.assistant.valuesOf
+import com.atelier_nyaarium.switchboard.proto.AutomationConditionServes
+import com.atelier_nyaarium.switchboard.proto.FieldTypes
 import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
 import com.atelier_nyaarium.switchboard.proto.AutomationIssue
 import com.atelier_nyaarium.switchboard.proto.AutomationNumberOffer
@@ -153,6 +156,7 @@ internal val SANDBOX_SERVES = AutomationServes(
 		unnamed = true,
 		script = true,
 	),
+	conditions = AutomationConditionServes(FieldTypes.TEST_LABELS.keys.toList(), Protocol.Wire.CONDITION_VALUES_MAX.toLong()),
 	numbers = listOf(
 		AutomationNumberOffer(SANDBOX_SENSOR, "temperature", "Outside thermometer temperature", "C", 1L),
 		AutomationNumberOffer(SANDBOX_SENSOR, "humidity", "Outside thermometer humidity", "%", 0L),
@@ -234,10 +238,10 @@ internal class SandboxAutomationGateway(
 ) : AutomationGateway {
 	private val shelves = mutableMapOf<String, List<AutomationRow>>()
 
-	private fun github(id: String, field: String, value: String, ranAgoMs: Long?, sentence: String): AutomationRow {
+	private fun github(id: String, field: String, values: List<String>, ranAgoMs: Long?, sentence: String): AutomationRow {
 		val automation = Automation(
 			enabled = true,
-			trigger = AutomationTrigger.Event("github", listOf(AutomationCondition(field, "is", value))),
+			trigger = AutomationTrigger.Event("github", listOf(conditionOf(field, "is", values))),
 			actions = listOf(AutomationAction.TellAssistant("now")),
 		)
 		return AutomationRow(id, 1L, automation, sentence, lastRanAt = ranAgoMs?.let { now() - it })
@@ -362,10 +366,10 @@ internal class SandboxAutomationGateway(
 			emptyList()
 		} else {
 			listOf(
-				github("reviews", "reason", "review_requested", 3 * HOUR_MS, "GitHub: reason is review requested"),
-				github("mentions", "reason", "mention", null, "GitHub: reason is mention"),
-				github("subscribed", "reason", "subscribed", 26 * HOUR_MS, "GitHub: reason is subscribed"),
-				github("pulls", "type", "PullRequest", 40 * MINUTE_MS, "GitHub: type is pull request"),
+				github("reviews", "reason", listOf("review_requested"), 3 * HOUR_MS, "GitHub: reason is review requested"),
+				github("mentions", "reason", listOf("mention"), null, "GitHub: reason is mention"),
+				github("subscribed", "reason", listOf("subscribed"), 26 * HOUR_MS, "GitHub: reason is subscribed"),
+				github("pulls", "type", listOf("PullRequest", "Release"), 40 * MINUTE_MS, "GitHub: type is any of pull request, release"),
 				crossing(
 					"threshold-ce1c44063c5d-temperature-low",
 					"below",
@@ -856,13 +860,13 @@ internal class SandboxAutomationGateway(
 				}
 			}
 		}
-		val wanted = (trigger as? AutomationTrigger.Event)?.conditions.orEmpty().map { it.value.replace('_', ' ') }
+		val wanted = (trigger as? AutomationTrigger.Event)?.conditions.orEmpty().map { condition -> valuesOf(condition).map { it.replace('_', ' ') } }
 		val recent = listOf(
 			AutomationPreviewMatch("Review requested: split the pane reader", now() - 3 * HOUR_MS),
 			AutomationPreviewMatch("Mention in the release thread", now() - 9 * HOUR_MS),
 			AutomationPreviewMatch("Review requested: bump Bun to 1.4.2", now() - 26 * HOUR_MS),
 		)
-		val matches = recent.filter { match -> wanted.all { match.title.contains(it, ignoreCase = true) } }
+		val matches = recent.filter { match -> wanted.all { any -> any.isEmpty() || any.any { match.title.contains(it, ignoreCase = true) } } }
 		val event = trigger is AutomationTrigger.Event
 		return ConsoleAutomationPreviewResult(
 			matched = if (event) matches.size.toLong() else 0L,

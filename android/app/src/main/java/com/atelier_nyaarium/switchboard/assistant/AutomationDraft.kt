@@ -32,17 +32,98 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.FieldTypes
 import com.atelier_nyaarium.switchboard.proto.FunctionReads
+import com.atelier_nyaarium.switchboard.proto.AutomationConditionServes
 import com.atelier_nyaarium.switchboard.proto.Protocol
+import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationIssueLevel
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
 internal val MAX_CONDITIONS = Protocol.Wire.ASSISTANT_RULE_CONDITIONS_MAX
 private val MAX_VALUE_LEN = Protocol.Wire.ASSISTANT_RULE_VALUE_MAX
+private val MAX_VALUES = Protocol.Wire.CONDITION_VALUES_MAX
 private val ASCII_EDGES = setOf(0x20, 0x09, 0x0A, 0x0B, 0x0C, 0x0D)
+
+// skew:condition-lists
+/** Before `serves.conditions`. */
+private val UNLISTED_TESTS = listOf("is", "is_not", "contains")
 
 internal fun trimRuleValue(value: String): String = value.trim { it.code in ASCII_EDGES }
 
-internal fun testLabel(test: String): String = FieldTypes.TEST_LABELS[test] ?: test
+/** The text matcher's comparison. */
+private fun sameValue(a: String, b: String): Boolean = a.lowercase() == b.lowercase()
+
+/** One or many; blank is none. */
+internal fun valuesOf(condition: AutomationCondition): List<String> = when (val value = condition.value) {
+	is JsonArray -> value.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+	is JsonPrimitive -> listOfNotNull(value.contentOrNull)
+	is JsonObject -> emptyList()
+}.filter { trimRuleValue(it).isNotEmpty() }
+
+/** Trimmed, deduped, one as string. */
+internal fun conditionOf(field: String, test: String, values: List<String>): AutomationCondition {
+	val kept = mutableListOf<String>()
+	for (value in values.map(::trimRuleValue)) {
+		if (value.isNotEmpty() && kept.none { sameValue(it, value) }) kept += value
+	}
+	val value = when (kept.size) {
+		0 -> JsonPrimitive("")
+		1 -> JsonPrimitive(kept.single())
+		else -> JsonArray(kept.map(::JsonPrimitive))
+	}
+	return AutomationCondition(field, test, value)
+}
+
+/** Several values read as a list. */
+internal fun testLabel(test: String, values: Int = 1): String =
+	(if (values > 1) FieldTypes.LIST_TEST_LABELS else FieldTypes.TEST_LABELS)[test] ?: test
+
+/** The tests its Gateway takes. */
+internal fun servedTests(served: AutomationConditionServes?): List<String> = served?.tests ?: UNLISTED_TESTS
+
+/** Values one condition may list there. */
+internal fun valuesMax(served: AutomationConditionServes?): Int = served?.values?.toInt()?.coerceIn(1, MAX_VALUES) ?: 1
+
+/** Whether `served` holds them. */
+internal fun conditionsServed(conditions: List<AutomationCondition>, served: AutomationConditionServes?): Boolean =
+	conditions.all { valuesOf(it).size <= valuesMax(served) && it.test in servedTests(served) }
+
+/** Room for one more value. */
+internal fun addsValue(condition: AutomationCondition, served: AutomationConditionServes?): Boolean =
+	valuesOf(condition).size < valuesMax(served)
+
+/** Why typed text cannot join. */
+internal fun valueRefusal(condition: AutomationCondition, typed: String, served: AutomationConditionServes?): String? {
+	val value = trimRuleValue(typed)
+	val held = valuesOf(condition)
+	return when {
+		value.isEmpty() -> null
+		value.length > MAX_VALUE_LEN -> "At most $MAX_VALUE_LEN characters"
+		held.any { sameValue(it, value) } -> "Already listed"
+		!addsValue(condition, served) -> "At most ${valuesMax(served)} values"
+		else -> null
+	}
+}
+
+internal fun valueAddable(condition: AutomationCondition, typed: String, served: AutomationConditionServes?): Boolean =
+	trimRuleValue(typed).isNotEmpty() && valueRefusal(condition, typed, served) == null
+
+/** How a condition takes one more value. */
+internal sealed interface ValueAdd {
+	data object Full : ValueAdd
+
+	/** Its choices not yet held. */
+	data class Pick(val choices: List<String>) : ValueAdd
+
+	data object Type : ValueAdd
+}
+
+internal fun valueAddOf(condition: AutomationCondition, fields: SourceFields, served: AutomationConditionServes?): ValueAdd {
+	if (!addsValue(condition, served)) return ValueAdd.Full
+	val choices = fields.choicesFor(condition) ?: return ValueAdd.Type
+	return if (choices.isEmpty()) ValueAdd.Full else ValueAdd.Pick(choices)
+}
 
 internal fun fieldLabel(field: String): String = field.replaceFirstChar { it.uppercase() }
 
@@ -84,25 +165,37 @@ internal data class SourceFields(val specs: List<AssistantFieldSpec>) {
 	fun valueLabelOf(field: String, value: String): String =
 		(specOf(field) as? AssistantFieldSpec.Enumeration)?.options?.find { it.value == value }?.label ?: value
 
-	fun choicesFor(field: String, held: String): List<String>? {
-		val offered = (specOf(field) as? AssistantFieldSpec.Enumeration)?.options?.map { it.value } ?: return null
-		return if (trimRuleValue(held).isEmpty() || held in offered) offered else listOf(held) + offered
+	/** Choices not held; null for text. */
+	fun choicesFor(condition: AutomationCondition): List<String>? {
+		val offered = (specOf(condition.field) as? AssistantFieldSpec.Enumeration)?.options?.map { it.value } ?: return null
+		val held = valuesOf(condition)
+		return offered.filter { it !in held }
 	}
 
-	fun offers(field: String, value: String): Boolean =
-		(specOf(field) as? AssistantFieldSpec.Enumeration)?.options?.any { it.value == value } ?: true
+	/** Offered tests; a held one stays first. */
+	fun testsFor(condition: AutomationCondition, served: AutomationConditionServes?): List<String> {
+		val offered = testsOf(specOf(condition.field)).filter { it in servedTests(served) }
+		return if (condition.test in offered) offered else listOf(condition.test) + offered
+	}
 
-	fun issueOf(condition: AutomationCondition): String? {
-		val spec = specOf(condition.field) ?: return "${fieldLabel(condition.field)} is not a field here"
-		val value = trimRuleValue(condition.value)
-		if (value.isEmpty()) return null
-		if (value.length > MAX_VALUE_LEN) return "At most $MAX_VALUE_LEN characters"
-		if (condition.test !in testsOf(spec)) return "${spec.label} takes no \"${testLabel(condition.test)}\""
-		if (spec is AssistantFieldSpec.Enumeration && spec.options.none { it.value == value }) {
-			return "\"$value\" is no longer offered; pick again"
+	/** Its line by level; silent while blank. */
+	fun issueOf(condition: AutomationCondition): CardIssue? {
+		val spec = specOf(condition.field)
+			?: return CardIssue(AutomationIssueLevel.UNARMED, "${fieldLabel(condition.field)} is not a field here")
+		val values = valuesOf(condition).map(::trimRuleValue)
+		if (values.isEmpty()) return null
+		if (values.any { it.length > MAX_VALUE_LEN }) return CardIssue(AutomationIssueLevel.ERROR, "At most $MAX_VALUE_LEN characters")
+		if (values.size > MAX_VALUES) return CardIssue(AutomationIssueLevel.ERROR, "At most $MAX_VALUES values")
+		if (condition.test !in testsOf(spec)) {
+			return CardIssue(AutomationIssueLevel.UNARMED, "${spec.label} takes no \"${testLabel(condition.test, values.size)}\"")
 		}
-		return null
+		val gone = (spec as? AssistantFieldSpec.Enumeration)?.let { held -> values.firstOrNull { value -> held.options.none { it.value == value } } }
+		return gone?.let { CardIssue(AutomationIssueLevel.WARNING, "no longer offered; it matches nothing", it) }
 	}
+
+	/** Gateway's fit; a vanished choice fits. */
+	fun fits(condition: AutomationCondition): Boolean =
+		valuesOf(condition).isNotEmpty() && issueOf(condition)?.let { !drawsAsError(it.level) } != false
 }
 
 internal data class CalleeDraft(
@@ -211,23 +304,35 @@ internal data class AutomationDraft(
 		if (conditions.size >= MAX_CONDITIONS) return this
 		val spec = fields.specs.firstOrNull { testsOf(it).isNotEmpty() } ?: return this
 		val test = testsOf(spec).first()
-		return onEvent { it.copy(conditions = it.conditions + AutomationCondition(spec.field, test, "")) }
+		return onEvent { it.copy(conditions = it.conditions + conditionOf(spec.field, test, emptyList())) }
 	}
 
-	fun withField(at: Int, field: String, fields: SourceFields): AutomationDraft = changed(at) { held ->
-		if (field == held.field) return@changed held
+	fun withField(at: Int, field: String, fields: SourceFields): AutomationDraft {
+		val held = conditions.getOrNull(at) ?: return this
+		if (field == held.field) return this
 		val was = fields.specOf(held.field)
 		val now = fields.specOf(field)
-		val keepsValue = was is AssistantFieldSpec.Text && now is AssistantFieldSpec.Text
+		val keepsValues = was is AssistantFieldSpec.Text && now is AssistantFieldSpec.Text
 		val test = held.test.takeIf { it in testsOf(now) } ?: testsOf(now).firstOrNull() ?: held.test
-		held.copy(field = field, test = test, value = if (keepsValue) held.value else "")
+		return changed(at, field = field, test = { test }, values = { if (keepsValues) it else emptyList() })
 	}
 
 	fun withoutCondition(at: Int): AutomationDraft =
 		onEvent { it.copy(conditions = it.conditions.filterIndexed { index, _ -> index != at }) }
 
-	fun changed(at: Int, change: (AutomationCondition) -> AutomationCondition): AutomationDraft =
-		onEvent { it.copy(conditions = it.conditions.mapIndexed { index, held -> if (index == at) change(held) else held }) }
+	/** The one edit of a held condition. */
+	fun changed(
+		at: Int,
+		field: String? = null,
+		test: (String) -> String = { it },
+		values: (List<String>) -> List<String> = { it },
+	): AutomationDraft = onEvent { event ->
+		event.copy(
+			conditions = event.conditions.mapIndexed { index, held ->
+				if (index == at) conditionOf(field ?: held.field, test(held.test), values(valuesOf(held))) else held
+			},
+		)
+	}
 
 	fun withSource(source: String): AutomationDraft = onEvent { it.copy(source = source, conditions = emptyList()) }
 
@@ -331,11 +436,12 @@ internal data class AutomationDraft(
 		}
 	}
 
-	/** Null while the trigger cannot be saved. */
+	/** Null where the wire cannot carry it. */
 	fun builtTrigger(offer: AutomationOffer): AutomationTrigger? {
 		val built = triggerOf(trigger, offer, display) ?: return null
-		val unfit = built is AutomationTrigger.Event &&
-			built.conditions.any { it.value.isEmpty() || it.value.length > MAX_VALUE_LEN }
+		val unfit = built is AutomationTrigger.Event && built.conditions.any { condition ->
+			valuesOf(condition).let { values -> values.size > MAX_VALUES || values.any { it.length > MAX_VALUE_LEN } }
+		}
 		return built.takeUnless { unfit }
 	}
 
@@ -501,8 +607,8 @@ internal fun automationDraftOf(row: AutomationRow, context: EditContext, display
 internal fun fieldsOf(draft: AutomationDraft, sources: List<AssistantSource>): SourceFields =
 	SourceFields(sources.find { it.id == draft.source }?.fieldSpecs.orEmpty())
 
-internal fun fittingAutomation(draft: AutomationDraft, fields: SourceFields, offer: AutomationOffer): Automation? =
-	draft.toAutomation(offer)?.takeIf { draft.conditions.all { condition -> fields.issueOf(condition) == null } }
+/** The wire's parse alone. */
+internal fun fittingAutomation(draft: AutomationDraft, offer: AutomationOffer): Automation? = draft.toAutomation(offer)
 
 /** What its trigger gives a function. */
 internal fun givenOf(draft: AutomationDraft, fields: SourceFields): TriggerGiven =
@@ -527,7 +633,7 @@ internal fun functionSaveOf(
 ): ConsoleOp.AutomationSave? {
 	if (offer.functions == null) return null
 	val built = draft.builtTrigger(offer) ?: return null
-	if (draft.conditions.any { fields.issueOf(it) != null } || draftRunsIssue(draft, fields, offer) != null) return null
+	if (draftRunsIssue(draft, fields, offer) != null) return null
 	return saveOpOf(draft.id, draft.revision, draft.runsDraft(), offer, confirmed, draft.newFunctionId, sentCallees(draft, offer), calleeParamsOf(draft, offer)) { actions ->
 		draft.automationOf(built, actions)
 	}
@@ -552,7 +658,7 @@ internal fun askedTrigger(
 	offer: AutomationOffer,
 ): AutomationTrigger? =
 	draft.builtTrigger(offer)?.takeIf {
-		triggerOffered(draft, sources, offer) && draft.conditions.all { condition -> fields.issueOf(condition) == null }
+		triggerOffered(draft, sources, offer) && draft.conditions.all(fields::fits)
 	}
 
 internal fun openedDraft(
@@ -595,7 +701,7 @@ internal fun automationEditing(
 			saveAllowedAfterCheck(checkSaid, said, draft, offer) && if (offer.functions != null) {
 			functionSaveOf(draft, fields, offer, confirmed = false) != null
 		} else {
-			fittingAutomation(draft, fields, offer) != null
+			fittingAutomation(draft, offer) != null
 		},
 		delete = standing && slot is AutomationSlot.Held,
 	)

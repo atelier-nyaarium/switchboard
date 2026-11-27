@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { FIELD_TYPES, RULE_TESTS, type RuleTest, UNIT_CODES } from "./field-types.js";
-import { ASSISTANT_RULE_VALUE_MAX } from "./wire-vocabulary.js";
+import { ASSISTANT_RULE_VALUE_MAX, CONDITION_VALUES_MAX } from "./wire-vocabulary.js";
 
 export { RULE_TESTS, type RuleTest };
 export const RULE_ACTIONS = ["wake", "inbox"] as const;
@@ -68,33 +68,50 @@ export type AssistantFieldSpec = z.infer<typeof AssistantFieldSpecSchema>;
 
 export const testsOf = (spec: AssistantFieldSpec): readonly RuleTest[] => FIELD_TYPES[spec.kind].tests;
 
+const conditionValue = z.string().max(ASSISTANT_RULE_VALUE_MAX);
+
 export const AssistantRuleConditionSchema = z
 	.object({
 		field: z.string().min(1).max(64),
 		test: z.enum(RULE_TESTS),
-		/** Blank saves, and never fires. */
-		value: z.string().max(ASSISTANT_RULE_VALUE_MAX),
+		/** One value, or several. Blank saves, and never fires. */
+		value: z.union([conditionValue, z.array(conditionValue).max(CONDITION_VALUES_MAX)]),
 	})
 	.meta({ id: "AssistantRuleCondition" });
 
 export type AssistantRuleCondition = z.infer<typeof AssistantRuleConditionSchema>;
+export type ConditionValue = AssistantRuleCondition["value"];
+
+/** One or many; blank is none. */
+export const valuesOf = ({ value }: Pick<AssistantRuleCondition, "value">): string[] =>
+	(typeof value === "string" ? [value] : value).filter((held) => trimRuleValue(held) !== "");
+
+/** The text matcher's comparison. */
+const sameValue = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
+
+/** Trimmed, each once, one as a string. */
+function canonicalValue(values: readonly string[]): ConditionValue {
+	const kept: string[] = [];
+	for (const value of values.map(trimRuleValue)) {
+		if (!kept.some((held) => sameValue(held, value))) kept.push(value);
+	}
+	if (kept.length === 0) return "";
+	return kept.length === 1 ? (kept[0] as string) : kept;
+}
 
 const specOf = (specs: readonly AssistantFieldSpec[], field: string) => specs.find((spec) => spec.field === field);
 
 function conditionIssue(condition: AssistantRuleCondition, specs: readonly AssistantFieldSpec[]): string | null {
 	const spec = specOf(specs, condition.field);
 	if (!spec) return `the rule uses unknown field "${condition.field}"`;
-	if (trimRuleValue(condition.value) === "") return `the rule has no value for ${spec.label}`;
+	if (valuesOf(condition).length === 0) return `the rule has no value for ${spec.label}`;
 	if (!testsOf(spec).includes(condition.test)) return `${spec.label} takes no "${condition.test}" test`;
-	if (spec.kind === "enumeration" && !spec.options.some((option) => option.value === condition.value)) {
-		return `"${condition.value}" is not a ${spec.label} choice`;
-	}
 	return null;
 }
 
-/** Trimmed, as a condition is stored and read. */
+/** As a condition is stored and read. */
 export const canonicalConditions = (conditions: readonly AssistantRuleCondition[]): AssistantRuleCondition[] =>
-	conditions.map((condition) => ({ ...condition, value: trimRuleValue(condition.value) }));
+	conditions.map((condition) => ({ ...condition, value: canonicalValue(valuesOf(condition)) }));
 
 /** Why canonical conditions do not fit a source's fields. */
 export function conditionsIssue(
@@ -108,17 +125,45 @@ export function conditionsIssue(
 	return null;
 }
 
-/** Missing fields fail even `is_not`. */
+/** A choice its field no longer holds; it matches nothing. */
+export function conditionsWarning(
+	conditions: readonly AssistantRuleCondition[],
+	specs: readonly AssistantFieldSpec[],
+): string | null {
+	for (const condition of conditions) {
+		const spec = specOf(specs, condition.field);
+		if (spec?.kind !== "enumeration") continue;
+		const gone = valuesOf(condition).find((value) => !spec.options.some((option) => option.value === value));
+		if (gone !== undefined) return `"${gone}" is no longer a ${spec.label} choice`;
+	}
+	return null;
+}
+
+/** Any of, else none of. */
+const ANY_OF = { is: true, is_not: false, contains: true, contains_not: false } as const satisfies Record<
+	RuleTest,
+	boolean
+>;
+const WITHIN = { is: false, is_not: false, contains: true, contains_not: true } as const satisfies Record<
+	RuleTest,
+	boolean
+>;
+
+/** Missing fields fail every test. */
 function holds(condition: AssistantRuleCondition, spec: AssistantFieldSpec, fields: Readonly<Record<string, string>>) {
 	if (!Object.hasOwn(fields, condition.field)) return false;
 	const actual = fields[condition.field] ?? "";
-	if (spec.kind === "enumeration")
-		return condition.test === "is" ? actual === condition.value : actual !== condition.value;
-	const seen = actual.toLowerCase();
-	const wanted = condition.value.toLowerCase();
-	if (condition.test === "is") return seen === wanted;
-	if (condition.test === "is_not") return seen !== wanted;
-	return seen.includes(wanted);
+	const values = valuesOf(condition);
+	// A choice no longer offered matches nothing.
+	const hit =
+		spec.kind === "enumeration"
+			? values.some((wanted) => wanted === actual && spec.options.some((option) => option.value === wanted))
+			: values.some((wanted) =>
+					WITHIN[condition.test]
+						? actual.toLowerCase().includes(wanted.toLowerCase())
+						: sameValue(actual, wanted),
+				);
+	return ANY_OF[condition.test] ? hit : !hit;
 }
 
 /** Every condition holds; conditions that do not fit never match. */

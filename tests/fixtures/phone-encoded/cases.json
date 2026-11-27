@@ -46,6 +46,37 @@
 							}
 						},
 						{
+							"id": "listed",
+							"automation": {
+								"enabled": true,
+								"trigger": {
+									"kind": "event",
+									"source": "github",
+									"conditions": [
+										{
+											"field": "reason",
+											"test": "is_not",
+											"value": [
+												"mention",
+												"subscribed"
+											]
+										},
+										{
+											"field": "repository",
+											"test": "contains_not",
+											"value": "fork"
+										}
+									]
+								},
+								"actions": [
+									{
+										"kind": "tell_assistant",
+										"when": "now"
+									}
+								]
+							}
+						},
+						{
 							"id": "everything",
 							"automation": {
 								"enabled": true,

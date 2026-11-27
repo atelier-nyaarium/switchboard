@@ -130,6 +130,7 @@ const refusalOf = (issue: BodyIssue): AutomationSaveRefusal => {
 			return { code: "invalid", record: "automation", step: String(issue.index), ...(param ? { param } : {}) };
 		}
 		case "trigger":
+		case "choice":
 		case "fit":
 		case "name":
 			return { code: "invalid", record: "automation" };

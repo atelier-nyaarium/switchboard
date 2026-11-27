@@ -1,6 +1,9 @@
 package com.atelier_nyaarium.switchboard.assistant
 
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarried
+import com.atelier_nyaarium.switchboard.proto.AutomationCondition
+import com.atelier_nyaarium.switchboard.proto.AutomationFunctionServes
+import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.CarriedAutomation
 import com.atelier_nyaarium.switchboard.proto.CarriedFunction
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
@@ -34,6 +37,9 @@ internal sealed interface CarryRefusal {
 
 	data object UnnamedNotServed : CarryRefusal
 
+	/** A list of values, or a test, it lacks. */
+	data object ConditionsNotServed : CarryRefusal
+
 	/** Its list has not arrived. */
 	data object Reading : CarryRefusal
 
@@ -58,21 +64,35 @@ internal fun carriesFunctions(carried: AssistantHomeCarried?): Boolean =
 	!carried?.functions.isNullOrEmpty() ||
 		carried?.automations.orEmpty().any { held -> reached(held.automation).any { calledBy(it) != null } }
 
-/** Null when the destination holds every carried step kind. */
+private fun carriedConditions(carried: AssistantHomeCarried?): List<AutomationCondition> =
+	carried?.automations.orEmpty().flatMap { (it.automation.trigger as? AutomationTrigger.Event)?.conditions.orEmpty() }
+
+/** Past one value and three tests. */
+internal fun carriesListedConditions(carried: AssistantHomeCarried?): Boolean = !conditionsServed(carriedConditions(carried), null)
+
+/** Null when the destination holds every carried step kind and condition. */
 internal fun carryRefusal(
 	carried: AssistantHomeCarried?,
 	served: FunctionsServed,
 	/** Kind's label, when known. */
 	labelOf: (String) -> String? = { null },
 ): CarryRefusal? {
-	if (!carriesFunctions(carried)) return null
-	val functions = carried?.functions.orEmpty()
-	val held = when (served) {
-		is FunctionsServed.Serves -> served.served
-		FunctionsServed.None -> return CarryRefusal.NoFunctions
+	val functions = carriesFunctions(carried)
+	val listed = carriesListedConditions(carried)
+	if (!functions && !listed) return null
+	val serves = when (served) {
+		is FunctionsServed.Serves -> served
+		FunctionsServed.None -> return if (functions) CarryRefusal.NoFunctions else CarryRefusal.ConditionsNotServed
 		FunctionsServed.Reading -> return CarryRefusal.Reading
 		FunctionsServed.Unreachable -> return CarryRefusal.Unreachable
 	}
+	if (listed && !conditionsServed(carriedConditions(carried), serves.conditions)) return CarryRefusal.ConditionsNotServed
+	return if (functions) stepRefusal(carried, serves.served, labelOf) else null
+}
+
+/** Null when the destination runs every carried step kind. */
+private fun stepRefusal(carried: AssistantHomeCarried?, held: AutomationFunctionServes, labelOf: (String) -> String?): CarryRefusal? {
+	val functions = carried?.functions.orEmpty()
 	if (held.unnamed != true && functions.any { it.function.name.isBlank() }) return CarryRefusal.UnnamedNotServed
 	val statements = held.statements.orEmpty()
 	val missing = functions.flatMap { stepsOf(it.function) }.firstNotNullOfOrNull { step ->

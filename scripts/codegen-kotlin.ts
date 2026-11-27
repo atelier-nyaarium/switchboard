@@ -48,6 +48,7 @@ import {
 	FIELD_KINDS,
 	FIELD_TYPES,
 	type FieldTypeRow,
+	LIST_TEST_LABELS,
 	RULE_TESTS,
 	TEST_LABELS,
 	UNIT_DISPLAYS,
@@ -464,6 +465,7 @@ import {
 	ASSISTANT_RULE_VALUE_MAX,
 	BEARER_PREFIX,
 	BOARD_OUTCOME_APPLIED,
+	CONDITION_VALUES_MAX,
 	CONSOLE_REASON_CURSOR_STALE,
 	CONSOLE_TOKEN_HEADER,
 	CONTENT_NONCE_BYTES,
@@ -1357,6 +1359,7 @@ const wireConstants: ReadonlyArray<readonly [string, string | number]> = [
 	["MAX_POLICY_NAME_LEN", MAX_POLICY_NAME_LEN],
 	["ASSISTANT_RULE_CONDITIONS_MAX", ASSISTANT_RULE_CONDITIONS_MAX],
 	["ASSISTANT_RULE_VALUE_MAX", ASSISTANT_RULE_VALUE_MAX],
+	["CONDITION_VALUES_MAX", CONDITION_VALUES_MAX],
 	["ASSISTANT_ROLE", ASSISTANT_ROLE],
 	["PHONE_HOLD_PLANE", PHONE_HOLD_PLANE],
 	["PHONE_HOLD_WINDOW_MS", PHONE_HOLD_WINDOW_MS],
@@ -1936,7 +1939,8 @@ function emitFieldTypeTable(): string {
 		const row: FieldTypeRow = FIELD_TYPES[kind];
 		return `${INDENT}${INDENT}${kotlinString(kind)} to FieldTypeRow(${kotlinString(kind)}, ${kotlinString(row.label)}, ${list(row.tests)}),`;
 	});
-	const labels = RULE_TESTS.map((test) => `${kotlinString(test)} to ${kotlinString(TEST_LABELS[test])}`);
+	const labelsOf = (table: Readonly<Record<(typeof RULE_TESTS)[number], string>>) =>
+		RULE_TESTS.map((test) => `${kotlinString(test)} to ${kotlinString(table[test])}`).join(", ");
 	const suffixes = UNITS.map((row) => `${kotlinString(row.unit)} to ${kotlinString(row.suffix)}`);
 	const displays = UNIT_DISPLAYS.map(
 		(row) =>
@@ -1952,7 +1956,9 @@ function emitFieldTypeTable(): string {
 		`${INDENT}val ROWS: Map<String, FieldTypeRow> = mapOf(`,
 		...rows,
 		`${INDENT})`,
-		`${INDENT}val TEST_LABELS: Map<String, String> = mapOf(${labels.join(", ")})`,
+		`${INDENT}val TEST_LABELS: Map<String, String> = mapOf(${labelsOf(TEST_LABELS)})`,
+		`${INDENT}/** A condition holding several values. */`,
+		`${INDENT}val LIST_TEST_LABELS: Map<String, String> = mapOf(${labelsOf(LIST_TEST_LABELS)})`,
 		`${INDENT}val UNIT_SUFFIXES: Map<String, String> = mapOf(${suffixes.join(", ")})`,
 		`${INDENT}val UNIT_DISPLAYS: List<UnitDisplay> = listOf(${displays.join(", ")})`,
 		`${INDENT}const val CONVERTED_DECIMALS: Int = ${CONVERTED_DECIMALS}`,

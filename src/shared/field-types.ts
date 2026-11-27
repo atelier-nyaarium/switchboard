@@ -1,10 +1,20 @@
-export const RULE_TESTS = ["is", "is_not", "contains"] as const;
+export const RULE_TESTS = ["is", "is_not", "contains", "contains_not"] as const;
 export type RuleTest = (typeof RULE_TESTS)[number];
 
-export const TEST_LABELS = { is: "is", is_not: "is not", contains: "contains" } as const satisfies Record<
-	RuleTest,
-	string
->;
+export const TEST_LABELS = {
+	is: "is",
+	is_not: "is not",
+	contains: "contains",
+	contains_not: "does not contain",
+} as const satisfies Record<RuleTest, string>;
+
+/** A condition holding several values. */
+export const LIST_TEST_LABELS = {
+	is: "is any of",
+	is_not: "is none of",
+	contains: "contains any of",
+	contains_not: "contains none of",
+} as const satisfies Record<RuleTest, string>;
 
 export const FIELD_KINDS = ["enumeration", "text", "number", "bytes"] as const;
 export type FieldKind = (typeof FIELD_KINDS)[number];
@@ -17,7 +27,7 @@ export interface FieldTypeRow {
 /** Bytes untested; numeric thresholds. */
 export const FIELD_TYPES = {
 	enumeration: { label: "Choice", tests: ["is", "is_not"] },
-	text: { label: "Text", tests: ["is", "is_not", "contains"] },
+	text: { label: "Text", tests: ["is", "is_not", "contains", "contains_not"] },
 	number: { label: "Number", tests: [] },
 	bytes: { label: "Bytes", tests: [] },
 } as const satisfies Record<FieldKind, FieldTypeRow>;

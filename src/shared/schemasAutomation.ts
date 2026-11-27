@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { RUN_FRAMES_MAX, STEP_PATH_RE, walked } from "./automation-walk.js";
-import { AssistantRuleConditionSchema, canonicalConditions, RULE_ID_RE } from "./schemasAssistantRules.js";
+import { AssistantRuleConditionSchema, canonicalConditions, RULE_ID_RE, RULE_TESTS } from "./schemasAssistantRules.js";
 import { DeviceVerbSchema } from "./schemasDevices.js";
 import {
 	FUNCTION_PARAM_TYPES,
@@ -15,7 +15,7 @@ import {
 	RUN_STRANDS_MAX,
 	STEP_TEXT_MAX,
 } from "./schemasFunction.js";
-import { ASSISTANT_RULE_CONDITIONS_MAX } from "./wire-vocabulary.js";
+import { ASSISTANT_RULE_CONDITIONS_MAX, CONDITION_VALUES_MAX } from "./wire-vocabulary.js";
 
 export const AUTOMATIONS_MAX = 64;
 export const AUTOMATION_ACTIONS_MAX = 8;
@@ -445,6 +445,7 @@ export const AUTOMATION_SERVES = {
 		unnamed: true,
 		script: true,
 	},
+	conditions: { tests: [...RULE_TESTS], values: CONDITION_VALUES_MAX },
 	triggers: Object.entries(AUTOMATION_TRIGGERS).map(([kind, row]) => ({
 		kind,
 		names: row.names.map((held) => ({ ...held })),
@@ -556,6 +557,14 @@ export const ConsoleAutomationListResultSchema = z
 						script: z.boolean().optional(),
 					})
 					.meta({ id: "AutomationFunctionServes" })
+					.optional(),
+				/** The tests a condition takes, and how many values. skew:condition-lists. */
+				conditions: z
+					.object({
+						tests: z.array(z.string().max(16)).max(16),
+						values: z.number().int().positive(),
+					})
+					.meta({ id: "AutomationConditionServes" })
 					.optional(),
 			})
 			.meta({ id: "AutomationServes" }),

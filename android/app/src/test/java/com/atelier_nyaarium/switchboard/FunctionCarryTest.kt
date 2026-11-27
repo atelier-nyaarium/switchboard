@@ -4,7 +4,10 @@ import com.atelier_nyaarium.switchboard.assistant.CarryRefusal
 import com.atelier_nyaarium.switchboard.assistant.FunctionsServed
 import com.atelier_nyaarium.switchboard.assistant.carriedFunctionsOf
 import com.atelier_nyaarium.switchboard.assistant.carryRefusal
+import com.atelier_nyaarium.switchboard.assistant.conditionOf
 import com.atelier_nyaarium.switchboard.assistant.sealedRefusal
+import com.atelier_nyaarium.switchboard.proto.AutomationCondition
+import com.atelier_nyaarium.switchboard.proto.AutomationConditionServes
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import java.util.Base64
@@ -68,6 +71,27 @@ class FunctionCarryTest {
 		val pointing = CarriedAutomation("wake", Automation(enabled = true, trigger = AutomationTrigger.Event("github", emptyList()), actions = listOf(AutomationAction.RunFunction(function = "unread"))))
 		assertEquals(CarryRefusal.NoFunctions, carryRefusal(carrying(emptyList(), listOf(pointing)), FunctionsServed.None))
 		assertNull(carryRefusal(carrying(emptyList(), listOf(pointing)), FunctionsServed.Serves(serves)))
+	}
+
+	@Test
+	fun aDestinationMustHoldAConditionsValuesAndTest() {
+		val functions = AutomationFunctionServes(max = 32L, steps = listOf("tell_assistant"), paramTypes = listOf("text"))
+		val served = AutomationConditionServes(listOf("is", "is_not", "contains", "contains_not"), 16L)
+		fun wake(vararg conditions: AutomationCondition) = AssistantHomeCarried(
+			approveEverySend = false,
+			watchers = emptyList(),
+			automations = listOf(CarriedAutomation("wake", Automation(enabled = true, trigger = AutomationTrigger.Event("github", conditions.toList()), actions = listOf(AutomationAction.TellAssistant("now"))))),
+		)
+		val plain = wake(conditionOf("reason", "is", listOf("mention")))
+		val listed = wake(conditionOf("reason", "is", listOf("mention", "subscribed")))
+		val unlike = wake(conditionOf("repository", "contains_not", listOf("fork")))
+
+		assertNull(carryRefusal(plain, FunctionsServed.None))
+		assertEquals(listOf(CarryRefusal.ConditionsNotServed, CarryRefusal.ConditionsNotServed), listOf(listed, unlike).map { carryRefusal(it, FunctionsServed.None) })
+		assertEquals(CarryRefusal.ConditionsNotServed, carryRefusal(listed, FunctionsServed.Serves(functions)))
+		assertEquals(CarryRefusal.Reading, carryRefusal(unlike, FunctionsServed.Reading))
+		assertEquals(listOf(null, null), listOf(listed, unlike).map { carryRefusal(it, FunctionsServed.Serves(functions, served)) })
+		assertEquals(CarryRefusal.ConditionsNotServed, carryRefusal(listed, FunctionsServed.Serves(functions, served.copy(values = 1L))))
 	}
 
 	@Test

@@ -6,49 +6,75 @@ import {
 	AssistantFieldSpecSchema,
 	canonicalConditions,
 	conditionsIssue,
+	conditionsMatch,
+	conditionsWarning,
 	trimRuleValue,
 } from "../shared/schemasAssistantRules.js";
 import { AutomationTriggerSchema } from "../shared/schemasAutomation.js";
 
-type Vector = {
-	name: string;
-	field: string;
-	test: string;
+type Typed = {
 	value?: string;
+	values?: string[];
 	codes?: number[];
 	times?: number;
 	around?: string;
-	fits: boolean;
-	canonical?: string;
 };
+
+type Vector = Typed & {
+	name: string;
+	field: string;
+	test: string;
+	fits: boolean;
+	parses?: boolean;
+	warning?: boolean;
+	canonical?: string | string[];
+};
+
+type Match = Typed & { name: string; field: string; test: string; fields: Record<string, string>; holds: boolean };
 
 const corpus = JSON.parse(
 	fs.readFileSync(path.resolve(import.meta.dirname, "../../tests/fixtures/assistant-rules/vectors.json"), "utf8"),
-) as { specs: unknown; cases: Vector[] };
+) as { specs: unknown; cases: Vector[]; matches: Match[] };
 
 const specs = z.array(AssistantFieldSpecSchema).parse(corpus.specs);
 
-const typed = (vector: Vector) => {
+// The phone sends each value trimmed.
+const typed = (vector: Typed): string | string[] => {
+	if (vector.values) return vector.values.map(trimRuleValue);
 	const base = (vector.codes ? String.fromCodePoint(...vector.codes) : (vector.value ?? "")).repeat(
 		vector.times ?? 1,
 	);
-	return `${vector.around ?? ""}${base}${vector.around ?? ""}`;
+	return trimRuleValue(`${vector.around ?? ""}${base}${vector.around ?? ""}`);
 };
+
+const triggerOf = (vector: Typed & { field: string; test: string }) =>
+	AutomationTriggerSchema.safeParse({
+		kind: "event",
+		source: "github",
+		conditions: [{ field: vector.field, test: vector.test, value: typed(vector) }],
+	});
 
 describe("condition fit, against the shared corpus", () => {
 	for (const vector of corpus.cases) {
 		it(vector.name, () => {
-			const trigger = AutomationTriggerSchema.safeParse({
-				kind: "event",
-				source: "github",
-				// The phone sends it trimmed.
-				conditions: [{ field: vector.field, test: vector.test, value: trimRuleValue(typed(vector)) }],
-			});
+			const trigger = triggerOf(vector);
+			expect(trigger.success).toBe(vector.parses ?? true);
 			const conditions =
 				trigger.success && trigger.data.kind === "event" ? canonicalConditions(trigger.data.conditions) : null;
 			const fits = conditions !== null && conditionsIssue(conditions, specs) === null;
 			expect(fits).toBe(vector.fits);
-			if (fits && vector.canonical !== undefined) expect(conditions?.[0]?.value).toBe(vector.canonical);
+			expect(conditions !== null && conditionsWarning(conditions, specs) !== null).toBe(vector.warning ?? false);
+			if (fits && vector.canonical !== undefined) expect(conditions?.[0]?.value).toEqual(vector.canonical);
+		});
+	}
+});
+
+describe("condition matching, against the shared corpus", () => {
+	for (const match of corpus.matches) {
+		it(match.name, () => {
+			const trigger = triggerOf(match);
+			const conditions = trigger.success && trigger.data.kind === "event" ? trigger.data.conditions : null;
+			expect(conditions !== null && conditionsMatch(conditions, specs, match.fields)).toBe(match.holds);
 		});
 	}
 });

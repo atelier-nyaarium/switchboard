@@ -80,6 +80,13 @@ import com.atelier_nyaarium.switchboard.assistant.triggerOf
 import com.atelier_nyaarium.switchboard.assistant.unopenedLine
 import com.atelier_nyaarium.switchboard.assistant.usesText
 import com.atelier_nyaarium.switchboard.assistant.withValue
+import com.atelier_nyaarium.switchboard.assistant.ValueAdd
+import com.atelier_nyaarium.switchboard.assistant.conditionOf
+import com.atelier_nyaarium.switchboard.assistant.conditionsServed
+import com.atelier_nyaarium.switchboard.assistant.testLabel
+import com.atelier_nyaarium.switchboard.assistant.valueAddOf
+import com.atelier_nyaarium.switchboard.assistant.valueRefusal
+import com.atelier_nyaarium.switchboard.assistant.valuesOf
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldOption
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
@@ -87,6 +94,8 @@ import com.atelier_nyaarium.switchboard.proto.AssistantSource
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationCondition
+import com.atelier_nyaarium.switchboard.proto.AutomationConditionServes
+import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationIssueLevel
 import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
 import com.atelier_nyaarium.switchboard.proto.AutomationPreviewHole
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
@@ -150,7 +159,7 @@ private fun source(id: String, triggers: Boolean = true) = AssistantSource(
 	triggers = triggers,
 )
 
-private fun reason(value: String, test: String = "is") = AutomationCondition("reason", test, value)
+private fun reason(vararg values: String, test: String = "is") = conditionOf("reason", test, values.toList())
 
 private fun event(vararg conditions: AutomationCondition, tell: String = "now", enabled: Boolean = true) = Automation(
 	enabled = enabled,
@@ -189,33 +198,56 @@ class AutomationDraftTest {
 
 		assertEquals("github", draft.source)
 		assertEquals(0L, draft.revision)
-		assertEquals(event(), fittingAutomation(draft, fields, TELL_ONLY))
+		assertEquals(event(), fittingAutomation(draft, TELL_ONLY))
 		assertNull(newAutomationDraft(EditContext(TELL_ONLY, listOf(source("sensors", triggers = false)))))
 	}
 
 	@Test
-	fun aConditionSavesTrimmedAndBlocksSaveWhileBlankOrOffItsList() {
+	fun aConditionSavesTrimmedEachValueOnceAndSavesBlankOrOffItsList() {
 		val draft = newAutomationDraft(EditContext(TELL_ONLY, listOf(source("github"))))!!.withCondition(fields)
-		val typed = draft.changed(0) { it.copy(value = " mention ") }
-		val off = draft.changed(0) { it.copy(value = "retired") }
+		val typed = draft.changed(0, values = { it + " mention " })
+		val listed = typed.changed(0, values = { it + listOf("review_requested", "mention") })
+		val off = typed.changed(0, values = { it + "retired" })
 
-		assertEquals(reason(""), draft.conditions.single())
-		assertNull(fittingAutomation(draft, fields, TELL_ONLY))
-		assertEquals(event(reason("mention")), fittingAutomation(typed, fields, TELL_ONLY))
-		assertNull(fittingAutomation(off, fields, TELL_ONLY))
-		assertNotNull(fields.issueOf(off.conditions.single()))
-		assertEquals(event(), fittingAutomation(typed.withoutCondition(0), fields, TELL_ONLY))
+		assertEquals(reason(), draft.conditions.single())
+		assertEquals(event(reason()), fittingAutomation(draft, TELL_ONLY))
+		assertEquals(event(reason("mention")), fittingAutomation(typed, TELL_ONLY))
+		assertEquals(event(reason("mention", "review_requested")), fittingAutomation(listed, TELL_ONLY))
+		assertEquals(listOf("mention"), valuesOf(listed.changed(0, values = { it - "review_requested" }).conditions.single()))
+		assertEquals(event(reason("mention", "retired")), fittingAutomation(off, TELL_ONLY))
+		assertEquals(AutomationIssueLevel.WARNING, fields.issueOf(off.conditions.single())?.level)
+		assertEquals(listOf(true, false), listOf(off, draft).map { fields.fits(it.conditions.single()) })
+		assertEquals(event(), fittingAutomation(typed.withoutCondition(0), TELL_ONLY))
+	}
+
+	@Test
+	fun aConditionTakesAListOnlyWhereItsGatewayServesOne() {
+		val served = AutomationConditionServes(listOf("is", "is_not", "contains", "contains_not"), 16L)
+		val text = conditionOf("repository", "contains", listOf("atelier"))
+		val choice = reason("mention")
+
+		assertEquals(listOf("is", "is_not", "contains"), fields.testsFor(text, null))
+		assertEquals(listOf("is", "is_not", "contains", "contains_not"), fields.testsFor(text, served))
+		assertEquals(listOf("is", "is_not"), fields.testsFor(choice, served))
+		assertEquals(listOf(ValueAdd.Full, ValueAdd.Type), listOf(null, served).map { valueAddOf(text, fields, it) })
+		assertEquals(ValueAdd.Pick(listOf("review_requested")), valueAddOf(choice, fields, served))
+		assertEquals(ValueAdd.Full, valueAddOf(reason("mention", "review_requested"), fields, served))
+		assertEquals(listOf("Already listed", null), listOf("ATELIER", "nyaa").map { valueRefusal(text, it, served) })
+		assertEquals(true, conditionsServed(listOf(text, choice), null))
+		assertEquals(listOf(true, false), listOf(served, null).map { conditionsServed(listOf(reason("mention", "review_requested")), it) })
+		assertEquals(false, conditionsServed(listOf(conditionOf("repository", "contains_not", listOf("fork"))), null))
+		assertEquals(listOf("contains any of", "contains"), listOf(2, 1).map { testLabel("contains", it) })
 	}
 
 	@Test
 	fun aKindChangeClearsTheValueAndKeepsOnlyATestTheNewKindTakes() {
-		val onText = eventDraft(AutomationCondition("repository", "contains", "atelier"))
-		val onChoice = eventDraft(reason("mention", "is_not"))
+		val onText = eventDraft(conditionOf("repository", "contains", listOf("atelier", "nyaa")))
+		val onChoice = eventDraft(reason("mention", test = "is_not"))
 
-		assertEquals(reason(""), onText.withField(0, "reason", fields).conditions.single())
-		assertEquals(AutomationCondition("repository", "is_not", ""), onChoice.withField(0, "repository", fields).conditions.single())
+		assertEquals(reason(), onText.withField(0, "reason", fields).conditions.single())
+		assertEquals(conditionOf("repository", "is_not", emptyList()), onChoice.withField(0, "repository", fields).conditions.single())
 		assertEquals(listOf("is", "is_not"), testsOf(fields.specOf("reason")))
-		assertEquals(listOf("subscribed", "review_requested", "mention"), fields.choicesFor("reason", "subscribed"))
+		assertEquals(listOf("review_requested"), fields.choicesFor(reason("mention", "subscribed")))
 		assertEquals(emptyList<AutomationCondition>(), onText.withSource("other").conditions)
 	}
 
@@ -249,14 +281,16 @@ class AutomationDraftTest {
 	@Test
 	fun theEditorAllowsEditingSavingAndDeletingOnlyWhenItCan() {
 		val valid = automationDraftOf(row("a", event(reason("mention"))), HERE)!!
-		val blank = valid.changed(0) { it.copy(value = " ") }
+		val blank = valid.changed(0, values = { emptyList() })
+		val long = valid.changed(0, values = { listOf("x".repeat(201)) })
 		val held = AutomationSlot.Held("a")
 		val can = { slot: AutomationSlot, draft: AutomationDraft, offered: Boolean, busy: Boolean, gone: Boolean ->
 			automationEditing(slot, draft, fields, offered, busy, gone, TELL_ONLY)
 		}
 
 		assertEquals(AutomationEditing(edit = true, save = true, delete = true), can(held, valid, true, false, false))
-		assertEquals(AutomationEditing(edit = true, save = false, delete = true), can(held, blank, true, false, false))
+		assertEquals(AutomationEditing(edit = true, save = true, delete = true), can(held, blank, true, false, false))
+		assertEquals(AutomationEditing(edit = true, save = false, delete = true), can(held, long, true, false, false))
 		assertEquals(AutomationEditing(edit = true, save = false, delete = true), can(held, valid, false, false, false))
 		assertEquals(AutomationEditing(edit = false, save = false, delete = false), can(held, valid, true, true, false))
 		assertEquals(AutomationEditing(edit = false, save = false, delete = false), can(held, valid, true, false, true))
@@ -832,8 +866,9 @@ class AutomationPartsTest {
 		val timed = eventDraft().copy(trigger = TriggerDraft.Time("18:00", setOf(1), ZONE))
 
 		assertEquals(event(reason("mention")).trigger, askedTrigger(eventDraft(reason("mention")), fields, sources, FULL))
-		assertNull(askedTrigger(eventDraft(reason("")), fields, sources, FULL))
-		assertNull(askedTrigger(eventDraft(reason("retired")), fields, sources, FULL))
+		assertNull(askedTrigger(eventDraft(reason()), fields, sources, FULL))
+		assertNull(askedTrigger(eventDraft(reason("mention", test = "contains")), fields, sources, FULL))
+		assertEquals(event(reason("retired")).trigger, askedTrigger(eventDraft(reason("retired")), fields, sources, FULL))
 		assertNull(askedTrigger(eventDraft(), fields, emptyList(), FULL))
 		assertNotNull(askedTrigger(timed, fields, emptyList(), FULL))
 		assertNull(askedTrigger(timed, fields, emptyList(), TELL_ONLY))

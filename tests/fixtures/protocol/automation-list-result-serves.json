@@ -248,6 +248,7 @@
 			],
 			"unnamed": true,
 			"script": true
-		}
+		},
+		"conditions": { "tests": ["is", "is_not", "contains", "contains_not"], "values": 16 }
 	}
 }

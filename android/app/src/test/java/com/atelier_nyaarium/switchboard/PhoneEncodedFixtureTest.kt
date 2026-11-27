@@ -6,14 +6,15 @@ import com.atelier_nyaarium.switchboard.assistant.EditContext
 import com.atelier_nyaarium.switchboard.assistant.IntervalUnit
 import com.atelier_nyaarium.switchboard.assistant.TriggerDraft
 import com.atelier_nyaarium.switchboard.assistant.StepDraft
+import com.atelier_nyaarium.switchboard.assistant.conditionOf
 import com.atelier_nyaarium.switchboard.assistant.offerOf
 import com.atelier_nyaarium.switchboard.proto.AppOpenAnswer
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeSealed
 import com.atelier_nyaarium.switchboard.proto.AssistantIntegration
 import com.atelier_nyaarium.switchboard.proto.AssistantSource
 import com.atelier_nyaarium.switchboard.proto.Automation
-import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationCondition
+import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationFunction
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationSaveFunction
@@ -82,7 +83,9 @@ class PhoneEncodedFixtureTest {
 		sentence = "Outside below 2.0",
 	)
 
-	private val mention = AutomationCondition("reason", "is", "mention")
+	private val mention = conditionOf("reason", "is", listOf("mention"))
+
+	private val unlisted = listOf(conditionOf("reason", "is_not", listOf("mention", "subscribed")), conditionOf("repository", "contains_not", listOf("fork")))
 
 	private val current = ConsoleAssistantStateResult(
 		workdir = "~/notes",
@@ -124,6 +127,7 @@ class PhoneEncodedFixtureTest {
 				current,
 				listOf(
 					event("mentions", listOf(mention), "now"),
+					event("listed", unlisted, "now"),
 					event("everything", emptyList(), "now"),
 					event("quiet", listOf(mention), "quietly"),
 					event("off", listOf(mention), "now", enabled = false),

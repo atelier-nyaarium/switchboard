@@ -276,7 +276,7 @@ internal class AutomationOps(
 					?.let { saveWithFunction(key.gatewayId, it, sent.original, heard.offer) }
 					?: AutomationSaved.Refused("Not a complete automation")
 			} else {
-				fittingAutomation(sent, fields, heard.offer)
+				fittingAutomation(sent, heard.offer)
 					?.let { save(key.gatewayId, sent.id, it, sent.revision, sent.original, confirmed) }
 					?: AutomationSaved.Refused("Not a complete automation")
 			}

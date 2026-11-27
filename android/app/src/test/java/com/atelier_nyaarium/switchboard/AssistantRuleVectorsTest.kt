@@ -5,14 +5,18 @@ import com.atelier_nyaarium.switchboard.assistant.EditContext
 import com.atelier_nyaarium.switchboard.assistant.TriggerDraft
 import com.atelier_nyaarium.switchboard.assistant.SourceFields
 import com.atelier_nyaarium.switchboard.assistant.StepDraft
+import com.atelier_nyaarium.switchboard.assistant.drawsAsError
 import com.atelier_nyaarium.switchboard.assistant.fittingAutomation
-import com.atelier_nyaarium.switchboard.assistant.trimRuleValue
+import com.atelier_nyaarium.switchboard.assistant.valuesOf
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldOption
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.AutomationCondition
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
+import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationIssueLevel
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
@@ -38,15 +42,17 @@ class AssistantRuleVectorsTest {
 		return AssistantFieldSpec.Enumeration(field, label, options)
 	}
 
-	private fun valueOf(o: JsonObject): String {
+	/** As typed, before the editor's write. */
+	private fun valueOf(o: JsonObject): JsonElement {
+		o["values"]?.let { return it }
 		val base = o["codes"]?.jsonArray?.let { codes -> buildString { codes.forEach { appendCodePoint(it.jsonPrimitive.int) } } }
 			?: o["value"]?.jsonPrimitive?.content.orEmpty()
 		val around = o["around"]?.jsonPrimitive?.content.orEmpty()
-		return around + base.repeat(o["times"]?.jsonPrimitive?.int ?: 1) + around
+		return JsonPrimitive(around + base.repeat(o["times"]?.jsonPrimitive?.int ?: 1) + around)
 	}
 
 	@Test
-	fun theSaveGateFitsWhatTheGatewayParseAccepts() {
+	fun theSaveGateTakesWhatTheWireCarriesAndTheLinesFitWhatTheGatewayReads() {
 		val rules = SourceFields(corpus["specs"]!!.jsonArray.map { specOf(it.jsonObject) })
 		val cases = corpus["cases"]!!.jsonArray
 		assertEquals(true, cases.isNotEmpty())
@@ -57,12 +63,15 @@ class AssistantRuleVectorsTest {
 			val trigger = TriggerDraft.Event("github", listOf(condition))
 			val offer = tellOnlyOffer()
 			val draft = AutomationDraft("a", trigger, listOf(StepDraft.Do("tell", toldDraft("now"))), enabled = true, revision = 0L, EditContext(offer, emptyList()))
-			val fitted = fittingAutomation(draft, rules, offer)?.trigger as? AutomationTrigger.Event
-			assertEquals(name, o["fits"]!!.jsonPrimitive.boolean, fitted != null)
-			o["canonical"]?.let { assertEquals(name, it.jsonPrimitive.content, fitted?.conditions?.single()?.value) }
-			// A blocked Save says why, unless the value is blank.
-			val says = rules.issueOf(condition) != null
-			assertEquals(name, fitted == null && trimRuleValue(condition.value).isNotEmpty(), says)
+			val fitted = fittingAutomation(draft, offer)?.trigger as? AutomationTrigger.Event
+			val fits = o["fits"]!!.jsonPrimitive.boolean
+			val issue = rules.issueOf(condition)
+			assertEquals(name, o["parses"]?.jsonPrimitive?.boolean ?: true, fitted != null)
+			assertEquals(name, fits, rules.fits(condition))
+			assertEquals(name, o["warning"]?.jsonPrimitive?.boolean ?: false, issue?.level == AutomationIssueLevel.WARNING)
+			// A line, unless the value is blank.
+			assertEquals(name, !fits && valuesOf(condition).isNotEmpty(), issue?.let { drawsAsError(it.level) } == true)
+			if (fits) o["canonical"]?.let { assertEquals(name, it, fitted?.conditions?.single()?.value) }
 		}
 	}
 }

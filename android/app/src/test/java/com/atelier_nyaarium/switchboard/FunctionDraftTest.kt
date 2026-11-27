@@ -120,7 +120,7 @@ class FunctionDraftTest {
 		assertEquals(RunsHead.Own, draft.runs)
 		assertNull(runsView(draft, none, older.offer, listOf(plain)))
 		assertNull(functionSaveOf(draft, none, older.offer, confirmed = false))
-		assertEquals(fittingAutomation(draft, none, older.offer) != null, today.save)
+		assertEquals(fittingAutomation(draft, older.offer) != null, today.save)
 		assertNull(rowFunction(shared, Served.Known(older.offer)))
 		assertEquals(FunctionLine.Named("Too warm", 2), rowFunction(shared, Served.Known(serving.offer)))
 	}
@@ -323,7 +323,7 @@ class FunctionDraftTest {
 		fun served(list: GatewayList<AutomationRow>, serves: AutomationServes? = SANDBOX_SERVES) =
 			functionsServed(registry(list, serves), home, "mikan")
 
-		assertEquals(FunctionsServed.Serves(SANDBOX_SERVES.functions!!), served(listed))
+		assertEquals(FunctionsServed.Serves(SANDBOX_SERVES.functions!!, SANDBOX_SERVES.conditions), served(listed))
 		assertEquals(FunctionsServed.None, served(listed, SANDBOX_SERVES.copy(functions = null)))
 		assertEquals(FunctionsServed.None, served(GatewayList.NotServed))
 		assertEquals(FunctionsServed.Reading, served(GatewayList.Unread))

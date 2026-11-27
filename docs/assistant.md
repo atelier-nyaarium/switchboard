@@ -82,7 +82,11 @@ Router's record names. That Gateway feeds it events. The session decides what to
     - **The editor:** When shows "Event arrives", "Value crosses" and "Time comes", each selectable
       where the Gateway offers it (`offersChoice`). An event takes a Source, the conditions, and
       "Would have matched N of the last M" from `automation_preview`, a fold that opens to the
-      matches. A crossing takes a Value from the numbers the Gateway's sensors read, "Goes below"
+      matches. A condition is a Field, a Test and its values as chips: a choice field adds from a
+      menu that omits the values it holds, a text field adds typed chips and refuses one already
+      listed, case aside (`valueAddOf`, `valueRefusal`). With more than one value the test reads as
+      its list label ("is any of"). A second chip and "does not contain" are offered only where the
+      Gateway answers `serves.conditions` (`servedTests`, `valuesMax`). A crossing takes a Value from the numbers the Gateway's sensors read, "Goes below"
       or "Goes above", a Threshold and a Dead zone in the owner's unit, and a Cool-down in minutes.
       A clock is "At a time" (a time picked on a clock, in the phone's zone, and the weekdays) or
       "Every" (a count of minutes, hours or days). An event also takes an optional Cool-down, and every
@@ -517,7 +521,9 @@ cannot rewrite what sorts its own events.
   takes every event. The other triggers and the actions are in `docs/fields.md`. `tell_assistant`
   takes `when`: `now` wakes, `quietly` leaves the event in the inbox. A tell with a `message` is
   told through the automations' outbox as its own event, so the lane decides a wake only from tells
-  with none. A condition is a field the source declares, a test and a value.
+  with none. A condition is a field the source declares, a test and its value: one string, or a
+  list of up to `CONDITION_VALUES_MAX` (16). `valuesOf` is the one read of either shape, on both
+  runtimes, and the phone writes through `conditionOf`.
 - **Every match fires:** an event that does not say how it tells asks its source's armed event
   automations, enabled and valid, through `conditionsMatch`. Any match that tells `now` wakes, and
   an event several automations wake about wakes once. There is no order and no first match. An
@@ -525,26 +531,41 @@ cannot rewrite what sorts its own events.
   `decide` in `composeAssistant.ts` is the one reading, and the lane and the listing take it.
 - **A field is a choice list or text:** each source declares its fields (`Source.fieldSpecs`). A
   choice list (`enumeration`) carries value and label pairs, takes `is` and `is_not`, and compares
-  the exact value; labels are display only. Text takes `is`, `is_not` and `contains`, case
-  ignored. A missing field fails every test on it, `is_not` included. A value is stored trimmed of
-  ASCII whitespace at its edges, `trimRuleValue`, and nothing else. A number or bytes field takes
-  no tests, and a kind the phone does not know is shown but never offered (`docs/fields.md`).
-- **One check:** `conditionsIssue` in `schemasAssistantRules.ts` names an undeclared field, a
-  value off its list, a test its kind does not take and a blank value. `eventIssue` adds that this
-  Gateway holds the source and that the source does not tell its own events.
+  the exact value; labels are display only. Text takes `is`, `is_not`, `contains` and
+  `contains_not`, case ignored. `is` and `contains` hold for any of the values, `is_not` and
+  `contains_not` for none of them. A missing field fails every test on it, the negative ones
+  included. A number or bytes field takes no tests, and a kind the phone does not know is shown
+  but never offered (`docs/fields.md`).
+- **The stored form:** `canonicalConditions` trims each value of ASCII whitespace at its edges
+  (`trimRuleValue`), drops a blank and a value equal to an earlier one case aside, and stores one
+  value left as a string, none as blank. The phone's `conditionOf` writes the same form, pinned by
+  the vectors.
+- **One check:** `conditionsIssue` in `schemasAssistantRules.ts` names an undeclared field, a test
+  its kind does not take and a blank value; each reads the automation `unarmed`. `eventIssue` adds
+  that this Gateway holds the source and that the source does not tell its own events. A choice
+  value its field no longer offers is a warning (`conditionsWarning`, `eventWarning`, the `choice`
+  issue): the automation stays armed and that value matches nothing.
 - **An automation that does not fit is kept:** validity is read against the source's current
   declarations on every read and never stored, so a declaration change moves no revision. An unfit
   automation saves, arms nothing and is listed with `invalid` and its reason.
 - **The phone's Save gate is the Gateway's parse:** `fittingAutomation` in `AutomationDraft.kt`
-  decides Save and the preview, and the Save sends what it answers.
-  `tests/fixtures/assistant-rules/vectors.json` pins it to `conditionsIssue` on both runtimes.
+  refuses only what the wire cannot carry (a value past 200 characters, more than 16 values), so a
+  blank or unfit condition saves and the Gateway reads it `invalid`. `SourceFields.issueOf` draws
+  each condition's line by level and `fits` decides the preview.
+  `tests/fixtures/assistant-rules/vectors.json` pins the parse, the fit, the warning and the stored
+  form on both runtimes, and its `matches` the matching in TypeScript alone.
 - **The Gateway writes each row's sentence:** from the trigger, the source's `brief` then each
-  condition as field label, test and option label ("GitHub: reason is review requested"), or
-  "every event" when there are none (`eventSentence`). Nothing stores it.
+  condition as field label, test and option labels joined by ", ", the test's list label with more
+  than one value ("GitHub: reason is any of review requested, mention"), or "every event" when
+  there are none (`eventSentence`). `TEST_LABELS` and `LIST_TEST_LABELS` live in `field-types.ts`
+  and are generated into `FieldTypes`. Nothing stores it.
 - **No drop, no ping:** GitHub threads are cleared at GitHub through `source/github_done`, and the
   agent alone decides what is worth telling the owner.
 - **Ops:** `automation_list` answers each row with its revision, sentence, `invalid`, `errors`,
-  `lastRanAt` and a clock's `nextRunAt`, and `serves`, what this Gateway's automations can hold.
+  `lastRanAt` and a clock's `nextRunAt`, and `serves`, what this Gateway's automations can hold,
+  `serves.conditions` naming the tests a condition takes and how many values. A move whose event
+  automations hold a list or a test a destination lacks is refused on the phone (`carryRefusal`,
+  `ConditionsNotServed`).
   `automation_put` carries the whole record at the revision
   it read, 0 to add, and answers a refusal with the held row; `automation_delete` carries the
   revision it read. `automation_preview` runs an event trigger over the source's live first page: how

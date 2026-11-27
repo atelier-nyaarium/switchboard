@@ -604,6 +604,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			isHome: () => assistant.placed(),
 			onQueued: () => assistant.pokeSource(SENSORS_SOURCE_ID),
 			eventIssue: assistant.eventIssue,
+			eventWarning: assistant.eventWarning,
 			eventFields: assistant.eventFields,
 			entropy: (size) => bootstrap.ambient.randomBytes(size),
 			eventSentence: assistant.eventSentence,
