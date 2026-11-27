@@ -490,8 +490,7 @@ no TTL.
   `assistant/AutomationParts.kt`): the landing fold over the Router's home record and the rules
   `ShellNav.enterAssistant` and `followAssistant` read, and the root with no conversation
   (`AssistantRootScreen`). The conversation is the usual thread screen, drawn from `ThreadChrome`.
-  Every write to the home lands through `AssistantHomeFence`. `sourcesOf` is the one reader of a
-  Gateway's sources: `sources`, else an older Gateway's `watchers`, until 2026-11-28.
+  Every write to the home lands through `AssistantHomeFence`.
   - **Its pages are a stack on `ShellNav`, top last:** `ShellPage` covers Settings and its index
     pages (Location, Features, Safety), and the pages the Sources view opens: Add, an Entry, a Setup,
     a Device, a Source and a source's automations. The automation editor is an editor, not a page.

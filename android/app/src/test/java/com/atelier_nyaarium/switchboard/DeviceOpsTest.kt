@@ -44,7 +44,7 @@ private const val FREEZER = "aa:bb:cc:dd:ee:11"
 private fun sensorRecord(id: String = FREEZER, name: String = "Freezer") =
 	DeviceRecord(id = id, name = name, kind = "sensor", driver = "govee", address = id, radio = "gateway", definition = "govee-h5110", revision = 1L)
 
-private fun sensorRead(heardAt: Long = 5L) = ConsoleDeviceReadResult.Sensor(readings = emptyList(), heardAt = heardAt)
+private fun sensorRead(heardAt: Long = 5L) = ConsoleDeviceReadResult.Sensor(readings = emptyList(), heardAt = heardAt, payloads = emptyList())
 
 private val schedule = DeviceSchedule(enabled = true, rules = emptyList())
 private val settings = DeviceSettings.Kasa(led = true, clock = KasaClock(time = "2026-11-02T18:00:00-08:00", zone = "PST8PDT"), cloud = "bound")

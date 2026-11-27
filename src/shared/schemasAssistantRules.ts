@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { FIELD_TYPES, RULE_TESTS, type RuleTest, UNIT_CODES } from "./field-types.js";
-import { ASSISTANT_RULE_CONDITIONS_MAX, ASSISTANT_RULE_VALUE_MAX, ASSISTANT_RULES_MAX } from "./wire-vocabulary.js";
+import { ASSISTANT_RULE_VALUE_MAX } from "./wire-vocabulary.js";
 
 export { RULE_TESTS, type RuleTest };
 export const RULE_ACTIONS = ["wake", "inbox"] as const;
@@ -68,8 +68,6 @@ export type AssistantFieldSpec = z.infer<typeof AssistantFieldSpecSchema>;
 
 export const testsOf = (spec: AssistantFieldSpec): readonly RuleTest[] => FIELD_TYPES[spec.kind].tests;
 
-export const fieldsOf = (specs: readonly AssistantFieldSpec[]): string[] => specs.map((spec) => spec.field);
-
 /** Out-of-set field value. */
 export const AssistantFieldValueSchema = z
 	.object({ field: fieldName, value: z.string().max(1_000) })
@@ -87,9 +85,6 @@ export const AssistantUnexpectedValuesSchema = z
 
 export type AssistantUnexpectedValues = z.infer<typeof AssistantUnexpectedValuesSchema>;
 
-/** Older phones offer `drop`. */
-const RuleActionSchema = z.enum(RULE_ACTIONS, { error: "unknown rule action; update the app" });
-
 export const AssistantRuleConditionSchema = z
 	.object({
 		field: z.string().min(1).max(64),
@@ -98,76 +93,7 @@ export const AssistantRuleConditionSchema = z
 	})
 	.meta({ id: "AssistantRuleCondition" });
 
-/** Every condition holds, or the rule does not match. */
-export const AssistantRuleSchema = z
-	.object({
-		id: z.string().regex(RULE_ID_RE),
-		conditions: z.array(AssistantRuleConditionSchema).min(1).max(ASSISTANT_RULE_CONDITIONS_MAX),
-		action: RuleActionSchema,
-		/** Gateway-named; a put carries the one it read, 0 adds. */
-		revision: z.number().int().nonnegative(),
-	})
-	.meta({ id: "AssistantRule" });
-
-export const AssistantRuleOtherwiseSchema = z
-	.object({
-		action: RuleActionSchema,
-		revision: z.number().int().nonnegative(),
-	})
-	.meta({ id: "AssistantRuleOtherwise" });
-
-export const AssistantWatcherRulesSchema = z
-	.object({
-		rules: z.array(AssistantRuleSchema).max(ASSISTANT_RULES_MAX),
-		otherwise: AssistantRuleOtherwiseSchema,
-		/** Moves with every change; a sort names it. */
-		revision: z.number().int().nonnegative(),
-	})
-	.meta({ id: "AssistantWatcherRules" });
-
 export type AssistantRuleCondition = z.infer<typeof AssistantRuleConditionSchema>;
-export type AssistantRule = z.infer<typeof AssistantRuleSchema>;
-export type AssistantRuleOtherwise = z.infer<typeof AssistantRuleOtherwiseSchema>;
-export type AssistantWatcherRules = z.infer<typeof AssistantWatcherRulesSchema>;
-
-export const DEFAULT_RULES: AssistantWatcherRules = {
-	rules: [],
-	otherwise: { action: "inbox", revision: 0 },
-	revision: 0,
-};
-
-/** Spec-invalid rules derive on read, never stored. */
-export const AssistantRuleInvalidSchema = z
-	.object({ id: z.string(), reason: z.string() })
-	.meta({ id: "AssistantRuleInvalid" });
-
-export type AssistantRuleInvalid = z.infer<typeof AssistantRuleInvalidSchema>;
-
-/** Every rule op's answer: the held list, stored or not, so the phone decides from it. */
-export const ConsoleAssistantRulesResultSchema = z
-	.object({
-		stored: z.boolean(),
-		rules: AssistantWatcherRulesSchema,
-		reason: z.string().optional(),
-		invalid: z.array(AssistantRuleInvalidSchema).optional(),
-	})
-	.meta({ id: "ConsoleAssistantRulesResult" });
-
-export type ConsoleAssistantRulesResult = z.infer<typeof ConsoleAssistantRulesResultSchema>;
-
-export const ConsoleAssistantPreviewResultSchema = z
-	.object({
-		/** Events this rule decides from its place. */
-		decided: z.number().int().nonnegative(),
-		/** Matched, but an earlier rule decides. */
-		shadowed: z.number().int().nonnegative(),
-		of: z.number().int().nonnegative(),
-		/** The first few decided, newest first. */
-		titles: z.array(z.string()),
-	})
-	.meta({ id: "ConsoleAssistantPreviewResult" });
-
-export type ConsoleAssistantPreviewResult = z.infer<typeof ConsoleAssistantPreviewResultSchema>;
 
 const specOf = (specs: readonly AssistantFieldSpec[], field: string) => specs.find((spec) => spec.field === field);
 

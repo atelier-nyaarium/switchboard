@@ -167,7 +167,7 @@ describe("the assistant's inbox tool", () => {
 		title: "Review requested",
 		fields: { reason: "review_requested" },
 		at: Date.parse("2026-10-18T10:00:00Z"),
-		decision: "wake",
+		decision: "now",
 	};
 	const call = async (args: Record<string, unknown>) => {
 		const client = await connected(registerInboxTool);

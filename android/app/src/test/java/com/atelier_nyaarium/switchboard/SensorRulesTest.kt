@@ -24,6 +24,7 @@ private fun read(stale: String? = null) = ConsoleDeviceReadResult.Sensor(
 	),
 	heardAt = 0L,
 	stale = stale,
+	payloads = emptyList(),
 )
 
 private fun sensor(id: String, radio: String) =
@@ -76,14 +77,14 @@ class SensorRulesTest {
 			val entry = GatewayEntry("sakura", connected = true, incarnation = 1L, lastRegisteredAt = 1L, assistant = held ?: AssistantRead.Reading)
 			servicesWaiting(GatewayRegistry(RegistryProvenance.Current, gateways = listOf(entry)).assistantRead("sakura"))
 		}
-		val answered = AssistantRead.Answered(com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult(workdir = "~/notes"))
+		val answered = AssistantRead.Answered(assistantState(workdir = "~/notes"))
 		assertEquals(listOf("", null, false), listOf(word(null), word(answered), word(AssistantRead.Refused).isNullOrEmpty()))
 		assertEquals("Govee · This Phone", rowBrandLine(sensor(MAC, "phones")))
 	}
 
 	@Test
 	fun theHomesSourcesAndUnitShowOnlyOnceItAnswered() {
-		val state = com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult(sources = emptyList(), temperatureUnit = "F")
+		val state = assistantState(temperatureUnit = "F")
 		val answered = homeHolding(AssistantRead.Answered(state))
 
 		assertEquals("F" to "F", answered.display to answered.temperatureUnit)

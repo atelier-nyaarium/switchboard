@@ -9,5 +9,6 @@
 		}
 	],
 	"heardAt": 1793660000000,
+	"payloads": [],
 	"thresholds": [{ "measure": "temperature", "low": 10, "deadZone": 1, "coolDownSec": 60, "revision": 2 }]
 }

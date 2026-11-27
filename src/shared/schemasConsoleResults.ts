@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { DomainSnapshotSchema } from "./admission.js";
 import { ConsoleAssistantStateResultSchema } from "./schemasAssistant.js";
-import { ConsoleAssistantPreviewResultSchema, ConsoleAssistantRulesResultSchema } from "./schemasAssistantRules.js";
 import { ConsoleAssistantSendAnswerResultSchema } from "./schemasAssistantSend.js";
 import {
 	ConsoleAutomationDeleteResultSchema,
@@ -414,8 +413,6 @@ export const ConsoleOpResultSchema = z.union([
 	ConsoleIdsSchema,
 	ConsoleEvalResultSchema,
 	ConsoleAssistantStateResultSchema,
-	ConsoleAssistantRulesResultSchema,
-	ConsoleAssistantPreviewResultSchema,
 	ConsoleAssistantSendAnswerResultSchema,
 	ConsoleAutomationListResultSchema,
 	ConsoleAutomationPutResultSchema,

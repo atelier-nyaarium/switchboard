@@ -13,19 +13,14 @@ import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeReport
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeSealed
 import com.atelier_nyaarium.switchboard.proto.AssistantIntegration
-import com.atelier_nyaarium.switchboard.proto.AssistantRuleCondition
-import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
 import com.atelier_nyaarium.switchboard.proto.AssistantUnexpectedValues
 import com.atelier_nyaarium.switchboard.proto.AssistantSource
-import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
-import com.atelier_nyaarium.switchboard.proto.AutomationCondition
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.CarriedAutomation
 import com.atelier_nyaarium.switchboard.proto.AssistantWatcherBackoff
-import com.atelier_nyaarium.switchboard.proto.AssistantWatcherRules
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
@@ -65,15 +60,6 @@ private fun source(
 	actions = emptyList(),
 	enabled = true,
 	triggers = true,
-)
-
-/** An older Gateway's row. */
-private fun watcher(grants: List<String> = listOf("gh-token"), rules: AssistantWatcherRules? = null) = AssistantWatcher(
-	id = "github",
-	label = "GitHub notifications",
-	grants = grants,
-	unread = 2L,
-	rules = rules,
 )
 
 private fun eventRow(id: String) = AutomationRow(
@@ -169,7 +155,7 @@ class AssistantOpsTest {
 			return listings[gatewayId]?.takeUnless { gatewayId in deaf } ?: AutomationListing(automations(gatewayId))
 		}
 
-		private fun stateOf(gatewayId: String) = states[gatewayId] ?: ConsoleAssistantStateResult(
+		private fun stateOf(gatewayId: String) = states[gatewayId] ?: assistantState(
 			workdir = "~/notes".takeIf { gatewayId == home },
 			team = "host.assistant".takeIf { gatewayId == home },
 			sources = listOf(source()),
@@ -216,20 +202,6 @@ class AssistantOpsTest {
 		val state = MutableStateFlow(ChatState(gateways = testRegistry(*gatewayIds)))
 		return AssistantOps(state, Host(fake)) to state
 	}
-
-	private fun assistantState(
-		workdir: String? = null,
-		approveEverySend: Boolean? = null,
-		sources: List<AssistantSource>? = emptyList(),
-		integrations: List<AssistantIntegration>? = null,
-		watchers: List<AssistantWatcher>? = null,
-	) = ConsoleAssistantStateResult(
-		workdir = workdir,
-		sources = sources,
-		watchers = watchers,
-		approveEverySend = approveEverySend,
-		integrations = integrations,
-	)
 
 	private fun stateWithHome(
 		fake: FakeGateway,
@@ -571,12 +543,10 @@ class AssistantOpsTest {
 	@Test
 	fun aNeverWrittenHomeSeedsOnlyOneFreshRegisteredHolder() = runBlocking {
 		val fake = FakeGateway(home = null)
-		val rules = AssistantWatcherRules(emptyList(), AssistantRuleOtherwise("notify", 2L), 3L)
 		val holder = assistantState(
 			workdir = "~/holder",
 			approveEverySend = false,
-			sources = null,
-			watchers = listOf(watcher(grants = listOf("holder-grant"), rules = rules)),
+			sources = listOf(source(grants = listOf("holder-grant"))),
 		)
 		fake.states["alpha"] = holder
 		fake.states["beta"] = assistantState()
@@ -648,7 +618,7 @@ class AssistantOpsTest {
 	}
 
 	@Test
-	fun carriedOfKeepsSafetyGrantsAndTheEventAutomationsOrAnOlderGatewaysRules() {
+	fun carriedOfKeepsSafetyGrantsAndTheEventAutomations() {
 		val state = assistantState(
 			approveEverySend = false,
 			sources = listOf(
@@ -659,61 +629,21 @@ class AssistantOpsTest {
 				AssistantIntegration(id = "ifttt", label = "IFTTT webhook", grants = listOf("hook-key")),
 			),
 		)
-		val rules = AssistantWatcherRules(emptyList(), AssistantRuleOtherwise("inbox", 1L), 2L)
-		val older = assistantState(sources = null, watchers = listOf(watcher(rules = rules)))
-		// An older Gateway reads these.
-		val wakesAll = AssistantWatcherRules(emptyList(), AssistantRuleOtherwise("wake", 0L), 0L)
-		val wakesNone = AssistantWatcherRules(emptyList(), AssistantRuleOtherwise("inbox", 0L), 0L)
 
 		assertEquals(
 			AssistantHomeCarried(
 				approveEverySend = false,
 				temperatureUnit = "C",
 				watchers = listOf(
-					AssistantHomeCarriedWatcher("github", wakesAll, "first-grant", enabled = true),
-					AssistantHomeCarriedWatcher("off", wakesNone, "gh-token", enabled = false),
+					AssistantHomeCarriedWatcher("github", "first-grant", enabled = true),
+					AssistantHomeCarriedWatcher("off", "gh-token", enabled = false),
 				),
 				automations = listOf(CarriedAutomation("urgent", eventRow("urgent").automation)),
 				integrations = listOf(AssistantHomeCarriedIntegration("ifttt", "hook-key")),
 			),
 			carriedOf(state, listOf(eventRow("urgent"), alertRow)),
 		)
-		assertEquals(
-			listOf(AssistantHomeCarriedWatcher("github", rules, "gh-token", enabled = true)),
-			carriedOf(older, null).watchers,
-		)
-		assertNull(carriedOf(older, null).automations)
-	}
-
-	@Test
-	fun onlyWhatWakesNowBecomesAnOlderGatewaysRules() {
-		val mention = AutomationCondition("reason", "is", "mention")
-		fun row(id: String, conditions: List<AutomationCondition>, tell: String = "now", enabled: Boolean = true, invalid: String? = null) =
-			eventRow(id).let {
-				val automation = it.automation.copy(
-					enabled = enabled,
-					trigger = AutomationTrigger.Event("github", conditions),
-					actions = listOf(AutomationAction.TellAssistant(tell)),
-				)
-				it.copy(automation = automation, invalid = invalid)
-			}
-		val rows = listOf(
-			row("mentions", listOf(mention)),
-			row("quiet", listOf(mention), tell = "quietly"),
-			row("off", listOf(mention), enabled = false),
-			row("unfit", listOf(mention), invalid = "reason takes no such value"),
-			row("elsewhere", listOf(mention)).let {
-				it.copy(automation = it.automation.copy(trigger = AutomationTrigger.Event("mail", listOf(mention))))
-			},
-		)
-
-		val conditioned = rulesOf("github", rows)
-		val everything = rulesOf("github", rows + row("all", emptyList()))
-
-		assertEquals(listOf("mentions"), conditioned.rules.map { it.id })
-		assertEquals(listOf("wake" to "inbox"), conditioned.rules.map { it.action to conditioned.otherwise.action })
-		assertEquals(listOf(AssistantRuleCondition("reason", "is", "mention")), conditioned.rules.single().conditions)
-		assertEquals("wake", everything.otherwise.action)
+		assertNull(carriedOf(state, null).automations)
 	}
 
 	@Test
@@ -767,31 +697,19 @@ class AssistantOpsTest {
 	}
 
 	@Test
-	fun aGatewayOnAnOlderBuildIsSentTheKindsItKnows() = runBlocking {
-		val older = assistantState(sources = null, watchers = listOf(watcher()))
-		val fake = FakeGateway(home = "sakura").apply { states["mikan"] = older }
-		val (ops, state) = ops(fake, "sakura", "mikan")
-		state.value = state.value.copy(
-			gateways = state.value.gateways
-				.withEntry("sakura") { it.copy(assistant = AssistantRead.Answered(assistantState(sources = listOf(source())))) }
-				.withEntry("mikan") { it.copy(assistant = AssistantRead.Answered(older)) },
-		)
+	fun aSourceIsSwitchedGrantedAndCheckedByItsOwnKinds() = runBlocking {
+		val fake = FakeGateway(home = "sakura")
+		val (ops, _) = ops(fake, "sakura")
 
 		ops.setEnabled("sakura", "github", false)
 		ops.setGrants("sakura", "github", emptyList())
 		ops.checkNow("sakura", "github")
-		ops.setEnabled("mikan", "github", false)
-		ops.setGrants("mikan", "github", emptyList())
-		ops.checkNow("mikan", "github")
 
 		assertEquals(
 			listOf(
 				"sakura" to "AssistantSourceEnabled",
 				"sakura" to "AssistantSourceGrants",
 				"sakura" to "AssistantSourceCheck",
-				"mikan" to "AssistantWatcherEnabled",
-				"mikan" to "AssistantWatcherGrants",
-				"mikan" to "AssistantWatcherCheck",
 			),
 			fake.calls,
 		)
@@ -895,7 +813,7 @@ class AssistantOpsTest {
 
 	@Test
 	fun settingsShowHomeSections() {
-		val placed = ConsoleAssistantStateResult(workdir = "~/notes", sources = emptyList())
+		val placed = assistantState(workdir = "~/notes")
 		val safe = placed.copy(approveEverySend = true)
 
 		val unplaced = listOf(AssistantSection.LOCATION, AssistantSection.FEATURES)
@@ -982,7 +900,7 @@ class AssistantOpsTest {
 
 	@Test
 	fun theLocationPageOffersNoMoveOverAnUnreadHome() {
-		val placed = AssistantRead.Answered(ConsoleAssistantStateResult(workdir = "~/notes", sources = emptyList()))
+		val placed = AssistantRead.Answered(assistantState(workdir = "~/notes"))
 
 		assertEquals(LocationBase.Known(null), locationBase(home = null, read = null))
 		assertEquals(LocationBase.Unread("sakura", AssistantRead.Reading), locationBase("sakura", AssistantRead.Reading))

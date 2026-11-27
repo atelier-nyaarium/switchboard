@@ -12,21 +12,10 @@ import {
 import type { ComputedFields } from "../gateway/computed/computedFields.js";
 import { processAmbient } from "../shared/ambient.js";
 import { ASSISTANT_TEAM } from "../shared/assistant-session.js";
-import { DurableStore } from "../shared/durable-store.js";
 import { AssistantSourceSchema } from "../shared/schemasAssistant.js";
 import type { AssistantHomeRecord, AssistantHomeSealed } from "../shared/schemasAssistantHome.js";
-import {
-	type AssistantFieldSpec,
-	AssistantFieldSpecSchema,
-	type AssistantRule,
-	conditionsMatch,
-} from "../shared/schemasAssistantRules.js";
-import {
-	AUTOMATIONS_MAX,
-	type AutomationCondition,
-	type AutomationInput,
-	automationsOfRules,
-} from "../shared/schemasAutomation.js";
+import { type AssistantFieldSpec, AssistantFieldSpecSchema, conditionsMatch } from "../shared/schemasAssistantRules.js";
+import { AUTOMATIONS_MAX, type AutomationCondition, type AutomationInput } from "../shared/schemasAutomation.js";
 import type { ContentEnvelope } from "../shared/schemasContentKey.js";
 import { SessionStore } from "../shared/session-store.js";
 import { bandField, boundAutomations, eventAutomation } from "../testing/assistantAutomations.js";
@@ -71,9 +60,6 @@ const freshDir = () => {
 const reason = (value: string, test: AutomationCondition["test"] = "is"): AutomationCondition[] => [
 	{ field: "reason", test, value },
 ];
-
-const rule = (id: string, value: string, action: string, extra: Record<string, unknown> = {}) =>
-	({ id, conditions: reason(value), action, revision: 1, ...extra }) as AssistantRule;
 
 const event = (id: string, kind: string, at = 1): SourceEvent => ({
 	id,
@@ -176,11 +162,6 @@ async function placed(
 	};
 	return { ...test, stop };
 }
-
-const seedRules = (dir: string, watchers: Record<string, unknown>) =>
-	new DurableStore(dir, "assistant-rules").saveChecked({ v: 1, watchers });
-
-const rulesBytes = (dir: string) => fs.readFileSync(path.join(dir, "assistant-rules.json"), "utf8");
 
 describe("an event automation", () => {
 	it("matches text case aside and a choice by its exact value, fails every test on a missing field, and never matches while a condition does not fit", () => {
@@ -340,24 +321,6 @@ describe("an event automation", () => {
 		expect(edited.stored).toBe(true);
 	});
 
-	// Remove 2026-11-28 with the older phone's rules.
-	it("answers an older phone the rules that match what wakes, which convert back to the same automations", async () => {
-		const { assistant, automations, stop } = await placed([listing()]);
-		automations.ownerPut("mentions", eventAutomation("github", reason("mention")), 0);
-		automations.ownerPut("all", eventAutomation("github", []), 0);
-		automations.ownerPut("quiet", eventAutomation("github", reason("review_requested"), "quietly"), 0);
-		automations.ownerPut("off", { ...eventAutomation("github", reason("mention")), enabled: false }, 0);
-
-		const rules = assistant.console.state().watchers?.find((watcher) => watcher.id === "github")?.rules;
-		await stop();
-
-		expect(rules).toMatchObject({
-			rules: [{ id: "mentions", conditions: reason("mention"), action: "wake" }],
-			otherwise: { action: "wake" },
-		});
-		expect(rules && automationsOfRules("github", rules).map(({ id }) => id)).toEqual(["mentions", "every-github"]);
-	});
-
 	it("previews over the live first page, newest first, and refuses what a put refuses", async () => {
 		const held = [event("1", "subscribed", 2), event("2", "mention", 3), event("3", "mention", 1)];
 		const { assistant, stop } = await placed([listing(held, SPECS)]);
@@ -395,80 +358,9 @@ describe("an event automation", () => {
 	});
 });
 
-describe("stored rules", () => {
-	it("become automations once, each rule that woke under its id, and one the owner deletes stays deleted", () => {
+describe("a let-go", () => {
+	it("leaves no event automation when the home moves away, one of a source this build lost included", async () => {
 		const dir = freshDir();
-		seedRules(dir, {
-			github: {
-				rules: [
-					rule("a", "mention", "wake"),
-					rule("b", "review_requested", "inbox"),
-					rule("c", "mention", "wake"),
-				],
-				otherwise: { action: "inbox", revision: 0 },
-				revision: 3,
-			},
-			sensors: { rules: [rule("s", "x", "wake")], otherwise: { action: "inbox", revision: 0 }, revision: 1 },
-		});
-		const before = rulesBytes(dir);
-		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
-
-		const first = stage(dir, [listing(), SELF_TOLD], ambient);
-		const adopted = first.automations.rows();
-		const removed = first.automations.ownerRemove("a", 1);
-		const kept = stage(dir, [listing(), SELF_TOLD], ambient)
-			.automations.rows()
-			.map((row) => row.id);
-
-		expect(adopted.map((row) => [row.id, row.sentence, row.automation.actions])).toEqual([
-			["a", "GitHub: reason is mention", [{ kind: "tell_assistant", when: "now" }]],
-			["c", "GitHub: reason is mention", [{ kind: "tell_assistant", when: "now" }]],
-		]);
-		expect(removed).toEqual({ deleted: true });
-		expect(kept).toEqual(["c"]);
-		expect(rulesBytes(dir)).toBe(before);
-	});
-
-	it("carry a fallback that woke as an automation for every event, read past an older file's drops and pings", () => {
-		const dir = freshDir();
-		seedRules(dir, {
-			github: {
-				rules: [
-					{ ...rule("a", "mention", "wake"), ping: true },
-					rule("b", "review_requested", "drop"),
-					rule("gone", "retired_reason", "wake"),
-				],
-				otherwise: { action: "wake", ping: false, revision: 4 },
-				revision: 9,
-			},
-		});
-		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
-
-		const { automations } = stage(dir, [listing()], ambient);
-
-		expect(automations.rows().map((row) => [row.id, row.sentence])).toEqual([
-			["a", "GitHub: reason is mention"],
-			["every-github", "GitHub: every event"],
-		]);
-	});
-
-	it("are left alone when the file cannot be read, and nothing is adopted", () => {
-		const dir = freshDir();
-		new DurableStore(dir, "assistant-rules").saveChecked({ v: 7, watchers: [] });
-		const before = rulesBytes(dir);
-		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
-
-		const { automations } = stage(dir, [listing()], ambient);
-
-		expect(automations.rows()).toEqual([]);
-		expect(rulesBytes(dir)).toBe(before);
-	});
-
-	it("are emptied when the home moves away, and no event automation stays, one of a source this build lost included", async () => {
-		const dir = freshDir();
-		seedRules(dir, {
-			github: { rules: [rule("a", "mention", "wake")], otherwise: { action: "inbox", revision: 0 }, revision: 1 },
-		});
 		const mail: Source = { ...listing([], SPECS), id: "mail", label: "Mail" };
 		const first = await placed([listing(), mail], dir);
 		first.automations.ownerPut("g", eventAutomation("github", reason("mention")), 0);
@@ -485,6 +377,5 @@ describe("stored rules", () => {
 
 		expect(held.sort()).toEqual(["g", "m"]);
 		expect(automations.rows()).toEqual([]);
-		expect(JSON.parse(rulesBytes(dir)).watchers).toEqual({});
 	});
 });

@@ -66,8 +66,6 @@ export type AutomationIntent =
 	/** Null functions: older phone. */
 	| { kind: "carry"; rows: readonly CarriedAutomation[]; functions: readonly CarriedFunction[] | null }
 	| { kind: "sweep"; ids: readonly string[] }
-	// skew:stored-rules: goes with the stored rules.
-	| { kind: "adoption"; rows: readonly CarriedAutomation[] }
 	// skew:stored-thresholds: goes with the stored thresholds.
 	/** One sensor's stored alerts, as plain automations. */
 	| { kind: "conversion"; prefix: string; rows: ReadonlyMap<string, Automation> };
@@ -96,7 +94,7 @@ export interface AutomationJudgeView {
 export interface DroppedAutomation {
 	id: string;
 	/** Fixed word; logged. */
-	why: "not_event" | BodyIssue["at"];
+	why: "not_event";
 }
 
 export type AutomationVerdict =
@@ -555,17 +553,12 @@ function unused(
 }
 
 /** Last of an id wins. */
-function fitting(rows: readonly CarriedAutomation[], view: AutomationJudgeView, runnable: boolean) {
+function fitting(rows: readonly CarriedAutomation[]) {
 	const wanted = new Map<string, Automation>();
 	const dropped: DroppedAutomation[] = [];
 	for (const { id, automation } of rows) {
-		const why = !movesWithHome(automation)
-			? "not_event"
-			: runnable
-				? (view.assess(automation)[0]?.at ?? null)
-				: null;
-		if (why === null) wanted.set(id, canonicalAutomation(automation));
-		else dropped.push({ id, why });
+		if (movesWithHome(automation)) wanted.set(id, canonicalAutomation(automation));
+		else dropped.push({ id, why: "not_event" });
 	}
 	return { wanted, dropped };
 }
@@ -578,7 +571,7 @@ function judgeCarry(
 	const heldAt = (id: string) => view.held.find((record) => record.id === id);
 	const functionAt = (id: string) => view.functions.find((record) => record.id === id);
 	// Kept invalid; nothing lost.
-	const { wanted, dropped } = fitting(intent.rows, view, false);
+	const { wanted, dropped } = fitting(intent.rows);
 	const leaving = view.held.filter((record) => movesWithHome(record.body) && !wanted.has(record.id));
 	const leaves = (user: string): boolean => {
 		const held = heldAt(user);
@@ -709,12 +702,6 @@ export function judgeAutomationWrite(intent: AutomationIntent, view: AutomationJ
 			const run = new Set(view.held.flatMap((record) => [...reachOf(record.body, functionHeld)]));
 			const writes = view.functions.filter((fn) => intent.ids.includes(fn.id) && !run.has(fn.id)).map(remove);
 			return { kind: "writes", writes, dropped: [] };
-		}
-		case "adoption": {
-			const { wanted, dropped } = fitting(intent.rows, view, true);
-			// Rules were stored at the home.
-			const puts = [...wanted].flatMap(([id, automation]) => (heldAt(id) ? [] : [put(id, automation, 0, true)]));
-			return { kind: "writes", writes: puts, dropped };
 		}
 		case "conversion": {
 			const { prefix, rows } = intent;

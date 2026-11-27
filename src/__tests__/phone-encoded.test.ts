@@ -5,7 +5,6 @@ import type { z } from "zod";
 import { ScheduledBodySchema } from "../shared/scheduled-body.js";
 import { ConsoleOpSchema } from "../shared/schemas.js";
 import { AssistantHomeSealedSchema, readableSealed } from "../shared/schemasAssistantHome.js";
-import { AssistantWatcherRulesSchema } from "../shared/schemasAssistantRules.js";
 import { AutomationSchema, canonicalAutomation } from "../shared/schemasAutomation.js";
 import { PHONE_CAPABILITIES } from "../shared/schemasPhoneCapabilities.js";
 
@@ -45,14 +44,6 @@ describe("what the Kotlin phone encodes", () => {
 			"grant",
 			"holder",
 		]);
-	});
-
-	// Remove 2026-11-28 with the carried rules.
-	it("names rules for every source, which a Gateway on an older build requires", () => {
-		const sources = sealed.flatMap((value) => carriedOf(value)?.watchers ?? []);
-
-		expect(sources.length).toBeGreaterThan(0);
-		expect(sources.filter((source) => !AssistantWatcherRulesSchema.safeParse(source.rules).success)).toEqual([]);
 	});
 
 	it("drops a carried automation or service a newer build wrote, and keeps the rest of the move", () => {

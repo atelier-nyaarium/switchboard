@@ -30,9 +30,7 @@ export function inboxText(answer: InboxListAnswer, scope: InboxScope): string {
 		for (const item of list.items) {
 			const [, ...rest] = eventLines({ label: list.label, ...item });
 			rest.push(`updated: ${isoOf(item.at)}`);
-			// skew:inbox-decision-word: an older Gateway says wake or inbox.
-			const tell = item.decision === "wake" ? "now" : item.decision === "inbox" ? undefined : item.decision;
-			if (tell !== undefined) rest.push(`tell: ${oneLine(tell)}`);
+			if (item.decision !== undefined) rest.push(`tell: ${oneLine(item.decision)}`);
 			lines.push(...rest.map((line, index) => (index === 0 ? `- ${line}` : `  ${line}`)));
 		}
 		if (list.cut !== undefined) lines.push("", `${list.cut} more did not fit; the next page continues from them.`);

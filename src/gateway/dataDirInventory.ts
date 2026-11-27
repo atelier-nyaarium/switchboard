@@ -16,8 +16,6 @@ export const DATA_DIR_ENTRIES: ReadonlySet<string> = new Set([
 	"assistant-open-acts.json",
 	"assistant-open-sends.json",
 	"assistant-phone-requests.json",
-	"assistant-rules.json",
-	"assistant-rules-adopted.json",
 	"assistant-safety.json",
 	"assistant-temperature-unit.json",
 	"assistant-watcher-enabled.json",

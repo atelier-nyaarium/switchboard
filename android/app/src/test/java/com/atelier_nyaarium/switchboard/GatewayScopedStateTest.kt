@@ -1,7 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
-import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.PolicyBinding
 import com.atelier_nyaarium.switchboard.proto.Routine
 import com.atelier_nyaarium.switchboard.proto.RoutineState
@@ -97,7 +96,7 @@ class GatewayScopedStateTest {
 	fun everyReaderTellsUnreadUnreachableNotServedAndListedWithNone() {
 		val lookups = listOf(Lookup.Reading, Lookup.Unreachable, Lookup.NotServed, Lookup.Gone)
 		val lists = listOf(GatewayList.Unread, GatewayList.Unreachable, GatewayList.NotServed, GatewayList.Listed(emptyList<Runbook>()))
-		val none = ConsoleAssistantStateResult(sources = emptyList())
+		val none = assistantState()
 
 		assertEquals(listOf(null, null, null, null), lookups.map { com.atelier_nyaarium.switchboard.runbooks.fireable(it) })
 		assertEquals(listOf("apt", "apt", "apt", "apt"), lookups.map { com.atelier_nyaarium.switchboard.vault.policyLabel(it, "apt") })

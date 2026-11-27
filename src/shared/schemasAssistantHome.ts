@@ -2,7 +2,6 @@
 
 import { z } from "zod";
 import { INTEGRATION_IDS, TemperatureUnitSchema } from "./schemasAssistant.js";
-import { AssistantWatcherRulesSchema } from "./schemasAssistantRules.js";
 import { AUTOMATIONS_MAX, CarriedAutomationSchema, CarriedFunctionSchema } from "./schemasAutomation.js";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
 import { FUNCTIONS_MAX } from "./schemasFunction.js";
@@ -17,8 +16,6 @@ const version = z.number().int().positive();
 export const AssistantHomeCarriedWatcherSchema = z
 	.object({
 		id: z.string().min(1).max(64),
-		// skew:stored-rules: an older Gateway reads rules.
-		rules: AssistantWatcherRulesSchema.nullish(),
 		/** Its standing grant's entry. */
 		grant: z.string().min(1).max(64).nullable(),
 		/** Absent means on. */
@@ -43,7 +40,7 @@ export const AssistantHomeCarriedSchema = z
 		// skew:home-temperature-unit.
 		temperatureUnit: TemperatureUnitSchema.nullish(),
 		watchers: z.array(AssistantHomeCarriedWatcherSchema).max(WATCHERS_MAX),
-		/** The sources' event automations; unset from an older phone or home. */
+		/** The sources' event automations; unset from an older phone, refused. */
 		automations: z.array(CarriedAutomationSchema).max(AUTOMATIONS_MAX).nullish(),
 		/** Unset from older phone. */
 		functions: z.array(CarriedFunctionSchema).max(FUNCTIONS_MAX).nullish(),

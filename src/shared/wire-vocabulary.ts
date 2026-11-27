@@ -68,8 +68,7 @@ export const ROUTINE_FORGET_DAYS_DEFAULT = 7;
 export const ROUTINE_FORGET_DAYS_MIN = 1;
 export const ROUTINE_FORGET_DAYS_MAX = 365;
 
-/** A watcher's rule bounds, so the phone's editor refuses what the Gateway would. */
-export const ASSISTANT_RULES_MAX = 50;
+/** Condition bounds, so the phone's editor refuses what the Gateway would. */
 export const ASSISTANT_RULE_CONDITIONS_MAX = 8;
 export const ASSISTANT_RULE_VALUE_MAX = 200;
 

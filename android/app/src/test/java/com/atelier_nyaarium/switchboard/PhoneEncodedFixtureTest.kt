@@ -10,12 +10,7 @@ import com.atelier_nyaarium.switchboard.assistant.offerOf
 import com.atelier_nyaarium.switchboard.proto.AppOpenAnswer
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeSealed
 import com.atelier_nyaarium.switchboard.proto.AssistantIntegration
-import com.atelier_nyaarium.switchboard.proto.AssistantRule
-import com.atelier_nyaarium.switchboard.proto.AssistantRuleCondition
-import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
 import com.atelier_nyaarium.switchboard.proto.AssistantSource
-import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
-import com.atelier_nyaarium.switchboard.proto.AssistantWatcherRules
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationCondition
@@ -100,23 +95,6 @@ class PhoneEncodedFixtureTest {
 		integrations = listOf(AssistantIntegration("ifttt", "IFTTT webhook", emptyList())),
 	)
 
-	private val older = ConsoleAssistantStateResult(
-		workdir = "~/notes",
-		watchers = listOf(
-			AssistantWatcher(
-				id = "github",
-				label = "GitHub notifications",
-				grants = emptyList(),
-				unread = 0L,
-				rules = AssistantWatcherRules(
-					listOf(AssistantRule("mentions", listOf(AssistantRuleCondition("reason", "is", "mention")), "wake", 4L)),
-					AssistantRuleOtherwise("inbox", 1L),
-					5L,
-				),
-			),
-		),
-	)
-
 	private val offer = offerOf(SANDBOX_SERVES, away = false)
 
 	private fun draft(trigger: TriggerDraft, vararg actions: ActionDraft) =
@@ -154,7 +132,6 @@ class PhoneEncodedFixtureTest {
 			),
 		),
 		"a home with no automations" to AssistantHomeSealed("~/notes", carriedOf(current, emptyList())),
-		"a home on an older build" to AssistantHomeSealed("~/notes", carriedOf(older, null)),
 		"nothing carried" to AssistantHomeSealed("~/fresh", null),
 	).map { (name, sealed) -> case(name, AssistantHomeSealed.serializer(), sealed) } +
 		listOf(

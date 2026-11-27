@@ -12,40 +12,11 @@
 					"watchers": [
 						{
 							"id": "github",
-							"rules": {
-								"rules": [
-									{
-										"id": "mentions",
-										"conditions": [
-											{
-												"field": "reason",
-												"test": "is",
-												"value": "mention"
-											}
-										],
-										"action": "wake",
-										"revision": 0
-									}
-								],
-								"otherwise": {
-									"action": "wake",
-									"revision": 0
-								},
-								"revision": 0
-							},
 							"grant": "pat",
 							"enabled": true
 						},
 						{
 							"id": "sensors",
-							"rules": {
-								"rules": [],
-								"otherwise": {
-									"action": "inbox",
-									"revision": 0
-								},
-								"revision": 0
-							},
 							"grant": null,
 							"enabled": false
 						}
@@ -158,27 +129,11 @@
 					"watchers": [
 						{
 							"id": "github",
-							"rules": {
-								"rules": [],
-								"otherwise": {
-									"action": "inbox",
-									"revision": 0
-								},
-								"revision": 0
-							},
 							"grant": "pat",
 							"enabled": true
 						},
 						{
 							"id": "sensors",
-							"rules": {
-								"rules": [],
-								"otherwise": {
-									"action": "inbox",
-									"revision": 0
-								},
-								"revision": 0
-							},
 							"grant": null,
 							"enabled": false
 						}
@@ -188,45 +143,6 @@
 						{
 							"id": "ifttt",
 							"grant": null
-						}
-					]
-				}
-			}
-		},
-		{
-			"name": "a home on an older build",
-			"schema": "AssistantHomeSealed",
-			"value": {
-				"workdirPath": "~/notes",
-				"carried": {
-					"approveEverySend": true,
-					"temperatureUnit": "C",
-					"watchers": [
-						{
-							"id": "github",
-							"rules": {
-								"rules": [
-									{
-										"id": "mentions",
-										"conditions": [
-											{
-												"field": "reason",
-												"test": "is",
-												"value": "mention"
-											}
-										],
-										"action": "wake",
-										"revision": 4
-									}
-								],
-								"otherwise": {
-									"action": "inbox",
-									"revision": 1
-								},
-								"revision": 5
-							},
-							"grant": null,
-							"enabled": true
 						}
 					]
 				}

@@ -1,7 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
-import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import java.util.concurrent.CountDownLatch
 import kotlin.concurrent.thread
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,7 +12,7 @@ import org.junit.Test
 class AssistantHomeFenceTest {
 	private val v3 = AssistantHome.Read(AssistantHomeRecord(3L, "sakura"), null)
 	private val v4 = AssistantHome.Read(AssistantHomeRecord(4L, "mikan"), null)
-	private val word = AssistantWord.Answered(ConsoleAssistantStateResult(workdir = "~/notes", watchers = emptyList()))
+	private val word = AssistantWord.Answered(assistantState(workdir = "~/notes"))
 
 	private fun fence(home: AssistantHome): Triple<AssistantHomeFence, MutableStateFlow<ChatState>, MutableList<AssistantHome.Read>> {
 		val state = MutableStateFlow(ChatState(gateways = testRegistry("sakura", "mikan"), assistantHome = home))

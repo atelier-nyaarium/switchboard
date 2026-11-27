@@ -111,7 +111,7 @@ internal data class HomeHolding(
 
 /** Unread: [servicesWaiting] stands in. */
 internal fun homeHolding(read: AssistantRead?): HomeHolding = when (read) {
-	is AssistantRead.Answered -> HomeHolding(sourcesOf(read.state), read.state.integrations, displayUnitOf(read), read.state.temperatureUnit)
+	is AssistantRead.Answered -> HomeHolding(read.state.sources, read.state.integrations, displayUnitOf(read), read.state.temperatureUnit)
 	null, AssistantRead.Reading, AssistantRead.Refused -> HomeHolding()
 }
 
@@ -121,7 +121,7 @@ internal fun devicesPending(ids: List<String>, views: Map<String, DevicesView>):
 
 /** Unread shows the stored unit. */
 internal fun displayUnitOf(read: AssistantRead): String? = when (read) {
-	is AssistantRead.Answered -> read.state.temperatureUnit?.takeIf { it != "C" }
+	is AssistantRead.Answered -> read.state.temperatureUnit.takeIf { it != "C" }
 	AssistantRead.Reading, AssistantRead.Refused -> null
 }
 

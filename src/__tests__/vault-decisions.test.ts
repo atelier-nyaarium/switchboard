@@ -353,16 +353,22 @@ describe("vault decisions", () => {
 		expect(decisions.covers({ serviceId: "github", entryId: "pat" }, 1_000)?.grantId).toBe("github");
 		expect(decisions.covers({ serviceId: "ifttt", entryId: "key" }, 1_000)?.grantId).toBe("ifttt");
 		expect(decisions.list(1_000).map((grant) => grant.grantId)).toEqual(["session", "routine", "github", "ifttt"]);
-
-		// The build before services still reads what this one writes.
-		decisions.setServiceGrants("gmail", ["mail"]);
-		expect(decisions.revoke("ifttt")).toBe(true);
-		const onDisk = JSON.parse(fs.readFileSync(file, "utf8")) as { grantId: string; holder: unknown }[];
-		expect(onDisk.map((grant) => grant.holder)).toEqual([
+		const holders = () =>
+			(JSON.parse(fs.readFileSync(file, "utf8")) as { holder: unknown }[]).map((grant) => grant.holder);
+		expect(holders()).toEqual([
 			session.holder,
 			routine.holder,
-			{ kind: "watcher", watcherId: "github" },
-			{ kind: "watcher", watcherId: "gmail" },
+			{ kind: "service", serviceId: "github" },
+			{ kind: "service", serviceId: "ifttt" },
+		]);
+
+		decisions.setServiceGrants("gmail", ["mail"]);
+		expect(decisions.revoke("ifttt")).toBe(true);
+		expect(holders()).toEqual([
+			session.holder,
+			routine.holder,
+			{ kind: "service", serviceId: "github" },
+			{ kind: "service", serviceId: "gmail" },
 		]);
 		const reopened = open(dataDir);
 		expect(reopened.covers({ serviceId: "gmail", entryId: "mail" }, 1_000)).toBeDefined();

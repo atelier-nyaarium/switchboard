@@ -40,18 +40,7 @@ export const ACTION_IDS: readonly ActionId[] = [
 	...ASSISTANT_ACTION_KEYS.map((key): SourceActionId => `source/${key}`),
 ];
 
-// skew:action-family-word: an older plugin's family word.
-const LEGACY_PREFIX = "watcher/";
-
-/** An id under the family word this build lists. */
-export const listedActionId = (id: unknown): unknown =>
-	typeof id === "string" && id.startsWith(LEGACY_PREFIX) ? `source/${id.slice(LEGACY_PREFIX.length)}` : id;
-
-export const ActionIdSchema = z.preprocess(listedActionId, z.enum(ACTION_IDS as [ActionId, ...ActionId[]]));
-
-// skew:action-family-word: `watcher` from an older Gateway.
-/** A listing's family word, either spelling. */
-export const isSourceFamily = (family: string): boolean => family === "watcher" || family === "source";
+export const ActionIdSchema = z.enum(ACTION_IDS as [ActionId, ...ActionId[]]);
 
 export type ActionRef =
 	| { family: "phone" | "gateway"; key: PhoneCapabilityKey }

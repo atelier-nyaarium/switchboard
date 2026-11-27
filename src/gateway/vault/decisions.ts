@@ -58,12 +58,6 @@ const asService = (grant: VaultGrant): VaultGrant =>
 		? { ...grant, holder: { kind: "service", serviceId: grant.holder.watcherId } }
 		: grant;
 
-/** skew:vault-watcher-grants: stored and answered as `watcher`, so the build before services reads it. */
-export const legacyHolder = (grant: VaultGrant): VaultGrant =>
-	grant.holder.kind === "service"
-		? { ...grant, holder: { kind: "watcher", watcherId: grant.holder.serviceId } }
-		: grant;
-
 /** Why a policy stopped answering. */
 export function qualificationRefusal(
 	current: AuthorizationPolicy | null,
@@ -146,19 +140,22 @@ export function answeringOf(
 export function createVaultDecisions(deps: VaultDecisionsDeps) {
 	const { store } = deps;
 	const sessionCapMs = deps.sessionCapMs ?? VAULT_SESSION_GRANT_CAP_MS;
-	let grants: VaultGrant[] = GrantsSchema.parse(store.load() ?? []).map(asService);
+	const loaded = GrantsSchema.parse(store.load() ?? []);
+	let grants: VaultGrant[] = loaded.map(asService);
+	// skew:vault-watcher-grants: rewritten once at load.
+	if (loaded.some((grant) => grant.holder.kind === "watcher"))
+		commitChecked(store, grants, () => {}, { label: "vault grant" });
 
 	/** Persist revocations before reporting. */
 	const commit = (next: VaultGrant[], checked: boolean): boolean => {
-		const stored = next.map(legacyHolder);
 		if (!checked) {
 			grants = next;
-			store.save(stored);
+			store.save(next);
 			return true;
 		}
 		return commitChecked(
 			store,
-			stored,
+			next,
 			() => {
 				grants = next;
 			},

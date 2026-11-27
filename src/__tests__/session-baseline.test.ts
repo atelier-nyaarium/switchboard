@@ -82,11 +82,11 @@ describe("compact baseline", () => {
 		]);
 	});
 
-	it("names the assistant's watchers and the source's unread count, before the board", async () => {
+	it("names the assistant's sources and their unread counts, before the board", async () => {
 		const lines = await hookLines(
 			deps({
 				assistant: () => ({
-					watchers: [
+					sources: [
 						{
 							label: "GitHub notifications",
 							unread: 500,
@@ -98,15 +98,14 @@ describe("compact baseline", () => {
 				}),
 			}),
 		);
-		const watchers = lines.filter((line) => line.startsWith("watcher: "));
+		const sources = lines.filter((line) => line.startsWith("source: "));
 
-		expect(watchers).toHaveLength(2);
-		for (const part of ["GitHub notifications", " 500+ unread", "rate limited"])
-			expect(watchers[0]).toContain(part);
-		expect(watchers[1]).toContain("not checked yet");
-		expect(watchers[1]).not.toContain("unread");
-		expect(watchers[1]).not.toContain("<channel");
-		expect(lines.indexOf(watchers[1] ?? "")).toBeLessThan(lines.findIndex((line) => line.startsWith("board: ")));
+		expect(sources).toHaveLength(2);
+		for (const part of ["GitHub notifications", " 500+ unread", "rate limited"]) expect(sources[0]).toContain(part);
+		expect(sources[1]).toContain("not checked yet");
+		expect(sources[1]).not.toContain("unread");
+		expect(sources[1]).not.toContain("<channel");
+		expect(lines.indexOf(sources[1] ?? "")).toBeLessThan(lines.findIndex((line) => line.startsWith("board: ")));
 	});
 
 	it("prints the current phone hold on one line", async () => {
@@ -115,7 +114,7 @@ describe("compact baseline", () => {
 			[{ kind: "lapsed", label: "Pixel", lapsedMs: 1_000 }, "phone hold: lapsed 1000ms ago, last held by Pixel"],
 			[{ kind: "none" }, "phone hold: none"],
 		] as const) {
-			const lines = await hookLines(deps({ assistant: () => ({ hold, watchers: [] }) }));
+			const lines = await hookLines(deps({ assistant: () => ({ hold, sources: [] }) }));
 			expect(lines.filter((line) => line.startsWith("phone hold:"))).toEqual([line]);
 		}
 	});

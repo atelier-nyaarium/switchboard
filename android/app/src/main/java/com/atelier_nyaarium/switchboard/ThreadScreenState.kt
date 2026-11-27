@@ -97,7 +97,7 @@ internal fun threadChrome(
 ): ThreadChrome =
 	if (assistant) {
 		val inbox = when (home) {
-			is AssistantRead.Answered -> inboxRows(sourcesOf(home.state))
+			is AssistantRead.Answered -> inboxRows(home.state.sources)
 			AssistantRead.Reading, AssistantRead.Refused -> emptyList()
 		}
 		ThreadChrome(RootView.ASSISTANT.title, monospace = false, tabRow = false, sessionMenu = false, inbox = inbox)

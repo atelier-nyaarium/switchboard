@@ -21,7 +21,6 @@ import type { PendingDelivery } from "../../shared/pending-delivery-store.js";
 import { actionListings } from "../../shared/schemasActionFront.js";
 import {
 	type AssistantSource,
-	type AssistantWatcher,
 	type ConsoleAssistantStateResult,
 	INTEGRATION_IDS,
 	type TemperatureUnit,
@@ -33,8 +32,6 @@ import {
 	canonicalConditions,
 	conditionsIssue,
 	conditionsMatch,
-	DEFAULT_RULES,
-	fieldsOf,
 	type RuleAction,
 } from "../../shared/schemasAssistantRules.js";
 import type { AssistantSendRequest } from "../../shared/schemasAssistantSend.js";
@@ -42,11 +39,8 @@ import {
 	AUTOMATION_PREVIEW_EVENTS,
 	AUTOMATION_PREVIEW_SHOWN,
 	type AutomationTrigger,
-	automationsOfRules,
-	type CarriedAutomation,
 	type ConsoleAutomationPreviewResult,
 	type EventTrigger,
-	rulesOfAutomations,
 } from "../../shared/schemasAutomation.js";
 import { IFTTT_INTEGRATION_ID, INTEGRATION_KEYS, integrationLabel } from "../../shared/schemasIntegrations.js";
 import type {
@@ -71,7 +65,6 @@ import { createIftttClient } from "../assistant/iftttClient.js";
 import { createInboxListing } from "../assistant/inboxListing.js";
 import { createPhoneDispatch, holdRefusal } from "../assistant/phoneDispatch.js";
 import { createPhoneRequests, type PhoneRequest, type PhoneRequestDelivery } from "../assistant/phoneRequests.js";
-import { adoptStoredRules, clearStoredRules } from "../assistant/rulesAdoption.js";
 import { createOriginMarker, createSafetyStore, createSendGuard } from "../assistant/sendGuard.js";
 import { SensorsClear } from "../assistant/sensorsClear.js";
 import { type ListPage, type ListQuery, type Source, type SourceEvent, told } from "../assistant/source.js";
@@ -336,9 +329,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 					kind: "plugin_action",
 					session_id: sessionId,
 					pluginId: "assistant",
-					// skew:sources-changed: becomes `sources-changed`; every phone then reads both.
-					actionType: "watchers-changed",
-					payload: { watcherId: sourceId },
+					actionType: "sources-changed",
+					payload: { sourceId },
 				},
 				dedupeKey: `assistant-sources:${ambient.newId()}`,
 				label: "assistant",
@@ -472,12 +464,6 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			enabled: enabled.enabled(source.id),
 			triggers: source.selfTold !== true,
 		};
-	};
-	// skew:stored-rules: an older phone's row; it carries these rules on a move.
-	const watcherOf = (source: AssistantSource): AssistantWatcher => {
-		const { triggers: _triggers, ...row } = source;
-		const rules = automations ? rulesOfAutomations(automations.eventsOf(source.id)) : DEFAULT_RULES;
-		return { ...row, evicted: 0, fields: fieldsOf(source.fieldSpecs), rules, invalid: [] };
 	};
 	const sourceNamed = (sourceId: string) => {
 		const found = sources.find((source) => source.id === sourceId);
@@ -707,12 +693,10 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	});
 	const state = (): ConsoleAssistantStateResult => {
 		const record = held();
-		const rows = sources.map(sourceOf);
 		return {
 			workdir: record?.workdirPath ?? null,
 			team: record ? ASSISTANT_TEAM : null,
-			sources: rows,
-			watchers: rows.map(watcherOf),
+			sources: sources.map(sourceOf),
 			integrations: INTEGRATION_IDS.map((id) => ({
 				id,
 				label: integrationLabel(id),
@@ -733,16 +717,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		});
 	let homePort: AssistantHomePort | null = null;
 
-	const carriedEvents = (carried: AssistantHomeSealed["carried"]): CarriedAutomation[] => {
-		// skew:stored-rules: an older phone carries rules.
-		const fromRules = (carried?.watchers ?? []).flatMap((source) =>
-			source.rules ? automationsOfRules(source.id, source.rules) : [],
-		);
-		return carried?.automations ?? fromRules;
-	};
-
 	const carryOf = (carried: AssistantHomeSealed["carried"]) =>
-		({ kind: "carry", rows: carriedEvents(carried), functions: carried?.functions ?? null }) as const;
+		({ kind: "carry", rows: carried?.automations ?? [], functions: carried?.functions ?? null }) as const;
 
 	/** With lanes stopped, the carried settings land; lanes start only once all of it is saved. */
 	const apply = async (record: AssistantHomeRecord): Promise<string | null> => {
@@ -752,6 +728,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		const { workdirPath, carried } = opened.sealed;
 		const refused = placeRefusal(workdirPath, sessions);
 		if (refused) return refused;
+		// An older phone sealed rules, not automations.
+		if (carried && carried.automations == null) return "the home was sealed by an older phone; move it again";
 		// Refuse the move before anything is written.
 		const unfit = automations?.refusalOf(carryOf(carried));
 		if (unfit) return `the automations could not be saved: ${unfit.reason}`;
@@ -817,7 +795,6 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		const ids = sources.map((source) => source.id);
 		if (automations && !automations.write({ kind: "carry", rows: [], functions: [] }).written) return false;
 		if (automations && !automations.emptyOutbox()) return false;
-		if (!openDurable(deps.dataDir, "assistant-rules", clearStoredRules)) return false;
 		if (!safety.approveEverySend() && !safety.set(true)) return false;
 		if (ids.some((sourceId) => !enabled.enabled(sourceId)) && !enabled.replaceOff([])) return false;
 		return true;
@@ -900,21 +877,6 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		},
 		bindAutomations: (bound) => {
 			automations = bound;
-			openDurable(deps.dataDir, "assistant-rules", (rules) =>
-				openDurable(deps.dataDir, "assistant-rules-adopted", (mark) =>
-					adoptStoredRules({
-						rules,
-						mark,
-						now: () => ambient.now(),
-						adopt: (rows) => {
-							const adopted = bound.write({ kind: "adoption", rows });
-							if (adopted.written) return rows.length - adopted.dropped.length;
-							console.warn(`[assistant] stored rules not adopted: ${adopted.reason}`);
-							return null;
-						},
-					}),
-				),
-			);
 		},
 		eventIssue,
 		eventFields,

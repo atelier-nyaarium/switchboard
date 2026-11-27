@@ -15,7 +15,6 @@ import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationFunctionServes
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
-import com.atelier_nyaarium.switchboard.sourcesOf
 
 /** Only an arrived listing says. */
 internal sealed interface Served {
@@ -55,7 +54,7 @@ internal fun automationContext(registry: GatewayRegistry, home: AssistantHome, g
 	}
 	if (away) return AutomationContext(served, HomeSources.Known(emptyList()))
 	val sources = when (val read = registry.assistantRead(gatewayId)) {
-		is AssistantRead.Answered -> HomeSources.Known(sourcesOf(read.state))
+		is AssistantRead.Answered -> HomeSources.Known(read.state.sources)
 		AssistantRead.Reading -> HomeSources.Reading
 		AssistantRead.Refused -> HomeSources.Refused
 	}

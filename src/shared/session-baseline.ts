@@ -73,8 +73,6 @@ export const SessionBaselineSchema = z.object({
 					z.object({ kind: z.literal("none") }),
 				])
 				.optional(),
-			// skew:baseline-sources: the Gateway then sends `sources`.
-			watchers: z.array(BaselineSourceSchema).optional(),
 			sources: z.array(BaselineSourceSchema).optional(),
 		})
 		.optional(),
@@ -91,10 +89,10 @@ export function holdLine(hold: BaselineHold): string {
 	return "phone hold: none";
 }
 
-const sourceLines = (word: string, rows: readonly z.infer<typeof BaselineSourceSchema>[]): string[] =>
+const sourceLines = (rows: readonly z.infer<typeof BaselineSourceSchema>[]): string[] =>
 	rows.map(
 		({ label, unread, capped, checked, stopped, waiting }) =>
-			`${word}: ${oneLine(label)} ${checked === false ? "not checked yet" : `${unread}${capped ? "+" : ""} unread`}` +
+			`source: ${oneLine(label)} ${checked === false ? "not checked yet" : `${unread}${capped ? "+" : ""} unread`}` +
 			(stopped === undefined ? "" : `, stopped: ${oneLine(stopped)}`) +
 			(waiting === undefined ? "" : `, waiting: ${oneLine(waiting)}`),
 	);
@@ -115,8 +113,7 @@ function linesOf(baseline: SessionBaseline): string[] {
 		),
 		...baseline.agents.map(({ family, agentId }) => `agent: ${family} ${agentId} turn running`),
 		...(baseline.assistant?.hold === undefined ? [] : [holdLine(baseline.assistant.hold)]),
-		...sourceLines("watcher", baseline.assistant?.watchers ?? []),
-		...sourceLines("source", baseline.assistant?.sources ?? []),
+		...sourceLines(baseline.assistant?.sources ?? []),
 		...(baseline.board === null
 			? ["board: unavailable"]
 			: baseline.board.map(

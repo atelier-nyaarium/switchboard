@@ -35,7 +35,6 @@ import kotlinx.serialization.json.JsonObject
 import com.atelier_nyaarium.switchboard.assistant.reached
 import com.atelier_nyaarium.switchboard.assistant.callsOf
 import com.atelier_nyaarium.switchboard.assistant.reachOver
-import com.atelier_nyaarium.switchboard.assistant.testLabel
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.liveconsole.ConsoleStringPart
 import com.atelier_nyaarium.switchboard.liveconsole.ConsoleToken
@@ -221,37 +220,9 @@ internal fun sandboxReads(function: AutomationFunction): FunctionReads {
 	return FunctionReads(names.toList(), fields.toList())
 }
 
-private fun inSentence(label: String): String = label.replaceFirstChar { it.lowercase() }
-
-private val SANDBOX_DAYS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
-
-private fun every(count: Long, unit: String): String = if (count == 1L) "Every $unit" else "Every $count ${unit}s"
-
-/** As a Gateway writes it. */
-internal fun sandboxSentence(automation: Automation): String {
-	val trigger = when (val held = automation.trigger) {
-		is AutomationTrigger.Event -> held
-		is AutomationTrigger.Crossing -> {
-			return "Outside thermometer temperature goes ${held.direction} ${fahrenheit(held.threshold)} °F"
-		}
-		is AutomationTrigger.Time -> {
-			val days = held.weekdays.sorted()
-			val named = if (days.size == 7) "Every day" else days.joinToString(", ") { SANDBOX_DAYS[(it - 1).toInt()] }
-			return "$named at ${held.time}"
-		}
-		is AutomationTrigger.Interval -> return when {
-			held.everyMin % 1_440 == 0L -> every(held.everyMin / 1_440, "day")
-			held.everyMin % 60 == 0L -> every(held.everyMin / 60, "hour")
-			else -> every(held.everyMin, "minute")
-		}
-		is AutomationTrigger.Value, is AutomationTrigger.Unknown -> return automation.label ?: "Automation"
-	}
-	val fields = SourceFields(SANDBOX_FIELD_SPECS)
-	val said = trigger.conditions.map {
-		"${inSentence(fields.fieldLabelOf(it.field))} ${testLabel(it.test)} ${inSentence(fields.valueLabelOf(it.field, it.value))}"
-	}
-	return "GitHub: ${if (said.isEmpty()) "every event" else said.joinToString(" and ")}"
-}
+/** A save keeps the held sentence. */
+private fun savedSentence(automation: Automation, held: AutomationRow?): String =
+	automation.label ?: held?.sentence ?: "Automation"
 
 /** The second Gateway refuses as an older build; the empty one lists none. */
 internal class SandboxAutomationGateway(
@@ -260,22 +231,22 @@ internal class SandboxAutomationGateway(
 ) : AutomationGateway {
 	private val shelves = mutableMapOf<String, List<AutomationRow>>()
 
-	private fun github(id: String, field: String, value: String, ranAgoMs: Long?): AutomationRow {
+	private fun github(id: String, field: String, value: String, ranAgoMs: Long?, sentence: String): AutomationRow {
 		val automation = Automation(
 			enabled = true,
 			trigger = AutomationTrigger.Event("github", listOf(AutomationCondition(field, "is", value))),
 			actions = listOf(AutomationAction.TellAssistant("now")),
 		)
-		return AutomationRow(id, 1L, automation, sandboxSentence(automation), lastRanAt = ranAgoMs?.let { now() - it })
+		return AutomationRow(id, 1L, automation, sentence, lastRanAt = ranAgoMs?.let { now() - it })
 	}
 
-	private fun crossing(id: String, direction: String, threshold: Double, enabled: Boolean, ranAgoMs: Long?): AutomationRow {
+	private fun crossing(id: String, direction: String, threshold: Double, enabled: Boolean, ranAgoMs: Long?, sentence: String): AutomationRow {
 		val automation = Automation(
 			enabled = enabled,
 			trigger = AutomationTrigger.Crossing(SANDBOX_SENSOR, "temperature", direction, threshold, 0.5, 600L),
 			actions = listOf(AutomationAction.TellAssistant("quietly")),
 		)
-		return AutomationRow(id, 4L, automation, sandboxSentence(automation), lastRanAt = ranAgoMs?.let { now() - it })
+		return AutomationRow(id, 4L, automation, sentence, lastRanAt = ranAgoMs?.let { now() - it })
 	}
 
 	private fun evening(): AutomationRow {
@@ -291,13 +262,13 @@ internal class SandboxAutomationGateway(
 			"evening",
 			2L,
 			automation,
-			sandboxSentence(automation),
+			"Every day at 18:00",
 			lastRanAt = now() - 20 * HOUR_MS,
 			nextRunAt = now() + 4 * HOUR_MS,
 		)
 	}
 
-	private fun pointing(id: String, trigger: AutomationTrigger, function: String, values: Map<String, String> = emptyMap()): AutomationRow {
+	private fun pointing(id: String, trigger: AutomationTrigger, function: String, sentence: String, values: Map<String, String> = emptyMap()): AutomationRow {
 		val automation = Automation(
 			enabled = true,
 			trigger = trigger,
@@ -308,7 +279,7 @@ internal class SandboxAutomationGateway(
 				),
 			),
 		)
-		return AutomationRow(id, 1L, automation, sandboxSentence(automation))
+		return AutomationRow(id, 1L, automation, sentence)
 	}
 
 	private fun stepArg(arg: StepArg) = wireJson.encodeToJsonElement(StepArg.serializer(), arg)
@@ -388,14 +359,26 @@ internal class SandboxAutomationGateway(
 			emptyList()
 		} else {
 			listOf(
-				github("reviews", "reason", "review_requested", 3 * HOUR_MS),
-				github("mentions", "reason", "mention", null),
-				github("subscribed", "reason", "subscribed", 26 * HOUR_MS),
-				github("pulls", "type", "PullRequest", 40 * MINUTE_MS),
-				crossing("threshold-ce1c44063c5d-temperature-low", "below", 2.0, enabled = true, ranAgoMs = 26 * HOUR_MS),
-				crossing("outside-hot", "above", 30.0, enabled = false, ranAgoMs = null),
+				github("reviews", "reason", "review_requested", 3 * HOUR_MS, "GitHub: reason is review requested"),
+				github("mentions", "reason", "mention", null, "GitHub: reason is mention"),
+				github("subscribed", "reason", "subscribed", 26 * HOUR_MS, "GitHub: reason is subscribed"),
+				github("pulls", "type", "PullRequest", 40 * MINUTE_MS, "GitHub: type is pull request"),
+				crossing(
+					"threshold-ce1c44063c5d-temperature-low",
+					"below",
+					2.0,
+					enabled = true,
+					ranAgoMs = 26 * HOUR_MS,
+					sentence = "Outside thermometer temperature goes below 35.6 °F",
+				),
+				crossing("outside-hot", "above", 30.0, enabled = false, ranAgoMs = null, sentence = "Outside thermometer temperature goes above 86.0 °F"),
 				evening(),
-				pointing("warm-room", AutomationTrigger.Crossing(SANDBOX_SENSOR, "temperature", "above", 26.0, 0.5, 1_800L), "too-warm").copy(
+				pointing(
+					"warm-room",
+					AutomationTrigger.Crossing(SANDBOX_SENSOR, "temperature", "above", 26.0, 0.5, 1_800L),
+					"too-warm",
+					"Outside thermometer temperature goes above 78.8 °F",
+				).copy(
 					lastRun = AutomationLastRun(
 						at = now() - HOUR_MS,
 						revision = 1L,
@@ -407,7 +390,12 @@ internal class SandboxAutomationGateway(
 						running = false,
 					),
 				),
-				pointing("warm-hall", AutomationTrigger.Crossing(SANDBOX_SENSOR, "temperature", "above", 28.0, 0.5, 1_800L), "too-warm").copy(
+				pointing(
+					"warm-hall",
+					AutomationTrigger.Crossing(SANDBOX_SENSOR, "temperature", "above", 28.0, 0.5, 1_800L),
+					"too-warm",
+					"Outside thermometer temperature goes above 82.4 °F",
+				).copy(
 					lastRun = AutomationLastRun(
 						at = now() - 3 * HOUR_MS,
 						revision = 1L,
@@ -419,7 +407,13 @@ internal class SandboxAutomationGateway(
 						running = false,
 					),
 				),
-				pointing("blink-evening", AutomationTrigger.Time("19:00", (1L..7L).toList(), "America/Los_Angeles"), "blink", mapOf("lamp" to SANDBOX_SWITCH, "message" to "Good night")).copy(
+				pointing(
+					"blink-evening",
+					AutomationTrigger.Time("19:00", (1L..7L).toList(), "America/Los_Angeles"),
+					"blink",
+					"Every day at 19:00",
+					mapOf("lamp" to SANDBOX_SWITCH, "message" to "Good night"),
+				).copy(
 					lastRun = AutomationLastRun(
 						at = now() - 90_000,
 						revision = 1L,
@@ -431,9 +425,20 @@ internal class SandboxAutomationGateway(
 						running = true,
 					),
 				),
-				pointing("blink-morning", AutomationTrigger.Time("07:00", (1L..7L).toList(), "America/Los_Angeles"), "blink", mapOf("lamp" to SANDBOX_SWITCH, "message" to "Good morning")),
-				pointing("lamp-off", AutomationTrigger.Time("23:00", (1L..7L).toList(), "America/Los_Angeles"), SANDBOX_MOVING_FUNCTION),
-				pointing("humid", AutomationTrigger.Crossing(SANDBOX_SENSOR, "humidity", "above", 60.0, 2.0, 600L), "fn-humid").copy(
+				pointing(
+					"blink-morning",
+					AutomationTrigger.Time("07:00", (1L..7L).toList(), "America/Los_Angeles"),
+					"blink",
+					"Every day at 07:00",
+					mapOf("lamp" to SANDBOX_SWITCH, "message" to "Good morning"),
+				),
+				pointing("lamp-off", AutomationTrigger.Time("23:00", (1L..7L).toList(), "America/Los_Angeles"), SANDBOX_MOVING_FUNCTION, "Every day at 23:00"),
+				pointing(
+					"humid",
+					AutomationTrigger.Crossing(SANDBOX_SENSOR, "humidity", "above", 60.0, 2.0, 600L),
+					"fn-humid",
+					"Outside thermometer humidity goes above 60 %",
+				).copy(
 					lastRun = AutomationLastRun(
 						at = now() - 2 * HOUR_MS,
 						revision = 1L,
@@ -600,7 +605,7 @@ internal class SandboxAutomationGateway(
 					op.automationId,
 					revision + 1,
 					automation,
-					sandboxSentence(automation),
+					savedSentence(automation, judged.held),
 					lastRanAt = judged.held?.lastRanAt,
 					nextRunAt = (judged.held?.nextRunAt ?: now() + HOUR_MS).takeIf { clocked && automation.enabled },
 				)
@@ -712,7 +717,7 @@ internal class SandboxAutomationGateway(
 			automationId,
 			revision + 1,
 			automation,
-			sandboxSentence(automation),
+			savedSentence(automation, held),
 			lastRanAt = held?.lastRanAt,
 			nextRunAt = (held?.nextRunAt ?: now() + HOUR_MS).takeIf { clocked && automation.enabled },
 		)

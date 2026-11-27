@@ -191,7 +191,7 @@ describe("an assistant action", () => {
 		const { assistant, call, delivered, asked } = await placed();
 
 		const result = await call({
-			id: "watcher/github_done",
+			id: "source/github_done",
 			callId: "call-0001",
 			params: { ids: ["7", "404"], summary: "The release is out." },
 		});

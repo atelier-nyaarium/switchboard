@@ -5,7 +5,7 @@ import { LAUNCH_ROWS } from "./launch-notice.js";
 import { CONSOLE_SOURCE_MAX } from "./live-console-grammar.js";
 import { TemperatureUnitSchema } from "./schemasAssistant.js";
 import { RecordThreadSchema } from "./schemasAssistantRecord.js";
-import { AssistantRuleOtherwiseSchema, AssistantRuleSchema, RULE_ID_RE } from "./schemasAssistantRules.js";
+import { RULE_ID_RE } from "./schemasAssistantRules.js";
 import { SEND_DECISIONS, SEND_GUARDS, SEND_NOTE_MAX } from "./schemasAssistantSend.js";
 import {
 	AUTOMATION_MESSAGE_MAX,
@@ -423,49 +423,6 @@ export const ConsoleOpSchema = z
 		/** Gateway-local; survives release. */
 		z.object({ kind: z.literal("assistant_safety"), approveEverySend: z.boolean() }),
 		z.object({ kind: z.literal("assistant_temperature_unit"), temperatureUnit: TemperatureUnitSchema }),
-		// skew:watcher-kinds: an older phone's kinds, through `assistant_watcher_check`.
-		z.object({
-			kind: z.literal("assistant_watcher_grants"),
-			watcherId: z.string().min(1).max(64),
-			entryIds: z.array(z.string().min(1).max(128)).max(16),
-		}),
-		/** One rule at the revision it carries; 0 adds it last. */
-		z.object({
-			kind: z.literal("assistant_rule_put"),
-			watcherId: z.string().min(1).max(64),
-			rule: AssistantRuleSchema,
-		}),
-		z.object({
-			kind: z.literal("assistant_rule_delete"),
-			watcherId: z.string().min(1).max(64),
-			ruleId: z.string().regex(RULE_ID_RE),
-			baseRevision: z.number().int().nonnegative(),
-		}),
-		/** Before `beforeId`, else last, over the drawn list revision. */
-		z.object({
-			kind: z.literal("assistant_rule_move"),
-			watcherId: z.string().min(1).max(64),
-			ruleId: z.string().regex(RULE_ID_RE),
-			beforeId: z.string().regex(RULE_ID_RE).optional(),
-			baseRevision: z.number().int().nonnegative(),
-		}),
-		z.object({
-			kind: z.literal("assistant_otherwise_put"),
-			watcherId: z.string().min(1).max(64),
-			otherwise: AssistantRuleOtherwiseSchema,
-		}),
-		/** At the held rule's place by id, else last. */
-		z.object({
-			kind: z.literal("assistant_rules_preview"),
-			watcherId: z.string().min(1).max(64),
-			rule: AssistantRuleSchema,
-		}),
-		z.object({
-			kind: z.literal("assistant_watcher_enabled"),
-			watcherId: z.string().min(1).max(64),
-			enabled: z.boolean(),
-		}),
-		z.object({ kind: z.literal("assistant_watcher_check"), watcherId: z.string().min(1).max(64) }),
 		/** Delivers the bound send once. */
 		z.object({
 			kind: z.literal("assistant_send_answer"),
@@ -567,16 +524,8 @@ export const VALUE_OP_KINDS = new Set([
 	"automation_run",
 	"script_print",
 	"script_parse",
-	"assistant_watcher_grants",
-	"assistant_rule_put",
-	"assistant_rule_delete",
-	"assistant_rule_move",
-	"assistant_otherwise_put",
-	"assistant_rules_preview",
 	"assistant_safety",
 	"assistant_temperature_unit",
-	"assistant_watcher_enabled",
-	"assistant_watcher_check",
 	"assistant_send_answer",
 	"phone_capability_answer",
 	"assistant_act_answer",

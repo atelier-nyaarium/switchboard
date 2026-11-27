@@ -102,6 +102,14 @@ function wipeRetiredSchemas(dirs: { dataDir: string; logDir: string; federationD
 		{ version: 3, files: [path.join(dirs.dataDir, "mailboxes.json"), path.join(dirs.dataDir, "task-board.json")] },
 		// Helper tokens are gone.
 		{ version: 4, files: [path.join(dirs.dataDir, "vault-helper.json")] },
+		// Nothing reads the rules files.
+		{
+			version: 5,
+			files: [
+				path.join(dirs.dataDir, "assistant-rules.json"),
+				path.join(dirs.dataDir, "assistant-rules-adopted.json"),
+			],
+		},
 	];
 	const latest = steps[steps.length - 1]!.version;
 	try {

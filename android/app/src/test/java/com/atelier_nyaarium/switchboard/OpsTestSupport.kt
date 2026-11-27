@@ -1,6 +1,30 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.proto.AssistantIntegration
+import com.atelier_nyaarium.switchboard.proto.AssistantSource
+import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import kotlinx.coroutines.flow.MutableStateFlow
+
+/** A Gateway's assistant state; required fields defaulted. */
+internal fun assistantState(
+	workdir: String? = null,
+	team: String? = null,
+	sources: List<AssistantSource> = emptyList(),
+	approveEverySend: Boolean? = null,
+	temperatureUnit: String = "C",
+	checkIns: Boolean? = null,
+	integrations: List<AssistantIntegration>? = null,
+	offered: List<String>? = null,
+) = ConsoleAssistantStateResult(
+	workdir = workdir,
+	team = team,
+	sources = sources,
+	approveEverySend = approveEverySend,
+	temperatureUnit = temperatureUnit,
+	checkIns = checkIns,
+	integrations = integrations,
+	offered = offered,
+)
 
 internal class TestIdentityPort(private val store: AppStateStore, private val boot: PhoneBootstrap? = null) : IdentityPort {
 	private val federationValue = FederationManager(store)

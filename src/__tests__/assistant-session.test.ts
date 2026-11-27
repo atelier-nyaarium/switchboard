@@ -15,7 +15,7 @@ import { ASSISTANT_HOLD_PATH } from "../shared/assistant-hold.js";
 import { ASSISTANT_RESERVE_KEY, ASSISTANT_SESSION_NAME, ASSISTANT_TEAM } from "../shared/assistant-session.js";
 import { ACTION_FRONT_ROUTES } from "../shared/schemasActionFront.js";
 import type { AssistantHomeRecord, AssistantHomeSealed } from "../shared/schemasAssistantHome.js";
-import type { AssistantFieldSpec, AssistantRule, AssistantWatcherRules } from "../shared/schemasAssistantRules.js";
+import type { AssistantFieldSpec } from "../shared/schemasAssistantRules.js";
 import type { AutomationCondition } from "../shared/schemasAutomation.js";
 import type { ContentEnvelope } from "../shared/schemasContentKey.js";
 import { HolderKeySchema } from "../shared/schemasPhoneHold.js";
@@ -95,28 +95,16 @@ function counting(options: { repeat?: boolean; onPoll?: () => void } = {}): Sour
 	return watcher;
 }
 
-function rules(items: AssistantRule[] = []): AssistantWatcherRules {
-	return { rules: items, otherwise: { action: "inbox", revision: 0 }, revision: items.length };
-}
-
-function rule(id: string, action: AssistantRule["action"] = "wake"): AssistantRule {
-	return {
-		id,
-		conditions: [{ field: "reason", test: "is", value: "mention" }],
-		action,
-		revision: 0,
-	};
-}
-
 const MENTION: AutomationCondition[] = [{ field: "reason", test: "is", value: "mention" }];
 
 function carriedSettings(
-	options: { approveEverySend?: boolean; rules?: AssistantRule[]; grant?: string | null; enabled?: boolean } = {},
+	options: { approveEverySend?: boolean; automations?: string[]; grant?: string | null; enabled?: boolean } = {},
 ) {
 	const enabled = options.enabled === undefined ? {} : { enabled: options.enabled };
 	return {
 		approveEverySend: options.approveEverySend ?? true,
-		watchers: [{ id: "github", rules: rules(options.rules), grant: options.grant ?? null, ...enabled }],
+		watchers: [{ id: "github", grant: options.grant ?? null, ...enabled }],
+		automations: (options.automations ?? []).map((id) => ({ id, automation: eventAutomation("github", MENTION) })),
 	};
 }
 
@@ -461,7 +449,7 @@ describe("the assistant's session", () => {
 			kind: "ok",
 			sealed: sealedHome(NOTES, {
 				approveEverySend: true,
-				watchers: [{ id: "github", rules: rules(), grant: null }],
+				watchers: [{ id: "github", grant: null }],
 				integrations: [{ id: "ifttt", grant: "hook-key" }],
 			}),
 		});
@@ -512,7 +500,7 @@ describe("the assistant's session", () => {
 		assistant.start();
 		await test.followHome(1, LOCAL_GATEWAY, {
 			kind: "ok",
-			sealed: sealedHome(NOTES, carriedSettings({ approveEverySend: false, rules: [rule("carried")] })),
+			sealed: sealedHome(NOTES, carriedSettings({ approveEverySend: false, automations: ["carried"] })),
 		});
 		await ambient.advance(0);
 		await assistant.console.setServiceGrants("github", ["gh-token"]);
@@ -630,7 +618,7 @@ describe("the assistant's session", () => {
 		expect(afterRestart).toEqual(edited);
 	});
 
-	it("lands an older phone's carried rules as automations before the first poll, the ones that woke", async () => {
+	it("lands carried automations before the first poll", async () => {
 		const ambient = fakeAmbient({ drive: "manual", now: () => T0 });
 		let firstRows: string[] | undefined;
 		const watcher = counting({
@@ -642,7 +630,7 @@ describe("the assistant's session", () => {
 		test.assistant.start();
 		await test.followHome(1, LOCAL_GATEWAY, {
 			kind: "ok",
-			sealed: sealedHome(NOTES, carriedSettings({ rules: [rule("quiet", "inbox"), rule("carried", "wake")] })),
+			sealed: sealedHome(NOTES, carriedSettings({ automations: ["carried"] })),
 		});
 		await ambient.advance(0);
 		await stopped(test.assistant, ambient);
@@ -740,6 +728,19 @@ describe("the assistant's session", () => {
 
 		expect(test.assistant.console.state().sources?.[0]?.grants).toEqual([]);
 		expect(test.reports[0]).toMatchObject({ version: 1, outcome: "placed" });
+	});
+
+	it("refuses a home an older phone sealed without automations, and keeps the ones held", async () => {
+		const test = stage();
+		await test.followHome(1, LOCAL_GATEWAY, {
+			kind: "ok",
+			sealed: sealedHome(NOTES, carriedSettings({ automations: ["carried"] })),
+		});
+		const { automations: _, ...older } = carriedSettings();
+		await test.followHome(2, LOCAL_GATEWAY, { kind: "ok", sealed: sealedHome(NOTES, older) });
+
+		expect(test.reports[1]).toMatchObject({ version: 2, outcome: "refused" });
+		expect(test.automations.rows().map((row) => row.id)).toEqual(["carried"]);
 	});
 
 	it("resends an applied report only at registration", async () => {

@@ -1,7 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.AssistantIntegration
-import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.DeviceCapability
 import com.atelier_nyaarium.switchboard.proto.DeviceRecord
 import com.atelier_nyaarium.switchboard.proto.DeviceSettingPut
@@ -56,7 +55,7 @@ class IntegrationRulesTest {
 
 		val rows = serviceRows(services, entries)
 		val ifttt = INTEGRATIONS.first { it.id == "ifttt" }
-		val answered = AssistantRead.Answered(ConsoleAssistantStateResult(integrations = services))
+		val answered = AssistantRead.Answered(assistantState(integrations = services))
 		val page = serviceEntryOf(answered, ifttt, entries, "gateway")
 
 		assertEquals(listOf("ifttt" to "IFTTT"), rows.map { it.id to it.label })
@@ -73,7 +72,7 @@ class IntegrationRulesTest {
 
 		assertNull(serviceEntryOf(AssistantRead.Reading, ifttt, entries, "gateway"))
 		assertNull(serviceEntryOf(AssistantRead.Refused, ifttt, entries, "gateway"))
-		val older = serviceEntryOf(AssistantRead.Answered(ConsoleAssistantStateResult()), ifttt, entries, "gateway")
+		val older = serviceEntryOf(AssistantRead.Answered(assistantState()), ifttt, entries, "gateway")
 		assertEquals(emptyList<String>(), older?.grants)
 	}
 

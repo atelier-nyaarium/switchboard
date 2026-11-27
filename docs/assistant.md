@@ -30,8 +30,7 @@ Router's record names. That Gateway feeds it events. The session decides what to
     the placement before anything is written when the set does not fit under the cap, takes the carried Safety (fresh when
     nothing was carried), sets each source's Enabled from what was carried (off when fresh, on for a
     carried source an older record names without the flag), keeps a carried grant only when this
-    Gateway may use its entry, then starts its sources and reports. Until 2026-11-28 a payload from
-    an older phone carries rules instead, which convert as stored rules do (Automations).
+    Gateway may use its entry, then starts its sources and reports.
     The first wake launches the session; the host daemon creates the folder with its parents when it
     is missing (`ensureAssistantWorkdir`), never home or a folder above it.
   - **Not named, or nobody:** it ends waiting sends, stops its sources, forgets the session (retried
@@ -55,8 +54,8 @@ Router's record names. That Gateway feeds it events. The session decides what to
     while an enabled source has a problem or new items (`inboxRows`). A problem row shows Settings,
     which opens that source's page, where the problem is named. A row with new items shows the
     count as a badge ("4 new") and Check now. When a landed poll moves the count or the health the
-    phone draws, the Gateway sends a quiet `plugin_action` row, `assistant` `watchers-changed`, and a
-    shown Assistant re-reads its state; the phone claims `sources-changed` the same way. A poll that
+    phone draws, the Gateway sends a quiet `plugin_action` row, `assistant` `sources-changed`, and a
+    shown Assistant re-reads its state; the phone claims `watchers-changed` the same way. A poll that
     moved only its timestamps sends nothing.
   - The gear opens Assistant settings, also reachable from the app's Settings page: an index with a
     status line per page (`AssistantSettingsLines.kt`). Session data location (the Gateway, the
@@ -139,20 +138,14 @@ Router's record names. That Gateway feeds it events. The session decides what to
       automation's put and delete hold the lock a move holds (`AssistantOps.carriedWrite`) and are
       refused, unsent, once the home has left its Gateway; any other automation stays on its
       Gateway and is written straight to it. The leave dialogue belongs to the opening Back was pressed on,
-      and a Back during a save leaves at once while the answer still lands. A Gateway on an older build
-      answers `watchers` and no `sources` (`servesSources`): its sources draw no uses line and its
-      source ops go as the `assistant_watcher_*` kinds; one that answers no `serves` holds an event
-      and a tell alone. `AutomationDraft.kt` holds the draft, its `outcomeOf`, `fittingAutomation`
+      and a Back during a save leaves at once while the answer still lands. A Gateway that answers no
+      `serves` holds an event and a tell alone. `AutomationDraft.kt` holds the draft, its `outcomeOf`, `fittingAutomation`
       and the lines each row shows; `AutomationParts.kt` holds a trigger as the editor holds it, the
       offer and a text's preview; `AutomationActions.kt` holds an action, drawn from its Gateway's
       row.
   - **Writes** (`AssistantOps`): Set up and Move are one sealed put. A placed, reachable home carries
     its fresh `assistant_state`, its event automations and the functions they run (`carriedOf`,
-    `carriedFunctionsOf`), or an older Gateway's rules
-    when it refuses `automation_list`; a list it cannot read, or one a current Gateway refuses,
-    refuses the move. Until 2026-11-28 the payload also names rules for every source (`rulesOf`:
-    each enabled automation that tells now, an unconditioned one as the fallback), which a Gateway
-    on an older build requires; a current one reads the automations and ignores them. Each
+    `carriedFunctionsOf`); a list it cannot read, or one the Gateway refuses, refuses the move. Each
     generated Kotlin field states whether its null is written, so the payload is sealed with the
     phone's one encoder, and `tests/fixtures/phone-encoded/cases.json` holds the phone's own
     encoding for the Gateway's schemas to parse. The carried fields still take null, which a phone
@@ -346,8 +339,7 @@ an action runs at once. `list_actions` discovers phone capabilities and source a
   declared `where: "gateway"` (`ifttt_trigger`) lists as `gateway/`. For a phone id, `available` and
   `reason` reflect the holder's last `status` answer, and any later result for that key, during the
   hold window; availability is `null` until that answer, and `statusMemo.ts` clears it on
-  `no_holder`. A gateway id and a source id have no availability. Until 2026-11-28 a `watcher/`
-  id from an older plugin still parses and runs as its `source/` id.
+  `no_holder`. A gateway id and a source id have no availability.
 - **One params schema:** `actionParamsSchema` in `src/shared/schemasActionFront.ts` selects the Zod
   params object for each id. The listing renders that object as JSON Schema, and the Gateway parses
   `run_action` params with it.
@@ -460,9 +452,7 @@ notifications reads GitHub; the Automations source, whose id stays `sensors`, li
 - **What can trigger:** a source's events can trigger event automations unless its events say how
   they tell (`Source.selfTold`, the wire's `triggers` false). The Automations source is one, and an event
   automation over it is refused.
-- **On the wire:** `assistant_state` answers `sources` (`AssistantSource`). Until 2026-11-28 it also
-  answers `watchers`, the same rows with empty rules, and the `assistant_watcher_*` ops still run,
-  for an older phone.
+- **On the wire:** `assistant_state` answers `sources` (`AssistantSource`).
 
 ### Automations
 
@@ -579,13 +569,7 @@ cannot rewrite what sorts its own events.
   home's event automations with the carried ones, and a let-go removes them.
 - **Applied as read:** a poll sorts its new events as they arrive, and the listing asks the
   automations as it lists, so an edit takes effect on the next read.
-- **Stored rules convert once, until 2026-11-28:** at boot `rulesAdoption.ts` turns each stored
-  watcher rule that woke into an event automation under the rule's id, and a fallback that woke
-  into one for every event (`every-<source>`). `assistant-rules.json` is left as it was at the home and emptied when the home lets go, and
-  `assistant-rules-adopted.json` marks the conversion, so an automation the owner deletes is not
-  brought back. A let-go removes every event automation, one of a source this build no longer
-  has included. The older rule ops answer that rules became automations and the rules that match
-  what wakes now.
+- **A let-go** removes every event automation, including one of a source this build does not hold.
 - **The map** (`assistant/FlowMap.kt`, `FlowLayout.kt`, `FlowReplay.kt`, `FlowSheet.kt`,
   `FlowMapView.kt`): Automations shows as a List or a Map, the choice kept on the phone, one band
   per Gateway in the List's order. Each band's graph is derived from that Gateway's listing alone:

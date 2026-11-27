@@ -2,12 +2,7 @@
 
 import { z } from "zod";
 import { RUN_FRAMES_MAX, STEP_PATH_RE, walked } from "./automation-walk.js";
-import {
-	AssistantRuleConditionSchema,
-	type AssistantWatcherRules,
-	canonicalConditions,
-	RULE_ID_RE,
-} from "./schemasAssistantRules.js";
+import { AssistantRuleConditionSchema, canonicalConditions, RULE_ID_RE } from "./schemasAssistantRules.js";
 import { DeviceVerbSchema } from "./schemasDevices.js";
 import {
 	FUNCTION_PARAM_TYPES,
@@ -20,7 +15,7 @@ import {
 	RUN_STRANDS_MAX,
 	STEP_TEXT_MAX,
 } from "./schemasFunction.js";
-import { ASSISTANT_RULE_CONDITIONS_MAX, ASSISTANT_RULES_MAX } from "./wire-vocabulary.js";
+import { ASSISTANT_RULE_CONDITIONS_MAX } from "./wire-vocabulary.js";
 
 export const AUTOMATIONS_MAX = 64;
 export const AUTOMATION_ACTIONS_MAX = 8;
@@ -340,39 +335,6 @@ export const CarriedFunctionSchema = z
 	.meta({ id: "CarriedFunction" });
 
 export type CarriedFunction = z.infer<typeof CarriedFunctionSchema>;
-
-// skew:stored-rules: goes with the stored rules.
-/** Each rule that woke, as an automation under its id. */
-export function automationsOfRules(sourceId: string, held: AssistantWatcherRules): CarriedAutomation[] {
-	const wake = (conditions: EventTrigger["conditions"]): Automation =>
-		AutomationSchema.parse({
-			enabled: true,
-			trigger: { kind: "event", source: sourceId, conditions: canonicalConditions(conditions) },
-			actions: [{ kind: "tell_assistant", when: "now" }],
-		} satisfies AutomationInput);
-	const carried = held.rules
-		.filter((rule) => rule.action === "wake")
-		.map((rule) => ({ id: rule.id, automation: wake(rule.conditions) }));
-	if (held.otherwise.action !== "wake") return carried;
-	return [...carried, { id: `every-${sourceId}`.slice(0, 64), automation: wake([]) }];
-}
-
-// skew:stored-rules: goes with the stored rules.
-/** What wakes now, as an older phone reads and carries it. */
-export function rulesOfAutomations(
-	armed: readonly { id: string; trigger: EventTrigger; when: TellWhen | null }[],
-): AssistantWatcherRules {
-	const waking = armed.filter((event) => event.when === "now");
-	const every = waking.some((event) => event.trigger.conditions.length === 0);
-	return {
-		rules: waking
-			.filter((event) => event.trigger.conditions.length > 0)
-			.slice(0, ASSISTANT_RULES_MAX)
-			.map((event) => ({ id: event.id, conditions: event.trigger.conditions, action: "wake", revision: 0 })),
-		otherwise: { action: every ? "wake" : "inbox", revision: 0 },
-		revision: 0,
-	};
-}
 
 /** One automation as its Gateway lists it. */
 /** How a run or a step ended. */

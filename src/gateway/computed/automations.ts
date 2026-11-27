@@ -244,27 +244,6 @@ const CLOCK_RETRY_MS = 30_000;
 /** Kept for a move back. */
 export const FUNCTION_UNUSED_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
 
-// skew:untyped-trigger: a body stored before triggers had kinds.
-const LegacyBodySchema = z.strictObject({
-	label: z.string(),
-	enabled: z.boolean(),
-	trigger: z.strictObject({ field: z.string(), becomes: z.union([z.string(), z.boolean()]) }),
-	action: z.strictObject({ kind: z.literal("tell_assistant") }),
-	coolDownSec: z.number(),
-});
-
-const StoredAutomationSchema = z.preprocess((body) => {
-	const legacy = LegacyBodySchema.safeParse(body);
-	if (!legacy.success) return body;
-	const { label, enabled, trigger, coolDownSec } = legacy.data;
-	return {
-		label,
-		enabled,
-		trigger: { kind: "value", ...trigger, coolDownSec },
-		actions: [{ kind: "tell_assistant", when: "quietly" }],
-	};
-}, AutomationSchema);
-
 const FUNCTION_KEY_BYTES = 32;
 const FunctionKeySchema = z.strictObject({ key: z.string().min(1) });
 
@@ -348,7 +327,7 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	const store = createOwnerRecords<StoredBody>({
 		store: deps.records,
-		kinds: { [AUTOMATION_KIND]: StoredAutomationSchema, [FUNCTION_KIND]: FunctionSchema },
+		kinds: { [AUTOMATION_KIND]: AutomationSchema, [FUNCTION_KIND]: FunctionSchema },
 		max: AUTOMATIONS_MAX,
 		maxByKind: { [FUNCTION_KIND]: FUNCTIONS_MAX },
 		newIncarnation: deps.newIncarnation,
@@ -362,8 +341,6 @@ export function createAutomations(deps: AutomationsDeps) {
 			};
 			return writeIssue(candidate.body, functions);
 		},
-		// skew:untyped-trigger: goes with the legacy body.
-		settle: true,
 		label: "automations",
 	});
 	const records = {

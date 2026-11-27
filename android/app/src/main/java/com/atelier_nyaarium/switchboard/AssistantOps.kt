@@ -10,24 +10,13 @@ import com.atelier_nyaarium.switchboard.assistant.carriesFunctions
 import com.atelier_nyaarium.switchboard.assistant.carryRefusal
 import com.atelier_nyaarium.switchboard.assistant.functionsServed
 import com.atelier_nyaarium.switchboard.assistant.functionsServedBy
-import com.atelier_nyaarium.switchboard.assistant.UnfollowedCall
-import com.atelier_nyaarium.switchboard.assistant.WalkAction
-import com.atelier_nyaarium.switchboard.assistant.WalkStep
-import com.atelier_nyaarium.switchboard.assistant.reached
 import com.atelier_nyaarium.switchboard.assistant.sealedRefusal
-import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarried
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarriedIntegration
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeCarriedWatcher
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeSealed
-import com.atelier_nyaarium.switchboard.proto.AssistantRule
-import com.atelier_nyaarium.switchboard.proto.AssistantRuleCondition
-import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
 import com.atelier_nyaarium.switchboard.proto.AssistantSource
-import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
-import com.atelier_nyaarium.switchboard.proto.AssistantWatcherRules
-import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationFunctionRow
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
@@ -72,33 +61,9 @@ internal interface AssistantHost {
 	fun persistHome(home: AssistantHome.Read)
 }
 
-/** The one reader of a Gateway's sources. */
-internal fun sourcesOf(state: ConsoleAssistantStateResult): List<AssistantSource> =
-	state.sources ?: state.watchers.orEmpty().map { it.toSource() }
-
-// skew:watchers-field: an older Gateway's watchers.
-private fun AssistantWatcher.toSource(): AssistantSource = AssistantSource(
-	id = id,
-	label = label,
-	grants = grants,
-	unread = unread,
-	capped = capped,
-	lastSuccessAt = lastSuccessAt,
-	nextPollAt = nextPollAt,
-	backoff = backoff,
-	stopped = stopped,
-	fieldSpecs = fieldSpecs?.takeIf { it.isNotEmpty() }
-		?: fields.orEmpty().map { AssistantFieldSpec.Text(field = it, label = fieldLabel(it)) },
-	unexpected = unexpected,
-	secret = secret,
-	actions = actions.orEmpty(),
-	enabled = enabled != false,
-	triggers = id != "sensors",
-)
-
 // skew:automation-serves: the not-served token says what a Gateway serves.
-/** An older build answers `watchers` alone. */
-internal fun servesSources(state: ConsoleAssistantStateResult?): Boolean = state?.sources != null
+/** Every answered state names its sources. */
+internal fun servesSources(state: ConsoleAssistantStateResult?): Boolean = state != null
 
 /** Unread or refused reads as an older build. */
 internal fun servesSources(read: AssistantRead): Boolean = when (read) {
@@ -112,29 +77,6 @@ internal fun saysOlderBuild(read: AssistantRead): Boolean = when (read) {
 	AssistantRead.Reading, AssistantRead.Refused -> false
 }
 
-private val NO_RULES = AssistantWatcherRules(emptyList(), AssistantRuleOtherwise("inbox", 0L), 0L)
-
-// skew:stored-rules: an older Gateway reads rules.
-/** Unconditioned automation is the fallback. */
-internal fun rulesOf(sourceId: String, events: List<AutomationRow>): AssistantWatcherRules {
-	val waking = events.mapNotNull { row ->
-		val trigger = row.automation.trigger as? AutomationTrigger.Event
-		val wakes = row.automation.enabled && row.invalid == null &&
-			reached(row.automation).any { entry ->
-				when (entry) {
-					is WalkAction -> (entry.action as? AutomationAction.TellAssistant)?.`when` == "now"
-					is WalkStep, is UnfollowedCall -> false
-				}
-			}
-		trigger?.takeIf { it.source == sourceId && wakes }?.let { row.id to it.conditions }
-	}
-	val rules = waking.filter { it.second.isNotEmpty() }.take(Protocol.Wire.ASSISTANT_RULES_MAX).map { (id, conditions) ->
-		AssistantRule(id, conditions.map { AssistantRuleCondition(it.field, it.test, it.value) }, "wake", 0L)
-	}
-	val otherwise = if (waking.any { it.second.isEmpty() }) "wake" else "inbox"
-	return AssistantWatcherRules(rules, AssistantRuleOtherwise(otherwise, 0L), 0L)
-}
-
 /** Move payload; null `automations` lists none. */
 internal fun carriedOf(
 	state: ConsoleAssistantStateResult,
@@ -143,17 +85,12 @@ internal fun carriedOf(
 ): AssistantHomeCarried {
 	val events = automations?.filter { it.automation.trigger is AutomationTrigger.Event }
 	val carried = events?.map { CarriedAutomation(it.id, it.automation) }
-	// skew:stored-rules: an older Gateway's rules.
-	val held = state.watchers.orEmpty().associate { it.id to it.rules }
 	return AssistantHomeCarried(
 		approveEverySend = state.approveEverySend ?: true,
-		// An older Gateway refuses null.
-		temperatureUnit = state.temperatureUnit ?: "C",
-		watchers = sourcesOf(state).map { source ->
+		temperatureUnit = state.temperatureUnit,
+		watchers = state.sources.map { source ->
 			AssistantHomeCarriedWatcher(
 				id = source.id,
-				// Never null: an older Gateway refuses one.
-				rules = events?.let { rulesOf(source.id, it) } ?: held[source.id] ?: NO_RULES,
 				grant = source.grants.firstOrNull(),
 				enabled = source.enabled,
 			)
@@ -629,31 +566,15 @@ internal class AssistantOps(
 	suspend fun setTemperatureUnit(gatewayId: String, unit: String): AssistantAnswer =
 		carriedSetting(gatewayId, ConsoleOp.AssistantTemperatureUnit(unit))
 
-	// skew:watcher-kinds: an older build knows the watcher kinds alone.
-	private fun sourceOp(gatewayId: String, source: ConsoleOp, watcher: ConsoleOp): ConsoleOp =
-		if (servesSources(state.value.gateways.assistantRead(gatewayId))) source else watcher
-
-	suspend fun setGrants(gatewayId: String, sourceId: String, entryIds: List<String>): AssistantAnswer = carriedSetting(
-		gatewayId,
-		sourceOp(
-			gatewayId,
-			ConsoleOp.AssistantSourceGrants(sourceId = sourceId, entryIds = entryIds),
-			ConsoleOp.AssistantWatcherGrants(watcherId = sourceId, entryIds = entryIds),
-		),
-	)
+	suspend fun setGrants(gatewayId: String, sourceId: String, entryIds: List<String>): AssistantAnswer =
+		carriedSetting(gatewayId, ConsoleOp.AssistantSourceGrants(sourceId = sourceId, entryIds = entryIds))
 
 	/** The same set again, which the Gateway reads as a poll now. */
 	suspend fun retry(gatewayId: String, source: AssistantSource): AssistantAnswer =
 		setGrants(gatewayId, source.id, source.grants)
 
-	suspend fun setEnabled(gatewayId: String, sourceId: String, enabled: Boolean): AssistantAnswer = carriedSetting(
-		gatewayId,
-		sourceOp(
-			gatewayId,
-			ConsoleOp.AssistantSourceEnabled(sourceId = sourceId, enabled = enabled),
-			ConsoleOp.AssistantWatcherEnabled(watcherId = sourceId, enabled = enabled),
-		),
-	)
+	suspend fun setEnabled(gatewayId: String, sourceId: String, enabled: Boolean): AssistantAnswer =
+		carriedSetting(gatewayId, ConsoleOp.AssistantSourceEnabled(sourceId = sourceId, enabled = enabled))
 
 	/** Under `writes`, so a move seals it or the old home refuses it. */
 	private suspend fun carriedSetting(gatewayId: String, op: ConsoleOp): AssistantAnswer =
@@ -668,10 +589,7 @@ internal class AssistantOps(
 	}
 
 	suspend fun checkNow(gatewayId: String, sourceId: String): AssistantAnswer =
-		landed(
-			gatewayId,
-			sourceOp(gatewayId, ConsoleOp.AssistantSourceCheck(sourceId = sourceId), ConsoleOp.AssistantWatcherCheck(watcherId = sourceId)),
-		)
+		landed(gatewayId, ConsoleOp.AssistantSourceCheck(sourceId = sourceId))
 
 	/** Fenced draw; a refusal re-reads. */
 	private suspend fun landed(gatewayId: String, op: ConsoleOp): AssistantAnswer {

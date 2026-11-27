@@ -52,7 +52,6 @@ import com.atelier_nyaarium.switchboard.proto.AutomationAction
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationSaveFunction
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
-import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.FunctionParam
 import com.atelier_nyaarium.switchboard.proto.FunctionStep
 import com.atelier_nyaarium.switchboard.proto.AutomationSwitchOffer
@@ -323,7 +322,7 @@ class FunctionDraftTest {
 
 	@Test
 	fun aMoveCarriesTheFunctionsItsEventAutomationsRunAndNoneOtherwise() {
-		val state = ConsoleAssistantStateResult(workdir = "~/notes", sources = emptyList())
+		val state = assistantState(workdir = "~/notes")
 		fun event(id: String, actions: List<AutomationAction>) =
 			AutomationRow(id, 1L, Automation(enabled = true, trigger = AutomationTrigger.Event("github", emptyList()), actions = actions), "GitHub")
 		val runs = event("wake", listOf(AutomationAction.RunFunction(function = "blink")))

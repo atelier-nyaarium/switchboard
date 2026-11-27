@@ -10,7 +10,6 @@ import {
 	type ActionRunResult,
 	ActionRunResultSchema,
 	actionRefOf,
-	isSourceFamily,
 } from "../../shared/schemasActionFront.js";
 import { type ActionAnswer, ASSISTANT_ACTIONS } from "../../shared/schemasAssistantActions.js";
 import { PHONE_CAPABILITIES } from "../../shared/schemasPhoneCapabilities.js";
@@ -44,7 +43,7 @@ const SESSION_TEXT: Record<"not_assistant" | "unauthenticated", string> = {
 };
 
 function availabilityText(action: ActionListing): string {
-	if (isSourceFamily(action.family)) return "";
+	if (action.family === "source") return "";
 	if (action.family === "gateway" || action.where === "gateway") return "; runs on the Gateway";
 	if (action.available === null) return `; availability unknown, ${STATUS_ID} learns it`;
 	return action.available

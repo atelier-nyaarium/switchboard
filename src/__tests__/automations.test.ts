@@ -276,41 +276,6 @@ const queued = async (automations: ReturnType<typeof createAutomations>) => {
 };
 
 describe("automations", () => {
-	it("reads a body stored before triggers had kinds as a value trigger that tells quietly", () => {
-		const { fields, automations } = world(fresh()).open();
-		fields.put("band", hotBand, 0);
-		const earlier = {
-			label: "Throw ice bucket!",
-			enabled: true,
-			trigger: { field: "band", becomes: "high" },
-			action: { kind: "tell_assistant" },
-			coolDownSec: 30,
-		};
-
-		expect(automations.ownerPut("bucket", earlier, 0).stored).toBe(true);
-		expect(automations.list()[0]?.body).toEqual(iceBucket({ coolDownSec: 30 }));
-	});
-
-	it("rewrites a stored body from before triggers had kinds when the store opens", () => {
-		const dir = fresh();
-		const file = path.join(dir, "automations.json");
-		const earlier = {
-			label: "Throw ice bucket!",
-			enabled: true,
-			trigger: { field: "band", becomes: "high" },
-			action: { kind: "tell_assistant" },
-			coolDownSec: 0,
-		};
-		fs.writeFileSync(
-			file,
-			JSON.stringify([{ id: "bucket", revision: 3, incarnation: "a0", kind: "automation", body: earlier }]),
-		);
-
-		const { automations } = world(dir).open();
-		expect(automations.list().map(({ revision, body }) => [revision, body])).toEqual([[3, iceBucket()]]);
-		expect(JSON.parse(fs.readFileSync(file, "utf8"))[0].body).toEqual(iceBucket());
-	});
-
 	it("holds a source's event automations for its lane, armed ones only, and tells a crossing as its action says", async () => {
 		const w = world(fresh());
 		const { fields, automations } = w.open();

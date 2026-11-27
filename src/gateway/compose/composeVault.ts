@@ -10,7 +10,7 @@ import type { VaultConsoleHandlers } from "../console/consoleTypes.js";
 import type { PolicyStore } from "../policies/store.js";
 import { createAddressing } from "../routes/addressing.js";
 import { createAnswerEntry } from "../vault/answerEntry.js";
-import { createVaultDecisions, legacyHolder, qualificationRefusal } from "../vault/decisions.js";
+import { createVaultDecisions, qualificationRefusal } from "../vault/decisions.js";
 import { createVaultReconcile } from "../vault/reconcile.js";
 import { createVaultRequests } from "../vault/requests.js";
 import { createVaultRoutes } from "../vault/vaultRoutes.js";
@@ -200,7 +200,7 @@ export function composeVault(deps: VaultStageDeps): VaultStage {
 		console: {
 			answer: (requestId, decision, value, note) => requests.answer(requestId, decision, value, note),
 			answerEntry,
-			grants: () => ({ grants: decisions.list(ambient.now()).map(legacyHolder) }),
+			grants: () => ({ grants: decisions.list(ambient.now()) }),
 			revoke: (grantId) => ({ revoked: decisions.revoke(grantId) }),
 		},
 		sessionEnded: (team) => {

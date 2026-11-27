@@ -98,10 +98,7 @@ export const DEVICE_TOOL_RESULTS = {
 	]),
 	device_read: z.discriminatedUnion("kind", [
 		okOf(DEVICE_CONSOLE_RESULTS.device_read),
-		memberOf(DEVICE_CONSOLE_RESULTS.device_read, "sensor").extend({
-			// skew:devices-required.
-			temperatureUnit: TemperatureUnitSchema.optional(),
-		}),
+		memberOf(DEVICE_CONSOLE_RESULTS.device_read, "sensor").extend({ temperatureUnit: TemperatureUnitSchema }),
 		Refused,
 	]),
 	device_rename: z.discriminatedUnion("kind", [

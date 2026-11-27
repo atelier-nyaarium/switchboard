@@ -136,11 +136,7 @@ import {
 	RowOriginSchema,
 	TeamInfoSchema,
 } from "../src/shared/schemas.js";
-import {
-	AssistantSourceSchema,
-	AssistantWatcherSchema,
-	ConsoleAssistantStateResultSchema,
-} from "../src/shared/schemasAssistant.js";
+import { AssistantSourceSchema, ConsoleAssistantStateResultSchema } from "../src/shared/schemasAssistant.js";
 import {
 	ASSISTANT_HOME_SEALED_MAX_BYTES,
 	AssistantHomeCarriedSchema,
@@ -160,13 +156,7 @@ import {
 	AssistantFieldSpecSchema,
 	AssistantFieldValueSchema,
 	AssistantRuleConditionSchema,
-	AssistantRuleInvalidSchema,
-	AssistantRuleOtherwiseSchema,
-	AssistantRuleSchema,
 	AssistantUnexpectedValuesSchema,
-	AssistantWatcherRulesSchema,
-	ConsoleAssistantPreviewResultSchema,
-	ConsoleAssistantRulesResultSchema,
 } from "../src/shared/schemasAssistantRules.js";
 import {
 	AssistantSendFileSchema,
@@ -473,7 +463,6 @@ import {
 	ASSISTANT_ROLE,
 	ASSISTANT_RULE_CONDITIONS_MAX,
 	ASSISTANT_RULE_VALUE_MAX,
-	ASSISTANT_RULES_MAX,
 	BEARER_PREFIX,
 	BOARD_OUTCOME_APPLIED,
 	CONSOLE_REASON_CURSOR_STALE,
@@ -621,7 +610,6 @@ const ROOTS: z.ZodType[] = [
 	ConsoleDescribeResultSchema,
 	ConsoleIdsSchema,
 	ConsoleEvalResultSchema,
-	AssistantWatcherSchema,
 	AssistantSourceSchema,
 	ConsoleAssistantStateResultSchema,
 	AutomationConditionSchema,
@@ -659,14 +647,8 @@ const ROOTS: z.ZodType[] = [
 	AssistantHomeRefusalSchema,
 	AssistantHomePutResultSchema,
 	AssistantRuleConditionSchema,
-	AssistantRuleSchema,
-	AssistantRuleOtherwiseSchema,
-	AssistantWatcherRulesSchema,
-	ConsoleAssistantRulesResultSchema,
-	ConsoleAssistantPreviewResultSchema,
 	AssistantFieldOptionSchema,
 	AssistantFieldSpecSchema,
-	AssistantRuleInvalidSchema,
 	AssistantFieldValueSchema,
 	AssistantUnexpectedValuesSchema,
 	AssistantSendFileSchema,
@@ -1376,7 +1358,6 @@ const wireConstants: ReadonlyArray<readonly [string, string | number]> = [
 	["ROUTINE_FORGET_DAYS_MIN", ROUTINE_FORGET_DAYS_MIN],
 	["ROUTINE_FORGET_DAYS_MAX", ROUTINE_FORGET_DAYS_MAX],
 	["MAX_POLICY_NAME_LEN", MAX_POLICY_NAME_LEN],
-	["ASSISTANT_RULES_MAX", ASSISTANT_RULES_MAX],
 	["ASSISTANT_RULE_CONDITIONS_MAX", ASSISTANT_RULE_CONDITIONS_MAX],
 	["ASSISTANT_RULE_VALUE_MAX", ASSISTANT_RULE_VALUE_MAX],
 	["ASSISTANT_ROLE", ASSISTANT_ROLE],

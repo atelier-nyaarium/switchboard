@@ -145,7 +145,6 @@ object Protocol {
 		const val ROUTINE_FORGET_DAYS_MIN: Int = 1
 		const val ROUTINE_FORGET_DAYS_MAX: Int = 365
 		const val MAX_POLICY_NAME_LEN: Int = 128
-		const val ASSISTANT_RULES_MAX: Int = 50
 		const val ASSISTANT_RULE_CONDITIONS_MAX: Int = 8
 		const val ASSISTANT_RULE_VALUE_MAX: Int = 200
 		const val ASSISTANT_ROLE: String = "assistant"
@@ -390,14 +389,6 @@ object Protocol {
 			const val SCRIPT_PARSE: String = "script_parse"
 			const val ASSISTANT_SAFETY: String = "assistant_safety"
 			const val ASSISTANT_TEMPERATURE_UNIT: String = "assistant_temperature_unit"
-			const val ASSISTANT_WATCHER_GRANTS: String = "assistant_watcher_grants"
-			const val ASSISTANT_RULE_PUT: String = "assistant_rule_put"
-			const val ASSISTANT_RULE_DELETE: String = "assistant_rule_delete"
-			const val ASSISTANT_RULE_MOVE: String = "assistant_rule_move"
-			const val ASSISTANT_OTHERWISE_PUT: String = "assistant_otherwise_put"
-			const val ASSISTANT_RULES_PREVIEW: String = "assistant_rules_preview"
-			const val ASSISTANT_WATCHER_ENABLED: String = "assistant_watcher_enabled"
-			const val ASSISTANT_WATCHER_CHECK: String = "assistant_watcher_check"
 			const val ASSISTANT_SEND_ANSWER: String = "assistant_send_answer"
 			const val PHONE_CAPABILITY_ANSWER: String = "phone_capability_answer"
 			const val ASSISTANT_ACT_ANSWER: String = "assistant_act_answer"
@@ -1641,65 +1632,6 @@ sealed class ConsoleOp {
 	) : ConsoleOp()
 
 	@Serializable
-	@SerialName("assistant_watcher_grants")
-	data class AssistantWatcherGrants(
-		val watcherId: String,
-		val entryIds: List<String>,
-	) : ConsoleOp()
-
-	@Serializable
-	@SerialName("assistant_rule_put")
-	data class AssistantRulePut(
-		val watcherId: String,
-		val rule: AssistantRule,
-	) : ConsoleOp()
-
-	@Serializable
-	@SerialName("assistant_rule_delete")
-	data class AssistantRuleDelete(
-		val watcherId: String,
-		val ruleId: String,
-		val baseRevision: Long,
-	) : ConsoleOp()
-
-	@Serializable
-	@SerialName("assistant_rule_move")
-	data class AssistantRuleMove(
-		val watcherId: String,
-		val ruleId: String,
-		@EncodeDefault(EncodeDefault.Mode.NEVER)
-		val beforeId: String? = null,
-		val baseRevision: Long,
-	) : ConsoleOp()
-
-	@Serializable
-	@SerialName("assistant_otherwise_put")
-	data class AssistantOtherwisePut(
-		val watcherId: String,
-		val otherwise: AssistantRuleOtherwise,
-	) : ConsoleOp()
-
-	@Serializable
-	@SerialName("assistant_rules_preview")
-	data class AssistantRulesPreview(
-		val watcherId: String,
-		val rule: AssistantRule,
-	) : ConsoleOp()
-
-	@Serializable
-	@SerialName("assistant_watcher_enabled")
-	data class AssistantWatcherEnabled(
-		val watcherId: String,
-		val enabled: Boolean,
-	) : ConsoleOp()
-
-	@Serializable
-	@SerialName("assistant_watcher_check")
-	data class AssistantWatcherCheck(
-		val watcherId: String,
-	) : ConsoleOp()
-
-	@Serializable
 	@SerialName("assistant_send_answer")
 	data class AssistantSendAnswer(
 		val requestId: String,
@@ -2382,8 +2314,7 @@ sealed class ConsoleDeviceReadResult {
 		val heardAt: Long? = null,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val stale: String? = null,
-		@EncodeDefault(EncodeDefault.Mode.NEVER)
-		val payloads: List<DeviceSensorPayload>? = null,
+		val payloads: List<DeviceSensorPayload>,
 	) : ConsoleDeviceReadResult()
 
 	@Serializable
@@ -2621,42 +2552,6 @@ sealed class ConsoleEvalResult {
 }
 
 @Serializable
-data class AssistantWatcher(
-	val id: String,
-	val label: String,
-	val grants: List<String>,
-	val unread: Long,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val capped: Boolean? = null,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val evicted: Long? = null,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val lastSuccessAt: Long? = null,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val nextPollAt: Long? = null,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val backoff: AssistantWatcherBackoff? = null,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val stopped: String? = null,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val fields: List<String>? = null,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val fieldSpecs: List<AssistantFieldSpec>? = null,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val rules: AssistantWatcherRules? = null,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val invalid: List<AssistantRuleInvalid>? = null,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val unexpected: AssistantUnexpectedValues? = null,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val secret: String? = null,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val actions: List<AssistantActionDescriptor>? = null,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val enabled: Boolean? = null,
-)
-
-@Serializable
 data class AssistantSource(
 	val id: String,
 	val label: String,
@@ -2688,14 +2583,10 @@ data class ConsoleAssistantStateResult(
 	val workdir: String? = null,
 	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val team: String? = null,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val watchers: List<AssistantWatcher>? = null,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val sources: List<AssistantSource>? = null,
+	val sources: List<AssistantSource>,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val approveEverySend: Boolean? = null,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val temperatureUnit: String? = null,
+	val temperatureUnit: String,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val checkIns: Boolean? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
@@ -3275,8 +3166,6 @@ data class ConsoleScriptParseResult(
 @Serializable
 data class AssistantHomeCarriedWatcher(
 	val id: String,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val rules: AssistantWatcherRules? = null,
 	@EncodeDefault(EncodeDefault.Mode.ALWAYS)
 	val grant: String? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
@@ -3361,45 +3250,6 @@ data class AssistantRuleCondition(
 	val field: String,
 	val test: String,
 	val value: String,
-)
-
-@Serializable
-data class AssistantRule(
-	val id: String,
-	val conditions: List<AssistantRuleCondition>,
-	val action: String,
-	val revision: Long,
-)
-
-@Serializable
-data class AssistantRuleOtherwise(
-	val action: String,
-	val revision: Long,
-)
-
-@Serializable
-data class AssistantWatcherRules(
-	val rules: List<AssistantRule>,
-	val otherwise: AssistantRuleOtherwise,
-	val revision: Long,
-)
-
-@Serializable
-data class ConsoleAssistantRulesResult(
-	val stored: Boolean,
-	val rules: AssistantWatcherRules,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val reason: String? = null,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val invalid: List<AssistantRuleInvalid>? = null,
-)
-
-@Serializable
-data class ConsoleAssistantPreviewResult(
-	val decided: Long,
-	val shadowed: Long,
-	val of: Long,
-	val titles: List<String>,
 )
 
 @Serializable
@@ -3490,12 +3340,6 @@ object AssistantFieldSpecSerializer : KSerializer<AssistantFieldSpec> {
 	private fun tagged(kind: String, body: JsonElement): JsonObject =
 		JsonObject(mapOf("kind" to JsonPrimitive(kind)) + body.jsonObject)
 }
-
-@Serializable
-data class AssistantRuleInvalid(
-	val id: String,
-	val reason: String,
-)
 
 @Serializable
 data class AssistantFieldValue(

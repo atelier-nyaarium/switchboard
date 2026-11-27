@@ -318,10 +318,7 @@ class AutomationOpsTest {
 		assertEquals(listOf(false, false, true), fake.confirmed)
 	}
 
-	private val serving = AssistantRead.Answered(
-		com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult(workdir = "~/notes", sources = emptyList()),
-	)
-	private val older = AssistantRead.Answered(com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult(workdir = "~/notes"))
+	private val serving = AssistantRead.Answered(assistantState(workdir = "~/notes"))
 
 	private fun admitting(vararg ids: String) = MutableStateFlow(ChatState(gateways = testRegistry(*ids)))
 
@@ -350,8 +347,8 @@ class AutomationOpsTest {
 	}
 
 	@Test
-	fun theTokenAlwaysReadsNotServedAndProseOnlyFromAStateAnsweredWithoutSources() {
-		val reads = mapOf("unread" to AssistantRead.Reading, "refused" to AssistantRead.Refused, "serving" to serving, "older" to older)
+	fun theTokenAlwaysReadsNotServedAndProseNever() {
+		val reads = mapOf("unread" to AssistantRead.Reading, "refused" to AssistantRead.Refused, "serving" to serving)
 		val landed = { prose: Boolean ->
 			val fake = FakeGateway()
 			reads.keys.forEach { fake.shelves[it] = listOf(automationRow()) }
@@ -368,8 +365,8 @@ class AutomationOpsTest {
 		val drawn = GatewayList.Listed(listOf(automationRow()))
 
 		assertEquals(reads.mapValues { GatewayList.NotServed }, landed(false))
-		assertEquals(mapOf("unread" to drawn, "refused" to drawn, "serving" to drawn, "older" to GatewayList.NotServed), landed(true))
-		assertEquals(listOf(false, false, false, true), reads.values.map(::saysOlderBuild))
+		assertEquals(reads.mapValues { drawn }, landed(true))
+		assertEquals(listOf(false, false, false), reads.values.map(::saysOlderBuild))
 	}
 
 	@Test

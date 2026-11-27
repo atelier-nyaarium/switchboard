@@ -2,10 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeRecord
 import com.atelier_nyaarium.switchboard.proto.AssistantHomeReport
-import com.atelier_nyaarium.switchboard.proto.AssistantRuleOtherwise
-import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
-import com.atelier_nyaarium.switchboard.proto.AssistantWatcherRules
-import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
+import com.atelier_nyaarium.switchboard.proto.AssistantSource
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -39,13 +36,15 @@ class AssistantRootTest {
 	private fun pagesOf(nav: ShellNav): List<ShellPage> =
 		generateSequence(nav) { if (drawn(it) is Drawn.Page) it.pop() else null }.mapNotNull { (drawn(it) as? Drawn.Page)?.page }.toList()
 
-	private val github = AssistantWatcher(
+	private val github = AssistantSource(
 		id = "github",
 		label = "GitHub",
 		grants = emptyList(),
 		unread = 0L,
-		fields = listOf("reason"),
-		rules = AssistantWatcherRules(emptyList(), AssistantRuleOtherwise(action = "inbox", revision = 0L), revision = 0L),
+		fieldSpecs = emptyList(),
+		actions = emptyList(),
+		enabled = true,
+		triggers = true,
 	)
 
 	private fun homeAt(gatewayId: String, vararg others: String) = ChatState(
@@ -60,10 +59,10 @@ class AssistantRootTest {
 	private fun placedOn(gatewayId: String, vararg others: String) =
 		homeAt(gatewayId, *others).withWord(
 			gatewayId,
-			AssistantRead.Answered(ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", watchers = listOf(github))),
+			AssistantRead.Answered(assistantState(workdir = "~/notes", team = "host.assistant", sources = listOf(github))),
 		)
 
-	private val holdsNone = AssistantRead.Answered(ConsoleAssistantStateResult(watchers = emptyList()))
+	private val holdsNone = AssistantRead.Answered(assistantState())
 
 	private fun ChatState.withWord(gatewayId: String, word: AssistantRead?) =
 		copy(gateways = gateways.withEntry(gatewayId) { it.copy(assistant = word ?: AssistantRead.Reading) })
@@ -259,7 +258,7 @@ class AssistantRootTest {
 		val placed = placedOn("sakura")
 		val unoffered = placed.withWord(
 			"sakura",
-			AssistantRead.Answered(ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", sources = emptyList(), offered = listOf("ifttt"))),
+			AssistantRead.Answered(assistantState(workdir = "~/notes", team = "host.assistant", offered = listOf("ifttt"))),
 		)
 
 		assertEquals(stack, stack.resolvePages(placed))
@@ -280,7 +279,7 @@ class AssistantRootTest {
 		val placed = placedOn("sakura")
 		val offersIfttt = placed.withWord(
 			"sakura",
-			AssistantRead.Answered(ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", watchers = emptyList(), offered = listOf("ifttt"))),
+			AssistantRead.Answered(assistantState(workdir = "~/notes", team = "host.assistant", offered = listOf("ifttt"))),
 		)
 
 		assertEquals(entry, entry.resolved(placed))
@@ -297,7 +296,7 @@ class AssistantRootTest {
 		val placed = placedOn("sakura")
 		val noSource = placed.withWord(
 			"sakura",
-			AssistantRead.Answered(ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", sources = emptyList())),
+			AssistantRead.Answered(assistantState(workdir = "~/notes", team = "host.assistant")),
 		)
 
 		assertEquals(source, source.resolved(placed))
@@ -307,13 +306,6 @@ class AssistantRootTest {
 		assertNull(source.resolved(placedOn("mikan", "sakura")))
 		assertEquals(itsAutomations, itsAutomations.resolved(placed))
 		assertNull(itsAutomations.resolved(noSource))
-
-		// Watchers read as sources.
-		val older = placed.withWord(
-			"sakura",
-			AssistantRead.Answered(ConsoleAssistantStateResult(workdir = "~/notes", team = "host.assistant", watchers = listOf(github))),
-		)
-		assertEquals(source, source.resolved(older))
 	}
 
 	@Test
@@ -357,7 +349,7 @@ class AssistantRootTest {
 			triggers = true,
 		)
 		val tabs = listOf(session, "dom.mikan.app.dev")
-		val answered = AssistantRead.Answered(ConsoleAssistantStateResult(sources = listOf(watcher)))
+		val answered = AssistantRead.Answered(assistantState(sources = listOf(watcher)))
 		val chrome = threadChrome(assistant = true, label = "assistant", tabs = tabs, home = answered)
 		val sessionChrome = threadChrome(assistant = false, label = "dev", tabs = tabs, home = answered)
 

@@ -203,6 +203,7 @@ internal class SandboxDeviceGateway(
 			model = "H5110",
 			heardAt = now - feed.heardAgoMs,
 			stale = stale,
+			payloads = emptyList(),
 		)
 	}
 

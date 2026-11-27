@@ -165,14 +165,14 @@ private fun offers(read: AssistantRead, integrationId: String): Boolean = when (
 private fun sourceGone(state: ChatState, gatewayId: String, sourceId: String): Boolean {
 	if (assistantLeft(state, gatewayId)) return true
 	return when (val read = state.gateways.assistantRead(gatewayId)) {
-		is AssistantRead.Answered -> sourcesOf(read.state).none { it.id == sourceId }
+		is AssistantRead.Answered -> read.state.sources.none { it.id == sourceId }
 		AssistantRead.Reading, AssistantRead.Refused -> false
 	}
 }
 
 /** Null spins or retries. */
 internal fun heldSource(read: AssistantRead, sourceId: String): AssistantSource? = when (read) {
-	is AssistantRead.Answered -> sourcesOf(read.state).find { it.id == sourceId }
+	is AssistantRead.Answered -> read.state.sources.find { it.id == sourceId }
 	AssistantRead.Reading, AssistantRead.Refused -> null
 }
 

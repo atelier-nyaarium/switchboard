@@ -56,7 +56,7 @@ describe("action listings", () => {
 });
 
 describe("action routes", () => {
-	it("lists for the assistant and routes watcher, phone and device bodies", async () => {
+	it("lists for the assistant and routes source, phone and device bodies", async () => {
 		const dispatched: unknown[] = [];
 		const phoneCalls: unknown[] = [];
 		const deviceCalls: unknown[] = [];
@@ -92,19 +92,13 @@ describe("action routes", () => {
 			return route(new Request("http://gateway/", { headers: { "x-caller": caller } }), body);
 		};
 
-		const watcher = await invoke(ACTION_FRONT_ROUTES.run, {
-			id: "watcher/github_done",
-			callId: "watcher-call-1",
-			params: { ids: ["1"] },
-		});
-		expect(await watcher.json()).toEqual({ kind: "ok", answer: { threads: [] }, recorded: true });
-		expect(dispatched).toEqual([{ action: "github_done", callId: "watcher-call-1", params: { ids: ["1"] } }]);
-		await invoke(ACTION_FRONT_ROUTES.run, {
+		const source = await invoke(ACTION_FRONT_ROUTES.run, {
 			id: "source/github_done",
 			callId: "source-call-1",
-			params: { ids: ["2"] },
+			params: { ids: ["1"] },
 		});
-		expect(dispatched[1]).toEqual({ action: "github_done", callId: "source-call-1", params: { ids: ["2"] } });
+		expect(await source.json()).toEqual({ kind: "ok", answer: { threads: [] }, recorded: true });
+		expect(dispatched).toEqual([{ action: "github_done", callId: "source-call-1", params: { ids: ["1"] } }]);
 
 		const phone = await invoke(ACTION_FRONT_ROUTES.run, {
 			id: "phone/torch",
@@ -135,7 +129,7 @@ describe("action routes", () => {
 
 		const refused = await invoke(
 			ACTION_FRONT_ROUTES.run,
-			{ id: "watcher/github_done", callId: "stranger-call-1", params: { ids: ["1"] } },
+			{ id: "source/github_done", callId: "stranger-call-1", params: { ids: ["1"] } },
 			"stranger",
 		);
 		expect(await refused.json()).toEqual({ kind: "not_assistant" });
@@ -146,7 +140,7 @@ describe("action routes", () => {
 		expect(await hidden.json()).toEqual({ kind: "not_assistant" });
 		expect(listed).toBe(1);
 
-		expect(dispatched).toHaveLength(2);
+		expect(dispatched).toHaveLength(1);
 		expect(phoneCalls).toHaveLength(1);
 	});
 });
@@ -205,21 +199,14 @@ describe("action text", () => {
 	});
 });
 
-describe("the plugin reads a Gateway that says watcher", () => {
-	it("draws an older Gateway's watcher action as it draws a source's", () => {
-		const [done] = actionListings(null).filter((action) => action.family === "source");
-		const older = { ...done, id: "watcher/github_done", family: "watcher" };
-		expect(listingText([older]).split("\n")[1]).toBe(listingText([done]).split("\n")[1]);
-	});
-
-	it("lists a baseline's sources beside an older Gateway's watchers", () => {
+describe("the plugin reads what a Gateway says", () => {
+	it("lists a baseline's sources", () => {
 		const row = { label: "GitHub notifications", unread: 3 };
 		const baseline = (assistant: Record<string, unknown>) =>
 			baselineLines(
 				SessionBaselineSchema.parse({ conversations: [], routines: [], agents: [], board: [], assistant }),
 			);
 		expect(baseline({ sources: [row] })).toContain("source: GitHub notifications 3 unread");
-		expect(baseline({ watchers: [row] })).toContain("watcher: GitHub notifications 3 unread");
 		expect(baseline({})).toEqual([]);
 	});
 
@@ -232,28 +219,5 @@ describe("the plugin reads a Gateway that says watcher", () => {
 		const text = inboxText(answer, "all");
 		expect(text.split("\n").filter((line) => line.includes("tell:"))).toEqual(["  tell: quietly"]);
 		expect(text.match(/Split the pane reader/g)).toHaveLength(2);
-	});
-
-	// Remove 2026-11-28 with the older Gateway's words.
-	it("reads an older Gateway's wake as now and its inbox as nothing to tell", () => {
-		const item = { id: "1", title: "Split the pane reader", fields: {}, at: 0 };
-		const answer = InboxListAnswerSchema.parse({
-			kind: "listed",
-			lists: [
-				{
-					label: "GitHub",
-					items: [
-						{ ...item, decision: "wake" },
-						{ ...item, id: "2", decision: "inbox" },
-					],
-				},
-			],
-		});
-
-		const told = inboxText(answer, "all")
-			.split("\n")
-			.filter((line) => line.includes("tell:"));
-
-		expect(told).toEqual(["  tell: now"]);
 	});
 });

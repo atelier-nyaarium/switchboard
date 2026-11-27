@@ -174,6 +174,7 @@ describe("the device tool's text", () => {
 							value: 42.4,
 						},
 					],
+					payloads: [],
 				},
 			},
 		);

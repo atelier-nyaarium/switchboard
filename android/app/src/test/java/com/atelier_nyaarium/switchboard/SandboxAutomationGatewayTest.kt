@@ -48,7 +48,6 @@ class SandboxAutomationGatewayTest {
 		val stale = gateway.put("sandbox", "new", mention("quietly"), 0L)
 		val edited = gateway.put("sandbox", "new", mention("quietly"), 1L)
 
-		assertEquals("GitHub: reason is mention", added.row?.sentence)
 		assertEquals(listOf(false, 1L), listOf(stale.stored, stale.row?.revision))
 		assertEquals(listOf(true, 2L), listOf(edited.stored, edited.revision))
 		assertEquals(before + "new", gateway.rows("sandbox").map { it.id })
@@ -177,7 +176,6 @@ class SandboxAutomationGatewayTest {
 	@Test
 	fun theSandboxShowsOwnerUnitsAndPreviewFillsAFunctionValue() = runBlocking {
 		val gateway = gateway()
-		val crossing = Automation(enabled = true, trigger = CROSSING, actions = listOf(AutomationAction.TellAssistant("now")))
 		val preview = gateway.preview(
 			"sandbox",
 			ConsoleOp.AutomationPreview(
@@ -191,7 +189,6 @@ class SandboxAutomationGatewayTest {
 		val temperature = gateway.preview("sandbox", ConsoleOp.AutomationPreview(trigger = warmHall.automation.trigger, text = "It is {value}."))
 		val previewValue = temperature?.names?.single { it.name == "value" }?.shown
 
-		assertEquals("Outside thermometer temperature goes above 78.8 °F", sandboxSentence(crossing))
 		assertEquals("Good evening", preview?.filled)
 		assertEquals("35.2 °F", previewValue)
 		assertEquals("It is 35.2 °F.", temperature?.filled)

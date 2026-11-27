@@ -116,7 +116,7 @@ export function consoleIds(readers: ConsoleReaders): ConsoleIds {
 			id: record.id,
 			label: readers.automations()?.sentenceOf(record.id) ?? record.id,
 		})),
-		sources: (readers.assistant().sources ?? []).map((entry) => ({ id: entry.id, label: entry.label })),
+		sources: readers.assistant().sources.map((entry) => ({ id: entry.id, label: entry.label })),
 		definitions: SHIPPED_DEFINITIONS.map((definition) => definition.key),
 	};
 }
@@ -447,7 +447,7 @@ export function consoleEntities(readers: ConsoleReaders): ConsoleEntity[] {
 					description: "Every source and its health.",
 					type: "List<SourceSummary>",
 					get: () =>
-						(readers.assistant().sources ?? []).map((entry) => ({
+						readers.assistant().sources.map((entry) => ({
 							id: entry.id,
 							label: entry.label,
 							enabled: entry.enabled,

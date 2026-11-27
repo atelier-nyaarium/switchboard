@@ -11,5 +11,6 @@
 			"spec": { "kind": "number", "field": "battery", "label": "Battery", "unit": "%", "decimals": 0 }
 		}
 	],
-	"heardAt": 1793660000000
+	"heardAt": 1793660000000,
+	"payloads": []
 }

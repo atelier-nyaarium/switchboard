@@ -102,15 +102,11 @@ describe("the assistant's session through the console", () => {
 			["sensors", false],
 		]);
 		expect(placed.sources?.[0]?.secret).toBeTruthy();
-		expect(placed.watchers?.map((watcher) => [watcher.id, watcher.rules?.rules])).toEqual([
-			["github", []],
-			["sensors", []],
-		]);
 		expect(forgot.ok, JSON.stringify(forgot)).toBe(false);
 		expect(h.host.ops.length).toBe(opsBefore);
 	});
 
-	it("moves to itself with its automations, and answers an older app's rule write as retired", async () => {
+	it("moves to itself with its automations", async () => {
 		const condition = { field: "repository", test: "is", value: " atelier/switchboard " } as const;
 		const put = (
 			await h.phone.value({
@@ -128,13 +124,6 @@ describe("the assistant's session through the console", () => {
 				baseRevision: 0,
 			})
 		).result as ConsoleAutomationPutResult;
-		const retired = (
-			await h.phone.value({
-				kind: "assistant_rule_put",
-				watcherId: "github",
-				rule: { id: "old", conditions: [condition], action: "wake", revision: 0 },
-			})
-		).result;
 		const before = await assistant({ kind: "assistant_state" });
 		if (!before.workdir) throw new Error("the assistant has no workdir to carry");
 		const listed = (await h.phone.value({ kind: "automation_list" })).result as ConsoleAutomationListResult;
@@ -156,12 +145,11 @@ describe("the assistant's session through the console", () => {
 			},
 		});
 		expect(sensors.stored).toBe(false);
-		expect(retired).toMatchObject({ stored: false, reason: expect.stringContaining("update the app") });
 		expect(listed.automations.map((row) => row.id)).toEqual(["carried"]);
 		expect(after.automations).toEqual(listed.automations);
 	});
 
-	it("grants a source its entries, by either app's op, and refuses a source it does not know", async () => {
+	it("grants a source its entries, and refuses a source it does not know", async () => {
 		const granted = await assistant({
 			kind: "assistant_source_grants",
 			sourceId: "github",
@@ -169,19 +157,16 @@ describe("the assistant's session through the console", () => {
 		});
 		await assistant({ kind: "assistant_source_grants", sourceId: "gmail", entryIds: ["x"] });
 		await assistant({ kind: "assistant_source_grants", sourceId: "github", entryIds: ["a", "b"] });
-		const older = await assistant({ kind: "assistant_watcher_grants", watcherId: "github", entryIds: ["older"] });
 		const after = await assistant({ kind: "assistant_state" });
 
 		expect(granted.sources?.[0]?.grants).toEqual(["gh-token"]);
-		expect(older.sources?.[0]?.grants).toEqual(["older"]);
 		expect(after.sources?.map((source) => source.id)).toEqual(["github", "sensors"]);
 	});
 
-	it("switches a source off and on by either app's op, refuses a check of one that is off, and deletes an automation at the revision it read", async () => {
+	it("switches a source off and on, refuses a check of one that is off, and deletes an automation at the revision it read", async () => {
 		const off = await assistant({ kind: "assistant_source_enabled", sourceId: "github", enabled: false });
 		const checked = await h.phone.value({ kind: "assistant_source_check", sourceId: "github" });
-		const older = await h.phone.value({ kind: "assistant_watcher_check", watcherId: "github" });
-		const on = await assistant({ kind: "assistant_watcher_enabled", watcherId: "github", enabled: true });
+		const on = await assistant({ kind: "assistant_source_enabled", sourceId: "github", enabled: true });
 		const listed = (await h.phone.value({ kind: "automation_list" })).result as ConsoleAutomationListResult;
 		const revision = listed.automations.find((row) => row.id === "carried")?.revision ?? 0;
 		const remove = async (baseRevision: number) =>
@@ -192,7 +177,7 @@ describe("the assistant's session through the console", () => {
 		const after = (await h.phone.value({ kind: "automation_list" })).result as ConsoleAutomationListResult;
 
 		expect([off.sources?.[0]?.enabled, on.sources?.[0]?.enabled]).toEqual([false, true]);
-		expect([checked, older].map((answer) => JSON.stringify(answer).includes("is disabled"))).toEqual([true, true]);
+		expect(JSON.stringify(checked).includes("is disabled")).toBe(true);
 		expect([stale.deleted, deleted.deleted]).toEqual([false, true]);
 		expect(after.automations).toEqual([]);
 	});
@@ -346,12 +331,12 @@ describe("a source event reaching the assistant", () => {
 						(entry) =>
 							entry.kind === "plugin_action" &&
 							entry.pluginId === "assistant" &&
-							entry.actionType === "watchers-changed",
+							entry.actionType === "sources-changed",
 					),
 			"the quiet row a moved count sends",
 		);
 
-		expect(signaled.payload).toEqual({ watcherId: "fake" });
+		expect(signaled.payload).toEqual({ sourceId: "fake" });
 		expect(woken).toMatchObject({ from: "", session_id: "" });
 		expect(woken.body).toContain("id: e1");
 		expect(woken.body).toContain("Fake source");

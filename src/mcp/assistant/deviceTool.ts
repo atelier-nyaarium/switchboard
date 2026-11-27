@@ -16,8 +16,7 @@ export function deviceText(op: DeviceToolOp, result: ActionRunResult): ToolText 
 	const answer = result.kind === "ok" ? DEVICE_TOOL_RESULTS[op.kind].safeParse(result.answer).data : undefined;
 	const failed = result.kind !== "ok" || answer === undefined || answer.kind === "refused";
 	if (answer?.kind === "sensor") {
-		const display = answer.temperatureUnit ?? "C";
-		const { temperatureUnit: _temperatureUnit, ...sensor } = answer;
+		const { temperatureUnit: display, ...sensor } = answer;
 		const readings = sensor.readings.map((reading) => {
 			const shown = readingInDisplay(reading, display);
 			return {

@@ -91,7 +91,6 @@ import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
 import com.atelier_nyaarium.switchboard.proto.AutomationPreviewHole
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
-import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationListResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import kotlinx.serialization.json.JsonPrimitive
@@ -379,7 +378,7 @@ class AutomationDraftTest {
 			},
 		)
 		val listed = GatewayList.Listed(emptyList<AutomationRow>())
-		val serving = AssistantRead.Answered(ConsoleAssistantStateResult(workdir = "~/notes", sources = emptyList()))
+		val serving = AssistantRead.Answered(assistantState(workdir = "~/notes", sources = emptyList()))
 
 		assertEquals(ListEmpty.NoRoster, automationsEmpty(GatewayRegistry(), "sakura"))
 		assertEquals(ListEmpty.Reading, automationsEmpty(registry("sakura" to GatewayList.Unread), "sakura"))
@@ -553,7 +552,7 @@ class AutomationPartsTest {
 			lastRegisteredAt = 1L,
 			automations = GatewayList.Listed(emptyList()),
 			automationServes = SANDBOX_SERVES.takeIf { serves },
-			assistant = AssistantRead.Answered(ConsoleAssistantStateResult(workdir = "~/notes", sources = listOf(source("github")))).takeIf { placed } ?: AssistantRead.Reading,
+			assistant = AssistantRead.Answered(assistantState(workdir = "~/notes", sources = listOf(source("github")))).takeIf { placed } ?: AssistantRead.Reading,
 		)
 		val registry = GatewayRegistry(
 			provenance = RegistryProvenance.Current,
@@ -605,7 +604,7 @@ class AutomationPartsTest {
 				),
 			),
 		)
-		val answered = AssistantRead.Answered(ConsoleAssistantStateResult(sources = github))
+		val answered = AssistantRead.Answered(assistantState(sources = github))
 		val listed = GatewayList.Listed(emptyList<AutomationRow>())
 		val context = { list: GatewayList<AutomationRow>, serves: Boolean, word: AssistantRead, home: AssistantHome ->
 			automationContext(registry(list, serves, word), home, "sakura")

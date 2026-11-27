@@ -14,7 +14,6 @@ import com.atelier_nyaarium.switchboard.proto.AssistantHomeSealed
 import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
 import com.atelier_nyaarium.switchboard.proto.AssistantUnexpectedValues
 import com.atelier_nyaarium.switchboard.proto.AssistantSource
-import com.atelier_nyaarium.switchboard.proto.AssistantWatcher
 import com.atelier_nyaarium.switchboard.proto.AuthorizationPolicy
 import com.atelier_nyaarium.switchboard.proto.ConsoleAssistantStateResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
@@ -380,20 +379,6 @@ internal class SandboxAssistantGateway : AssistantGateway {
 		),
 	)
 
-	/** The second Gateway answers as an older build. */
-	private fun watchers() = sources().map { source ->
-		AssistantWatcher(
-			id = source.id,
-			label = source.label,
-			grants = source.grants,
-			unread = source.unread,
-			fieldSpecs = source.fieldSpecs,
-			secret = source.secret,
-			actions = source.actions,
-			enabled = source.enabled,
-		)
-	}
-
 	override suspend fun automations(gatewayId: String) = sandboxAutomations.list(gatewayId).rows
 
 	override suspend fun automationListing(gatewayId: String) = sandboxAutomations.list(gatewayId)
@@ -401,8 +386,7 @@ internal class SandboxAssistantGateway : AssistantGateway {
 	private fun stateOf(gatewayId: String) = ConsoleAssistantStateResult(
 		workdir = workdir.takeIf { gatewayId == home },
 		team = "host.assistant".takeIf { gatewayId == home },
-		sources = sources().takeIf { gatewayId != SECOND_GATEWAY },
-		watchers = watchers().takeIf { gatewayId == SECOND_GATEWAY },
+		sources = sources(),
 		approveEverySend = approveEverySend,
 		temperatureUnit = temperatureUnit,
 		checkIns = true,

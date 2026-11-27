@@ -11,7 +11,6 @@ import {
 import { launchPlaceOf } from "../../shared/host-spawn.js";
 import { fenced, MIGRATING } from "../../shared/migration-fence.js";
 import { ownerKeyId } from "../../shared/owner-id.js";
-import { type ConsoleAssistantRulesResult, DEFAULT_RULES } from "../../shared/schemasAssistantRules.js";
 import { DELIVERY_OP_KINDS, TOLERATED_DELIVERY_OP_KINDS, VALUE_OP_KINDS } from "../../shared/schemasConsoleOp.js";
 import { isDeviceConsoleOp } from "../../shared/schemasDevices.js";
 import type { RowOrigin } from "../../shared/schemasInbox.js";
@@ -54,8 +53,6 @@ export type { ConsoleHandlerDeps, ConsoleRoutes } from "./consoleTypes.js";
 
 /** Host kill dedupe key. */
 const ASSISTANT_HOME_CONVERSATION = "assistant-home";
-// skew:stored-rules: goes with the rule ops.
-const RULES_RETIRED = "rules became automations; update the app";
 
 export function createConsoleDispatcher({
 	routes,
@@ -570,31 +567,6 @@ export function createConsoleDispatcher({
 
 			case "assistant_temperature_unit":
 				return requireAssistant().setTemperatureUnit(op.temperatureUnit);
-
-			case "assistant_watcher_grants":
-				return requireAssistant().setServiceGrants(op.watcherId, op.entryIds);
-
-			case "assistant_watcher_enabled":
-				return requireAssistant().setSourceEnabled(op.watcherId, op.enabled);
-
-			case "assistant_watcher_check":
-				return requireAssistant().checkSource(op.watcherId, device, opId);
-
-			case "assistant_rule_put":
-			case "assistant_rule_delete":
-			case "assistant_rule_move":
-			case "assistant_otherwise_put":
-				return {
-					stored: false,
-					rules:
-						requireAssistant()
-							.state()
-							.watchers?.find((watcher) => watcher.id === op.watcherId)?.rules ?? DEFAULT_RULES,
-					reason: RULES_RETIRED,
-				} satisfies ConsoleAssistantRulesResult;
-
-			case "assistant_rules_preview":
-				throw new Error(RULES_RETIRED);
 
 			case "assistant_send_answer":
 				return requireAssistant().answerSend(op.requestId, op.decision, op.note);

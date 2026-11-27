@@ -115,7 +115,7 @@ private fun WatchingSection(repo: ChatRepository, state: ChatState, gatewayId: S
 
 @Composable
 private fun RawSection(read: ConsoleDeviceReadResult.Sensor, gatewayId: String) {
-	val raw = payloadView(read.payloads.orEmpty(), gatewayId)
+	val raw = payloadView(read.payloads, gatewayId)
 	Text("Raw", style = MaterialTheme.typography.labelLarge)
 	if (raw == null) {
 		Text("Nothing heard yet", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
