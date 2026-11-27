@@ -121,6 +121,9 @@ internal data class CalleeDraft(
 ) {
 	fun edited(): Boolean = base == 0L || unkeyed(steps) != opened || script?.unread() == true
 
+	/** A re-read of its row would drop it. */
+	fun heldOverRow(): Boolean = edited() || script?.typed() == true
+
 	/** An empty new one holds none. */
 	fun holdsWork(): Boolean = edited() && !(base == 0L && steps.isEmpty())
 }
@@ -167,7 +170,32 @@ internal data class AutomationDraft(
 ) {
 	fun runsDraft(): RunsDraft = runsOf(runs, steps)
 
+	/** Same tree, edited: its script state stays. */
 	fun withRuns(next: RunsDraft): AutomationDraft = headOf(next).let { (head, cards) -> copy(runs = head, steps = cards) }
+
+	/**
+	 * The one swap of its own tree for another body. Script state comes from the new cards unless
+	 * `carried`, and a page open into the old tree closes.
+	 */
+	fun swappedOwn(next: RunsDraft, carried: ScriptEdit? = null, carriedScripted: Boolean = false): AutomationDraft {
+		val (head, cards) = headOf(next)
+		val script = carried ?: scriptOfCards(cards)
+		return copy(
+			runs = head,
+			steps = cards,
+			script = script,
+			scripted = if (carried != null) carriedScripted else script != null,
+			text = text?.takeIf { findStep(steps, it.key) == null },
+			scriptPage = scriptPage?.takeIf { it.tree != null },
+		)
+	}
+
+	/** The one swap of a callee's body; a page open into the old one closes. */
+	private fun swappedCallee(next: CalleeDraft): AutomationDraft = copy(
+		callees = callees + (next.id to next),
+		text = text?.takeIf { treeHolding(it.key) != next.id },
+		scriptPage = scriptPage?.takeIf { it.tree != next.id },
+	)
 
 	private val event: TriggerDraft.Event? get() = trigger as? TriggerDraft.Event
 
@@ -273,34 +301,23 @@ internal data class AutomationDraft(
 		val row = offer.functions?.row(id)
 		val held = callees[id]
 		// An untouched copy follows its row.
-		if (held != null && (held.edited() || row == null || row.revision == held.base)) return copy(inside = inside + id)
+		if (held != null && (held.heldOverRow() || row == null || row.revision == held.base)) return copy(inside = inside + id)
 		row ?: return this
-		return copy(callees = callees + (id to calleeOf(row, offer)), inside = inside + id)
+		return swappedCallee(calleeOf(row, offer)).let { it.copy(inside = it.inside + id) }
 	}
 
 	/** Untouched copies whose row moved, read again. */
 	fun freshened(offer: AutomationOffer): AutomationDraft {
 		val moved = callees.values.mapNotNull { held ->
-			offer.functions?.row(held.id)?.takeIf { !held.edited() && held.script?.typed() != true && it.revision != held.base }
+			offer.functions?.row(held.id)?.takeIf { !held.heldOverRow() && it.revision != held.base }
 		}
-		if (moved.isEmpty()) return this
-		val ids = moved.map { it.id }.toSet()
-		return copy(
-			callees = callees + moved.associate { it.id to calleeOf(it, offer) },
-			text = text?.takeIf { treeHolding(it.key) !in ids },
-			scriptPage = scriptPage?.takeIf { it.tree !in ids },
-		)
+		return moved.fold(this) { draft, row -> draft.swappedCallee(calleeOf(row, offer)) }
 	}
 
 	/** True means edits dropped. */
 	fun reloadedCallee(row: AutomationFunctionRow, offer: AutomationOffer): Pair<AutomationDraft, Boolean> {
 		val held = callees[row.id] ?: return this to false
-		val reloaded = copy(
-			callees = callees + (row.id to calleeOf(row, offer)),
-			text = text?.takeIf { treeHolding(it.key) != row.id },
-			scriptPage = scriptPage?.takeIf { it.tree != row.id },
-		)
-		return reloaded to held.edited()
+		return swappedCallee(calleeOf(row, offer)) to held.edited()
 	}
 
 	fun withNewCallee(key: String, name: String): AutomationDraft {
@@ -474,13 +491,7 @@ internal fun automationDraftOf(row: AutomationRow, context: EditContext, display
 	)
 	// Functions only where served.
 	val functions = offer.functions ?: return draft
-	return draft.withRuns(runsDraftOf(row.id, row.automation, functions.rows, offer)).withOwnScript()
-}
-
-/** Stored errors open as text. */
-internal fun AutomationDraft.withOwnScript(): AutomationDraft {
-	val edit = scriptOfCards(steps)
-	return copy(script = edit, scripted = edit != null, scriptPage = null)
+	return draft.swappedOwn(runsDraftOf(row.id, row.automation, functions.rows, offer))
 }
 
 /** The draft's source's fields. */

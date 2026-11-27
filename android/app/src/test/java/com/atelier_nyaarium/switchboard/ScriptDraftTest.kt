@@ -45,6 +45,11 @@ import com.atelier_nyaarium.switchboard.assistant.jumpedTo
 import com.atelier_nyaarium.switchboard.assistant.AutomationSaid
 import com.atelier_nyaarium.switchboard.assistant.SaidAt
 import com.atelier_nyaarium.switchboard.assistant.ScriptEdit
+import com.atelier_nyaarium.switchboard.assistant.ScriptPage
+import com.atelier_nyaarium.switchboard.assistant.TextRef
+import com.atelier_nyaarium.switchboard.assistant.freshBody
+import com.atelier_nyaarium.switchboard.assistant.reloadedFunction
+import com.atelier_nyaarium.switchboard.assistant.withFunctionName
 import com.atelier_nyaarium.switchboard.proto.ScriptName
 import com.atelier_nyaarium.switchboard.proto.ScriptType
 import com.atelier_nyaarium.switchboard.proto.ScriptTypeMember
@@ -389,9 +394,39 @@ class ScriptDraftTest {
 		val page = draft.startedScript(null, "a")
 
 		assertEquals(draft.callees["inner"]?.script, draft.freshened(newer).callees["inner"]?.script)
+		assertEquals(draft.callees["inner"]?.script, draft.openedCallee("inner", newer).callees["inner"]?.script)
 		val once = page.jumpedTo(3)
 		val twice = once.jumpedTo(3)
 		assertEquals(3, twice.scriptPage?.at)
 		assertTrue(twice.scriptPage!!.jumps > once.scriptPage!!.jumps)
+	}
+
+	@Test
+	fun everySwapOfATreeClosesPagesIntoTheOldOneAndOpensAStoredScriptAsText() {
+		val held = opened(listOf(plugStep("on")))
+		val own = held.copy(text = TextRef(held.steps.single().key, "verb"), scriptPage = ScriptPage(null))
+		val broken = functionRow("warm", "Warm", listOf("mine"), steps = listOf(FunctionStep.Unparsed("x(")), revision = 9L)
+		val other = functionRow("other", "Other", emptyList())
+		val reloaded = own.reloadedFunction(broken, own.offered()).first
+		val (withCallee, listed) = withTypedCallee()
+		val calleeKey = withCallee.callees.getValue("inner").steps.single().key
+		val inCallee = withCallee.copy(text = TextRef(calleeKey, "verb"), scriptPage = ScriptPage("inner"))
+		val newer = functionRow("inner", "Inner", emptyList(), steps = listOf(plugStep("off")), revision = 9L)
+		val reloadedCallee = inCallee.reloadedCallee(newer, listed).first
+
+		for (swapped in listOf(own.freshBody(), reloaded, own.pointedTo(other, own.offered().copy(functions = own.offered().functions!!.copy(rows = own.offered().functions!!.rows + other))), reloadedCallee)) {
+			assertNull(swapped.text)
+			assertNull(swapped.scriptPage)
+		}
+		assertEquals("x(", reloaded.scriptOf(null)?.text)
+		assertTrue(reloaded.scripted)
+		assertNull(reloadedCallee.scriptOf("inner"))
+	}
+
+	@Test
+	fun renamingTheFunctionKeepsTheTreesScript() {
+		val typed = opened(listOf(plugStep("on"))).startedScript(null, "a").typedScript(null, "b")
+
+		assertEquals(typed.scriptOf(null), typed.withFunctionName("Hall warmth").scriptOf(null))
 	}
 }

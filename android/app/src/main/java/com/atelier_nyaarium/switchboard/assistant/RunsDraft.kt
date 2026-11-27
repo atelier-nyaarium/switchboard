@@ -403,18 +403,19 @@ internal fun AutomationDraft.pointedTo(row: AutomationFunctionRow, offer: Automa
 	val pointing = pointedAt(runsDraft(), id, row, offer).let { at ->
 		edited?.let { at.copy(base = it.base, params = it.params, steps = it.steps, original = it.original) } ?: at
 	}
-	val placed = withRuns(pointing).let { at -> edited?.script?.let { at.copy(script = it, scripted = edited.scripted) } ?: at.withOwnScript() }
-	return placed.copy(
+	val swapped = swappedOwn(pointing, edited?.script, edited?.scripted == true)
+	return swapped.copy(
 		picking = false,
-		callees = callees - row.id,
-		inside = inside - row.id,
-		text = text?.takeIf { treeHolding(it.key) != row.id },
+		callees = swapped.callees - row.id,
+		inside = swapped.inside - row.id,
+		text = swapped.text?.takeIf { swapped.treeHolding(it.key) != row.id },
+		scriptPage = swapped.scriptPage?.takeIf { it.tree != row.id },
 	)
 }
 
 /** A fresh empty body, a function once named. */
 internal fun AutomationDraft.freshBody(): AutomationDraft =
-	withRuns(RunsDraft.Flat(emptyList())).withOwnScript().copy(picking = false, newFunctionId = null)
+	swappedOwn(RunsDraft.Flat(emptyList())).copy(picking = false, newFunctionId = null)
 
 /** Other users first. */
 /** Other automations, then calling functions. */
@@ -446,7 +447,7 @@ internal fun AutomationDraft.reloadedFunction(row: AutomationFunctionRow, offer:
 		mode = PointMode.SHARED,
 		original = row.function,
 	)
-	return withRuns(reloaded).withOwnScript() to dropped
+	return swappedOwn(reloaded) to dropped
 }
 
 /** A card back as an automation's action; null for any card but a filled action. */
