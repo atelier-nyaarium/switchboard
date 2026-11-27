@@ -100,7 +100,7 @@ internal class WorkspaceDraftStore(private val dir: File, scope: CoroutineScope)
 	private fun hashed(text: String): String =
 		MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
 
-	// FIXME 2026-11-26: drop the flat layout: its read in `load`, its delete in `clear`, and every `*.draft` left in `dir`.
+	// skew:draft-flat-layout: drop the flat layout: its read in `load`, its delete in `clear`, and every `*.draft` left in `dir`.
 	private fun flatFileFor(target: WorkspaceTarget, key: DraftKey): File = File(dir, nameFor(target, key))
 
 	/**

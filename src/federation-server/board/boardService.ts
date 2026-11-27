@@ -39,8 +39,7 @@ type Deps = {
 	pokeOwner?: (domainId: string, revision: number) => void;
 	now?: () => number;
 };
-/** `legacy`: ids with text ranks. */
-type Board = { revision: number; entries: Map<string, BoardEntry>; legacy: Set<string> };
+type Board = { revision: number; entries: Map<string, BoardEntry> };
 type BoardReplay = {
 	hash: string;
 	createdAt: number;
@@ -67,29 +66,8 @@ const actor = (a: BoardActorState): BoardActor =>
 const copy = (b: Board): Board => ({
 	revision: b.revision,
 	entries: new Map([...b.entries].map(([id, e]) => [id, structuredClone(e)])),
-	legacy: b.legacy,
 });
 
-// Remove after 2026-11-13: numbers text ranks in their old order.
-const convertLegacyRanks = (entries: Map<string, BoardEntry>): Set<string> => {
-	const groups = new Map<string | undefined, BoardEntry[]>();
-	for (const e of entries.values()) {
-		const group = groups.get(e.parent) ?? [];
-		group.push(e);
-		groups.set(e.parent, group);
-	}
-	const legacy = new Set<string>();
-	for (const group of groups.values()) {
-		if (group.every((e) => typeof e.rank === "number")) continue;
-		const key = (e: BoardEntry) => String(e.rank);
-		group.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : a.id < b.id ? -1 : 1));
-		group.forEach((e, i) => {
-			e.rank = i + 1;
-			legacy.add(e.id);
-		});
-	}
-	return legacy;
-};
 type Versioned = BoardEntry & { version?: number; sealed?: BoardStoredEntry["sealed"] };
 
 export function createBoardService(deps: Deps) {
@@ -100,9 +78,7 @@ export function createBoardService(deps: Deps) {
 		const entries = new Map<string, BoardEntry>();
 		for (const record of store.list("board.entry"))
 			entries.set(record.clear.id as string, fromStored(record as unknown as BoardStoredEntry, record.version));
-		const legacy = convertLegacyRanks(entries);
-		if (legacy.size > 0) renumber(entries);
-		return { revision: Number(meta?.clear.revision ?? 0), entries, legacy };
+		return { revision: Number(meta?.clear.revision ?? 0), entries };
 	};
 	const stored = (e: BoardEntry): BoardStoredEntry => ({
 		clear: {
@@ -337,7 +313,7 @@ export function createBoardService(deps: Deps) {
 		for (const c of cascaded) touched.add(c.id);
 		renumber(next.entries);
 		// A shifted sibling is written, never observed.
-		const written = new Set([...touched, ...before.legacy]);
+		const written = new Set(touched);
 		for (const [id, e] of next.entries) if (before.entries.get(id)?.rank !== e.rank) written.add(id);
 		next.revision++;
 		const meta = store.get("board.meta", "board.meta");
@@ -446,7 +422,7 @@ export function createBoardService(deps: Deps) {
 	/** Persists unsettled ranks. */
 	const settleRanks = (domainId: string, at = now()): boolean => {
 		const b = load(domainId);
-		if (b.legacy.size === 0 && renumber(copy(b).entries).size === 0) return false;
+		if (renumber(copy(b).entries).size === 0) return false;
 		const result = write(domainId, { expectedRevision: b.revision, ops: [] }, { kind: "owner" }, undefined, at);
 		return result.outcome === BOARD_OUTCOME_APPLIED;
 	};

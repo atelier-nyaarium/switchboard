@@ -23,9 +23,6 @@ import {
 
 export const ACTION_FRONT_ROUTES = { list: "/assistant/actions", run: "/assistant/run" } as const;
 
-// Remove after 2026-11-16: an older plugin's doors.
-export const ACTION_FRONT_LEGACY_ROUTES = { action: "/assistant/action", phone: "/assistant/phone" } as const;
-
 export const ACTION_FRONT_TOOLS = { list: "list_actions", run: "run_action" } as const;
 
 /** Where it runs. */
@@ -43,7 +40,7 @@ export const ACTION_IDS: readonly ActionId[] = [
 	...ASSISTANT_ACTION_KEYS.map((key): SourceActionId => `source/${key}`),
 ];
 
-// Remove 2026-11-28: an older plugin's family word.
+// skew:action-family-word: an older plugin's family word.
 const LEGACY_PREFIX = "watcher/";
 
 /** An id under the family word this build lists. */
@@ -52,7 +49,7 @@ export const listedActionId = (id: unknown): unknown =>
 
 export const ActionIdSchema = z.preprocess(listedActionId, z.enum(ACTION_IDS as [ActionId, ...ActionId[]]));
 
-// Remove 2026-11-28: `watcher` from an older Gateway.
+// skew:action-family-word: `watcher` from an older Gateway.
 /** A listing's family word, either spelling. */
 export const isSourceFamily = (family: string): boolean => family === "watcher" || family === "source";
 

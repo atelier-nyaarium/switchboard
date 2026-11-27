@@ -38,7 +38,7 @@ export interface TmuxOps {
 		decision: PromptDecision,
 		reason?: string,
 	) => Promise<PromptOutcome>;
-	// FIXME 2026-11-24: drop, once every Gateway creates by wake.
+	// skew:create-by-wake: drop, once every Gateway creates by wake.
 	createSession: (op: LegacyCreateSessionOp) => Promise<unknown>;
 	reloadPlugins: (target: TmuxTarget) => Promise<unknown>;
 	killSession: (target: TmuxTarget) => Promise<void>;

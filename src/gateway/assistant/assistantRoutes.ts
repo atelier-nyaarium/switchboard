@@ -6,7 +6,6 @@ import { ASSISTANT_HOLD_PATH, type HoldAnswer, HoldAnswerSchema } from "../../sh
 import { ASSISTANT_TEAM } from "../../shared/assistant-session.js";
 import { CONSOLE_ANSWER_WAIT_MS, CONSOLE_HOP_MARGIN_MS } from "../../shared/console-protocol.js";
 import {
-	ACTION_FRONT_LEGACY_ROUTES,
 	ACTION_FRONT_ROUTES,
 	type ActionListAnswer,
 	type ActionListing,
@@ -17,11 +16,7 @@ import {
 	type DeviceRunRequest,
 	runResultOfSource,
 } from "../../shared/schemasActionFront.js";
-import {
-	type AssistantActionRequest,
-	AssistantActionRequestSchema,
-	type AssistantActionResult,
-} from "../../shared/schemasAssistantActions.js";
+import type { AssistantActionRequest, AssistantActionResult } from "../../shared/schemasAssistantActions.js";
 import type { InboxList, InboxListAnswer, InboxScope } from "../../shared/schemasAssistantInbox.js";
 import {
 	ASSISTANT_SEND_ROUTES,
@@ -29,11 +24,7 @@ import {
 	AssistantSendCollectSchema,
 	AssistantSendWithdrawSchema,
 } from "../../shared/schemasAssistantSend.js";
-import {
-	type PhoneCapabilityRequest,
-	PhoneCapabilityRequestSchema,
-	type PhoneCapabilityResult,
-} from "../../shared/schemasPhoneCapabilities.js";
+import type { PhoneCapabilityRequest, PhoneCapabilityResult } from "../../shared/schemasPhoneCapabilities.js";
 import { ASSISTANT_COMMANDS } from "../../shared/session-commands.js";
 import type { GuardReply, SendCaller, SendGuard } from "./sendGuard.js";
 import { ASSISTANT_WAITS } from "./waits.js";
@@ -105,27 +96,6 @@ export function createAssistantRoutes(deps: AssistantRoutesDeps): Map<string, Ha
 		return ActionRunResultSchema.parse(result ?? { kind: "unavailable", reason: "timeout" });
 	};
 
-	// Remove after 2026-11-16: an older plugin's doors.
-	const legacyAction: Handler = async (req, body) => {
-		const parsed = AssistantActionRequestSchema.safeParse(body);
-		if (!parsed.success) return json({ error: "not an action request" }, 400);
-		const caller = deps.caller(req);
-		if (caller !== "assistant") return json({ kind: caller } satisfies AssistantActionResult, 200);
-		const result = await runSource(parsed.data);
-		return json(
-			result.kind === "ok" ? { kind: "ran", answer: result.answer, recorded: result.recorded } : result,
-			200,
-		);
-	};
-
-	const legacyPhone: Handler = async (req, body) => {
-		const parsed = PhoneCapabilityRequestSchema.safeParse(body);
-		if (!parsed.success) return json({ error: "not a phone capability request" }, 400);
-		const caller = deps.caller(req);
-		if (caller !== "assistant") return json({ kind: caller }, 200);
-		return json(await runPhone(parsed.data), 200);
-	};
-
 	const replied = (reply: GuardReply): Response => json(reply.body, reply.status);
 	const notAssistant = (): Response => json({ error: "only the assistant sends here" }, 403);
 
@@ -162,8 +132,6 @@ export function createAssistantRoutes(deps: AssistantRoutesDeps): Map<string, Ha
 		[INBOX.path, list],
 		[ACTION_FRONT_ROUTES.list, actions],
 		[ACTION_FRONT_ROUTES.run, run],
-		[ACTION_FRONT_LEGACY_ROUTES.action, legacyAction],
-		[ACTION_FRONT_LEGACY_ROUTES.phone, legacyPhone],
 		[ASSISTANT_HOLD_PATH, hold],
 		[ASSISTANT_SEND_ROUTES.send, send],
 		[ASSISTANT_SEND_ROUTES.collect, collect],

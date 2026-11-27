@@ -34,7 +34,7 @@ export function sanitizeDomainId(raw: string): string {
  * The FILE is not dead weight and must not be dropped for having no writer. An install enrolled
  * before the id moved into the allowlist record carries it here and nowhere else, and no migration
  * ever copied it across, so a gateway that loses this reader boots with no Domain and never reaches
- * the Router. Removing it took Mikan off the Router on 2026-09-11. Retire it by writing the id into
+ * the Router. Retire it by writing the id into
  * the allowlist record first, and only then.
  */
 export function resolveLocalDomainId(federationDir: string, installed?: string | null): string | null {

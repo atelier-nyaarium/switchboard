@@ -174,7 +174,7 @@ export function createSessionLifecycleHandlers({
 						spawn,
 						sessionLabel: session,
 						workdirHint: session,
-						// FIXME 2026-11-24: drop the fallback, once every phone names the row's CLI.
+						// skew:create-names-cli: drop the fallback, once every phone names the row's CLI.
 						harness: op.harness ?? UNNAMED_HARNESS,
 					})
 				: null;

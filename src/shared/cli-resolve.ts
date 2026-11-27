@@ -52,7 +52,7 @@ export function resolveCli(word: HarnessWord, available: readonly SessionHarness
 					: { cause: "none_installed" },
 			};
 		},
-		// FIXME 2026-11-23: goes with `unnamed`.
+		// skew:harness-unnamed: goes with `unnamed`.
 		unnamed: (assumed) => ({ harness: assumed }),
 		unpicked: () => {
 			const [only, ...rest] = available;

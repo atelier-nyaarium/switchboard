@@ -42,9 +42,9 @@ const FireBase = {
 	at: z.number().int(),
 	/** What the trigger read, for its texts' holes. */
 	names: NamesSchema.optional(),
-	// Remove 2026-12-16: one tell for the whole fire, as 8.14.87 stored it.
+	// skew:fire-tell: one tell for the whole fire, as 8.14.87 stored it.
 	tell: TellSchema.optional(),
-	// Remove 2026-12-16 with `tell`.
+	// skew:fire-tell: goes with `tell`.
 	waiting: z.literal(true).optional(),
 };
 
@@ -108,7 +108,7 @@ export const FireSchema = z
 export type Fire = z.infer<typeof FireSchema>;
 export type FireNames = NonNullable<Fire["names"]>;
 
-// Remove 2026-12-16: a fire stored by 8.14.84.
+// skew:fire-84-shape: a fire stored by 8.14.84.
 const LegacyFireSchema = z.strictObject({
 	...FireBase,
 	effects: z.record(StepPathSchema, z.enum(["pending", "claimed", "done"])),

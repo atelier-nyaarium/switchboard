@@ -17,7 +17,7 @@ export const LaunchIdSchema = z.string().min(8).max(64);
 
 const Team = z.string().min(1).max(256);
 
-// FIXME 2026-11-24: `launchId` required on every frame, once every daemon and Gateway names it.
+// skew:wake-launch-id: `launchId` required on every frame, once every daemon and Gateway names it.
 export const WakeStageFrameSchema = z.object({
 	type: z.literal("wake_stage"),
 	team: Team,

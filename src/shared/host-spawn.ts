@@ -165,7 +165,7 @@ export function spawnPointFields(state: HostSpawnState) {
 	return {
 		hostSpawns: state.known ? [...state.ids] : [],
 		harnessSpawns,
-		// FIXME 2026-11-23: drop both, once every reader takes `harnessSpawns`.
+		// skew:harness-spawns: drop both, once every reader takes `harnessSpawns`.
 		claudeSpawns: [...(harnessSpawns.claude ?? [])],
 		copilotSpawns: [...(harnessSpawns.copilot ?? [])],
 		...(state.known && state.containers ? { containers: state.containers.map((held) => ({ ...held })) } : {}),

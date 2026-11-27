@@ -1,5 +1,5 @@
 // Stored watcher rules, read once into event automations.
-// Remove 2026-11-28, deleting `assistant-rules.json` and its mark from the data directory.
+// skew:stored-rules: goes with `assistant-rules.json` and its mark in the data directory.
 
 import { z } from "zod";
 import { type DurableStore, writeChecked } from "../../shared/durable-store.js";

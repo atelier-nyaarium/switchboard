@@ -62,14 +62,14 @@ internal data class AutomationOffer(
 	fun labelOf(kind: String): String = actions.find { it.kind == kind }?.label ?: kind
 }
 
-// Remove 2026-11-29: every listing names what it serves.
+// skew:automation-serves: every listing names what it serves.
 /** The event row a listing with no `serves` holds. */
 private val LEGACY_EVENT = TriggerOffer(
 	TRIGGER_EVENT,
 	listOf(AutomationTriggerName("event", "The event; its fields by name"), AutomationTriggerName("source", "The source's name")),
 )
 
-// Remove 2026-11-29: every listing names what it serves.
+// skew:automation-serves: every listing names what it serves.
 /** A listing with no `serves` holds an event and a bare tell. */
 /** `functions` from the same listing as `serves`. */
 internal fun offerOf(serves: AutomationServes?, away: Boolean, functions: List<AutomationFunctionRow>? = null): AutomationOffer =

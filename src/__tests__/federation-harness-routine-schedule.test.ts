@@ -6,7 +6,7 @@ import { nudgeFor } from "../gateway/routines/execution.js";
 import type { Occurrence } from "../gateway/routines/occurrences.js";
 import { GRACE_MS } from "../gateway/routines/runner.js";
 import { type LaunchFailure, ownerLaunchPhrase } from "../shared/launch-notice.js";
-import { type Routine, type RoutineState, routineSessionName } from "../shared/schemasRoutine.js";
+import { occurrenceIdOf, type Routine, type RoutineState, routineSessionName } from "../shared/schemasRoutine.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
 import { type FederationHarness, startFederationHarness } from "../testing/federationHarness.js";
 
@@ -155,14 +155,14 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 	});
 
 	it("hands the session back the words it was issued, and nobody else's", async () => {
-		const mine = await reserved?.post("/routine/session", { occurrenceId: String(FIRST) });
+		const mine = await reserved?.post("/routine/session", { occurrenceId: occurrenceIdOf(routine.id, FIRST) });
 		expect(await mine?.json()).toMatchObject({
 			kind: "instructions",
 			routineName: "Morning triage",
 			text: "Read the overnight failures on main.",
 		});
 
-		const other = await reserved?.post("/routine/session", { occurrenceId: "1" });
+		const other = await reserved?.post("/routine/session", { occurrenceId: occurrenceIdOf(routine.id, 1) });
 		expect(await other?.json()).toEqual({ kind: "unknown_occurrence" });
 
 		// Reading is what the owner is shown, since a session that woke and did something else is not
@@ -197,7 +197,7 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 		expect(after?.routine).toEqual(before?.routine);
 		expect(after?.missed).toEqual(before?.missed);
 		// Answering a run issued before the restart means the snapshot came back too.
-		const answer = await reserved?.post("/routine/session", { occurrenceId: String(FIRST) });
+		const answer = await reserved?.post("/routine/session", { occurrenceId: occurrenceIdOf(routine.id, FIRST) });
 		expect(await answer?.json()).toMatchObject({ kind: "instructions" });
 	});
 
@@ -298,7 +298,7 @@ describe("federation harness: a routine's schedule on a hand-set clock", () => {
 		// What a compaction leaves: the session remembers nothing and asks again. Its runbook moved
 		// two weeks after this run was issued, and that move may not rewrite what was asked of it.
 		const answer = await reserved?.post("/routine/session", {
-			occurrenceId: String(FIRST + 3 * WEEK_MS),
+			occurrenceId: occurrenceIdOf(routine.id, FIRST + 3 * WEEK_MS),
 		});
 		expect(await answer?.json()).toMatchObject({ text: "Read the overnight failures on main." });
 	});

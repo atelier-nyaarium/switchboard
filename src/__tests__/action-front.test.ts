@@ -4,12 +4,7 @@ import { createStatusMemo } from "../gateway/assistant/statusMemo.js";
 import { listingText, phoneText } from "../mcp/assistant/actionFront.js";
 import { inboxText } from "../mcp/assistant/inboxTool.js";
 import type { HoldAnswer } from "../shared/assistant-hold.js";
-import {
-	ACTION_FRONT_LEGACY_ROUTES,
-	ACTION_FRONT_ROUTES,
-	ActionListAnswerSchema,
-	actionListings,
-} from "../shared/schemasActionFront.js";
+import { ACTION_FRONT_ROUTES, ActionListAnswerSchema, actionListings } from "../shared/schemasActionFront.js";
 import { ASSISTANT_ACTION_KEYS } from "../shared/schemasAssistantActions.js";
 import { InboxListAnswerSchema } from "../shared/schemasAssistantInbox.js";
 import { PHONE_CAPABILITIES, PHONE_CAPABILITY_KEYS } from "../shared/schemasPhoneCapabilities.js";
@@ -151,20 +146,8 @@ describe("action routes", () => {
 		expect(await hidden.json()).toEqual({ kind: "not_assistant" });
 		expect(listed).toBe(1);
 
-		const oldWatcher = await invoke(ACTION_FRONT_LEGACY_ROUTES.action, {
-			action: "github_done",
-			callId: "watcher-call-2",
-			params: { ids: ["2"] },
-		});
-		expect(await oldWatcher.json()).toEqual({ kind: "ran", answer: { threads: [] }, recorded: true });
-		const oldPhone = await invoke(ACTION_FRONT_LEGACY_ROUTES.phone, {
-			key: "torch",
-			callId: "phone-call-2",
-			params: {},
-		});
-		expect(await oldPhone.json()).toMatchObject({ kind: "ok" });
-		expect(dispatched).toHaveLength(3);
-		expect(phoneCalls).toHaveLength(2);
+		expect(dispatched).toHaveLength(2);
+		expect(phoneCalls).toHaveLength(1);
 	});
 });
 

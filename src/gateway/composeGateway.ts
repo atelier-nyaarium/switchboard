@@ -83,7 +83,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 	let devices: DeviceStage | undefined;
 	let fields: ComputedFields | undefined;
 	let automations: Automations | undefined;
-	// Remove 2027-01-15 with the stored thresholds.
+	// skew:stored-thresholds: goes with the stored thresholds.
 	let thresholdConversion: ThresholdConversion | undefined;
 	const pendingKeys = new Set<string>();
 	let workflows: WorkflowsStage | undefined;

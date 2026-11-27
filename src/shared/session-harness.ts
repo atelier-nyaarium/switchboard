@@ -31,7 +31,7 @@ export type SessionIdPolicy =
 /** A CLI word as it arrived, read once. */
 export type HarnessWord =
 	| { readonly read: "named"; readonly harness: SessionHarness }
-	// FIXME 2026-11-23: delete `unnamed`, once every sender names its CLI.
+	// skew:harness-unnamed: delete `unnamed`, once every sender names its CLI.
 	| { readonly read: "unnamed"; readonly assumed: SessionHarness }
 	/** The place's only CLI, once it reports. */
 	| { readonly read: "unpicked" }

@@ -32,7 +32,7 @@ const RecordSchema = z.object({
 	team: z.string(),
 	/** Absent on a launch no send joined. */
 	address: z.string().optional(),
-	// FIXME 2026-11-24: required, once no record predates it.
+	// skew:launch-record-id: required, once no record predates it.
 	launchId: z.string().optional(),
 	created: z.boolean(),
 	/** The owner asked for it: never given up or forgotten. */

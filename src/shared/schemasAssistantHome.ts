@@ -17,7 +17,7 @@ const version = z.number().int().positive();
 export const AssistantHomeCarriedWatcherSchema = z
 	.object({
 		id: z.string().min(1).max(64),
-		// Remove 2026-11-28: an older Gateway reads rules.
+		// skew:stored-rules: an older Gateway reads rules.
 		rules: AssistantWatcherRulesSchema.nullish(),
 		/** Its standing grant's entry. */
 		grant: z.string().min(1).max(64).nullable(),
@@ -40,14 +40,14 @@ export const AssistantHomeCarriedIntegrationSchema = z
 export const AssistantHomeCarriedSchema = z
 	.object({
 		approveEverySend: z.boolean(),
-		// Required starting 2026-11-27.
+		// skew:home-temperature-unit.
 		temperatureUnit: TemperatureUnitSchema.nullish(),
 		watchers: z.array(AssistantHomeCarriedWatcherSchema).max(WATCHERS_MAX),
 		/** The sources' event automations; unset from an older phone or home. */
 		automations: z.array(CarriedAutomationSchema).max(AUTOMATIONS_MAX).nullish(),
 		/** Unset from older phone. */
 		functions: z.array(CarriedFunctionSchema).max(FUNCTIONS_MAX).nullish(),
-		// Required starting 2026-11-15. Null from a phone that read an older Gateway.
+		// skew:home-integrations: null from a phone that read an older Gateway.
 		integrations: z.array(AssistantHomeCarriedIntegrationSchema).nullish(),
 	})
 	.meta({ id: "AssistantHomeCarried" });

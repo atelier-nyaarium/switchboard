@@ -549,29 +549,6 @@ describe("router board service", () => {
 			expect(order(service)).toEqual(["p:1", "w:2", "x:3"]);
 			registry.close();
 		});
-
-		it("numbers ranks stored as text in their old order, and the sweep stores them", () => {
-			const { service, registry } = make();
-			service.write(
-				"a",
-				{ expectedRevision: 0, ops: ["one", "two", "three"].map((id) => entry(id)) },
-				{ kind: "owner" },
-			);
-			const store = registry.for("a");
-			for (const [id, rank] of [
-				["one", "zzV"],
-				["two", "V"],
-				["three", "zl"],
-			]) {
-				const record = store.get("board.entry", id)!;
-				store.put("board.entry", id, record.version, { ...record, clear: { ...record.clear, rank } } as never);
-			}
-			expect(order(service)).toEqual(["two:1", "three:2", "one:3"]);
-			expect(service.settleRanks("a")).toBe(true);
-			expect(store.get("board.entry", "one")?.clear.rank).toBe(3);
-			expect(service.settleRanks("a")).toBe(false);
-			registry.close();
-		});
 	});
 
 	it("refuses assignments to missing sessions", () => {

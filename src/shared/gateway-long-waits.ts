@@ -7,8 +7,6 @@ const LONG_WAITS = [
 	"POST /vault/askpass",
 	"POST /assistant/send",
 	"POST /assistant/run",
-	// Remove after 2026-11-16: an older plugin's door.
-	"POST /assistant/phone",
 ] as const;
 
 export type GatewayLongWaitRoute = (typeof LONG_WAITS)[number];

@@ -33,7 +33,7 @@ internal enum class ProseRefusal(val answer: ListAnswer<Nothing>) {
 	/** Every build serves it: a refusal is a fault. */
 	FAULT(ListAnswer.Unreachable),
 
-	// Remove 2026-11-29: the token alone says not served.
+	// skew:automation-serves: the token alone says not served.
 	/** An older build lacks it. */
 	OLDER_BUILD(ListAnswer.NotServed),
 }

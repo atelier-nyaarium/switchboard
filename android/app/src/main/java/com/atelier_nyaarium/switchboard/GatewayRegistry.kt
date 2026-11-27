@@ -369,7 +369,7 @@ internal fun spawnContainerOf(row: ContainerState): SpawnContainer {
 	)
 }
 
-// FIXME 2026-11-23: drop, with both old lists.
+// skew:gateway-old-lists: drop, with both old lists.
 /** An older Gateway's lists. With no Claude list it ran Claude on every host spawn point. */
 private fun legacySpawns(claude: List<String>?, copilot: List<String>?): Map<SessionHarness, List<String>> =
 	mapOf(

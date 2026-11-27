@@ -99,7 +99,7 @@ enum class SessionHarness(
 sealed interface HarnessWord {
 	data class Named(val harness: SessionHarness) : HarnessWord
 
-	// FIXME 2026-11-23: delete `Unnamed`, once every sender names its CLI.
+	// skew:harness-unnamed: delete `Unnamed`, once every sender names its CLI.
 	data class Unnamed(val assumed: SessionHarness) : HarnessWord
 
 	/** A create that named none; its place resolves it. */

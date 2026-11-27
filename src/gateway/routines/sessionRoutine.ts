@@ -25,17 +25,17 @@ type Found =
 
 /**
  * The caller's run an id names. Both questions resolve here, so a session cannot read one run and
- * report another. A bare instant, from a nudge in flight, counts only when it names one run.
+ * report another. An id names its routine and its instant.
  */
 function findOccurrence(rows: Occurrence[], team: string, occurrenceId: string): Found {
 	const mine = rows.filter((row) => row.team === team && row.snapshot !== undefined);
 	if (mine.length === 0) return { kind: "no_routine" };
 
 	const named = parseOccurrenceId(String(occurrenceId));
-	// A bare instant is a nudge queued before ids named the routine; remove 2026-11-24.
 	const names = (row: Occurrence) =>
+		named.routineId !== undefined &&
 		String(row.scheduledAt) === named.scheduledAt &&
-		(named.routineId === undefined || row.routineId === named.routineId);
+		row.routineId === named.routineId;
 	const held = mine.filter(names);
 	if (held.length === 1) return { kind: "held", row: held[0] as Occurrence };
 	if (held.length > 1) return { kind: "unknown_occurrence" };

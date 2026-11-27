@@ -1729,7 +1729,7 @@ ${entries}
 sealed interface HarnessWord {
 ${INDENT}data class Named(val harness: SessionHarness) : HarnessWord
 
-${INDENT}// FIXME 2026-11-23: delete \`Unnamed\`, once every sender names its CLI.
+${INDENT}// skew:harness-unnamed: delete \`Unnamed\`, once every sender names its CLI.
 ${INDENT}data class Unnamed(val assumed: SessionHarness) : HarnessWord
 
 ${INDENT}/** A create that named none; its place resolves it. */

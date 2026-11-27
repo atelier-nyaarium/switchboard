@@ -54,7 +54,7 @@ export type { ConsoleHandlerDeps, ConsoleRoutes } from "./consoleTypes.js";
 
 /** Host kill dedupe key. */
 const ASSISTANT_HOME_CONVERSATION = "assistant-home";
-// Remove 2026-11-28 with the rule ops.
+// skew:stored-rules: goes with the rule ops.
 const RULES_RETIRED = "rules became automations; update the app";
 
 export function createConsoleDispatcher({

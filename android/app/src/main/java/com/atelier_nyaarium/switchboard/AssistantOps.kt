@@ -76,7 +76,7 @@ internal interface AssistantHost {
 internal fun sourcesOf(state: ConsoleAssistantStateResult): List<AssistantSource> =
 	state.sources ?: state.watchers.orEmpty().map { it.toSource() }
 
-// Remove 2026-11-28: an older Gateway's watchers.
+// skew:watchers-field: an older Gateway's watchers.
 private fun AssistantWatcher.toSource(): AssistantSource = AssistantSource(
 	id = id,
 	label = label,
@@ -96,7 +96,7 @@ private fun AssistantWatcher.toSource(): AssistantSource = AssistantSource(
 	triggers = id != "sensors",
 )
 
-// Remove 2026-11-29 with its readers: the not-served token says what a Gateway serves.
+// skew:automation-serves: the not-served token says what a Gateway serves.
 /** An older build answers `watchers` alone. */
 internal fun servesSources(state: ConsoleAssistantStateResult?): Boolean = state?.sources != null
 
@@ -114,7 +114,7 @@ internal fun saysOlderBuild(read: AssistantRead): Boolean = when (read) {
 
 private val NO_RULES = AssistantWatcherRules(emptyList(), AssistantRuleOtherwise("inbox", 0L), 0L)
 
-// Remove 2026-11-28: an older Gateway reads rules.
+// skew:stored-rules: an older Gateway reads rules.
 /** Unconditioned automation is the fallback. */
 internal fun rulesOf(sourceId: String, events: List<AutomationRow>): AssistantWatcherRules {
 	val waking = events.mapNotNull { row ->
@@ -143,7 +143,7 @@ internal fun carriedOf(
 ): AssistantHomeCarried {
 	val events = automations?.filter { it.automation.trigger is AutomationTrigger.Event }
 	val carried = events?.map { CarriedAutomation(it.id, it.automation) }
-	// Remove 2026-11-28: an older Gateway's rules.
+	// skew:stored-rules: an older Gateway's rules.
 	val held = state.watchers.orEmpty().associate { it.id to it.rules }
 	return AssistantHomeCarried(
 		approveEverySend = state.approveEverySend ?: true,
@@ -629,7 +629,7 @@ internal class AssistantOps(
 	suspend fun setTemperatureUnit(gatewayId: String, unit: String): AssistantAnswer =
 		carriedSetting(gatewayId, ConsoleOp.AssistantTemperatureUnit(unit))
 
-	// Remove 2026-11-28: an older build knows the watcher kinds alone.
+	// skew:watcher-kinds: an older build knows the watcher kinds alone.
 	private fun sourceOp(gatewayId: String, source: ConsoleOp, watcher: ConsoleOp): ConsoleOp =
 		if (servesSources(state.value.gateways.assistantRead(gatewayId))) source else watcher
 

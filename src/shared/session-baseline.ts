@@ -73,7 +73,7 @@ export const SessionBaselineSchema = z.object({
 					z.object({ kind: z.literal("none") }),
 				])
 				.optional(),
-			// Remove 2026-11-28: the Gateway then sends `sources`.
+			// skew:baseline-sources: the Gateway then sends `sources`.
 			watchers: z.array(BaselineSourceSchema).optional(),
 			sources: z.array(BaselineSourceSchema).optional(),
 		})

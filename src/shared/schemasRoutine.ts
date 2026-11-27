@@ -31,7 +31,7 @@ export type RoutineTargetKind = (typeof ROUTINE_TARGET_KINDS)[number];
 
 export const RoutineTargetSchema = z
 	.object({
-		/** A check-in runs in the assistant's session. Absent means spawn. Required from 2026-11-07. */
+		/** A check-in runs in the assistant's session. Absent means spawn. skew:routine-kind. */
 		kind: z.enum(ROUTINE_TARGET_KINDS).meta({ id: "RoutineTargetKind" }).optional(),
 		/** A spawn point here. A check-in keeps the assistant's, so an older phone decodes it. */
 		spawn: z.string().min(1).max(128),
@@ -149,7 +149,7 @@ export const RoutineStateSchema = z
 export const ConsoleRoutineListResultSchema = z
 	.object({
 		routines: z.array(RoutineStateSchema),
-		// FIXME 2026-11-23: remove. Older apps require it.
+		// skew:routine-zone: remove. Older apps require it.
 		zone: z.string().min(1).optional(),
 	})
 	.meta({ id: "ConsoleRoutineListResult" });

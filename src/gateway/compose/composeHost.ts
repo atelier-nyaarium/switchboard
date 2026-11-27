@@ -137,7 +137,7 @@ export function composeHost({ sessions, wakeTimeoutMs, ambient, deviceWatch = ()
 					cadenceMs: PRESENCE_PEEK_MS,
 					harness: record.harness,
 					...(sessionId ? { mintedSessionId: sessionId } : {}),
-					// FIXME 2026-11-23: drop, once every daemon reads `mintedSessionId`.
+					// skew:minted-session-id: drop, once every daemon reads `mintedSessionId`.
 					...(sessionId && record.harness === "copilot" ? { copilotSessionId: sessionId } : {}),
 				},
 			];

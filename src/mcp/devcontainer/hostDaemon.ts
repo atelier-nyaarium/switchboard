@@ -291,7 +291,7 @@ async function sendCatalog(opts: { probed?: boolean } = {}): Promise<void> {
 		containers: devContainers.list(),
 		// Every stage and result names its launch.
 		launchIds: true,
-		// FIXME 2026-11-23: drop both, once every Gateway reads `harnessSpawns`.
+		// skew:harness-spawns: drop both, once every Gateway reads `harnessSpawns`.
 		claudeSpawns: harnessSpawns.claude,
 		copilotSpawns: harnessSpawns.copilot,
 	});
@@ -694,7 +694,7 @@ const hostOpRunner = createHostOpRunner({
 	sendKey,
 	answerPrompt: (target, promptId, decision, reason) =>
 		withPane(target, (hands) => answerPrompt(hands, sightOf(target), promptId, decision, reason)),
-	// FIXME 2026-11-24: drop, once every Gateway creates by wake.
+	// skew:create-by-wake: drop, once every Gateway creates by wake.
 	createSession: async ({ target, workdirHint, resumeSessionId, sessionToken, harness, fresh, launchId }) => {
 		let workdir: string | undefined;
 		if (target.kind === "host") {

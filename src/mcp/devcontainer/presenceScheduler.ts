@@ -48,7 +48,7 @@ export function readWatch(
 		unknown: () => null,
 	});
 	if (!harness) return null;
-	// FIXME 2026-11-23: drop the `copilotSessionId` read.
+	// skew:minted-session-id: drop the `copilotSessionId` read.
 	const sessionId = mintedIdOf(harness, entry.mintedSessionId ?? entry.copilotSessionId);
 	return { team: entry.team, cadenceMs: entry.cadenceMs, harness, ...(sessionId ? { sessionId } : {}) };
 }

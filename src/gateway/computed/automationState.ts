@@ -181,7 +181,7 @@ export function restore(raw: unknown, now: number): { state: State; changed: boo
 			const parsed = schema.safeParse(row);
 			return parsed.success ? [parsed.data] : [];
 		});
-	// Remove 2027-01-15: a run time kept on its checkpoint alone.
+	// skew:checkpoint-run-time: a run time kept on its checkpoint alone.
 	const ran = { ...loose.ran };
 	for (const [id, row] of Object.entries(automations)) {
 		if (row.firedAt !== undefined) ran[id] = Math.max(ran[id] ?? 0, row.firedAt);

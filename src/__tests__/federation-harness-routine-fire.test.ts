@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { nudgeFor } from "../gateway/routines/execution.js";
 import type { Occurrence } from "../gateway/routines/occurrences.js";
 import { type LaunchFailure, ownerLaunchPhrase } from "../shared/launch-notice.js";
-import { type Routine, routineSessionName } from "../shared/schemasRoutine.js";
+import { occurrenceIdOf, type Routine, routineSessionName } from "../shared/schemasRoutine.js";
 import { composeSessionName } from "../shared/session-id.js";
 import { attachFakeSession, type FakeSession } from "../testing/fakeSession.js";
 import { type FederationHarness, startFederationHarness } from "../testing/federationHarness.js";
@@ -152,7 +152,7 @@ describe("federation harness: a routine firing on its own", () => {
 			async () => reserved?.inbound.find((frame) => frame.body === nudge),
 			"the edited routine's nudge",
 		);
-		const answer = await reserved?.post("/routine/session", { occurrenceId: String(slot) });
+		const answer = await reserved?.post("/routine/session", { occurrenceId: occurrenceIdOf(drifts.id, slot) });
 		expect(await answer?.json()).toMatchObject({ text: "Do a different thing." });
 	});
 

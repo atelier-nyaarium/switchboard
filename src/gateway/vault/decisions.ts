@@ -52,13 +52,13 @@ const sameHolder = (a: VaultHolder, b: StandingHolder): boolean =>
 
 const GrantsSchema = z.array(VaultGrantSchema);
 
-// Remove 2026-11-28: watcher rows predate services.
+// skew:vault-watcher-grants: watcher rows predate services.
 const asService = (grant: VaultGrant): VaultGrant =>
 	grant.holder.kind === "watcher"
 		? { ...grant, holder: { kind: "service", serviceId: grant.holder.watcherId } }
 		: grant;
 
-/** Stored and answered as `watcher` until 2026-11-28, so the build before services reads it. */
+/** skew:vault-watcher-grants: stored and answered as `watcher`, so the build before services reads it. */
 export const legacyHolder = (grant: VaultGrant): VaultGrant =>
 	grant.holder.kind === "service"
 		? { ...grant, holder: { kind: "watcher", watcherId: grant.holder.serviceId } }

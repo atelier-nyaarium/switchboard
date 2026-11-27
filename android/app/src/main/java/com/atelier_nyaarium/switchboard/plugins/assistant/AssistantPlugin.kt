@@ -50,7 +50,7 @@ class AssistantPlugin : PluginEntry {
 			val gatewayId = runIsolated { gatewayOf(action.team) }.getOrNull() ?: return@PluginActionHandler
 			repo.assistantActOps.onRetract(gatewayId, retract.requestId)
 		})
-		// Remove 2026-12-12: the word before the Gateway's 2026-11-28 flip.
+		// skew:assistant-plugin-word: the word before the Gateway's `sources-changed` flip.
 		host.pluginActions.claim("assistant:watchers-changed", PluginActionHandler {
 			repo.assistantOps.sourcesChanged()
 		})

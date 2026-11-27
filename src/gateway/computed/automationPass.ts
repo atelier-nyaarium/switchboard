@@ -141,7 +141,7 @@ export const TOO_MANY_BESIDE = `more than ${RUN_STRANDS_MAX} steps would run at 
 export const TOO_MANY_KEPT = `more than ${FRAME_VARS_MAX} values would be kept`;
 export const SCRIPT_ERRORS = "its script has errors";
 const MESSAGE_UNREAD = "its message was not read before the restart";
-// Remove 2026-12-16 with the fire's `tell`.
+// skew:fire-tell: goes with the fire's `tell`.
 export const untold = ({ tell: _tell, waiting: _waiting, ...rest }: Fire): Fire => rest;
 
 /** `unowned` takes the rest. */
@@ -772,7 +772,7 @@ export function createPass(ports: PassPorts): {
 				continue;
 			}
 			const body = ports.bodyOf(fire) as Automation;
-			// Remove 2026-12-16: the one tell 8.14.87 stored for a whole fire, told as it stands.
+			// skew:fire-tell: the one tell 8.14.87 stored for a whole fire, told as it stands.
 			if (fire.tell && !input.home) {
 				log = logged(log, tellRow(fire, "refused", NOT_HOME));
 				fire = untold(fire);

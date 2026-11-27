@@ -116,7 +116,7 @@ export type HostOp =
 	| { kind: "containerStart"; project: string; dedupKey?: string }
 	| { kind: "containerStop"; project: string; dedupKey?: string };
 
-// FIXME 2026-11-24: remove, once every Gateway creates through the wake.
+// skew:create-by-wake: remove, once every Gateway creates through the wake.
 export interface LegacyCreateSessionOp {
 	kind: "createSession";
 	target: TmuxTarget;

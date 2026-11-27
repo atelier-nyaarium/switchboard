@@ -59,7 +59,7 @@ internal data class ActionOffer(
 	fun param(name: String): ParamOffer? = params.find { it.name == name }
 }
 
-// Remove 2026-11-29: a Gateway that names no kinds.
+// skew:automation-serves: a Gateway that names no kinds.
 /** A tell with no message. */
 internal val DEFAULT_TELL = ActionOffer(
 	kind = ACTION_TELL,

@@ -17,7 +17,7 @@ export type LocalReply = { kind: "owner"; ownerId: string } | { kind: "conversat
 export type JobContract =
 	| { kind: "local"; reply: LocalReply }
 	| { kind: "outbound"; reply: LocalReply; dstDomainId: string | null }
-	// FIXME 2026-11-23: `reader` required, once every Gateway names it.
+	// skew:reply-reader: `reader` required, once every Gateway names it.
 	| { kind: "inbound"; route: ReturnRoute; dstDomainId: string | null; reader?: ReplyReader };
 
 export function dstDomainOf(contract: JobContract): string | null {

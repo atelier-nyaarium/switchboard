@@ -368,7 +368,7 @@ export function createWebSocketHandlers({
 						)
 					: [];
 				if (held.length > 0) {
-					// FIXME 2026-11-20: drop `=== undefined`, which lets a plugin naming its agent replace an older one.
+					// skew:agent-socket-replace: drop `=== undefined`, which lets a plugin naming its agent replace an older one.
 					const reload =
 						ws.data.agentPid !== undefined &&
 						held.every(
@@ -531,7 +531,7 @@ export function createWebSocketHandlers({
 							SESSION_HARNESSES.map((harness) => [harness, sent.data[harness] ?? []]),
 						);
 					} else {
-						// FIXME 2026-11-23: drop, once every daemon sends `harnessSpawns`.
+						// skew:harness-spawns: drop, once every daemon sends `harnessSpawns`.
 						// Claude everywhere.
 						hostSpawnPoints.harnessSpawns = {
 							claude: Array.isArray(msg.claudeSpawns)

@@ -342,7 +342,7 @@ internal class AutomationOps(
 			}
 		}
 		val read = reads.list(TAG, gatewayId, call) ?: return
-		// Remove 2026-11-29: with the prose shim.
+		// skew:automation-serves: with the prose shim.
 		val older = saysOlderBuild(state.value.gateways.assistantRead(gatewayId))
 		val answer = if (read == ListAnswer.NotServed && prose && !older) ListAnswer.Unreachable else read
 		state.update { held ->

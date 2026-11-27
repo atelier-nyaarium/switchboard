@@ -88,7 +88,7 @@ export const ConsoleOpSchema = z
 			sessionName: z.string().min(1).max(64).optional(),
 			displayLabel: z.string().min(1).max(64).optional(),
 			workdir: z.string().min(1).max(512).optional(),
-			// FIXME 2026-11-23: required, once every phone names it.
+			// skew:console-op-harness: required, once every phone names it.
 			/** Absent means Claude. */
 			harness: z.enum(SESSION_HARNESSES).optional(),
 		}),
@@ -423,7 +423,7 @@ export const ConsoleOpSchema = z
 		/** Gateway-local; survives release. */
 		z.object({ kind: z.literal("assistant_safety"), approveEverySend: z.boolean() }),
 		z.object({ kind: z.literal("assistant_temperature_unit"), temperatureUnit: TemperatureUnitSchema }),
-		// Remove 2026-11-28: an older phone's kinds, through `assistant_watcher_check`.
+		// skew:watcher-kinds: an older phone's kinds, through `assistant_watcher_check`.
 		z.object({
 			kind: z.literal("assistant_watcher_grants"),
 			watcherId: z.string().min(1).max(64),

@@ -244,7 +244,7 @@ const CLOCK_RETRY_MS = 30_000;
 /** Kept for a move back. */
 export const FUNCTION_UNUSED_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
 
-// Remove 2026-11-28: a body stored before triggers had kinds.
+// skew:untyped-trigger: a body stored before triggers had kinds.
 const LegacyBodySchema = z.strictObject({
 	label: z.string(),
 	enabled: z.boolean(),
@@ -362,7 +362,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			};
 			return writeIssue(candidate.body, functions);
 		},
-		// Remove 2026-11-28 with the legacy body.
+		// skew:untyped-trigger: goes with the legacy body.
 		settle: true,
 		label: "automations",
 	});
@@ -633,7 +633,7 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	/** Its own tells alone, a light run; null when it holds none. */
 	const tellsOnly = (fire: Fire, body: Automation | null): Fire | null => {
-		// Remove 2026-12-16 with the fire's `tell`.
+		// skew:fire-tell: goes with the fire's `tell`.
 		if (fire.tell) return { ...fire, steps: {}, active: [] };
 		const own = body ? ownTellPaths(body) : new Set<string>();
 		const kept = Object.entries(fire.steps).filter(([path]) => own.has(path));
@@ -1142,7 +1142,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		const site = siteIn(fire, at.path);
 		const frame = site === null ? undefined : fire.frames?.[site];
 		const fn = frame ? frameFunction(frame) : null;
-		// Remove 2026-12-16: a frame stored before it held its values reads its pointer's.
+		// skew:frame-values: a frame stored before it held its values reads its pointer's.
 		const pointed = body && site !== null && frame?.values === undefined ? callAt(body, site)?.values : undefined;
 		const scope = holeScope(fire.names, fn?.params ?? [], frame?.values ?? pointed, deps.actions?.switchName);
 		if (!frame || !fn || site === null) return scope;

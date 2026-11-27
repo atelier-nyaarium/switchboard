@@ -41,8 +41,6 @@ const ROUTE_WAIT_MS = new Map<string, number>([
 	["/assistant/list", ASSISTANT_WAITS.list],
 	["/assistant/run", PHONE_ROUTE_WAIT_MS],
 	// Remove after 2026-11-16: an older plugin's doors.
-	["/assistant/action", ASSISTANT_WAITS.action],
-	["/assistant/phone", PHONE_ROUTE_WAIT_MS],
 	// Unasked sends wake targets.
 	["/assistant/send", Math.max(SEND_ROUTE_WAIT_CAP_MS, DEFAULT_WAKE_TIMEOUT_MS + POST_WAKE_SETTLE_MS)],
 	["/assistant/send/collect", SEND_ROUTE_WAIT_CAP_MS],
@@ -146,8 +144,6 @@ describe("gateway long waits", () => {
 			"INBOX.path",
 			"ACTION_FRONT_ROUTES.list",
 			"ACTION_FRONT_ROUTES.run",
-			"ACTION_FRONT_LEGACY_ROUTES.action",
-			"ACTION_FRONT_LEGACY_ROUTES.phone",
 			"ASSISTANT_HOLD_PATH",
 			"ASSISTANT_SEND_ROUTES.send",
 			"ASSISTANT_SEND_ROUTES.collect",

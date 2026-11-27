@@ -28,7 +28,7 @@ const ask = (over: {
 			routineName: () => "Morning triage",
 			memory: () => over.memory ?? { text: "", version: 0 },
 		},
-		over.id ?? "1700000000000",
+		over.id ?? occurrenceIdOf("triage", 1_700_000_000_000),
 	);
 
 describe("what a routine's session may ask back", () => {
@@ -71,11 +71,13 @@ describe("what a routine's session may ask back", () => {
 	it("keeps the four failures apart", () => {
 		expect(ask({ team: null }).kind).toBe("unauthenticated");
 		expect(ask({ team: "host.someone-else" }).kind).toBe("no_routine");
-		expect(ask({ id: "1700000009999" }).kind).toBe("unknown_occurrence");
+		expect(ask({ id: occurrenceIdOf("triage", 1_700_000_009_999) }).kind).toBe("unknown_occurrence");
 
 		// The occurrence exists, on a session that is not this one.
 		const theirs = row({ team: "host.routine-other", scheduledAt: 1_700_000_000_001 });
-		expect(ask({ rows: [row(), theirs], id: "1700000000001" }).kind).toBe("wrong_session");
+		expect(ask({ rows: [row(), theirs], id: occurrenceIdOf("triage", 1_700_000_000_001) }).kind).toBe(
+			"wrong_session",
+		);
 	});
 
 	it("does not answer an occurrence that was never prepared", () => {
@@ -83,7 +85,7 @@ describe("what a routine's session may ask back", () => {
 		expect(ask({ rows: [bare] }).kind).toBe("no_routine");
 	});
 
-	it("keeps two check-ins at one instant apart by their routine, and takes a bare instant only when it is unique", () => {
+	it("keeps two check-ins at one instant apart by their routine, and takes no bare instant", () => {
 		const standup = row({ routineId: "standup", team: "host.assistant", snapshot: "ask about standup" });
 		const inbox = row({ routineId: "inbox", team: "host.assistant", snapshot: "read the inbox" });
 		const assistant = (id: string) => ask({ team: "host.assistant", rows: [standup, inbox], id });
@@ -91,7 +93,7 @@ describe("what a routine's session may ask back", () => {
 		expect(assistant(occurrenceIdOf("standup", standup.scheduledAt))).toMatchObject({ text: "ask about standup" });
 		expect(assistant(occurrenceIdOf("inbox", inbox.scheduledAt))).toMatchObject({ text: "read the inbox" });
 		expect(assistant(String(standup.scheduledAt)).kind).toBe("unknown_occurrence");
-		expect(ask({ id: "1700000000000" })).toMatchObject({ kind: "instructions", routineId: "triage" });
+		expect(ask({ id: "1700000000000" }).kind).toBe("unknown_occurrence");
 		expect(ask({ id: occurrenceIdOf("other", 1_700_000_000_000) }).kind).toBe("unknown_occurrence");
 	});
 });
@@ -131,7 +133,7 @@ const file = (over: {
 				return { kind: "filed", occurrence: moved };
 			},
 		},
-		over.id ?? "1700000000000",
+		over.id ?? occurrenceIdOf("triage", 1_700_000_000_000),
 		"apt upgraded, nothing held back",
 		over.history ?? "keys refreshed",
 		over.version ?? 0,
@@ -175,10 +177,12 @@ describe("a routine session filing its own report", () => {
 	it("resolves the caller exactly as the instructions question does", () => {
 		expect(file({ team: null }).answer.kind).toBe("unauthenticated");
 		expect(file({ team: "host.someone-else" }).answer.kind).toBe("no_routine");
-		expect(file({ id: "1700000009999" }).answer.kind).toBe("unknown_occurrence");
+		expect(file({ id: occurrenceIdOf("triage", 1_700_000_009_999) }).answer.kind).toBe("unknown_occurrence");
 
 		const theirs = working({ team: "host.routine-other", scheduledAt: 1_700_000_000_001 });
-		expect(file({ rows: [working(), theirs], id: "1700000000001" }).answer.kind).toBe("wrong_session");
+		expect(file({ rows: [working(), theirs], id: occurrenceIdOf("triage", 1_700_000_000_001) }).answer.kind).toBe(
+			"wrong_session",
+		);
 	});
 
 	it("says each outcome rather than leaving a bare kind", () => {

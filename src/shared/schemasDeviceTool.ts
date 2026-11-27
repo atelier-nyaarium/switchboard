@@ -99,7 +99,7 @@ export const DEVICE_TOOL_RESULTS = {
 	device_read: z.discriminatedUnion("kind", [
 		okOf(DEVICE_CONSOLE_RESULTS.device_read),
 		memberOf(DEVICE_CONSOLE_RESULTS.device_read, "sensor").extend({
-			// Required starting 2026-11-28.
+			// skew:devices-required.
 			temperatureUnit: TemperatureUnitSchema.optional(),
 		}),
 		Refused,

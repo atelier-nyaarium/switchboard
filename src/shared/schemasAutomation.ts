@@ -341,7 +341,7 @@ export const CarriedFunctionSchema = z
 
 export type CarriedFunction = z.infer<typeof CarriedFunctionSchema>;
 
-// Remove 2026-11-28 with the stored rules.
+// skew:stored-rules: goes with the stored rules.
 /** Each rule that woke, as an automation under its id. */
 export function automationsOfRules(sourceId: string, held: AssistantWatcherRules): CarriedAutomation[] {
 	const wake = (conditions: EventTrigger["conditions"]): Automation =>
@@ -357,7 +357,7 @@ export function automationsOfRules(sourceId: string, held: AssistantWatcherRules
 	return [...carried, { id: `every-${sourceId}`.slice(0, 64), automation: wake([]) }];
 }
 
-// Remove 2026-11-28 with the stored rules.
+// skew:stored-rules: goes with the stored rules.
 /** What wakes now, as an older phone reads and carries it. */
 export function rulesOfAutomations(
 	armed: readonly { id: string; trigger: EventTrigger; when: TellWhen | null }[],
@@ -453,7 +453,7 @@ export const AutomationFunctionRowSchema = z
 		function: FunctionSchema,
 		/** The automations that point at it, in list order. */
 		users: z.array(z.string()).max(AUTOMATIONS_MAX),
-		// Required from 2026-12-10.
+		// skew:function-row-callers.
 		/** The functions that call it. */
 		callers: z.array(z.string()).max(FUNCTIONS_MAX).optional(),
 		/** An automation that reaches it moves with the home. */
@@ -558,7 +558,7 @@ export type AutomationSwitchOffer = z.infer<typeof AutomationSwitchOfferSchema>;
 export const ConsoleAutomationListResultSchema = z
 	.object({
 		automations: z.array(AutomationRowSchema),
-		// Required from 2026-11-29.
+		// skew:automation-serves.
 		/** Absent from a build that holds an event trigger and a tell alone. */
 		serves: z
 			.object({
@@ -586,11 +586,11 @@ export const ConsoleAutomationListResultSchema = z
 						/** The actions a `do` step may name. */
 						steps: z.array(z.string().max(32)).max(16),
 						paramTypes: z.array(z.string().max(16)).max(8),
-						/** The step kinds it runs; absent runs `do` alone. Required from 2026-12-10. */
+						/** The step kinds it runs; absent runs `do` alone. skew:function-serves. */
 						statements: z.array(z.string().max(16)).max(32).optional(),
-						/** It holds a function with no name. Required from 2026-12-10. */
+						/** It holds a function with no name. skew:function-serves. */
 						unnamed: z.boolean().optional(),
-						/** It prints and parses a function as script. Required from 2026-12-10. */
+						/** It prints and parses a function as script. skew:function-serves. */
 						script: z.boolean().optional(),
 					})
 					.meta({ id: "AutomationFunctionServes" })

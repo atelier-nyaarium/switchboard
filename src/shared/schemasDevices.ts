@@ -354,7 +354,7 @@ export const ConsoleDeviceReadResultSchema = z
 			heardAt: z.number().int().nonnegative().optional(),
 			/** Why not current. */
 			stale: z.string().max(200).optional(),
-			// Required starting 2026-11-28.
+			// skew:devices-required.
 			payloads: z.array(DeviceSensorPayloadSchema).max(DEVICE_SENSOR_PAYLOADS_MAX).optional(),
 		}),
 		RefusedAnswerSchema,

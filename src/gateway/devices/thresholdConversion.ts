@@ -1,4 +1,4 @@
-// Remove 2027-01-15: sensor thresholds stored before automations held them.
+// skew:stored-thresholds: sensor thresholds stored before automations held them.
 
 import { z } from "zod";
 import { definitionOf } from "../../shared/device-definitions/index.js";

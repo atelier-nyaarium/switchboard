@@ -190,7 +190,7 @@ export const VaultRequestSchema = z
 		z.object({
 			kind: z.literal("typed"),
 			...requestFields,
-			// Required from 2026-12-03.
+			// skew:vault-required.
 			why: VaultTypedWhySchema.optional(),
 			/** The key's program runs anything; set only true. */
 			runsAnything: z.boolean().optional(),
@@ -211,7 +211,7 @@ export const VaultHolderSchema = z
 		z.strictObject({ kind: z.literal("session"), sessionTarget: z.string().min(1).max(128) }),
 		z.strictObject({ kind: z.literal("routine"), routineId: z.string().min(1).max(64) }),
 		z.strictObject({ kind: z.literal("service"), serviceId: z.string().min(1).max(64) }),
-		// Remove 2026-11-28: a stored row from before services.
+		// skew:vault-watcher-grants: a stored row from before services.
 		z.strictObject({ kind: z.literal("watcher"), watcherId: z.string().min(1).max(64) }),
 	])
 	.meta({ id: "VaultHolder" });

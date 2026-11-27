@@ -40,7 +40,7 @@ export const AssistantWatcherSchema = z
 		unread: z.number().int().nonnegative(),
 		/** More unread than a poll reads. */
 		capped: z.boolean().optional(),
-		// Sent as 0 for older phones; remove 2026-11-02.
+		// skew:watchers-field: sent as 0 for older phones.
 		evicted: z.number().int().nonnegative().optional(),
 		lastSuccessAt: z.number().int().optional(),
 		nextPollAt: z.number().int().optional(),
@@ -48,7 +48,7 @@ export const AssistantWatcherSchema = z
 		stopped: z.string().optional(),
 		/** Testable fields from specs. */
 		fields: z.array(z.string()).optional(),
-		// Required starting 2026-11-07.
+		// skew:watchers-field.
 		fieldSpecs: z.array(AssistantFieldSpecSchema).optional(),
 		rules: AssistantWatcherRulesSchema.optional(),
 		/** Spec-invalid held rules. */
@@ -57,10 +57,10 @@ export const AssistantWatcherSchema = z
 		unexpected: AssistantUnexpectedValuesSchema.optional(),
 		/** The secret it needs, as shown; absent when it needs none. */
 		secret: z.string().max(400).optional(),
-		// Required starting 2026-11-04.
+		// skew:watchers-field.
 		actions: z.array(AssistantActionDescriptorSchema).optional(),
 		/** Disabled polls nothing. */
-		// Required starting 2026-11-12.
+		// skew:watchers-field.
 		enabled: z.boolean().optional(),
 	})
 	.meta({ id: "AssistantWatcher" });
@@ -104,20 +104,20 @@ export const ConsoleAssistantStateResultSchema = z
 		/** The session's folder on this Gateway's host, or null when it lives elsewhere. */
 		workdir: z.string().nullable(),
 		team: z.string().nullable(),
-		// Remove 2026-11-28: an older phone reads it.
+		// skew:watchers-field: an older phone reads it.
 		watchers: z.array(AssistantWatcherSchema).optional(),
-		// Required starting 2026-11-28.
+		// skew:watchers-field.
 		sources: z.array(AssistantSourceSchema).optional(),
 		/** Omitted without send guard. */
 		approveEverySend: z.boolean().optional(),
-		// Required starting 2026-11-28.
+		// skew:assistant-temperature-unit.
 		temperatureUnit: TemperatureUnitSchema.optional(),
 		/** Omitted by a Gateway that cannot hold a check-in. */
 		checkIns: z.boolean().optional(),
-		// Required starting 2026-11-15.
+		// skew:assistant-state-catalogue.
 		integrations: z.array(IntegrationSchema).optional(),
 		/** Catalogue ids this Gateway serves. */
-		// Required starting 2026-11-20.
+		// skew:assistant-state-catalogue.
 		offered: z.array(z.string().min(1).max(64)).max(64).optional(),
 	})
 	.meta({ id: "ConsoleAssistantStateResult" });

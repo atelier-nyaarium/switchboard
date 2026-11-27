@@ -336,7 +336,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 					kind: "plugin_action",
 					session_id: sessionId,
 					pluginId: "assistant",
-					// Becomes `sources-changed` 2026-11-28; every phone then reads both.
+					// skew:sources-changed: becomes `sources-changed`; every phone then reads both.
 					actionType: "watchers-changed",
 					payload: { watcherId: sourceId },
 				},
@@ -473,7 +473,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 			triggers: source.selfTold !== true,
 		};
 	};
-	// Remove 2026-11-28: an older phone's row; it carries these rules on a move.
+	// skew:stored-rules: an older phone's row; it carries these rules on a move.
 	const watcherOf = (source: AssistantSource): AssistantWatcher => {
 		const { triggers: _triggers, ...row } = source;
 		const rules = automations ? rulesOfAutomations(automations.eventsOf(source.id)) : DEFAULT_RULES;
@@ -734,7 +734,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	let homePort: AssistantHomePort | null = null;
 
 	const carriedEvents = (carried: AssistantHomeSealed["carried"]): CarriedAutomation[] => {
-		// Remove 2026-11-28: an older phone carries rules.
+		// skew:stored-rules: an older phone carries rules.
 		const fromRules = (carried?.watchers ?? []).flatMap((source) =>
 			source.rules ? automationsOfRules(source.id, source.rules) : [],
 		);

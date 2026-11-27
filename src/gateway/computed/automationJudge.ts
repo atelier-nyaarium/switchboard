@@ -66,9 +66,9 @@ export type AutomationIntent =
 	/** Null functions: older phone. */
 	| { kind: "carry"; rows: readonly CarriedAutomation[]; functions: readonly CarriedFunction[] | null }
 	| { kind: "sweep"; ids: readonly string[] }
-	// Remove 2026-11-28 with the stored rules.
+	// skew:stored-rules: goes with the stored rules.
 	| { kind: "adoption"; rows: readonly CarriedAutomation[] }
-	// Remove 2027-01-15 with the stored thresholds.
+	// skew:stored-thresholds: goes with the stored thresholds.
 	/** One sensor's stored alerts, as plain automations. */
 	| { kind: "conversion"; prefix: string; rows: ReadonlyMap<string, Automation> };
 

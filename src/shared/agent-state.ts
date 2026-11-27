@@ -226,7 +226,7 @@ export const AgentDeleteInputSchema = z.object({ agentId: AgentIdSchema }).stric
 export const AgentListInputSchema = z
 	.object({
 		agentId: AgentIdSchema.optional(),
-		// FIXME 2026-11-25: drop. Older plugins send it; ignored.
+		// skew:agent-list-detail: drop. Older plugins send it; ignored.
 		detail: z.enum(["summary", "full"]).optional(),
 		limit: z.number().int().positive().max(50).optional(),
 	})

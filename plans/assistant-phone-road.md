@@ -2808,6 +2808,13 @@ Still owed here: the owner's own use of it, and the list below.
 - Remove the dated legacy readers; rewrite `plans/watcher-instances.md` on the new vocabulary; docs.
 - **Dated shims become a table** (from the 2.7b architecture review, class "a skew window opened for the reader and not the writer"): one row per window naming its writer, its readers and its closing date, shim sites tagged with the row, and a residue test that fails on a passed date or a tag with no row. Six dates in `schemasAssistant.ts`, `schemasRoutine.ts` and `boardService.ts` have already passed and each needs tightening or a new date. The twins `rulesOf` and `rulesOfAutomations` go with the rules on 2026-11-28, and the sandbox stops composing a sentence.
 
+**As built (2026-11-26):**
+
+- **The table** is `SKEW_WINDOWS` in `src/shared/skew-windows.ts`: 43 windows, each with its date, `from` (older builds that still write the old shape), `in` (where the tolerance lives), what closing does, and `moved` when a passed date was pushed. 94 sites carry `skew:<id>` in place of a date, in TypeScript, Kotlin and the codegen template. `skew-window-residue.test.ts` fails on a dated comment with no tag, a tag with no row, a row with no site and a row past its date. AGENTS.md's rule for a temporarily optional field now points at the table.
+- **Closed:** the older plugin's action doors (`/assistant/action`, `/assistant/phone`), the Router's text-rank conversion, and the routine bare-instant id.
+- **Moved to 2026-12-10:** every other passed window, 20 of them, each saying why. Each has a writer whose build could not be read: the owner's phone was not on adb, ql is left alone, matrix-edward is off, and the host daemons still run a build from 2026-11-21. The watcher schema's passed dates folded into `watchers-field`, which closes 2026-11-28 with the rest of the watcher vocabulary.
+- **Still owed here:** the 2026-11-28 windows (the stored rules, the watcher kinds, the family and decision words, the watcher grants, `rulesOf` and `rulesOfAutomations`, the sandbox's sentence), closed on or after that date; the 2026-12-10 windows once the phone, the daemons and every Gateway are on a current build; the owner's walk above.
+
 ## Painpoints
 
 - **A read named `list` writes.** `createVaultDecisions`'s `list(now)` sweeps expired grants and saves the file, and `composeVault`'s `watcherGrants` reached it through every watcher state read, so a console read wrote the vault. Nothing in the name or the type says so; it took a red team to find. Other stores may sweep on read the same way, and the live console's fence only covers the stores it builds for real.

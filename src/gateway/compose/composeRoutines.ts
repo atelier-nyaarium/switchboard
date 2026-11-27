@@ -25,7 +25,7 @@ import { createRoutineRunner, type RoutineAttempt } from "../routines/runner.js"
 import type { FileOutcome } from "../routines/sessionRoutine.js";
 import { createRoutineStore } from "../routines/store.js";
 
-// FIXME 2026-11-23: remove. Older apps convert into it.
+// skew:routine-zone: remove. Older apps convert into it.
 const LEGACY_LIST_ZONE = "America/Los_Angeles";
 
 export interface RoutineStageDeps {

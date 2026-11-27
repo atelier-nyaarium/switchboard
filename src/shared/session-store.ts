@@ -55,7 +55,7 @@ export function resumeIdOf(record: SessionRecord): string | undefined {
 export type PersistedSessionRecord = Omit<SessionRecord, "liveTeam" | "harness"> & {
 	/** `unpicked` while a create waits on its place. */
 	harness?: SessionHarness | typeof UNPICKED_WORD;
-	// FIXME 2026-11-23: drop. Twin of `mintedSessionId`.
+	// skew:minted-session-id: drop. Twin of `mintedSessionId`.
 	copilotSessionId?: string;
 	agentCatalogs?: Partial<Record<AgentBackendId, PersistedAgentCatalog>>;
 };
@@ -66,7 +66,7 @@ const CUT_FROM_MAX = 8;
 /** The keys a stored record names a conversation or a thread under. */
 const UNREAD_ID_KEYS = new Set(["mintedSessionId", "copilotSessionId", "claudeSessionId", "sessionId", "threadId"]);
 
-// FIXME 2026-12-11: drop the legacy reads.
+// skew:session-store-legacy: drop the legacy reads.
 const LEGACY_CATALOG_FIELD: Partial<Record<AgentBackendId, string>> = {
 	codex: "codexCatalog",
 	copilot: "copilotCatalog",
@@ -588,7 +588,7 @@ export class SessionStore {
 				...rest,
 				// Absent reads back as unnamed, which is Claude.
 				...(rest.harness ? {} : { harness: UNPICKED_WORD }),
-				// FIXME 2026-11-23: drop. Rollback twin.
+				// skew:minted-session-id: drop. Rollback twin.
 				...(rest.harness === "copilot" && rest.mintedSessionId
 					? { copilotSessionId: rest.mintedSessionId }
 					: {}),
@@ -631,7 +631,7 @@ export class SessionStore {
 				continue;
 			}
 			const policy = harness ? HARNESS[harness].sessionId : undefined;
-			// FIXME 2026-11-23: drop the `copilotSessionId` read.
+			// skew:minted-session-id: drop the `copilotSessionId` read.
 			const stored = v.mintedSessionId ?? v.copilotSessionId;
 			const heldId =
 				harness && policy?.minted ? (mintedIdOf(harness, stored) ?? policy.mint(this.uuidGen)) : undefined;
