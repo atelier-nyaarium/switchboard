@@ -102,4 +102,18 @@ class StepTreeTest {
 		assertEquals(STEPS_TOTAL, everyStep(wide).size)
 		assertNull(insertedStep(wide, Slot("w0", Side.Catch, 0), exit("over")))
 	}
+
+	@Test
+	fun anElseIfChainIsNotCutByDepth() {
+		// Each link an `if` alone in the one before's else.
+		val chain = (1..STEPS_DEPTH).fold(listOf<StepDraft>(exit("last"))) { inner, link ->
+			listOf(StepDraft.If("i$link", "true", listOf(exit("t$link")), inner))
+		}
+		// Not alone: its else counts a level.
+		val beside = listOf(StepDraft.If("p", "true", emptyList(), listOf(exit("q"), chain.single())))
+		val twoDeep = StepDraft.Try("deep", listOf(StepDraft.Try("deeper", listOf(exit("x")), emptyList())), emptyList())
+
+		assertEquals(true, insertedStep(chain, Slot("i1", Side.Then, 0), twoDeep) != null)
+		assertNull(insertedStep(beside, Slot("i1", Side.Then, 0), twoDeep))
+	}
 }

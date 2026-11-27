@@ -1,12 +1,14 @@
 import type { TriggerGiven } from "../../shared/automation-fit.js";
 import type { ConsoleOp } from "../../shared/console-protocol.js";
 import type { AutomationTrigger } from "../../shared/schemasAutomation.js";
+import type { AutomationIssueLevel } from "../../shared/schemasAutomationSave.js";
 import type { FunctionParam, FunctionStep } from "../../shared/schemasFunction.js";
 import type { ConsoleDescription } from "../../shared/schemasLiveConsole.js";
 import {
 	type ConsoleScriptParseResult,
 	type ConsoleScriptPrintResult,
 	SCRIPT_ISSUE_MAX,
+	SCRIPT_ISSUES_MAX,
 	SCRIPT_NAMES_MAX,
 	SCRIPT_TYPE_MEMBERS_MAX,
 	type ScriptFunction,
@@ -15,17 +17,24 @@ import { membersOf } from "../../shared/script-types.js";
 import { oneLine } from "../../shared/system-reminder.js";
 import { parseScript, placeIssue, printScript, type ScriptTables, scriptNames } from "./automationScript.js";
 
+/** A step's issue, by its numbers. */
+export interface StepIssueAt {
+	step: string;
+	param?: string;
+	start?: number;
+	end?: number;
+	message: string;
+	level: AutomationIssueLevel;
+}
+
 export interface ScriptOpsDeps {
 	switches: () => ScriptTables["switches"];
 	functions: () => readonly ScriptFunction[];
 	/** Throws for a trigger it cannot read. */
 	givenOf: (trigger: AutomationTrigger) => TriggerGiven;
 	vocabulary: () => ConsoleDescription;
-	/** The first step a save would refuse. */
-	stepIssue: (body: {
-		params: readonly FunctionParam[];
-		steps: readonly FunctionStep[];
-	}) => { step: string; param?: string; start?: number; end?: number; message: string } | null;
+	/** Every step issue, in written order. */
+	stepIssues: (body: { params: readonly FunctionParam[]; steps: readonly FunctionStep[] }) => StepIssueAt[];
 }
 
 const cut = (message: string) => oneLine(message).slice(0, SCRIPT_ISSUE_MAX);
@@ -89,15 +98,22 @@ export function scriptOps(deps: ScriptOpsDeps) {
 			const names = namesOf(request, parsed.bindings, request.text.length);
 			const types = typesOf(request);
 			if (!parsed.steps) {
-				const issues = parsed.issues.map((issue) => ({ ...issue, message: cut(issue.message) }));
+				const level: AutomationIssueLevel = "error";
+				const issues = parsed.issues.map((issue) => ({ ...issue, message: cut(issue.message), level }));
 				return { issues, names, types, statements: [] };
 			}
-			const refused = deps.stepIssue({ params: request.params ?? [], steps: parsed.steps });
-			const where = refused ? (placeIssue(parsed, refused) ?? { start: 0, end: request.text.length }) : null;
+			const issues = deps
+				.stepIssues({ params: request.params ?? [], steps: parsed.steps })
+				.slice(0, SCRIPT_ISSUES_MAX)
+				.map((issue) => ({
+					...(placeIssue(parsed, issue) ?? { start: 0, end: request.text.length }),
+					message: cut(issue.message),
+					level: issue.level,
+				}));
 			const placed = request.place ? placeIssue(parsed, request.place) : null;
 			return {
 				steps: parsed.steps,
-				...(refused && where ? { issues: [{ ...where, message: cut(refused.message) }] } : {}),
+				...(issues.length > 0 ? { issues } : {}),
 				names,
 				types,
 				statements: parsed.statements,

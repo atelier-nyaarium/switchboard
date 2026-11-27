@@ -7,7 +7,7 @@ import { composeAutomations } from "../gateway/compose/composeAutomations.js";
 import type { Fire } from "../gateway/computed/automationFires.js";
 import { type LastRuns, recorded } from "../gateway/computed/automationLastRun.js";
 import { QUEUE_FULL, QUEUE_MAX_EVENTS } from "../gateway/computed/automationOutbox.js";
-import { CALL_FAILED, SCRIPT_ERRORS, TOO_MANY_BESIDE } from "../gateway/computed/automationPass.js";
+import { CALL_FAILED, SCRIPT_ERRORS, STEP_ERRORS, TOO_MANY_BESIDE } from "../gateway/computed/automationPass.js";
 import type { Attempt } from "../gateway/computed/automationRunner.js";
 import {
 	type AutomationHoles,
@@ -141,6 +141,25 @@ function world(stored?: object) {
 			},
 			confirmed: true,
 		});
+	/** As the console saves it, issues included. */
+	const saveOp = (
+		body: AutomationInput,
+		steps: AutomationFunctionInput["steps"],
+		bases: { automation: number; function: number } = { automation: 0, function: 0 },
+		params: AutomationFunctionInput["params"] = room,
+	) =>
+		automations.saveOp({
+			automationId: "warm",
+			automation: AutomationSchema.parse(body),
+			automationBase: bases.automation,
+			function: {
+				as: "edit",
+				id: "warm-up",
+				body: FunctionSchema.parse({ name: "Warm up", params, steps }),
+				base: bases.function,
+			},
+			confirmed: true,
+		});
 	const later = async (ms: number) => {
 		clock += ms;
 		automations.tick();
@@ -176,6 +195,7 @@ function world(stored?: object) {
 		dir,
 		effects,
 		save,
+		saveOp,
 		later,
 		advance,
 		holdEffects,
@@ -277,23 +297,55 @@ describe("a run through a function", () => {
 		expect(w.where()).toEqual(["0.0", "0.1", "0.2", "0.3", "0"].map((step) => [step, "warm-up"]));
 	});
 
-	it("refuses an unsound body where it is written, read, entered and run", async () => {
+	it("fails a flat action whose switch went at its turn, and runs the rest", async () => {
+		const w = world();
+		const flat: AutomationInput = {
+			enabled: true,
+			trigger: hourly,
+			actions: [
+				{ kind: "device_set", device: FAN, verb: "on" },
+				{ kind: "device_set", device: PLUG, verb: "on" },
+			],
+		};
+		w.automations.save({ id: "flat", body: flat, base: 0, confirmed: true });
+		w.unplug(FAN);
+		await w.later(HOUR);
+
+		expect(w.effects).toEqual([`${PLUG}:on`]);
+		expect(w.rows()).toEqual([
+			["device_set", "refused", STEP_ERRORS],
+			["device_set", "ran", undefined],
+		]);
+	});
+
+	it("saves an unsound body armed, and every run fails at the broken step after the steps before it ran", async () => {
 		const w = world();
 		const written = w.save(pointing(event), [turn("on", lit("aa:bb:cc:dd:ee:99"))]);
-		w.save(pointing(event, { keepTryingMin: 60 }), [turn("on", lit(PLUG)), turn("on", lit(FAN))]);
+		w.save(pointing(event, { keepTryingMin: 60 }), [turn("on", lit(PLUG)), turn("on", lit(FAN))], {
+			automation: 1,
+			function: 1,
+		});
 		await w.queueTwo();
 		w.unplug(FAN);
-		const read = w.automations.invalidOf("warm");
+		const read = w.automations.rows().map((row) => [row.invalid, row.errors]);
 		w.answer(() => ({ word: "done" }));
 		await w.later(60_000);
+		await w.later(60_000);
 
-		expect([written.stored, read]).toEqual([false, NO_SWITCH]);
-		expect(w.effects).toEqual([`${PLUG}:on`, `${PLUG}:on`]);
+		expect([written.stored, read]).toEqual([true, [[undefined, 1]]]);
+		expect(w.effects).toEqual([`${PLUG}:on`, `${PLUG}:on`, `${PLUG}:on`]);
 		expect(w.rows()).toEqual([
 			["device_set", "ran", undefined],
-			["device_set", "refused", NO_SWITCH],
+			["device_set", "refused", STEP_ERRORS],
 			["run_function", "refused", CALL_FAILED],
-			["run_function", "refused", NO_SWITCH],
+			["device_set", "ran", undefined],
+		]);
+		expect(
+			w.automations.lastRun("warm")?.steps.map(({ path, outcome, reason }) => [path, outcome, reason]),
+		).toEqual([
+			["0", "refused", STEP_ERRORS],
+			["0.0", "ran", undefined],
+			["0.1", "refused", STEP_ERRORS],
 		]);
 	});
 
@@ -1036,7 +1088,7 @@ describe("a tree of steps", () => {
 		expect(w.effects).toEqual(["ifttt:high:10"]);
 	});
 
-	it("fills a kept string's holes at its turn, keeps a literal as written, and refuses at the save a hole it cannot read", async () => {
+	it("fills a kept string's holes at its turn, keeps a literal as written, and saves a hole it cannot read as its error", async () => {
 		const w = world();
 		w.save(pointing(hourly), [
 			{ kind: "let", name: "level", value: lit(5) },
@@ -1045,21 +1097,22 @@ describe("a tree of steps", () => {
 			ifttt("said", "{label} / {raw}"),
 		]);
 		await w.later(HOUR);
-		const unread = world().save(pointing(hourly), [
+		const unread = world().saveOp(pointing(hourly), [
 			{ kind: "let", name: "label", value: filled("Is {nowhere}") },
 			turn("on"),
 		]);
-		const written = world().save(pointing(hourly), [
+		const written = world().saveOp(pointing(hourly), [
 			{ kind: "let", name: "label", value: lit("Is {nowhere}") },
 			turn("on"),
 		]);
 
 		expect(w.effects).toEqual(["ifttt:said:Level 5, braces {kept} / as {written} \\\\ here"]);
 		expect(unread).toMatchObject({
-			stored: false,
-			refusal: { code: "hole", step: "0", param: "value", start: 5, end: 12 },
+			stored: true,
+			issues: [{ level: "error", step: "0", param: "value", start: 5, end: 12 }],
 		});
 		expect(written).toMatchObject({ stored: true });
+		expect(written).not.toHaveProperty("issues");
 	});
 
 	it("fails an if whose condition cannot be read or is no true or false, taking neither side", async () => {
@@ -1183,7 +1236,7 @@ describe("a tree of steps", () => {
 		]);
 	});
 
-	it("refuses at the save a name already taken, a wait out of range, and a condition it cannot read, assigns or holds twice, at any depth", () => {
+	it("saves a name already taken, a wait out of range, a blank condition or value, and a condition it cannot read, assigns or holds twice, at any depth, each as its error", () => {
 		const bodies: AutomationFunctionInput["steps"][] = [
 			[{ kind: "let", name: "room", value: lit(1) }],
 			[{ kind: "if", when: "room = 1" }],
@@ -1196,35 +1249,69 @@ describe("a tree of steps", () => {
 			[{ kind: "if", when: "true", else: [{ kind: "throw", text: "{nobody}" }] }],
 			[{ kind: "if", when: "true} ignored {false", steps: [turn("on")] }],
 			[turn("on", expr("room} {room"))],
+			[{ kind: "if", when: "", steps: [turn("on")] }],
+			[{ kind: "let", name: "count", value: expr("") }],
 		];
 
-		expect(bodies.map((steps) => world().save(pointing(hourly), steps).stored)).toEqual(bodies.map(() => false));
+		expect(
+			bodies.map((steps) => {
+				const saved = world().saveOp(pointing(hourly), steps);
+				return [saved.stored, saved.issues?.map((issue) => issue.level)];
+			}),
+		).toEqual(bodies.map(() => [true, ["error"]]));
 	});
 
-	it("names the step a save was refused for by its numbers, at any depth", () => {
+	it("names the step an issue sits in by its numbers, at any depth", () => {
 		const bodies: AutomationFunctionInput["steps"][] = [
 			[{ kind: "if", when: "true", steps: [{ kind: "throw", text: "{nobody}" }] }],
 			[{ kind: "try", steps: [turn("on")], catch: [turn("on"), { kind: "wait", minutes: lit(-1) }] }],
 			[turn("on"), { kind: "if", when: "true", else: [{ kind: "let", name: "room", value: lit(1) }] }],
 			[turn("on"), ifttt("bell", "{nobody}")],
 		];
-		const refused = bodies.map((steps) => {
-			const saved = world().save(pointing(hourly), steps);
-			const refusal = saved.stored ? undefined : saved.refusal;
-			return [refusal?.code, refusal?.step, refusal?.param];
+		const issued = bodies.map((steps) => {
+			const [issue] = world().saveOp(pointing(hourly), steps).issues ?? [];
+			return [issue?.record, issue?.step, issue?.param];
 		});
 
-		expect(refused).toEqual([
-			["hole", "0.0.0", "text"],
-			["invalid", "0.1.1", "minutes"],
-			["invalid", "1.1.0", "name"],
-			["hole", "1", "value1"],
+		expect(issued).toEqual([
+			["function", "0.0.0", "text"],
+			["function", "0.1.1", "minutes"],
+			["function", "1.1.0", "name"],
+			["function", "1", "value1"],
 		]);
 	});
 
-	it("refuses a body nested past its depth or holding too many steps", () => {
+	it("fails a broken step at its turn after the steps before it ran, and a try catches it", async () => {
+		const w = world();
+		const broken = { kind: "wait", minutes: lit(-1) } as const;
+		w.save(pointing(hourly), [
+			turn("on"),
+			{ kind: "try", steps: [broken, turn("off")], catch: [ifttt("caught", "{e.code}")] },
+			broken,
+			ifttt("after"),
+		]);
+		await w.later(HOUR);
+
+		expect(w.effects).toEqual([`${PLUG}:on`, "ifttt:caught:unread", "ifttt:after"]);
+		expect(w.rows()).toEqual([
+			["device_set", "ran", undefined],
+			["wait", "refused", STEP_ERRORS],
+			["ifttt_trigger", "ran", undefined],
+			["wait", "refused", STEP_ERRORS],
+			["ifttt_trigger", "ran", undefined],
+			["run_function", "refused", CALL_FAILED],
+		]);
+	});
+
+	it("refuses a body nested past its depth or holding too many steps, and counts an else-if at its parent's depth", () => {
 		const nest = (depth: number): AutomationFunctionInput["steps"] =>
 			depth === 0 ? [{ kind: "exit" }] : [{ kind: "if", when: "true", steps: nest(depth - 1) }];
+		const chain = (links: number): AutomationFunctionInput["steps"] =>
+			links === 0 ? [] : [{ kind: "if", when: "true", steps: [{ kind: "exit" }], else: chain(links - 1) }];
+		const elsePair = (depth: number): AutomationFunctionInput["steps"] =>
+			depth === 0
+				? [{ kind: "exit" }]
+				: [{ kind: "if", when: "true", else: [{ kind: "exit" }, ...elsePair(depth - 1)] }];
 		const wide = (lists: number): AutomationFunctionInput["steps"] =>
 			Array.from({ length: lists }, () => ({
 				kind: "if" as const,
@@ -1235,6 +1322,7 @@ describe("a tree of steps", () => {
 			FunctionSchema.safeParse({ name: "Deep", params: [], steps }).success;
 
 		expect([nest(3), nest(4), wide(3), wide(4)].map(parses)).toEqual([true, false, true, false]);
+		expect([chain(8), elsePair(3), elsePair(4)].map(parses)).toEqual([true, true, false]);
 	});
 });
 
@@ -1312,7 +1400,7 @@ describe("a function calling another", () => {
 
 		expect(w.effects).toEqual(["ifttt:inner:Level 7", "ifttt:inner:Level {level}"]);
 
-		// A filled text is a text: a number it can never be is refused at the save.
+		// A filled text is a text: a number it can never be is the save's error.
 		const counted = world();
 		counted.automations.save({
 			id: "h-count",
@@ -1330,10 +1418,39 @@ describe("a function calling another", () => {
 			},
 			confirmed: true,
 		});
-		expect(counted.save(pointing(hourly), [call("count", { times: filled("{1}") })])).toMatchObject({
-			stored: false,
+		expect(counted.saveOp(pointing(hourly), [call("count", { times: filled("{1}") })])).toMatchObject({
+			stored: true,
+			issues: [{ level: "error", record: "function", id: "warm-up", step: "0" }],
 		});
-		expect(counted.save(pointing(hourly), [call("count", { times: expr("1") })])).toMatchObject({ stored: true });
+		const fits = counted.saveOp(pointing(hourly), [call("count", { times: expr("1") })], {
+			automation: 1,
+			function: 1,
+		});
+		expect(fits).toMatchObject({ stored: true });
+		expect(fits).not.toHaveProperty("issues");
+	});
+
+	it("enters a callee holding a broken step, runs its steps before it, fails that step at its turn, and fails the call", async () => {
+		const w = world();
+		inner(w, [ifttt("first"), { kind: "wait", minutes: lit(-1) }, ifttt("rest")]);
+		w.save(pointing(hourly), [passing, ifttt("after")]);
+		await w.later(HOUR);
+
+		expect(w.effects).toEqual(["ifttt:first", "ifttt:rest", "ifttt:after"]);
+		expect(w.rows()).toEqual([
+			["ifttt_trigger", "ran", undefined],
+			["wait", "refused", STEP_ERRORS],
+			["ifttt_trigger", "ran", undefined],
+			["run_function", "refused", CALL_FAILED],
+			["ifttt_trigger", "ran", undefined],
+			["run_function", "refused", CALL_FAILED],
+		]);
+		expect(w.where().slice(0, 4)).toEqual([
+			["0.0.0", "inner"],
+			["0.0.1", "inner"],
+			["0.0.2", "inner"],
+			["0.0", "warm-up"],
+		]);
 	});
 
 	it("catches a callee's failure in its caller's try, as the call's own", async () => {
@@ -1421,11 +1538,12 @@ describe("a function calling another", () => {
 		expect([removed.deleted, w.effects]).toEqual([true, ["ifttt:inner"]]);
 	});
 
-	it("refuses at the save a call to a function not held, one that leaves a value unset, and one whose value does not fit", () => {
+	it("refuses at the save a call to a function not held, and saves one that leaves a value unset or whose value does not fit as its error", () => {
 		const saved = (step: AutomationFunctionInput["steps"][number]) => {
 			const w = world();
 			inner(w, [ifttt("inner")]);
-			return w.save(pointing(hourly), [step]).stored;
+			const answer = w.saveOp(pointing(hourly), [step]);
+			return [answer.stored, answer.issues?.map((issue) => issue.level)];
 		};
 		const calls = [
 			call("gone"),
@@ -1437,41 +1555,68 @@ describe("a function calling another", () => {
 			passing,
 		];
 
-		expect(calls.map(saved)).toEqual([false, false, false, false, false, false, true]);
+		const issued = [true, ["error"]];
+		expect(calls.map(saved)).toEqual([
+			[false, undefined],
+			issued,
+			issued,
+			issued,
+			issued,
+			issued,
+			[true, undefined],
+		]);
 	});
 
-	it("holds a call to its function's declared types: a trigger's name at the save, a read value before any of its steps run", async () => {
-		const w = world();
-		const calling = (callee: string, params: AutomationFunctionInput["params"], values?: Record<string, StepArg>) =>
-			w.automations.save({
-				id: "warm",
-				body: pointing(hourly),
-				base: 0,
+	it("holds a call to its function's declared types before any of its steps run: a trigger's name as the save's error, a read value at its entry", async () => {
+		const calling = (
+			w: ReturnType<typeof world>,
+			callee: string,
+			params: AutomationFunctionInput["params"],
+			values?: Record<string, StepArg>,
+		) =>
+			w.automations.saveOp({
+				automationId: "warm",
+				automation: AutomationSchema.parse(pointing(hourly)),
+				automationBase: 0,
 				function: {
 					as: "edit",
 					id: "warm-up",
-					body: { name: "Warm up", params: room, steps: [call(callee, values)] },
+					body: FunctionSchema.parse({ name: "Warm up", params: room, steps: [call(callee, values)] }),
 					base: 0,
 				},
 				called: [
 					{
 						id: callee,
-						body: { name: callee, params, steps: [ifttt("inner"), { kind: "wait", minutes: expr("1") }] },
+						body: FunctionSchema.parse({
+							name: callee,
+							params,
+							steps: [ifttt("inner"), { kind: "wait", minutes: expr("1") }],
+						}),
 						base: 0,
 					},
 				],
 				confirmed: true,
 			});
-		const clock = calling("timed", [{ name: "time", type: "number" }]);
-		const read = calling("leveled", [{ name: "level", type: "number" }], { level: expr("room") });
-		await w.later(HOUR);
+		const timed = world();
+		const leveled = world();
+		const clock = calling(timed, "timed", [{ name: "time", type: "number" }]);
+		const read = calling(leveled, "leveled", [{ name: "level", type: "number" }], { level: expr("room") });
+		await timed.later(HOUR);
+		await leveled.later(HOUR);
 
-		expect([clock.stored, read.stored]).toEqual([false, true]);
-		expect(w.effects).toEqual([]);
-		expect(w.rows().map(([action, outcome]) => [action, outcome])).toEqual([
-			["run_function", "refused"],
-			["run_function", "refused"],
-		]);
+		expect([
+			clock.stored,
+			clock.issues?.map((issue) => [issue.level, issue.step]),
+			read.stored,
+			read.issues,
+		]).toEqual([true, [["error", "0"]], true, undefined]);
+		for (const w of [timed, leveled]) {
+			expect(w.effects).toEqual([]);
+			expect(w.rows().map(([action, outcome]) => [action, outcome])).toEqual([
+				["run_function", "refused"],
+				["run_function", "refused"],
+			]);
+		}
 	});
 
 	it("refuses an edit of a callee that would stop a caller's call fitting", () => {
@@ -1718,12 +1863,12 @@ describe("a restart", () => {
 			expect(w.effects).toEqual(["ifttt:after:5 yes yes"]);
 		});
 
-		it("refuses at the save an exit inside a task, a task kept under a name the function takes, and a body too wide", () => {
+		it("saves an exit inside a task, a task kept under a name the function takes, and a body too wide, each as its error", () => {
 			const many = Array.from({ length: 8 }, () => ifttt("x"));
-			/** Each save on a fresh store, so none is refused for another's revision. */
+			/** Each save on a fresh store; its first issue's line. */
 			const said = (steps: Steps) => {
-				const saved = world().save(pointing(hourly), steps);
-				return saved.stored ? "stored" : saved.reason;
+				const saved = world().saveOp(pointing(hourly), steps);
+				return saved.stored ? (saved.issues?.[0]?.line ?? "stored") : saved.refusal?.line;
 			};
 			const tried = {
 				kind: "try" as const,
@@ -1855,15 +2000,16 @@ describe("a restart", () => {
 			]);
 		});
 
-		it("refuses at the save an exit beside running steps and a block wider than a run may hold", () => {
-			const leaves = world().save(pointing(hourly), [block(ifttt("a"), lane({ kind: "exit" }))]);
+		it("saves an exit beside running steps and a block wider than a run may hold, each as its error", () => {
+			const leaves = world().saveOp(pointing(hourly), [block(ifttt("a"), lane({ kind: "exit" }))]);
 			const three = () => block(ifttt("a"), ifttt("b"), ifttt("c"));
-			const wide = world().save(pointing(hourly), [block(three(), three(), three())]);
-			const fits = world().save(pointing(hourly), [block(three(), three(), ifttt("d"), ifttt("e"))]);
+			const wide = world().saveOp(pointing(hourly), [block(three(), three(), three())]);
+			const fits = world().saveOp(pointing(hourly), [block(three(), three(), ifttt("d"), ifttt("e"))]);
 
-			expect(leaves).toMatchObject({ stored: false, refusal: { step: "0.0.1.0.0" } });
-			expect(wide).toMatchObject({ stored: false, refusal: { step: "0" } });
+			expect(leaves).toMatchObject({ stored: true, issues: [{ level: "error", step: "0.0.1.0.0" }] });
+			expect(wide).toMatchObject({ stored: true, issues: [{ level: "error", step: "0" }] });
 			expect(fits).toMatchObject({ stored: true });
+			expect(fits).not.toHaveProperty("issues");
 		});
 
 		it("finds every branch where it stood after a restart: a wait goes on, and a send that was out is not sent again", async () => {

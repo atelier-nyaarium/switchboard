@@ -103,7 +103,7 @@ export function composeAutomations(deps: AutomationStageDeps): AutomationStage {
 		functions: () => automations.functionRows(),
 		givenOf: (trigger) => automations.givenOf(trigger),
 		vocabulary: () => deps.scriptVocabulary?.() ?? { builtins: [], entities: [] },
-		stepIssue: (body) => automations.stepIssueOf(body),
+		stepIssues: (body) => automations.stepIssuesOf(body),
 	});
 	return {
 		...pair,

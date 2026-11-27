@@ -399,6 +399,8 @@ export const AutomationRowSchema = z
 		nextRunAt: z.number().int().optional(),
 		/** Absent from older builds. */
 		lastRun: AutomationLastRunSchema.optional(),
+		/** Errors in what it runs. */
+		errors: z.number().int().positive().optional(),
 	})
 	.meta({ id: "AutomationRow" });
 

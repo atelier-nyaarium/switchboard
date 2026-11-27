@@ -497,6 +497,7 @@ internal sealed interface RefusedAt {
 /** Hole path and function. */
 internal data class RefusedHole(val path: String, val param: String, val start: Int, val end: Int, val function: String? = null)
 
+// skew:step-refusals
 internal fun refusedHoleOf(hole: SaveAnswer.Hole): RefusedHole? {
 	val path = hole.path?.takeIf { it.isNotEmpty() } ?: return null
 	return RefusedHole(path, hole.param ?: return null, hole.start?.toInt() ?: return null, hole.end?.toInt() ?: return null, hole.id)
@@ -506,6 +507,7 @@ internal fun refusedHoleOf(hole: SaveAnswer.Hole): RefusedHole? {
 internal fun refusedHoleOf(span: AutomationHoleSpan): RefusedHole =
 	RefusedHole("${span.action}", span.param, span.start.toInt(), span.end.toInt())
 
+// skew:step-refusals
 /** A row or field it names. */
 internal fun refusedAtOf(refusal: AutomationSaveRefusal): RefusedAt? {
 	if (refusal.code != AutomationSaveRefusalCode.INVALID.wire) return null
@@ -535,6 +537,7 @@ internal fun saveAnswerOf(result: ConsoleAutomationSaveResult): SaveAnswer {
 	val code = AutomationSaveRefusalCode.entries.find { it.wire == refusal.code } ?: return SaveAnswer.Refused(null, refusal)
 	return when (code) {
 		AutomationSaveRefusalCode.CONFIRM -> SaveAnswer.Confirm(refusal.labels.orEmpty())
+		// skew:step-refusals
 		AutomationSaveRefusalCode.HOLE -> SaveAnswer.Hole(
 			refusal.record?.let { word -> AutomationSaveRecord.entries.find { it.wire == word } },
 			refusal.path,

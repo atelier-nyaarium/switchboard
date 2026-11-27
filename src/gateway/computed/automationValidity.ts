@@ -3,6 +3,7 @@
 import { fitOf, functionReads, type TriggerGiven, triggerGiven } from "../../shared/automation-fit.js";
 import {
 	type Address,
+	below,
 	type FunctionOf,
 	functionWidth,
 	type LeafAction,
@@ -14,8 +15,10 @@ import {
 	type Unfollowed,
 	visit,
 	type WalkEntry,
+	type WalkStep,
 	widthOf,
 } from "../../shared/automation-walk.js";
+import { canonicalJson } from "../../shared/canonical-json.js";
 import { CONSOLE_WORD_OPS, parseConsoleExpression } from "../../shared/live-console-grammar.js";
 import {
 	AUTOMATION_ACTIONS,
@@ -28,6 +31,7 @@ import {
 	FUNCTION_STEP_KINDS,
 	type FunctionValue,
 } from "../../shared/schemasAutomation.js";
+import { type AutomationIssue, type AutomationIssueLevel, SAVE_LINE_MAX } from "../../shared/schemasAutomationSave.js";
 import {
 	type AutomationFunction,
 	type FunctionStep,
@@ -44,7 +48,7 @@ import { ownerOf } from "./automationFrames.js";
 import type { EffectKind } from "./automationRunner.js";
 import { holeNames } from "./automationScope.js";
 import type { AutomationsDeps } from "./automations.js";
-import { holeOwnerIssue, nameOwnerIssue, stepOwnerIssue } from "./automationText.js";
+import { stepOwnerIssue } from "./automationText.js";
 import { crossingField } from "./crossingBand.js";
 
 export type ValidityDeps = Pick<
@@ -102,36 +106,168 @@ export interface StepIssue {
 	start?: number;
 	end?: number;
 	message: string;
-	/** Unrunnable step action. */
-	unrunnable?: true;
+	/** Beyond a plain error. */
+	why?: StepWhy;
 }
+
+/**
+ * `unrunnable`: no catalogue row; `alone`: a script beside steps; `shadows`: a held name hides an entity;
+ * `unready`: no hole reader yet.
+ */
+export type StepWhy = "unrunnable" | "alone" | "shadows" | "unready";
 
 /** Why a call cannot run its function. */
 export type CallIssue = { kind: "unfit" } | { kind: "switch"; param: string };
 
+/** Why a call stops. */
+export type CallCut = "loop" | "budget" | "private" | "gone" | "left" | "unread";
+
+/** A call step's place. */
+export interface CallPlace {
+	via: string;
+	step: string;
+}
+
 export type BodyIssue =
 	| { at: "trigger"; message: string }
 	| { at: "action"; index: number; issue: StepIssue }
-	| { at: "step"; via: string; path: string; issue: StepIssue }
-	/** Unfollowed function call. */
-	| { at: "call"; function: string; message: string; why: Unfollowed | "private" }
-	| { at: "fit"; function: string; issue: CallIssue };
+	/** `step`: numbers under its function. */
+	| { at: "step"; via: string; step: string; issue: StepIssue }
+	| { at: "call"; function: string; why: CallCut }
+	/** `call` absent: the automation's pointer. */
+	| { at: "fit"; function: string; issue: CallIssue; call?: CallPlace }
+	/** A declared value that shadows. */
+	| { at: "name"; function: string; param: string };
 
-export type StepBodyIssue = Extract<BodyIssue, { at: "step" }>;
-export type FitBodyIssue = Extract<BodyIssue, { at: "fit" }>;
-
-export const isStepIssue = (issue: BodyIssue): issue is StepBodyIssue => issue.at === "step";
-export const isFitIssue = (issue: BodyIssue): issue is FitBodyIssue => issue.at === "fit";
+const CUT_LINES: Readonly<Record<CallCut, string>> = {
+	loop: CALL_LOOPS,
+	budget: CALLS_TOO_MUCH,
+	private: FUNCTION_PRIVATE,
+	gone: FUNCTION_GONE,
+	left: FUNCTION_LEFT,
+	unread: FUNCTION_UNREAD,
+};
 
 const LINES: { [A in BodyIssue["at"]]: (issue: Extract<BodyIssue, { at: A }>) => string } = {
 	trigger: (issue) => issue.message,
 	action: ({ issue }) => issue.message,
 	step: ({ issue }) => issue.message,
-	call: (issue) => issue.message,
+	call: (issue) => CUT_LINES[issue.why],
 	fit: ({ issue }) => (issue.kind === "unfit" ? FUNCTION_UNFIT : NO_SWITCH),
+	name: () => NAME_RESERVED,
 };
 
 export const lineOf = (issue: BodyIssue): string => (LINES[issue.at] as (held: BodyIssue) => string)(issue);
+
+/** `refuses`: the store cannot hold it, or the judge cannot judge it. */
+export type IssueLevel = "refuses" | AutomationIssueLevel;
+
+const CUT_LEVELS: Readonly<Record<CallCut, IssueLevel>> = {
+	loop: "refuses",
+	budget: "refuses",
+	private: "refuses",
+	gone: "refuses",
+	left: "unarmed",
+	unread: "unarmed",
+};
+
+const WHY_LEVELS: Readonly<Record<StepWhy, IssueLevel>> = {
+	unrunnable: "refuses",
+	alone: "refuses",
+	shadows: "warning",
+	unready: "unarmed",
+};
+
+const stepLevel = (issue: StepIssue): IssueLevel => (issue.why ? WHY_LEVELS[issue.why] : "error");
+
+/** The one policy over an issue. */
+export function levelOf(issue: BodyIssue): IssueLevel {
+	switch (issue.at) {
+		case "trigger":
+			return "unarmed";
+		case "action":
+		case "step":
+			return stepLevel(issue.issue);
+		case "call":
+			return CUT_LEVELS[issue.why];
+		case "fit":
+			return "error";
+		case "name":
+			return "warning";
+	}
+}
+
+/** It cannot be held, or never fires. */
+const unarms = (issue: BodyIssue): boolean => {
+	const level = levelOf(issue);
+	return level === "refuses" || level === "unarmed";
+};
+
+/** A run stops there. */
+const stops = (level: IssueLevel): boolean => level === "refuses" || level === "error";
+
+const line = (text: string): string => text.slice(0, SAVE_LINE_MAX);
+
+const spanOf = (issue: StepIssue) => ({
+	...(issue.param === undefined ? {} : { param: issue.param }),
+	...(issue.start === undefined ? {} : { start: issue.start }),
+	...(issue.end === undefined ? {} : { end: issue.end }),
+});
+
+const ANSWERS: {
+	[A in BodyIssue["at"]]: (issue: Extract<BodyIssue, { at: A }>, level: AutomationIssueLevel) => AutomationIssue;
+} = {
+	trigger: (issue, level) => ({ level, record: "automation", line: line(issue.message) }),
+	action: ({ index, issue }, level) => ({
+		level,
+		record: "automation",
+		step: String(index),
+		...spanOf(issue),
+		line: line(issue.message),
+	}),
+	step: ({ via, step, issue }, level) => ({
+		level,
+		record: "function",
+		id: via,
+		step,
+		...spanOf(issue),
+		line: line(issue.message),
+	}),
+	call: (issue, level) => ({ level, record: "function", id: issue.function, line: CUT_LINES[issue.why] }),
+	fit: (issue, level) => {
+		const param = issue.issue.kind === "switch" ? { param: issue.issue.param } : {};
+		const text = lineOf(issue);
+		return issue.call
+			? { level, record: "function", id: issue.call.via, step: issue.call.step, ...param, line: text }
+			: { level, record: "automation", ...param, line: text };
+	},
+	name: (issue, level) => ({
+		level,
+		record: "function",
+		id: issue.function,
+		param: issue.param,
+		line: NAME_RESERVED,
+	}),
+};
+
+/** Landed issues, each once. */
+export function answersOf(issues: Iterable<BodyIssue>): AutomationIssue[] {
+	const seen = new Set<string>();
+	const answers: AutomationIssue[] = [];
+	for (const issue of issues) {
+		const level = levelOf(issue);
+		if (level === "refuses") continue;
+		const answer = (ANSWERS[issue.at] as (held: BodyIssue, at: AutomationIssueLevel) => AutomationIssue)(
+			issue,
+			level,
+		);
+		const key = canonicalJson(answer);
+		if (seen.has(key)) continue;
+		seen.add(key);
+		answers.push(answer);
+	}
+	return answers;
+}
 
 /** Flat action arguments. */
 const literalArgs = (action: Record<string, unknown>): Record<string, StepArg> =>
@@ -186,7 +322,12 @@ export function createAutomationValidity(
 		typeof device === "string" && (deps.actions?.switchName(device) ?? null) !== null;
 
 	type Spanned = Omit<StepIssue, "param">;
-	const unreadYet = (text: string): Spanned => ({ start: 0, end: text.length, message: "holes cannot be read yet" });
+	const unreadYet = (text: string): Spanned => ({
+		start: 0,
+		end: text.length,
+		message: "holes cannot be read yet",
+		why: "unready",
+	});
 
 	/** A hole's issue in a text. */
 	const holeIn = (text: string, names: readonly string[]): Spanned | null => {
@@ -206,7 +347,7 @@ export function createAutomationValidity(
 		args: Readonly<Record<string, StepArg>>,
 		names: readonly string[] | null,
 	): StepIssue | null {
-		if (!stepAction(kind)) return { message: UNRUNNABLE, unrunnable: true };
+		if (!stepAction(kind)) return { message: UNRUNNABLE, why: "unrunnable" };
 		if (kind !== "tell_assistant" && !deps.actions) return { message: NO_ACTION };
 		const params: readonly AutomationActionParam[] = AUTOMATION_ACTIONS[kind].params;
 		for (const name of Object.keys(args)) {
@@ -288,7 +429,7 @@ export function createAutomationValidity(
 		exit: (_fn, _step, address) => (ownerOf(address) ? { message: EXIT_BESIDE } : null),
 		note: () => null,
 		unparsed: (fn, _step, address) =>
-			address.length !== 1 || stepsOf(fn).length !== 1 ? { message: UNPARSED_ALONE } : null,
+			address.length !== 1 || stepsOf(fn).length !== 1 ? { message: UNPARSED_ALONE, why: "alone" } : null,
 		try: () => null,
 		parallel: (_fn, step) => (widthOf([step]) > RUN_STRANDS_MAX ? { message: TOO_WIDE } : null),
 		start: (fn, step) => {
@@ -320,7 +461,7 @@ export function createAutomationValidity(
 			return null;
 		},
 		do: (fn, step) => {
-			if (!stepAction(step.action)) return { message: UNRUNNABLE, unrunnable: true };
+			if (!stepAction(step.action)) return { message: UNRUNNABLE, why: "unrunnable" };
 			const row: AutomationActionRow = AUTOMATION_ACTIONS[step.action];
 			const gives = STORES_RESULTS && row.gives !== undefined;
 			if (step.as !== undefined && !gives) return { param: "as", message: GIVES_NOTHING };
@@ -329,12 +470,27 @@ export function createAutomationValidity(
 		},
 	};
 
-	const stepIssue = (fn: Checked, step: FunctionStep, address: Address): StepIssue | null =>
-		(STEPS[step.kind] as (fn: Checked, step: FunctionStep, address: Address) => StepIssue | null)(
+	/** A word of the language, or an entity. */
+	const reservedName = (name: string): boolean => RESERVED_NAMES.has(name) || deps.holes?.()?.entity(name) === true;
+
+	/** Errors, then a shadowing name. */
+	const stepIssue = (fn: Checked, step: FunctionStep, address: Address): StepIssue | null => {
+		const issue = (STEPS[step.kind] as (fn: Checked, step: FunctionStep, address: Address) => StepIssue | null)(
 			fn,
 			step,
 			address,
 		);
+		if (issue) return issue;
+		const kept = keptName(step);
+		if (kept === undefined || !reservedName(kept)) return null;
+		return { param: step.kind === "let" ? "name" : "as", message: NAME_RESERVED, why: "shadows" };
+	};
+
+	/** A run stops at its turn. */
+	const stepStops = (fn: Checked, step: FunctionStep, address: Address): boolean => {
+		const issue = stepIssue(fn, step, address);
+		return issue !== null && stops(stepLevel(issue));
+	};
 
 	/** Fit, then held switches. */
 	function boundIssue(
@@ -384,16 +540,20 @@ export function createAutomationValidity(
 		return boundIssue(body, callee, literal, unjudged) === null;
 	}
 
-	/** Its steps, then read values. */
+	/** Read values only. */
 	const calledEntryIssue = (
 		body: Automation,
 		id: string,
 		fn: AutomationFunction,
 		values: Readonly<Record<string, FunctionValue>>,
 	): string | null => {
-		const unsound = functionIssue(fn);
-		if (unsound) return unsound.message;
 		const issue = boundIssue(body, fn, values);
+		return issue && lineOf({ at: "fit", function: id, issue });
+	};
+
+	/** The pointer's values only. */
+	const entryIssue = (body: Automation, id: string, fn: AutomationFunction): string | null => {
+		const issue = callIssue(body, fn);
 		return issue && lineOf({ at: "fit", function: id, issue });
 	};
 
@@ -402,126 +562,107 @@ export function createAutomationValidity(
 		const trigger = triggerIssue(body);
 		if (trigger !== null) yield { at: "trigger", message: trigger };
 		const names = AUTOMATION_TRIGGER_NAMES[body.trigger.kind];
-		const unfollowed: Record<Unfollowed, (id: string) => string | null> = {
+		const cuts: Record<Unfollowed, (id: string) => CallCut | null> = {
 			"not-expanded": () => null,
 			// Moves strip event users.
-			missing: (id) =>
-				unread(id) ? FUNCTION_UNREAD : body.trigger.kind === "event" ? FUNCTION_LEFT : FUNCTION_GONE,
-			loop: () => CALL_LOOPS,
-			budget: () => CALLS_TOO_MUCH,
+			missing: (id) => (unread(id) ? "unread" : body.trigger.kind === "event" ? "left" : "gone"),
+			loop: () => "loop",
+			budget: () => "budget",
+		};
+		const entered: string[] = [];
+		/** Numbers under its function. */
+		const placeOf = <K extends FunctionStep["kind"]>(at: WalkStep<K>): string => below(at.path, at.site).join(".");
+		const own = <K extends FunctionStep["kind"]>(at: WalkStep<K>): BodyIssue[] => {
+			if (!entered.includes(at.via)) entered.push(at.via);
+			const fn = functions?.(at.via);
+			const issue = fn ? stepIssue(fn, at.step, at.address) : null;
+			return issue ? [{ at: "step", via: at.via, step: placeOf(at), issue }] : [];
 		};
 		for (const at of functions ? reached(body, functions) : reached(body)) {
-			const found = visit<WalkEntry, BodyIssue | null>(at, {
+			const found = visit<WalkEntry, BodyIssue[]>(at, {
 				action: ({ index, action }) => {
 					const issue = argsIssue(action.kind, literalArgs(action), names);
-					return issue && { at: "action", index, issue };
+					return issue ? [{ at: "action", index, issue }] : [];
 				},
 				step: {
-					do: ({ path, step, via, address }) => {
-						const fn = functions?.(via);
-						const issue = fn ? stepIssue(fn, step, address) : null;
-						return issue && { at: "step", via, path, issue };
-					},
-					call: ({ path, step, via, address }): BodyIssue | null => {
-						const fn = functions?.(via);
-						const issue = fn ? stepIssue(fn, step, address) : null;
-						if (issue) return { at: "step", via, path, issue };
-						const callee = functions?.(step.function);
+					do: own,
+					call: (held): BodyIssue[] => {
+						const id = held.step.function;
+						const callee = functions?.(id);
 						if (callee && unnamed(callee))
-							return { at: "call", function: step.function, message: FUNCTION_PRIVATE, why: "private" };
-						return callee && !callFits(body, step, callee)
-							? { at: "fit", function: step.function, issue: { kind: "unfit" } }
-							: null;
+							return [...own(held), { at: "call", function: id, why: "private" }];
+						if (!callee || callFits(body, held.step, callee)) return own(held);
+						const call = { via: held.via, step: placeOf(held) };
+						return [...own(held), { at: "fit", function: id, issue: { kind: "unfit" }, call }];
 					},
-					...steering(({ path, step, via, address }) => {
-						const fn = functions?.(via);
-						const issue = fn ? stepIssue(fn, step, address) : null;
-						return issue && { at: "step", via, path, issue };
-					}),
+					...steering(own),
 				},
 				unfollowedCall: ({ call, reason }) => {
-					const message = unfollowed[reason](call.function);
-					return message === null ? null : { at: "call", function: call.function, message, why: reason };
+					const why = cuts[reason](call.function);
+					return why === null ? [] : [{ at: "call", function: call.function, why }];
 				},
 			});
-			if (found) yield found;
+			yield* found;
+		}
+		for (const id of entered) {
+			const fn = functions?.(id);
+			for (const param of fn?.params ?? []) {
+				if (param.name === "e" || reservedName(param.name))
+					yield { at: "name", function: id, param: param.name };
+			}
 		}
 		const call = functions ? pointerOf(body) : null;
 		const fn = call ? functions?.(call.function) : null;
 		// Its own steps, shared.
 		if (call && fn && unnamed(fn) && pointing(call.function) > 1)
-			yield { at: "call", function: call.function, message: FUNCTION_PRIVATE, why: "private" };
+			yield { at: "call", function: call.function, why: "private" };
 		const unfit = call && fn ? callIssue(body, fn) : null;
 		if (call && unfit) yield { at: "fit", function: call.function, issue: unfit };
 	}
 
-	const first = (
-		issues: Iterable<BodyIssue>,
-		stops: (issue: BodyIssue) => boolean = () => true,
-	): BodyIssue | null => {
-		for (const issue of issues) if (stops(issue)) return issue;
+	const first = (issues: Iterable<BodyIssue>, picked: (issue: BodyIssue) => boolean): BodyIssue | null => {
+		for (const issue of issues) if (picked(issue)) return issue;
 		return null;
 	};
 
-	/** Why this Gateway cannot run it; read every time. */
+	/** Unarming issue; read every time. */
 	const automationIssue = (body: Automation, functions: FunctionOf | null = functionOf): string | null => {
-		const issue = first(assessBody(body, functions));
+		const issue = first(assessBody(body, functions), unarms);
 		return issue && lineOf(issue);
 	};
 
-	/** Fit and step detail: the judge's and the function row's. */
-	const stopsWrite = (issue: BodyIssue): boolean =>
-		issue.at !== "fit" && (issue.at !== "step" || issue.issue.unrunnable === true);
+	/** What it holds now, each once. */
+	const issuesOf = (body: Automation, functions: FunctionOf = functionOf): AutomationIssue[] =>
+		answersOf(assessBody(body, functions));
 
-	const holed = (issue: StepIssue): issue is StepIssue & { param: string; start: number; end: number } =>
-		issue.start !== undefined && issue.end !== undefined && issue.param !== undefined;
-
-	/** Return hole spans first. */
-	function writeIssue(body: Automation, functions: FunctionOf): OwnerIssue | string | null {
-		const issues = [...assessBody(body, functions)].filter(stopsWrite);
-		for (const held of issues) {
-			if (held.at === "action" && holed(held.issue)) {
-				return holeOwnerIssue({ step: String(held.index), param: held.issue.param }, held.issue);
-			}
-		}
-		const [issue] = issues;
-		return issue ? lineOf(issue) : null;
+	/** What the store cannot hold. */
+	function writeIssue(body: Automation, functions: FunctionOf): string | null {
+		const issue = first(assessBody(body, functions), (held) => levelOf(held) === "refuses");
+		return issue && lineOf(issue);
 	}
 
-	/** A word of the language, or an entity. */
-	const reservedName = (name: string): boolean => RESERVED_NAMES.has(name) || deps.holes?.()?.entity(name) === true;
-
-	/** A save's alone; stored rows are read as they are. */
-	function namingIssue(fn: Checked): OwnerIssue | null {
-		const param = fn.params.findIndex((held) => held.name === "e" || reservedName(held.name));
-		if (param >= 0) return nameOwnerIssue(param, NAME_RESERVED);
-		for (const { step, path } of stepsOf(fn)) {
-			const kept = keptName(step);
-			if (kept !== undefined && reservedName(kept)) {
-				return stepOwnerIssue({ step: path, param: "name" }, NAME_RESERVED);
-			}
-		}
-		return null;
-	}
-
-	/** First function-step issue. */
+	/** Its first step the store cannot hold. */
 	function functionIssue(fn: AutomationFunction): OwnerIssue | null {
 		for (const { step, path, address } of stepsOf(fn)) {
 			const issue = stepIssue(fn, step, address);
-			if (!issue) continue;
-			if (holed(issue)) return holeOwnerIssue({ step: path, param: issue.param }, issue, "steps");
-			return stepOwnerIssue({ step: path, param: issue.param }, issue.message);
+			if (issue && stepLevel(issue) === "refuses")
+				return stepOwnerIssue({ step: path, param: issue.param }, issue.message);
 		}
 		return null;
 	}
 
-	/** Steps precede fit checks. */
-	const entryIssue = (body: Automation, id: string, fn: AutomationFunction): string | null => {
-		const issue = first(
-			assessBody(body, (held) => (held === id ? fn : null)),
-			(held) => held.at === "step" || held.at === "fit",
-		);
-		return issue && lineOf(issue);
+	/** Every step issue. */
+	function stepIssuesOf(fn: AutomationFunction): (StepIssue & { step: string; level: IssueLevel })[] {
+		return stepsOf(fn).flatMap(({ step, path, address }) => {
+			const issue = stepIssue(fn, step, address);
+			return issue ? [{ ...issue, step: path, level: stepLevel(issue) }] : [];
+		});
+	}
+
+	/** A run stops at this flat action. */
+	const actionStops = (body: Automation, action: LeafAction): boolean => {
+		const issue = argsIssue(action.kind, literalArgs(action), AUTOMATION_TRIGGER_NAMES[body.trigger.kind]);
+		return issue !== null && stops(stepLevel(issue));
 	};
 
 	/** Validate resolved step values. */
@@ -552,9 +693,12 @@ export function createAutomationValidity(
 		givenOf,
 		assessBody,
 		automationIssue,
+		issuesOf,
 		writeIssue,
 		functionIssue,
-		namingIssue,
+		stepIssuesOf,
+		actionStops,
+		stepStops,
 		entryIssue,
 		calledEntryIssue,
 		resolved,

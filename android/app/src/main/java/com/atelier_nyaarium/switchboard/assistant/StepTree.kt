@@ -91,9 +91,15 @@ internal fun everyStep(steps: List<StepDraft>): List<StepDraft> =
 
 internal fun findStep(steps: List<StepDraft>, key: String): StepDraft? = everyStep(steps).firstOrNull { it.key == key }
 
-/** One list deep is one. */
+/** An `if` alone in an else. */
+private fun chained(step: StepDraft, side: Side, list: List<StepDraft>): Boolean =
+	step is StepDraft.If && side == Side.Else && list.singleOrNull() is StepDraft.If
+
+/** One list deep is one; an else-if adds none. */
 internal fun depthOf(steps: List<StepDraft>): Int =
-	steps.maxOfOrNull { step -> 1 + (sidesOf(step).maxOfOrNull { (_, list) -> depthOf(list) } ?: 0) } ?: 0
+	steps.maxOfOrNull { step ->
+		maxOf(1, sidesOf(step).maxOfOrNull { (side, list) -> (if (chained(step, side, list)) 0 else 1) + depthOf(list) } ?: 0)
+	} ?: 0
 
 private fun fits(steps: List<StepDraft>): Boolean {
 	val lists = listOf(steps) + everyStep(steps).flatMap { step -> sidesOf(step).map { it.second } }

@@ -293,7 +293,11 @@ describe("automations", () => {
 		automations.ownerPut("review", review(), 0);
 		automations.ownerPut("off", review({ enabled: false }), 0);
 		const elsewhere = review({ trigger: { kind: "event", source: "gmail", conditions: [] } });
-		expect(automations.ownerPut("elsewhere", elsewhere, 0).stored).toBe(false);
+		// Saves, and never fires.
+		expect(automations.ownerPut("elsewhere", elsewhere, 0)).toMatchObject({
+			stored: true,
+			row: { invalid: expect.any(String) },
+		});
 		automations.ownerPut("bucket", { ...iceBucket(), actions: [{ kind: "tell_assistant", when: "now" }] }, 0);
 
 		expect(automations.eventsOf("github").map(({ id, when }) => [id, when])).toEqual([["review", "now"]]);
@@ -2020,7 +2024,7 @@ describe("automations", () => {
 		});
 	});
 
-	it("runs an event's effects once per member, again for later activity on it, and refuses an action whose switch this Gateway lacks", async () => {
+	it("runs an event's effects once per member, again for later activity on it, and saves an action whose switch this Gateway lacks as an error", async () => {
 		const w = world(fresh());
 		const { automations } = w.open();
 		const onMention: AutomationInput = {
@@ -2036,12 +2040,15 @@ describe("automations", () => {
 		automations.fireEvents(matched(1), 6_000);
 		automations.fireEvents(matched(2), 7_000);
 		await automations.settled();
-		const refused = automations.ownerPut("lamp", elsewhere, 0, true);
+		const lamp = automations.ownerPut("lamp", elsewhere, 0, true);
 		w.unplug();
 
 		expect(w.effects).toEqual(["plug:toggle", "plug:toggle"]);
-		expect(refused.stored).toBe(false);
-		expect(automations.rows().map((row) => [row.id, row.invalid !== undefined])).toEqual([["flash", true]]);
+		expect(lamp.stored).toBe(true);
+		expect(automations.rows().map((row) => [row.id, row.invalid, row.errors])).toEqual([
+			["flash", undefined, 1],
+			["lamp", undefined, 1],
+		]);
 	});
 
 	it("reads a text with holes as invalid while no hole reader is composed, and fires nothing", async () => {
@@ -2227,15 +2234,17 @@ describe("automations", () => {
 		]);
 	});
 
-	it("refuses a trigger value the field cannot take, and reads a stored one invalid once its field changes", () => {
+	it("saves a trigger value the field cannot take as invalid, and reads a stored one invalid once its field changes", () => {
 		const { fields, automations } = world(fresh()).open();
 		fields.put("band", hotBand, 0);
 
-		expect(automations.ownerPut("bucket", iceBucket({ becomes: "Hot!" }), 0)).toMatchObject({
-			stored: false,
+		expect(automations.ownerPut("hot", iceBucket({ becomes: "Hot!" }), 0)).toMatchObject({
+			stored: true,
+			row: { invalid: expect.any(String) },
 		});
-		expect(automations.ownerPut("bucket", iceBucket({ field: "nowhere" }), 0)).toMatchObject({
-			stored: false,
+		expect(automations.ownerPut("nowhere", iceBucket({ field: "nowhere" }), 0)).toMatchObject({
+			stored: true,
+			row: { invalid: expect.any(String) },
 		});
 		automations.ownerPut("bucket", iceBucket(), 0);
 		expect(automations.invalidOf("bucket")).toBeNull();

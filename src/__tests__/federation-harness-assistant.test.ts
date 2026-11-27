@@ -144,8 +144,9 @@ describe("the assistant's session through the console", () => {
 				automation: { trigger: { conditions: [{ value: "atelier/switchboard" }] } },
 			},
 		});
-		expect(sensors.stored).toBe(false);
-		expect(listed.automations.map((row) => row.id)).toEqual(["carried"]);
+		// Saves, and never fires.
+		expect(sensors).toMatchObject({ stored: true, row: { invalid: expect.any(String) } });
+		expect(listed.automations.map((row) => row.id)).toEqual(["carried", "sensors"]);
 		expect(after.automations).toEqual(listed.automations);
 	});
 
@@ -179,7 +180,7 @@ describe("the assistant's session through the console", () => {
 		expect([off.sources?.[0]?.enabled, on.sources?.[0]?.enabled]).toEqual([false, true]);
 		expect(JSON.stringify(checked).includes("is disabled")).toBe(true);
 		expect([stale.deleted, deleted.deleted]).toEqual([false, true]);
-		expect(after.automations).toEqual([]);
+		expect(after.automations.map((row) => row.id)).toEqual(["sensors"]);
 	});
 
 	it("outlives the session sweep that takes an ordinary idle session", async () => {

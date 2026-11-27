@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import vectors from "../../tests/fixtures/automation-carry/vectors.json" with { type: "json" };
 import { openAutomationPair } from "../gateway/compose/composeAutomations.js";
 import { FUNCTION_UNUSED_KEEP_MS } from "../gateway/computed/automations.js";
-import { FUNCTION_LEFT, FUNCTION_PRIVATE, FUNCTION_UNFIT } from "../gateway/computed/automationValidity.js";
+import { FUNCTION_LEFT, FUNCTION_PRIVATE } from "../gateway/computed/automationValidity.js";
 import { holesOver } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { carriedFunctionsOf } from "../shared/automation-carry.js";
@@ -676,7 +676,7 @@ describe("a function reached only through calls", () => {
 });
 
 describe("a carried function written unfit", () => {
-	it("reads invalid on every read, for a refused hole and for a field its source does not give", () => {
+	it("reads errors on every read, for a hole it cannot read and for a field its source does not give", () => {
 		const { automations } = destination([]);
 		const lit = (value: string) => ({ kind: "literal" as const, value });
 		const telling = (message: string) => ({
@@ -700,8 +700,12 @@ describe("a carried function written unfit", () => {
 			],
 		});
 
-		expect(automations.invalidOf("hole")).toMatch(/nowhere/);
-		expect(automations.invalidOf("field")).toBe(FUNCTION_UNFIT);
+		expect(automations.rows().map((row) => [row.id, row.invalid, row.errors])).toEqual([
+			["hole", undefined, 1],
+			["field", undefined, 1],
+		]);
+		expect(automations.listing().automations.map((row) => row.errors)).toEqual([1, 1]);
+		expect(automations.invalidOf("field")).toBeNull();
 	});
 });
 

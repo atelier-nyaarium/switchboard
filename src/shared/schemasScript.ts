@@ -2,6 +2,7 @@ import { z } from "zod";
 import { STEP_PATH_RE } from "./automation-walk.js";
 import { RULE_ID_RE } from "./schemasAssistantRules.js";
 import { AutomationTriggerSchema } from "./schemasAutomation.js";
+import { AUTOMATION_ISSUE_LEVELS } from "./schemasAutomationSave.js";
 import {
 	FUNCTION_NAME_MAX,
 	FUNCTION_PARAMS_MAX,
@@ -66,7 +67,12 @@ export const ScriptTypeSchema = z
 	.meta({ id: "ScriptType" });
 
 export const ScriptIssueSchema = z
-	.object({ ...SPAN, message: z.string().max(SCRIPT_ISSUE_MAX) })
+	.object({
+		...SPAN,
+		message: z.string().max(SCRIPT_ISSUE_MAX),
+		// skew:step-refusals
+		level: z.enum(AUTOMATION_ISSUE_LEVELS).optional(),
+	})
 	.meta({ id: "ScriptIssue" });
 
 export const ConsoleScriptPrintResultSchema = z

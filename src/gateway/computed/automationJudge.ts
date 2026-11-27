@@ -26,18 +26,14 @@ import {
 	type CarriedFunction,
 	canonicalAutomation,
 } from "../../shared/schemasAutomation.js";
-import { type AutomationSaveRefusal, SAVE_LINE_MAX } from "../../shared/schemasAutomationSave.js";
+import {
+	type AutomationSaveRefusal,
+	type AutomationSaveRefusalCode,
+	SAVE_LINE_MAX,
+} from "../../shared/schemasAutomationSave.js";
 import { type AutomationFunction, FunctionSchema, unnamed } from "../../shared/schemasFunction.js";
 import type { OwnerRecord, OwnerWrite } from "../ownerRecords.js";
-import {
-	type BodyIssue,
-	type CallIssue,
-	FUNCTION_PRIVATE,
-	isFitIssue,
-	isStepIssue,
-	lineOf,
-	NO_SWITCH,
-} from "./automationValidity.js";
+import { type BodyIssue, type CallCut, FUNCTION_PRIVATE, levelOf, lineOf } from "./automationValidity.js";
 
 export const AUTOMATION_KIND = "automation";
 export const FUNCTION_KIND = "function";
@@ -104,6 +100,41 @@ export type AutomationVerdict =
 
 /** Leaves and arrives with the assistant. */
 export const movesWithHome = (body: Automation): boolean => body.trigger.kind === "event";
+
+const CUT_CODES: Readonly<Record<CallCut, AutomationSaveRefusalCode>> = {
+	loop: "loop",
+	private: "private",
+	gone: "unknown_function",
+	budget: "invalid",
+	left: "invalid",
+	unread: "newer_function",
+};
+
+/** A refusing issue, as a save's refusal. */
+const refusalOf = (issue: BodyIssue): AutomationSaveRefusal => {
+	switch (issue.at) {
+		case "call":
+			return { code: CUT_CODES[issue.why], record: "function", id: issue.function };
+		case "step": {
+			const { param } = issue.issue;
+			return {
+				code: "invalid",
+				record: "function",
+				id: issue.via,
+				step: issue.step,
+				...(param ? { param } : {}),
+			};
+		}
+		case "action": {
+			const { param } = issue.issue;
+			return { code: "invalid", record: "automation", step: String(issue.index), ...(param ? { param } : {}) };
+		}
+		case "trigger":
+		case "fit":
+		case "name":
+			return { code: "invalid", record: "automation" };
+	}
+};
 
 const refused = (reason: string, refusal: AutomationSaveRefusal): AutomationVerdict => ({
 	kind: "refused",
@@ -382,13 +413,10 @@ function judgeSave(
 		if (unknown && gained !== undefined)
 			return refused(FUNCTION_PRIVATE, { code: "private", record: "function", id: gained });
 	}
-	// Fresh reach needs sound functions.
-	const before = held ? reachOf(held.body, functionHeld) : new Set<string>();
-	const fresh = new Set([...enters].filter((id) => !before.has(id) && !fnWrites.has(id)));
-	if (!toggle && fresh.size > 0) {
-		const unsound = view.assess(next, functionNext).find((issue) => isStepIssue(issue) && fresh.has(issue.via));
-		if (unsound && isStepIssue(unsound))
-			return refused(lineOf(unsound), { code: "invalid", record: "function", id: unsound.via });
+	// Its own row may echo unchecked.
+	if (!toggle) {
+		const cannot = view.assess(next, functionNext).find((issue) => levelOf(issue) === "refuses");
+		if (cannot) return refused(lineOf(cannot), refusalOf(cannot));
 	}
 
 	// Every automation reaching a write.
@@ -402,47 +430,6 @@ function judgeSave(
 			})
 			.map((record) => ({ id: record.id, body: record.body, held: record.body })),
 	];
-
-	if (!toggle && fnWrites.size > 0) {
-		// Its own row may echo unchecked.
-		const cut = view.assess(next, functionNext).find((issue) => issue.at === "call");
-		if (cut?.at === "call") {
-			const code = cut.why === "loop" || cut.why === "private" ? cut.why : "invalid";
-			return refused(cut.message, { code, record: "function", id: cut.function });
-		}
-	}
-
-	if (!toggle) {
-		/** A fit issue, or a call another edit cut. */
-		const issueUnder = (body: Automation, functions: FunctionOf): CallIssue | { cut: string } | null => {
-			const found = view.assess(body, functions).find((issue) => isFitIssue(issue) || issue.at === "call");
-			if (!found) return null;
-			return isFitIssue(found) ? found.issue : { cut: lineOf(found) };
-		};
-		/** Held users only fail on new reach. */
-		const issueOf = (body: Automation, own: boolean) => {
-			const after = issueUnder(body, functionNext);
-			if (own || after === null) return after;
-			const before = issueUnder(body, functionHeld);
-			return before !== null && canonicalJson(before) === canonicalJson(after) ? null : after;
-		};
-		const own = issueOf(next, true);
-		if (own && "kind" in own && own.kind === "switch") {
-			return refused(NO_SWITCH, {
-				code: "invalid",
-				record: "automation",
-				path: `values.${own.param}`,
-				line: NO_SWITCH,
-			});
-		}
-		const unfit = users.filter(({ id, body }) => issueOf(body, id === intent.id) !== null);
-		if (unfit.length > 0) {
-			return refused("it would stop fitting what runs it", {
-				code: "unfit",
-				automations: unfit.map((user) => user.id),
-			});
-		}
-	}
 
 	if (users.some(({ body }) => movesWithHome(body)) && !view.isHome) return refused(NOT_HOME, { code: "not_home" });
 

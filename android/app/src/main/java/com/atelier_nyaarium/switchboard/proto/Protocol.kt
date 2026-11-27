@@ -248,6 +248,12 @@ object Protocol {
 			FUNCTION("function"),
 		}
 
+		enum class AutomationIssueLevel(val wire: String) {
+			UNARMED("unarmed"),
+			ERROR("error"),
+			WARNING("warning"),
+		}
+
 		enum class AutomationRunRefusal(val wire: String) {
 			GONE("gone"),
 			OFF("off"),
@@ -2990,6 +2996,8 @@ data class AutomationRow(
 	val nextRunAt: Long? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val lastRun: AutomationLastRun? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val errors: Long? = null,
 )
 
 @Serializable
@@ -3126,6 +3134,8 @@ data class ConsoleAutomationSaveResult(
 	val called: List<AutomationFunctionRow>? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val refusal: AutomationSaveRefusal? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val issues: List<AutomationIssue>? = null,
 )
 
 @Serializable
@@ -3135,6 +3145,8 @@ data class ConsoleAutomationCheckResult(
 	val refusal: AutomationSaveRefusal? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val reads: FunctionReads? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val issues: List<AutomationIssue>? = null,
 )
 
 @Serializable
@@ -5734,6 +5746,27 @@ data class AutomationConditionIssue(
 )
 
 @Serializable
+data class AutomationIssue(
+	val level: String,
+	val record: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val id: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val step: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val param: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val start: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val end: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val case: Long? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val value: String? = null,
+	val line: String,
+)
+
+@Serializable
 data class ScriptName(
 	val name: String,
 	val type: String,
@@ -5765,6 +5798,8 @@ data class ScriptIssue(
 	val start: Long,
 	val end: Long,
 	val message: String,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val level: String? = null,
 )
 
 @Serializable

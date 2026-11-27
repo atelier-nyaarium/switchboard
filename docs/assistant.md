@@ -525,12 +525,12 @@ cannot rewrite what sorts its own events.
   ignored. A missing field fails every test on it, `is_not` included. A value is stored trimmed of
   ASCII whitespace at its edges, `trimRuleValue`, and nothing else. A number or bytes field takes
   no tests, and a kind the phone does not know is shown but never offered (`docs/fields.md`).
-- **One check:** `conditionsIssue` in `schemasAssistantRules.ts` refuses an undeclared field, a
+- **One check:** `conditionsIssue` in `schemasAssistantRules.ts` names an undeclared field, a
   value off its list, a test its kind does not take and a blank value. `eventIssue` adds that this
   Gateway holds the source and that the source does not tell its own events.
-- **An automation that no longer fits is kept:** validity is read against the source's current
+- **An automation that does not fit is kept:** validity is read against the source's current
   declarations on every read and never stored, so a declaration change moves no revision. An unfit
-  automation arms nothing and is listed with `invalid` and its reason.
+  automation saves, arms nothing and is listed with `invalid` and its reason.
 - **The phone's Save gate is the Gateway's parse:** `fittingAutomation` in `AutomationDraft.kt`
   decides Save and the preview, and the Save sends what it answers.
   `tests/fixtures/assistant-rules/vectors.json` pins it to `conditionsIssue` on both runtimes.
@@ -539,8 +539,8 @@ cannot rewrite what sorts its own events.
   "every event" when there are none (`eventSentence`). Nothing stores it.
 - **No drop, no ping:** GitHub threads are cleared at GitHub through `source/github_done`, and the
   agent alone decides what is worth telling the owner.
-- **Ops:** `automation_list` answers each row with its revision, sentence, `invalid`, `lastRanAt`
-  and a clock's `nextRunAt`, and `serves`, what this Gateway's automations can hold.
+- **Ops:** `automation_list` answers each row with its revision, sentence, `invalid`, `errors`,
+  `lastRanAt` and a clock's `nextRunAt`, and `serves`, what this Gateway's automations can hold.
   `automation_put` carries the whole record at the revision
   it read, 0 to add, and answers a refusal with the held row; `automation_delete` carries the
   revision it read. `automation_preview` runs an event trigger over the source's live first page: how

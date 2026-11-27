@@ -174,23 +174,26 @@ describe("an event automation", () => {
 		expect(conditionsMatch([], CHOICES, {})).toBe(true);
 	});
 
-	it("is refused on a source this Gateway lacks, one whose events tell themselves, and a condition its fields do not take", async () => {
+	it("saves as invalid on a source this Gateway lacks, one whose events tell themselves, and a condition its fields do not take", async () => {
 		const { automations, stop } = await placed([listing(), SELF_TOLD]);
 
 		const unknown = automations.ownerPut("a", eventAutomation("gitlab", []), 0);
-		const selfTold = automations.ownerPut("a", eventAutomation("sensors", []), 0);
-		const outside = automations.ownerPut("a", eventAutomation("github", reason("nope")), 0);
-		const blank = automations.ownerPut("a", eventAutomation("github", reason("   ")), 0);
-		const fits = automations.ownerPut("a", eventAutomation("github", reason("mention")), 0);
+		const selfTold = automations.ownerPut("b", eventAutomation("sensors", []), 0);
+		const outside = automations.ownerPut("c", eventAutomation("github", reason("nope")), 0);
+		const blank = automations.ownerPut("d", eventAutomation("github", reason("   ")), 0);
+		const fits = automations.ownerPut("e", eventAutomation("github", reason("mention")), 0);
 		await stop();
 
-		expect([unknown, selfTold, outside, blank].map((result) => result.stored)).toEqual([
-			false,
-			false,
-			false,
-			false,
-		]);
-		expect(fits.stored).toBe(true);
+		expect([unknown, selfTold, outside, blank, fits].map((result) => [result.stored, result.row?.invalid])).toEqual(
+			[
+				[true, expect.any(String)],
+				[true, expect.any(String)],
+				[true, expect.any(String)],
+				[true, expect.any(String)],
+				[true, undefined],
+			],
+		);
+		expect(automations.eventsOf("github").map((held) => held.id)).toEqual(["e"]);
 	});
 
 	it("is refused while the assistant lives elsewhere", () => {

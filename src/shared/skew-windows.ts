@@ -202,6 +202,12 @@ export const SKEW_WINDOWS = {
 		in: ["gateway"],
 		ends: "Drop the read of a stored `unexpected` key.",
 	},
+	"step-refusals": {
+		closes: "2026-12-10",
+		from: ["gateway"],
+		in: ["phone"],
+		ends: "The phone drops its reading of hole, unfit and step invalid refusals, and `ScriptIssue.level` becomes required.",
+	},
 	"fire-tell": {
 		closes: "2026-12-16",
 		from: ["gateway"],

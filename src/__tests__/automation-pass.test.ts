@@ -25,6 +25,7 @@ const ports: PassPorts = {
 	unreadAt: () => false,
 	noteAt: () => null,
 	laneTold: () => false,
+	errorAt: () => false,
 	windowOf: () => 600_000,
 	callAt: () => null,
 	ready: () => true,

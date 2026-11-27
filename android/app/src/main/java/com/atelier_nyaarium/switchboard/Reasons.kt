@@ -347,6 +347,7 @@ private fun invalidLine(refusal: AutomationSaveRefusal?): String {
 	val parts = path.split(".")
 	val step = parts.getOrNull(1)?.toIntOrNull()?.plus(1)
 	return when {
+		// skew:step-refusals
 		parts.size == 2 && parts[0] == "values" -> "That plug is not on this Gateway."
 		parts.size == 3 && parts[0] == "steps" && step != null -> refusal?.line ?: "Step $step holds a value it cannot use."
 		parts.size == 2 && parts[0] == "steps" && step != null -> "Step $step cannot run here."
@@ -356,6 +357,7 @@ private fun invalidLine(refusal: AutomationSaveRefusal?): String {
 	}
 }
 
+// skew:step-refusals
 /** Only itself: its trigger. */
 private fun unfitLine(refusal: AutomationSaveRefusal?, selfId: String?): String {
 	val named = refusal?.automations.orEmpty()
@@ -393,6 +395,7 @@ internal fun automationSaveLine(
 			}
 		}
 		Protocol.Wire.AutomationSaveRefusalCode.INVALID -> invalidLine(refusal)
+		// skew:step-refusals
 		Protocol.Wire.AutomationSaveRefusalCode.HOLE -> "That text cannot be filled here."
 		Protocol.Wire.AutomationSaveRefusalCode.UNFIT -> unfitLine(refusal, selfId)
 		Protocol.Wire.AutomationSaveRefusalCode.UNKNOWN_FUNCTION -> "That function no longer exists."

@@ -72,7 +72,8 @@ export const AssistantRuleConditionSchema = z
 	.object({
 		field: z.string().min(1).max(64),
 		test: z.enum(RULE_TESTS),
-		value: z.string().min(1).max(ASSISTANT_RULE_VALUE_MAX),
+		/** Blank saves, and never fires. */
+		value: z.string().max(ASSISTANT_RULE_VALUE_MAX),
 	})
 	.meta({ id: "AssistantRuleCondition" });
 

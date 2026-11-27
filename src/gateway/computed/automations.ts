@@ -44,6 +44,8 @@ import {
 	type TellWhen,
 } from "../../shared/schemasAutomation.js";
 import {
+	AUTOMATION_ISSUES_MAX,
+	type AutomationIssue,
 	type AutomationSaveRefusal,
 	type ConsoleAutomationCheckResult,
 	type ConsoleAutomationSaveResult,
@@ -112,6 +114,7 @@ import {
 	runEffect,
 } from "./automationRunner.js";
 import { holeScope } from "./automationScope.js";
+import type { StepIssueAt } from "./automationScriptOps.js";
 import { type Checkpoint, FIRED_MAX, own, restore, type State, storedOf, versionKey } from "./automationState.js";
 import { FRESH_STEP, failedAs, isEnded, refusedUnsent, type Step, steered, type Waited } from "./automationSteps.js";
 import {
@@ -124,12 +127,10 @@ import {
 	waitsForever,
 } from "./automationTasks.js";
 import {
-	holeSpanOf,
 	holeTextsOf,
 	isTell,
 	laneTells,
 	laneTellWhen,
-	NAME_ISSUE_CODE,
 	ownTellPaths,
 	STEP_ISSUE_CODE,
 	stepPlaceOf,
@@ -308,10 +309,13 @@ export function createAutomations(deps: AutomationsDeps) {
 		triggerIssue,
 		givenOf,
 		functionIssue,
-		namingIssue,
+		stepIssuesOf,
 		assessBody,
 		automationIssue,
+		issuesOf,
 		writeIssue,
+		actionStops,
+		stepStops,
 		entryIssue,
 		calledEntryIssue,
 		resolved,
@@ -943,6 +947,23 @@ export function createAutomations(deps: AutomationsDeps) {
 		functions: [...new Set(Object.values(fire.frames ?? {}).map(functionStamp))].sort(),
 	});
 
+	/** In the fire's pinned bodies. */
+	const errorIn = (fire: Fire, path: string): boolean => {
+		const body = bodyOf(fire);
+		if (!body) return false;
+		const site = siteIn(fire, path);
+		if (site === null) {
+			const action = actionAt(body, path);
+			return action !== undefined && action.kind !== "run_function" && actionStops(body, action);
+		}
+		const frame = fire.frames?.[site];
+		const fn = frame ? frameFunction(frame) : null;
+		const tree = fn ? written(fn) : null;
+		const address = tree ? addressIn(tree, below(path, site)) : null;
+		const step = tree && address ? treeAt(tree, address) : null;
+		return fn !== null && step !== null && address !== null && stepStops(fn, step, address);
+	};
+
 	const automationPass = createPass({
 		retireOf,
 		stampOf,
@@ -955,6 +976,7 @@ export function createAutomations(deps: AutomationsDeps) {
 		unreadAt,
 		noteAt,
 		laneTold,
+		errorAt: errorIn,
 		windowOf,
 		callAt,
 		ready: (action) => deps.actions?.ready(action as AutomationEffect) ?? true,
@@ -1446,6 +1468,7 @@ export function createAutomations(deps: AutomationsDeps) {
 
 	const rowOf = (record: OwnerRecord<Automation>): AutomationRow => {
 		const invalid = records.invalidOf(record.id);
+		const errors = issuesOf(record.body).filter((issue) => issue.level === "error").length;
 		const slot = own(state.slots, record.id);
 		const lastRanAt = own(state.ran, record.id);
 		const held = own(state.lastRuns, record.id);
@@ -1464,6 +1487,7 @@ export function createAutomations(deps: AutomationsDeps) {
 			...(lastRanAt === undefined ? {} : { lastRanAt }),
 			...(nextRunAt === null ? {} : { nextRunAt }),
 			...(lastRun ? { lastRun: lastRun.run } : {}),
+			...(errors > 0 ? { errors } : {}),
 		};
 	};
 
@@ -1518,19 +1542,6 @@ export function createAutomations(deps: AutomationsDeps) {
 		...(result.issue ? { issue: result.issue } : {}),
 	});
 
-	/** A function the owner's save names wrongly. */
-	const namingRefusal = (
-		writes: readonly OwnerWrite[],
-	): Extract<OwnerBatchResult<StoredBody>, { stored: false }> | null => {
-		for (const [at, row] of writes.entries()) {
-			if (row.op !== "put" || row.kind !== FUNCTION_KIND) continue;
-			const body = FunctionSchema.safeParse(row.body);
-			const issue = body.success ? namingIssue(body.data) : null;
-			if (issue) return { stored: false, at, reason: issue.message, cause: "invalid", issue };
-		}
-		return null;
-	};
-
 	/** `write`'s answer, unwritten. */
 	function assess(
 		intent: AutomationIntent,
@@ -1545,8 +1556,6 @@ export function createAutomations(deps: AutomationsDeps) {
 				...(verdict.confirm ? { confirm: verdict.confirm } : {}),
 			};
 		}
-		const named = intent.kind === "save" ? namingRefusal(verdict.writes) : null;
-		if (named) return storeRefused(named, verdict.writes, intent);
 		const refused = store.refusalOf(verdict.writes);
 		return refused ? storeRefused(refused, verdict.writes, intent) : verdict;
 	}
@@ -1596,24 +1605,11 @@ export function createAutomations(deps: AutomationsDeps) {
 		}
 		switch (cause) {
 			case "invalid": {
-				const hole = holeSpanOf(refusal.issue);
-				if (hole)
-					return {
-						code: "hole",
-						record,
-						...which,
-						path: hole.step,
-						step: hole.step,
-						param: hole.param,
-						start: hole.start,
-						end: hole.end,
-						line: `the ${record} has an unresolved value`,
-					};
 				const { issue } = refusal;
 				if (!issue) return { code: "invalid", record, ...which, line: refusal.reason.slice(0, SAVE_LINE_MAX) };
 				const path = issue.path.join(".");
 				const place = stepPlaceOf(issue);
-				return issue.code === STEP_ISSUE_CODE || issue.code === NAME_ISSUE_CODE
+				return issue.code === STEP_ISSUE_CODE
 					? { code: "invalid", record, ...which, path, ...place, line: issue.message.slice(0, SAVE_LINE_MAX) }
 					: { code: "invalid", record, ...which, path, line: `the ${record} is invalid` };
 			}
@@ -1697,13 +1693,37 @@ export function createAutomations(deps: AutomationsDeps) {
 		const fn = pointer ? listed.functions.find((held) => held.id === pointer.function) : undefined;
 		const wrote = new Set((op.called ?? []).map((each) => each.id));
 		const called = listed.functions.filter((held) => wrote.has(held.id));
+		const issues = issuesOf(saved.automation.body).slice(0, AUTOMATION_ISSUES_MAX);
 		return {
 			stored: true,
 			...(row ? { automation: row } : {}),
 			...(fn ? { function: fn } : {}),
 			...(wrote.size > 0 ? { called } : {}),
+			...(issues.length > 0 ? { issues } : {}),
 		};
 	}
+
+	/** Issues a save would leave. */
+	const issuesLeft = (writes: readonly OwnerWrite[], id: string, sent: ReadonlySet<string>): AutomationIssue[] => {
+		const putAt = (at: string) => writes.find((row) => row.op === "put" && row.id === at);
+		const row = putAt(id);
+		const body = row?.op === "put" ? AutomationSchema.safeParse(row.body) : null;
+		if (!body?.success) return [];
+		const lookup: FunctionOf = (at) => {
+			const put = putAt(at);
+			if (put?.op !== "put" || put.kind !== FUNCTION_KIND) return functionOf(at);
+			const fn = FunctionSchema.safeParse(put.body);
+			return fn.success ? fn.data : null;
+		};
+		return issuesOf(body.data, lookup)
+			.slice(0, AUTOMATION_ISSUES_MAX)
+			.map((issue) => {
+				// Unwritten derived ids stay unanswered.
+				if (issue.id === undefined || sent.has(issue.id) || functionOf(issue.id) !== null) return issue;
+				const { id: _derived, ...unnamed } = issue;
+				return unnamed;
+			});
+	};
 
 	const saveIntentOf = (
 		op: Omit<Extract<ConsoleOp, { kind: "automation_save" | "automation_check" }>, "kind">,
@@ -1731,7 +1751,9 @@ export function createAutomations(deps: AutomationsDeps) {
 			return sentCallee ? (sentCallee.success ? sentCallee.data : null) : functionOf(id);
 		};
 		const reads = body ? { reads: readsThrough(body, lookup) } : {};
-		return "written" in verdict ? { ready: false, refusal: verdict.refusal, ...reads } : { ready: true, ...reads };
+		if ("written" in verdict) return { ready: false, refusal: verdict.refusal, ...reads };
+		const issues = issuesLeft(verdict.writes, op.automationId, sentFunctions(saveIntentOf(op)));
+		return { ready: true, ...reads, ...(issues.length > 0 ? { issues } : {}) };
 	}
 
 	function save(intent: Omit<Extract<AutomationIntent, { kind: "save" }>, "kind">): AutomationSaved {
@@ -1758,15 +1780,18 @@ export function createAutomations(deps: AutomationsDeps) {
 				.filter(isFunctionRecord)
 				.map((record) => ({ id: record.id, name: record.body.name, params: record.body.params })),
 		givenOf,
-		stepIssueOf(body: { params: readonly FunctionParam[]; steps: readonly FunctionStep[] }) {
+		/** A refusal reads as error. */
+		stepIssuesOf(body: { params: readonly FunctionParam[]; steps: readonly FunctionStep[] }): StepIssueAt[] {
 			const parsed = FunctionSchema.safeParse({ name: "", ...body });
-			if (!parsed.success) return null;
-			const named = namingIssue(parsed.data);
-			const issue = named && stepPlaceOf(named) ? named : functionIssue(parsed.data);
-			const place = stepPlaceOf(issue ?? undefined);
-			if (!issue || !place) return null;
-			const span = holeSpanOf(issue);
-			return { ...place, ...(span ? { start: span.start, end: span.end } : {}), message: issue.message };
+			if (!parsed.success) return [];
+			return stepIssuesOf(parsed.data).map(({ step, param, start, end, message, level }) => ({
+				step,
+				...(param === undefined ? {} : { param }),
+				...(start === undefined ? {} : { start }),
+				...(end === undefined ? {} : { end }),
+				message,
+				level: level === "refuses" ? "error" : level,
+			}));
 		},
 		rows: (): AutomationRow[] => records.list().map(rowOf),
 		listing,
@@ -1785,14 +1810,12 @@ export function createAutomations(deps: AutomationsDeps) {
 			const landed = result.written ? result.records[0] : result.record;
 			const record = landed && isAutomationRecord(landed) ? landed : records.get(id);
 			if (result.written && record) return { stored: true, revision: record.revision, row: rowOf(record) };
-			const span = result.written ? undefined : holeSpanOf(result.issue);
 			return {
 				stored: false,
 				revision: record?.revision ?? 0,
 				reason: result.written ? "not saved; try again" : result.reason,
 				...(record ? { row: rowOf(record) } : {}),
 				...(!result.written && result.confirm ? { confirm: result.confirm } : {}),
-				...(span ? { hole: { action: span.action, param: span.param, start: span.start, end: span.end } } : {}),
 			};
 		},
 		ownerRemove(id: string, base: number): ConsoleAutomationDeleteResult {

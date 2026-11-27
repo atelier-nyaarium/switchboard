@@ -190,6 +190,7 @@ import {
 	RUN_OUTCOMES,
 } from "../src/shared/schemasAutomation.js";
 import {
+	AUTOMATION_ISSUE_LEVELS,
 	AUTOMATION_SAVE_REFUSALS,
 	AutomationSaveFunctionSchema,
 	AutomationSaveRefusalSchema,
@@ -1842,6 +1843,8 @@ ${wireEnumBlock("FunctionParamType", FUNCTION_PARAM_TYPES)}
 ${wireEnumBlock("AutomationSaveRefusalCode", AUTOMATION_SAVE_REFUSALS)}
 
 ${wireEnumBlock("AutomationSaveRecord", SAVE_RECORDS)}
+
+${wireEnumBlock("AutomationIssueLevel", AUTOMATION_ISSUE_LEVELS)}
 
 ${wireEnumBlock("AutomationRunRefusal", AUTOMATION_RUN_REFUSALS)}
 

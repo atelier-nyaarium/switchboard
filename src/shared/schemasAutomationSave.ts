@@ -22,9 +22,9 @@ export const AUTOMATION_SAVE_REFUSALS = [
 	/** `record`, `path`. */
 	"invalid",
 	/** `record`, `path`, `param`, `start`, `end`. */
-	"hole",
+	"hole", // skew:step-refusals
 	/** `automations` that stop fitting. */
-	"unfit",
+	"unfit", // skew:step-refusals
 	/** `id`. */
 	"unknown_function",
 	"mixed",
@@ -73,6 +73,40 @@ export const AutomationSaveRefusalSchema = z
 	})
 	.meta({ id: "AutomationSaveRefusal" });
 export type AutomationSaveRefusal = z.infer<typeof AutomationSaveRefusalSchema>;
+
+/** What an issue does to a landed save. */
+export const AUTOMATION_ISSUE_LEVELS = [
+	/** It never fires. */
+	"unarmed",
+	/** A run fails at it. */
+	"error",
+	/** It runs on. */
+	"warning",
+] as const;
+export type AutomationIssueLevel = (typeof AUTOMATION_ISSUE_LEVELS)[number];
+
+export const AUTOMATION_ISSUES_MAX = 64;
+
+export const AutomationIssueSchema = z
+	.object({
+		level: z.enum(AUTOMATION_ISSUE_LEVELS),
+		record: z.enum(SAVE_RECORDS),
+		/** The function's, under `function`. */
+		id: z.string().optional(),
+		/** The walk's numbers under `record`. */
+		step: z.string().regex(STEP_PATH_RE).max(64).optional(),
+		param: z.string().max(32).optional(),
+		start: z.number().int().nonnegative().optional(),
+		end: z.number().int().nonnegative().optional(),
+		/** A switch case's number. */
+		case: z.number().int().nonnegative().optional(),
+		/** A case's value. */
+		value: z.string().max(SAVE_LINE_MAX).optional(),
+		/** Shown as written; never decided from. */
+		line: z.string().max(SAVE_LINE_MAX),
+	})
+	.meta({ id: "AutomationIssue" });
+export type AutomationIssue = z.infer<typeof AutomationIssueSchema>;
 
 export const AutomationSaveFunctionSchema = z
 	.discriminatedUnion("as", [
@@ -127,6 +161,8 @@ export const ConsoleAutomationCheckResultSchema = z
 		refusal: AutomationSaveRefusalSchema.optional(),
 		/** Its body's reads. */
 		reads: FunctionReadsSchema.optional(),
+		/** What it would save with. */
+		issues: z.array(AutomationIssueSchema).max(AUTOMATION_ISSUES_MAX).optional(),
 	})
 	.meta({ id: "ConsoleAutomationCheckResult" });
 export type ConsoleAutomationCheckResult = z.infer<typeof ConsoleAutomationCheckResultSchema>;
@@ -139,6 +175,8 @@ export const ConsoleAutomationSaveResultSchema = z
 		/** The called functions it wrote. */
 		called: z.array(AutomationFunctionRowSchema).max(FUNCTIONS_MAX).optional(),
 		refusal: AutomationSaveRefusalSchema.optional(),
+		/** What it saved with. */
+		issues: z.array(AutomationIssueSchema).max(AUTOMATION_ISSUES_MAX).optional(),
 	})
 	.meta({ id: "ConsoleAutomationSaveResult" });
 export type ConsoleAutomationSaveResult = z.infer<typeof ConsoleAutomationSaveResultSchema>;

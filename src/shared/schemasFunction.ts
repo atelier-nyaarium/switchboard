@@ -1,7 +1,7 @@
 // A function: a named body an automation points at.
 
 import { z } from "zod";
-import { sidesOf, walked } from "./automation-walk.js";
+import { type HeldSide, sidesOf, walked } from "./automation-walk.js";
 import { RULE_ID_RE } from "./schemasAssistantRules.js";
 
 /** Store-wide total. */
@@ -42,8 +42,8 @@ export const StepArgSchema = z
 	.discriminatedUnion("kind", [
 		/** As written; an action's text parameter alone fills its holes. */
 		z.strictObject({ kind: z.literal("literal"), value: LiteralValueSchema }),
-		/** A quoted string with a hole is one. */
-		z.strictObject({ kind: z.literal("expression"), text: z.string().min(1).max(STEP_TEXT_MAX) }),
+		/** A quoted string with a hole is one; blank is an error. */
+		z.strictObject({ kind: z.literal("expression"), text: z.string().max(STEP_TEXT_MAX) }),
 	])
 	.meta({ id: "StepArg" });
 export type StepArg = z.infer<typeof StepArgSchema>;
@@ -63,8 +63,8 @@ export const FunctionStepSchema = z
 		}),
 		z.strictObject({
 			kind: z.literal("if"),
-			/** One expression. */
-			when: z.string().min(1).max(STEP_TEXT_MAX),
+			/** One expression; blank is an error. */
+			when: z.string().max(STEP_TEXT_MAX),
 			/** The side taken when it holds. */
 			get steps() {
 				return side().optional();
@@ -150,10 +150,15 @@ export const FUNCTION_STATEMENT_KINDS = Object.keys(STATEMENTS) as FunctionStep[
 const countOf = (steps: readonly FunctionStep[]): number =>
 	steps.reduce((sum, step) => sum + 1 + sidesOf(step).reduce((held, side) => held + countOf(side.steps), 0), 0);
 
-/** A flat list is one deep. */
+/** An `if` alone in an else. */
+const chained = (step: FunctionStep, side: HeldSide<FunctionStep>): boolean =>
+	step.kind === "if" && side.side === "else" && side.steps.length === 1 && side.steps[0]?.kind === "if";
+
+/** A flat list is one deep; an else-if adds none. */
 const depthOf = (steps: readonly FunctionStep[]): number =>
 	steps.reduce(
-		(deepest, step) => Math.max(deepest, 1 + Math.max(0, ...sidesOf(step).map((side) => depthOf(side.steps)))),
+		(deepest, step) =>
+			Math.max(deepest, 1, ...sidesOf(step).map((side) => (chained(step, side) ? 0 : 1) + depthOf(side.steps))),
 		steps.length > 0 ? 1 : 0,
 	);
 

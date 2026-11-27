@@ -1014,10 +1014,19 @@ describe("the script's console reads", () => {
 		expect(parse({ text: "exit", place: { step: "4" } }).placed).toBeUndefined();
 	});
 
-	it("answers what a save would refuse of the steps, where it sits in the text", () => {
+	it("answers every issue of the steps by its level, where it sits in the text", () => {
 		const { parse } = stage();
 		const cutOf = (text: string) =>
 			(parse({ text }).issues ?? []).map((issue) => [text.slice(issue.start, issue.end)]);
+		const levelsOf = (text: string) =>
+			(parse({ text }).issues ?? []).map((issue) => [text.slice(issue.start, issue.end), issue.level]);
+
+		expect(levelsOf('sensors = 1\nassistant.tell("now", "{nowhere}")\nwait(-1)')).toEqual([
+			["sensors", "warning"],
+			["nowhere", "error"],
+			["-1", "error"],
+		]);
+		expect(levelsOf("wait(")).toEqual([[expect.any(String), "error"]]);
 
 		expect(cutOf('exit\nassistant.tell("now", "a\\"b {nowhere}")')).toEqual([["nowhere"]]);
 		expect(cutOf('x = 1\nif (devices.set("Desk lamp", "on")) {\n}').flat()).toEqual(["devices.set"]);

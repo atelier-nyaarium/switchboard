@@ -155,7 +155,7 @@ describe("the automation save op", () => {
 		});
 	});
 
-	it("refuses a hole in a function's step by its record, step path and span as written, for a text and an expression", () => {
+	it("saves a hole in a function's step and answers it by its record, step path and span as written, for a text and an expression", () => {
 		const { console, save } = stage();
 		const inText = save("warm", pointing(hourly), 0, {
 			id: "warm-up",
@@ -165,37 +165,48 @@ describe("the automation save op", () => {
 			]),
 			base: 0,
 		});
-		const inExpression = save("warm", pointing(hourly), 0, {
+		const inExpression = save("warm", pointing(hourly), 1, {
 			id: "warm-up",
 			body: warmUp([{ ...on, args: { ...on.args, device: { kind: "expression", text: "nowhere" } } }]),
-			base: 0,
+			base: 1,
 		});
+		const line = expect.any(String);
 
-		expect([refusalOf(inText), refusalOf(inExpression)]).toEqual([
-			{
-				code: "hole",
-				record: "function",
-				id: "warm-up",
-				path: "1",
-				step: "1",
-				param: "message",
-				start: 4,
-				end: 11,
-			},
-			{
-				code: "hole",
-				record: "function",
-				id: "warm-up",
-				path: "0",
-				step: "0",
-				param: "device",
-				start: 0,
-				end: 7,
-			},
+		expect([inText, inExpression].map((answer) => [answer.stored, answer.issues])).toEqual([
+			[
+				true,
+				[
+					{
+						level: "error",
+						record: "function",
+						id: "warm-up",
+						step: "1",
+						param: "message",
+						start: 4,
+						end: 11,
+						line,
+					},
+				],
+			],
+			[
+				true,
+				[
+					{
+						level: "error",
+						record: "function",
+						id: "warm-up",
+						step: "0",
+						param: "device",
+						start: 0,
+						end: 7,
+						line,
+					},
+				],
+			],
 		]);
-		const refusalLines = [inText, inExpression].map((answer) => (answer.stored ? null : answer.refusal?.line));
-		expect(refusalLines.every((line) => typeof line === "string" && line.length > 0)).toBe(true);
-		expect(console.list()).toMatchObject({ automations: [], functions: [] });
+		expect(console.list().automations.map((row) => [row.id, row.invalid, row.errors])).toEqual([
+			["warm", undefined, 1],
+		]);
 	});
 
 	it("answers a stale save with facts", () => {
@@ -240,29 +251,30 @@ describe("the automation save op", () => {
 		const cases = {
 			ready: op("warm", pointing({ kind: "interval", everyMin: 30 }), 1),
 			stale: op("warm", { ...pointing(hourly), label: "Changed" }, 0),
-			unfit: op("warm", pointing(hourly), 1, { body: warmUp([on, tellsTitle]), base: 1 }),
+			issued: op("warm", pointing(hourly), 1, { body: warmUp([on, tellsTitle]), base: 1 }),
 			confirm: op("event", pointing(event), 0, undefined, false),
 			function_moved: op("warm", pointing(hourly), 1, { body: warmUp([on]), base: 7 }),
 		};
 		const before = console.list();
 
-		const checked = Object.fromEntries(
-			Object.entries(cases).map(([name, each]) => [name, console.check(each).refusal ?? null]),
-		);
+		const checked = Object.fromEntries(Object.entries(cases).map(([name, each]) => [name, console.check(each)]));
 		const untouched = console.list();
-		const saved = Object.fromEntries(
-			Object.entries(cases)
-				.filter(([name]) => name !== "ready")
-				.map(([name, each]) => [name, console.save(each).refusal ?? null]),
-		);
+		const refusing = ["stale", "confirm", "function_moved"] as const;
+		const saved = Object.fromEntries(refusing.map((name) => [name, console.save(cases[name]).refusal ?? null]));
+		const issued = console.save(cases.issued);
 
 		expect(untouched).toEqual(before);
 		expect(
-			Object.fromEntries(Object.entries(checked).map(([name, refusal]) => [name, refusal?.code ?? null])),
-		).toEqual({ ready: null, stale: "moved", unfit: "unfit", confirm: "confirm", function_moved: "moved" });
-		expect({ ...checked, ready: undefined }).toEqual({ ...saved, ready: undefined });
-		expect(console.check(cases.unfit)).toMatchObject({ ready: false, reads: { names: ["event"] } });
-		expect(console.check(cases.ready)).toMatchObject({ ready: true, reads: { names: [], eventFields: [] } });
+			Object.fromEntries(Object.entries(checked).map(([name, answer]) => [name, answer.refusal?.code ?? null])),
+		).toEqual({ ready: null, stale: "moved", issued: null, confirm: "confirm", function_moved: "moved" });
+		expect(Object.fromEntries(refusing.map((name) => [name, checked[name]?.refusal ?? null]))).toEqual(saved);
+		expect(checked.issued).toMatchObject({ ready: true, reads: { names: ["event"] } });
+		expect(checked.issued?.issues?.map((issue) => [issue.record, issue.step, issue.level])).toEqual([
+			["automation", undefined, "error"],
+		]);
+		expect(issued).toMatchObject({ stored: true, issues: checked.issued?.issues });
+		expect(checked.ready).toMatchObject({ ready: true, reads: { names: [], eventFields: [] } });
+		expect(checked.ready).not.toHaveProperty("issues");
 	});
 
 	it("refuses a save that only points when the function is no longer the one shown", () => {
@@ -287,7 +299,7 @@ describe("the automation save op", () => {
 		]);
 	});
 
-	it("names the called function a refusal sits in, and never the derived id a copy lands on", () => {
+	it("names the called function an issue or a refusal sits in, and a copy's derived id only once it lands", () => {
 		const { console, save } = stage();
 		const holed = (message: string): AutomationFunctionInput => ({
 			name: "Chime",
@@ -299,25 +311,32 @@ describe("the automation save op", () => {
 			body: warmUp([on, { kind: "call", function: callee }]),
 			base: 0,
 		});
-		const inCallee = save("warm", pointing(hourly), 0, calling("chime"), [
-			{ id: "chime", body: holed("Hi {nowhere}"), base: 0 },
-		]);
 		const goneCallee = save("warm", pointing(hourly), 0, calling("bell"), [
 			{ id: "bell", body: holed("Hi"), base: 3 },
 		]);
-		save("warm", pointing(hourly), 0, { id: "warm-up", body: warmUp([on]), base: 0 });
-		const copied = console.save({
+		const inCallee = save("warm", pointing(hourly), 0, calling("chime"), [
+			{ id: "chime", body: holed("Hi {nowhere}"), base: 0 },
+		]);
+		const copy = {
 			automationId: "warm",
 			automation: AutomationSchema.parse(pointing(hourly)),
 			automationBase: 1,
-			function: { as: "copy", from: "warm-up", fromBase: 1, body: FunctionSchema.parse(holed("Hi {nowhere}")) },
+			function: {
+				as: "copy" as const,
+				from: "warm-up",
+				fromBase: 1,
+				body: FunctionSchema.parse(holed("Hi {nowhere}")),
+			},
 			confirmed: true,
-		});
+		};
+		const checked = console.check(copy);
+		const copied = console.save(copy);
 
-		expect(refusalOf(inCallee)).toMatchObject({ code: "hole", record: "function", id: "chime", step: "0" });
 		expect(refusalOf(goneCallee)).toEqual({ code: "gone", record: "function", id: "bell" });
-		expect(refusalOf(copied)).toMatchObject({ code: "hole", record: "function", step: "0" });
-		expect(refusalOf(copied)).not.toHaveProperty("id");
+		expect(inCallee.issues).toMatchObject([{ level: "error", record: "function", id: "chime", step: "0" }]);
+		expect(checked.issues).toMatchObject([{ level: "error", record: "function", step: "0" }]);
+		expect(checked.issues?.[0]).not.toHaveProperty("id");
+		expect(copied.issues).toMatchObject([{ level: "error", record: "function", id: copied.function?.id }]);
 	});
 
 	it("writes the functions its calls reach with it, new and edited, and answers their rows", () => {
@@ -365,8 +384,8 @@ describe("the automation save op", () => {
 		expect(listed.automations.map((row) => row.invalid ?? null)).toEqual([null]);
 	});
 
-	it("refuses a called function's edit that would stop another automation's run fitting, and one that closes a loop", () => {
-		const { save } = stage();
+	it("saves a called function's edit that leaves another automation's run unfit as its error, and refuses one that closes a loop", () => {
+		const { console, save } = stage();
 		const calls = warmUp([on, { kind: "call", function: "chime" }]);
 		const chime = (steps: AutomationFunctionInput["steps"]): AutomationFunctionInput => ({
 			name: "Chime",
@@ -380,16 +399,21 @@ describe("the automation save op", () => {
 		]);
 		save("ring", pointing(event), 0);
 
-		const unfit = save("ring", pointing(event), 1, undefined, [
-			{ id: "chime", body: chime([tells("{event.title}")]), base: 1 },
-		]);
 		const loop = save("warm", pointing(hourly), 1, undefined, [
 			{ id: "chime", body: chime([{ kind: "call", function: "warm-up", values: { room: lit(PLUG) } }]), base: 1 },
 		]);
+		const unfit = save("ring", pointing(event), 1, undefined, [
+			{ id: "chime", body: chime([tells("{event.title}")]), base: 1 },
+		]);
 
-		expect([refusalOf(unfit), refusalOf(loop)]).toEqual([
-			{ code: "unfit", automations: ["warm"] },
+		expect([refusalOf(loop), unfit.stored, unfit.issues]).toEqual([
 			{ code: "loop", record: "function", id: "warm-up" },
+			true,
+			undefined,
+		]);
+		expect(console.list().automations.map((row) => [row.id, row.errors])).toEqual([
+			["warm", 1],
+			["ring", undefined],
 		]);
 	});
 

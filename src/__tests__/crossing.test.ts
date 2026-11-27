@@ -14,6 +14,7 @@ import {
 	AUTOMATION_TRIGGER_NAMES,
 	AUTOMATION_TRIGGERS,
 	type AutomationInput,
+	AutomationSchema,
 	AutomationTriggerSchema,
 	ConsoleAutomationListResultSchema,
 } from "../shared/schemasAutomation.js";
@@ -148,17 +149,22 @@ describe("a crossing", () => {
 		]);
 	});
 
-	it("refuses at save a message whose hole names nothing here, with the span to mark", () => {
+	it("saves a message whose hole names nothing here as its error, with the span to mark", () => {
 		const { automations } = world();
 		const message = "It is {temperature} now";
 
-		const refused = automations.ownerPut(
-			"holes",
-			above({ actions: [{ kind: "tell_assistant", when: "now", message }] }),
-			0,
-		);
+		const saved = automations.saveOp({
+			automationId: "holes",
+			automation: AutomationSchema.parse(above({ actions: [{ kind: "tell_assistant", when: "now", message }] })),
+			automationBase: 0,
+			confirmed: true,
+		});
 
-		expect(refused).toMatchObject({ stored: false, hole: { action: 0, param: "message", start: 7, end: 18 } });
+		expect(saved).toMatchObject({
+			stored: true,
+			automation: { errors: 1 },
+			issues: [{ level: "error", record: "automation", step: "0", param: "message", start: 7, end: 18 }],
+		});
 		expect(message.slice(7, 18)).toBe("temperature");
 	});
 
@@ -302,7 +308,7 @@ describe("a crossing", () => {
 		expect(preview.filled).toBe("At -18 C");
 	});
 
-	it("refuses a number no sensor reads here, under any id its owner names", () => {
+	it("saves a number no sensor reads here as invalid, under any id its owner names", () => {
 		const { automations } = world();
 		const elsewhere = above();
 		if (elsewhere.trigger.kind === "crossing") elsewhere.trigger.measure = "humidity";
@@ -310,8 +316,11 @@ describe("a crossing", () => {
 		const unread = automations.ownerPut("damp", elsewhere, 0);
 		const named = automations.ownerPut("threshold-ce1c-temperature-high", above(), 0);
 
-		expect([unread.stored, named.stored]).toEqual([false, true]);
-		expect(automations.rows().map((row) => row.id)).toEqual(["threshold-ce1c-temperature-high"]);
+		expect([unread.stored, named.stored]).toEqual([true, true]);
+		expect(automations.rows().map((row) => [row.id, typeof row.invalid])).toEqual([
+			["damp", "string"],
+			["threshold-ce1c-temperature-high", "undefined"],
+		]);
 	});
 });
 

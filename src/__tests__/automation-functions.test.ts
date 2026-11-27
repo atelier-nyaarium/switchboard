@@ -10,7 +10,7 @@ import {
 	judgeAutomationWrite,
 	type SavedFunction,
 } from "../gateway/computed/automationJudge.js";
-import { FUNCTION_UNREAD, NO_SWITCH } from "../gateway/computed/automationValidity.js";
+import { FUNCTION_UNREAD } from "../gateway/computed/automationValidity.js";
 import { holesOver } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import type { OwnerRecord } from "../gateway/ownerRecords.js";
@@ -275,10 +275,13 @@ describe("save refusal lines", () => {
 			refusal(saveIntent("later", pointing(hourly, "later")), view({ unreadAt: (id) => id === "later" })),
 			refusal(saveIntent("gone", pointing(hourly, "gone")), view()),
 			refusal(
-				saveIntent("unfit", pointing(hourly, "fn")),
+				saveIntent("loop", pointing(hourly, "fn")),
 				view({
 					functions: [savedFunction],
-					assess: () => [{ at: "fit", function: "fn", issue: { kind: "unfit" } }],
+					assess: () => [
+						{ at: "fit", function: "fn", issue: { kind: "unfit" } },
+						{ at: "call", function: "fn", why: "loop" },
+					],
 				}),
 			),
 			refusal(saveIntent("away", { ...eventReach }, { confirmed: true }), view({ isHome: false })),
@@ -297,7 +300,7 @@ describe("save refusal lines", () => {
 		const judgeCodes = new Set<AutomationSaveRefusalCode>([
 			"gone",
 			"invalid",
-			"unfit",
+			"loop",
 			"unknown_function",
 			"mixed",
 			"newer_app",
@@ -392,7 +395,7 @@ describe("an automation that runs a function", () => {
 		]);
 	});
 
-	it("refuses an edit that stops another user fitting, and lets a toggle through whatever it fits", () => {
+	it("saves an edit that stops another user fitting, which reads it as that user's error", () => {
 		const { automations, save } = open();
 		save("a", pointing(hourly, "warm-up", { room: PLUG }), 0, {
 			as: "edit",
@@ -411,10 +414,11 @@ describe("an automation that runs a function", () => {
 		});
 		const unset = save("c", pointing(hourly, "warm-up"), 0);
 
-		expect([refusalOf(widened), refusalOf(unset), automations.list().length]).toEqual([
-			{ code: "unfit", automations: ["b"] },
-			{ code: "unfit", automations: ["c"] },
-			2,
+		expect([widened.stored, unset.stored]).toEqual([true, true]);
+		expect(automations.rows().map((row) => [row.id, row.invalid, row.errors])).toEqual([
+			["a", undefined, undefined],
+			["b", undefined, 1],
+			["c", undefined, 1],
 		]);
 	});
 
@@ -431,7 +435,7 @@ describe("an automation that runs a function", () => {
 		]);
 	});
 
-	it("points nothing new at a function whose own step no longer holds, and leaves its user to edit and toggle", () => {
+	it("points a new automation at a function whose own step no longer holds, reading its error, and leaves its user to edit and toggle", () => {
 		const { automations, save, unplug } = open();
 		const literal = { kind: "do", action: "device_set", args: { device: lit(PLUG), verb: lit("on") } } as const;
 		save("first", pointing(hourly, "steps"), 0, { as: "edit", id: "steps", body: fn([literal]), base: 0 });
@@ -445,14 +449,14 @@ describe("an automation that runs a function", () => {
 			2,
 		);
 
-		expect([refusalOf(fresh), edited.stored, off.stored]).toEqual([
-			{ code: "invalid", record: "function", id: "steps" },
-			true,
-			true,
+		expect([fresh.stored, edited.stored, off.stored]).toEqual([true, true, true]);
+		expect(automations.rows().map((row) => [row.id, row.invalid, row.errors])).toEqual([
+			["first", undefined, 1],
+			["second", undefined, 1],
 		]);
 	});
 
-	it("lets a toggle through on an automation that no longer fits, and refuses any other edit of it", () => {
+	it("lets a toggle and any other edit through on an automation that no longer fits, which reads its error", () => {
 		const row = (id: string, kind: string, body: object) => ({ id, kind, revision: 1, incarnation: id, body });
 		const degrees = [...room, { name: "degrees", type: "number" as const }];
 		const { automations, save } = open(true, [
@@ -467,7 +471,8 @@ describe("an automation that runs a function", () => {
 		);
 		const relabelled = save("d", { ...pointing(hourly, "warm-up", { room: PLUG }), enabled: false, label: "D" }, 2);
 
-		expect([toggled.stored, refusalOf(relabelled)]).toEqual([true, { code: "unfit", automations: ["d"] }]);
+		expect([toggled.stored, relabelled.stored]).toEqual([true, true]);
+		expect(automations.rows().map((row) => [row.id, row.automation.label, row.errors])).toEqual([["d", "D", 1]]);
 	});
 
 	it("toggles automations with gone or unread functions and refuses relabels", () => {
@@ -692,109 +697,73 @@ describe("an automation that runs a function", () => {
 
 	describe("a function's steps, checked as a flat action is", () => {
 		const step = (args: Record<string, StepArg>, action = "device_set") => ({ kind: "do", action, args }) as const;
-		const saveWith = (steps: AutomationFunctionInput["steps"], values: Record<string, string> = { room: PLUG }) => {
-			const { save } = open();
-			return save("warm", pointing(hourly, "warm-up", values), 0, {
-				as: "edit",
-				id: "warm-up",
-				body: fn(steps, room),
-				base: 0,
+		/** Its issues, lines aside; a refusal as it came. */
+		const issuedWith = (
+			steps: AutomationFunctionInput["steps"],
+			values: Record<string, string> = { room: PLUG },
+			params: AutomationFunctionInput["params"] = room,
+		) => {
+			const answer = open().automations.saveOp({
+				automationId: "warm",
+				automation: AutomationSchema.parse(pointing(hourly, "warm-up", values)),
+				automationBase: 0,
+				function: { as: "edit", id: "warm-up", body: FunctionSchema.parse(fn(steps, params)), base: 0 },
+				confirmed: true,
 			});
+			if (!answer.stored) return answer.refusal;
+			return (answer.issues ?? []).map(({ line: _line, ...issue }) => issue);
 		};
 
-		it("refuses a hole outside a text, a value its action does not take, a choice it does not offer, and a plug it does not hold", () => {
-			const refused = [
-				saveWith([step({ device: lit("{room}"), verb: lit("on") })]),
-				saveWith([step({ device: lit(PLUG), verb: lit("on"), colour: lit("red") })]),
-				saveWith([step({ device: lit(PLUG), verb: lit("sideways") })]),
-				saveWith([step({ device: lit("aa:bb:cc:dd:ee:99"), verb: lit("on") })]),
-				saveWith([on], { room: "aa:bb:cc:dd:ee:99" }),
-			].map(refusalOf);
+		it("saves a hole outside a text, a value its action does not take, a choice it does not offer, and a plug it does not hold, each as its error", () => {
+			const issued = [
+				issuedWith([step({ device: lit("{room}"), verb: lit("on") })]),
+				issuedWith([step({ device: lit(PLUG), verb: lit("on"), colour: lit("red") })]),
+				issuedWith([step({ device: lit(PLUG), verb: lit("sideways") })]),
+				issuedWith([step({ device: lit("aa:bb:cc:dd:ee:99"), verb: lit("on") })]),
+				issuedWith([on], { room: "aa:bb:cc:dd:ee:99" }),
+			];
+			const inStep = { level: "error", record: "function", id: "warm-up", step: "0" };
 
-			expect(refused).toEqual([
-				{
-					code: "hole",
-					record: "function",
-					id: "warm-up",
-					path: "0",
-					step: "0",
-					param: "device",
-					start: 0,
-					end: 6,
-				},
-				{
-					code: "invalid",
-					record: "function",
-					id: "warm-up",
-					path: "steps.0.colour",
-					step: "0",
-					param: "colour",
-				},
-				{ code: "invalid", record: "function", id: "warm-up", path: "steps.0.verb", step: "0", param: "verb" },
-				{
-					code: "invalid",
-					record: "function",
-					id: "warm-up",
-					path: "steps.0.device",
-					step: "0",
-					param: "device",
-				},
-				{ code: "invalid", record: "automation", path: "values.room" },
+			expect(issued).toEqual([
+				[{ ...inStep, param: "device", start: 0, end: 6 }],
+				[{ ...inStep, param: "colour" }],
+				[{ ...inStep, param: "verb" }],
+				[{ ...inStep, param: "device" }],
+				[{ level: "error", record: "automation", param: "room" }],
 			]);
 		});
 
-		it("refuses a step result name on save and leaves a stored one unarmed", () => {
+		it("saves a step result name as its error, and runs a stored one", () => {
 			const assigned = { ...on, as: "result" };
-			const { automations, save } = open();
-			const refused = save("warm", pointing(hourly, "warm-up", { room: PLUG }), 0, {
-				as: "edit",
-				id: "warm-up",
-				body: fn([assigned], room),
-				base: 0,
-			});
+			const issued = issuedWith([assigned]);
 			const row = (id: string, kind: string, body: object) => ({ id, kind, revision: 1, incarnation: id, body });
 			const stored = open(true, [
 				row("later", "function", fn([assigned], room)),
 				row("event", "automation", pointing(event, "later", { room: PLUG })),
 			]);
 
-			expect([refusalOf(refused), automations.list()]).toEqual([
-				{
-					code: "invalid",
-					record: "function",
-					id: "warm-up",
-					path: "steps.0.as",
-					step: "0",
-					param: "as",
-				},
-				[],
+			expect(issued).toEqual([{ level: "error", record: "function", id: "warm-up", step: "0", param: "as" }]);
+			expect(stored.automations.rows().map((held) => [held.id, held.invalid, held.errors])).toEqual([
+				["event", undefined, 1],
 			]);
-			expect(stored.automations.invalidOf("event")).not.toBeNull();
-			expect(stored.automations.eventsOf("github")).toEqual([]);
+			expect(stored.automations.eventsOf("github").map((held) => held.id)).toEqual(["event"]);
 		});
 
-		it("refuses a value or a variable named as an entity or a word of the language on save, and reads a stored one as it is", () => {
+		it("warns of a value or a variable named as an entity or a word of the language on save, and reads a stored one as it is", () => {
 			const plain = { kind: "do", action: "device_set", args: { device: lit(PLUG), verb: lit("on") } } as const;
 			const named = (
 				params: AutomationFunctionInput["params"],
 				steps: AutomationFunctionInput["steps"] = [plain],
 			) => {
 				const values = Object.fromEntries((params ?? []).map((param) => [param.name, "x"]));
-				return refusalOf(
-					open().save("warm", pointing(hourly, "warm-up", values), 0, {
-						as: "edit",
-						id: "warm-up",
-						body: fn(steps, params),
-						base: 0,
-					}),
-				);
+				return issuedWith(steps, values, params);
 			};
 			const row = (id: string, kind: string, body: object) => ({ id, kind, revision: 1, incarnation: id, body });
 			const stored = open(true, [
 				row("later", "function", fn([plain], [{ name: "sensors", type: "text" }])),
 				row("clock", "automation", pointing(hourly, "later", { sensors: "x" })),
 			]);
-			const byParam = { code: "invalid", record: "function", id: "warm-up", path: "params.0.name" };
+			const byParam = (param: string) => [{ level: "warning", record: "function", id: "warm-up", param }];
 
 			expect([
 				named([{ name: "sensors", type: "text" }]),
@@ -803,13 +772,15 @@ describe("an automation that runs a function", () => {
 				named([], [{ kind: "let", name: "or", value: lit(1) }, plain]),
 				named([{ name: "sensor", type: "text" }]),
 			]).toEqual([
-				byParam,
-				byParam,
-				byParam,
-				{ code: "invalid", record: "function", id: "warm-up", path: "steps.0.name", step: "0", param: "name" },
-				null,
+				byParam("sensors"),
+				byParam("wait"),
+				byParam("e"),
+				[{ level: "warning", record: "function", id: "warm-up", step: "0", param: "name" }],
+				[],
 			]);
-			expect(stored.automations.invalidOf("clock")).toBeNull();
+			expect(stored.automations.rows().map((held) => [held.invalid, held.errors])).toEqual([
+				[undefined, undefined],
+			]);
 		});
 
 		it("lets an edit of a shared function through when another user's plug went before it", () => {
@@ -832,7 +803,7 @@ describe("an automation that runs a function", () => {
 			expect(renamed.stored).toBe(true);
 		});
 
-		it("reads an automation invalid once the plug its value names goes", () => {
+		it("reads an automation's error once the plug its value names goes", () => {
 			const { save, automations, unplug } = open();
 			save("warm", pointing(hourly, "warm-up", { room: PLUG }), 0, {
 				as: "edit",
@@ -840,13 +811,16 @@ describe("an automation that runs a function", () => {
 				body: fn([on], room),
 				base: 0,
 			});
-			const before = automations.invalidOf("warm");
+			const before = automations.rows().map((row) => row.errors);
 			unplug();
 
-			expect([before, automations.invalidOf("warm")]).toEqual([null, NO_SWITCH]);
+			expect([before, automations.rows().map((row) => [row.invalid, row.errors])]).toEqual([
+				[undefined],
+				[[undefined, 1]],
+			]);
 		});
 
-		it("refuses a save naming a gone switch with the line its row shows, flat and through a function", () => {
+		it("saves an edit naming a gone switch, flat and through a function, each reading its error", () => {
 			const { save, automations, unplug } = open();
 			const flat: AutomationInput = {
 				enabled: true,
@@ -861,16 +835,16 @@ describe("an automation that runs a function", () => {
 				base: 0,
 			});
 			unplug();
-			const refused = [
+			const saved = [
 				save("flat", { ...flat, label: "Lamp on" }, 1),
 				save("warm", { ...pointing(hourly, "warm-up", { room: PLUG }), label: "Warm" }, 1),
-			].map(refusalOf);
+			].map((answer) => answer.stored);
 
-			expect(refused).toEqual([
-				{ code: "invalid", record: "automation" },
-				{ code: "invalid", record: "automation", path: "values.room" },
+			expect(saved).toEqual([true, true]);
+			expect(automations.rows().map((row) => [row.id, row.invalid, row.errors])).toEqual([
+				["flat", undefined, 1],
+				["warm", undefined, 1],
 			]);
-			expect(automations.invalidOf("flat")).toBe(NO_SWITCH);
 		});
 
 		it("lets a function read an event's link and id, as the fire gives them", () => {
