@@ -1,4 +1,10 @@
-import { type ConsoleNode, parseConsole, parseConsoleText, piecesOf } from "../../shared/live-console-grammar.js";
+import {
+	type ConsoleNode,
+	parseConsole,
+	parseConsoleExpression,
+	parseConsoleText,
+	piecesOf,
+} from "../../shared/live-console-grammar.js";
 import { HOLE_FAILED } from "../../shared/text-holes.js";
 import { arityIssue, freeBuiltin, valueBuiltin } from "./builtins.js";
 import { type ConsoleVariable, DOING_REFUSED, evaluateConsole, evaluateNode } from "./evaluate.js";
@@ -135,6 +141,7 @@ export const holesOver = (registry: ConsoleRegistry) => ({
 	expression: (source: string, names: readonly string[]) => expressionIssue(source, names, registry),
 	fill: (text: string, names: Readonly<Record<string, HoleName>>) => fillHoles(text, names, registry),
 	evaluate: (source: string, names: Readonly<Record<string, HoleName>>) => evaluateHole(source, names, registry),
+	shown: (source: string, names: Readonly<Record<string, HoleName>>) => shownHole(source, names, registry),
 	entity: (name: string) => registry.has(name),
 });
 
@@ -166,6 +173,27 @@ export async function evaluateHole(
 	});
 	const [only, more] = answer.ok ? answer.results : [];
 	return only && !more && !only.assigned ? { value: only.value } : null;
+}
+
+/** As a hole prints it; null when it fails. */
+export async function shownHole(
+	source: string,
+	names: Readonly<Record<string, HoleName>>,
+	registry: ConsoleRegistry,
+): Promise<string | null> {
+	const { node, issues } = parseConsoleExpression(source);
+	if (!node || issues.length > 0) return null;
+	const { start, end } = node;
+	const alone: ConsoleNode = {
+		kind: "template",
+		pieces: [{ kind: "hole", node, closed: true, broken: false, start, end }],
+		closed: true,
+		start,
+		end,
+	};
+	const options = { variables: variablesOf(names), stepsMax: HOLE_STEPS_MAX, noSlow: true };
+	const answer = await evaluateNode(alone, source.length, registry, AUDIENCE, options);
+	return answer.ok && typeof answer.value === "string" ? answer.value : null;
 }
 
 /** Never throws. */

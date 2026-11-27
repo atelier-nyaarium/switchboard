@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { type HeldSide, sidesOf, walked } from "./automation-walk.js";
 import { RULE_ID_RE } from "./schemasAssistantRules.js";
+import { ASSISTANT_RULE_VALUE_MAX } from "./wire-vocabulary.js";
 
 /** Store-wide total. */
 export const FUNCTIONS_MAX = 32;
@@ -51,6 +52,20 @@ export type StepArg = z.infer<typeof StepArgSchema>;
 /** A list a step holds. */
 const side = () => z.array(FunctionStepSchema).max(FUNCTION_STEPS_MAX);
 
+export const SWITCH_CASES_MAX = 16;
+/** An enumeration's most options. */
+export const SWITCH_CASE_VALUES_MAX = 64;
+
+/** No values is an error. */
+export const SwitchCaseSchema = z
+	.strictObject({
+		values: z.array(z.string().max(ASSISTANT_RULE_VALUE_MAX)).max(SWITCH_CASE_VALUES_MAX),
+		get steps() {
+			return side();
+		},
+	})
+	.meta({ id: "SwitchCase" });
+
 export const FunctionStepSchema = z
 	.discriminatedUnion("kind", [
 		z.strictObject({
@@ -70,6 +85,18 @@ export const FunctionStepSchema = z
 				return side().optional();
 			},
 			get else() {
+				return side().optional();
+			},
+		}),
+		/** First matching case runs, else the default. */
+		z.strictObject({
+			kind: z.literal("switch"),
+			/** One expression; blank is an error. */
+			subject: z.string().max(STEP_TEXT_MAX),
+			get cases() {
+				return z.array(SwitchCaseSchema).max(SWITCH_CASES_MAX);
+			},
+			get default() {
 				return side().optional();
 			},
 		}),
@@ -131,6 +158,7 @@ export const unnamed = (fn: { name: string }): boolean => fn.name === "";
 const STATEMENTS: { [K in FunctionStep["kind"]]: true } = {
 	do: true,
 	if: true,
+	switch: true,
 	try: true,
 	parallel: true,
 	start: true,

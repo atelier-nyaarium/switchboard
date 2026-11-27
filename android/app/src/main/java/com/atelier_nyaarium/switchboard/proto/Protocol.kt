@@ -183,7 +183,7 @@ object Protocol {
 
 		val CONSOLE_INSTANT_KEYS: Set<String> = setOf("at", "heardAt", "lastAt", "firedAt", "readAt", "lastSuccessAt", "nextPollAt")
 
-		val SCRIPT_RESERVED: Set<String> = setOf("if", "else", "try", "catch", "exit", "throw", "wait", "parallel", "start", "await", "all", "any")
+		val SCRIPT_RESERVED: Set<String> = setOf("if", "else", "switch", "case", "default", "try", "catch", "exit", "throw", "wait", "parallel", "start", "await", "all", "any")
 
 		enum class ConsoleCompletes(val wire: String) {
 			DEVICES("devices"),
@@ -2831,6 +2831,15 @@ sealed class FunctionStep {
 	) : FunctionStep()
 
 	@Serializable
+	@SerialName("switch")
+	data class Switch(
+		val subject: String,
+		val cases: List<SwitchCase>,
+		@EncodeDefault(EncodeDefault.Mode.NEVER)
+		val default: List<FunctionStep>? = null,
+	) : FunctionStep()
+
+	@Serializable
 	@SerialName("try")
 	data class Try(
 		val steps: List<FunctionStep>,
@@ -2919,6 +2928,7 @@ object FunctionStepSerializer : KSerializer<FunctionStep> {
 			when (kind) {
 				"do" -> input.json.decodeFromJsonElement(FunctionStep.Do.serializer(), body)
 				"if" -> input.json.decodeFromJsonElement(FunctionStep.If.serializer(), body)
+				"switch" -> input.json.decodeFromJsonElement(FunctionStep.Switch.serializer(), body)
 				"try" -> input.json.decodeFromJsonElement(FunctionStep.Try.serializer(), body)
 				"parallel" -> input.json.decodeFromJsonElement(FunctionStep.Parallel.serializer(), body)
 				"start" -> input.json.decodeFromJsonElement(FunctionStep.Start.serializer(), body)
@@ -2943,6 +2953,7 @@ object FunctionStepSerializer : KSerializer<FunctionStep> {
 		val element = when (value) {
 			is FunctionStep.Do -> tagged("do", output.json.encodeToJsonElement(FunctionStep.Do.serializer(), value))
 			is FunctionStep.If -> tagged("if", output.json.encodeToJsonElement(FunctionStep.If.serializer(), value))
+			is FunctionStep.Switch -> tagged("switch", output.json.encodeToJsonElement(FunctionStep.Switch.serializer(), value))
 			is FunctionStep.Try -> tagged("try", output.json.encodeToJsonElement(FunctionStep.Try.serializer(), value))
 			is FunctionStep.Parallel -> tagged("parallel", output.json.encodeToJsonElement(FunctionStep.Parallel.serializer(), value))
 			is FunctionStep.Start -> tagged("start", output.json.encodeToJsonElement(FunctionStep.Start.serializer(), value))
@@ -5285,6 +5296,12 @@ data class ConsoleVariable(
 )
 
 @Serializable
+data class SwitchCase(
+	val values: List<String>,
+	val steps: List<FunctionStep>,
+)
+
+@Serializable
 data class AutomationSaveCalled(
 	val id: String,
 	val body: AutomationFunction,
@@ -5609,6 +5626,8 @@ data class AutomationLastStep(
 	val reason: String? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val side: String? = null,
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
+	val case: Long? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val function: String? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)

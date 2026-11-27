@@ -2,15 +2,18 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import pathVectors from "../../tests/fixtures/step-path/vectors.json" with { type: "json" };
+import { addressIn } from "../gateway/computed/automationFrames.js";
 import {
 	byPath,
 	reached,
+	recalled,
 	type Sealed,
 	siteAmong,
 	steering,
 	stepsOf,
 	visit,
 	type WalkEntry,
+	written,
 } from "../shared/automation-walk.js";
 import { AutomationSchema } from "../shared/schemasAutomation.js";
 import { FunctionSchema, type FunctionStep } from "../shared/schemasFunction.js";
@@ -124,5 +127,48 @@ describe("the walk's step path", () => {
 		expect(paths.map((path) => siteAmong(path, ["0"]))).toEqual(["0", "0"]);
 		expect(siteAmong("3", ["0"])).toBeNull();
 		expect(["10", "2.1", "2", "2.0", "1"].sort(byPath)).toEqual(["1", "2", "2.0", "2.1", "10"]);
+	});
+});
+
+describe("a switch's sides", () => {
+	const routed = FunctionSchema.parse({
+		name: "Route",
+		params: [],
+		steps: [
+			{
+				kind: "switch",
+				subject: "label",
+				cases: [
+					{ values: ["a"], steps: [{ kind: "call", function: "x" }] },
+					{ values: ["b"], steps: [] },
+				],
+				default: [{ kind: "call", function: "x" }],
+			},
+		],
+	});
+
+	it("names each case by its number and the default past the last, read back against the body", () => {
+		const body = written(routed);
+
+		expect([addressIn(body, [0, 0, 0]), addressIn(body, [0, 2, 0]), addressIn(body, [0, 3, 0])]).toEqual([
+			[0, "case:0", 0],
+			[0, "case:2", 0],
+			null,
+		]);
+		expect(["0.2.0", "0.0.0", "0"].sort(byPath)).toEqual(["0", "0.0.0", "0.2.0"]);
+	});
+
+	it("maps a call in every case and the default, keeping each case's values", () => {
+		expect(recalled(routed, (id) => `${id}-copy`)).toEqual([
+			{
+				kind: "switch",
+				subject: "label",
+				cases: [
+					{ values: ["a"], steps: [{ kind: "call", function: "x-copy" }] },
+					{ values: ["b"], steps: [] },
+				],
+				default: [{ kind: "call", function: "x-copy" }],
+			},
+		]);
 	});
 });

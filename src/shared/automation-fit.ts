@@ -151,6 +151,7 @@ export function functionReads(fn: Pick<AutomationFunction, "steps">): FunctionRe
 	const reads: { [K in FunctionStep["kind"]]: (step: Extract<FunctionStep, { kind: K }>) => void } = {
 		do: (step) => Object.values(step.args).forEach(arg),
 		if: (step) => read(step.when),
+		switch: (step) => read(step.subject),
 		let: (step) => value(step.value),
 		wait: (step) => value(step.minutes),
 		throw: (step) => (step.text === undefined ? undefined : text(step.text)),

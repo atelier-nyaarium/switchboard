@@ -1,6 +1,6 @@
 // One pass of the pump: the next state, and the work to start.
 
-import { below, byPath, type RunFunction, within } from "../../shared/automation-walk.js";
+import { below, byPath, caseSide, type RunFunction, within } from "../../shared/automation-walk.js";
 import { AUTOMATION_ACTIONS, type Automation, type AutomationAction } from "../../shared/schemasAutomation.js";
 import { RUN_STRANDS_MAX } from "../../shared/schemasFunction.js";
 import { keptOf } from "../../shared/task-values.js";
@@ -320,6 +320,7 @@ export function createPass(ports: PassPorts): {
 	const howOf = (kind: string, step: Step): Ended => {
 		if (step.verdict !== "done") return { how: kind === "throw" ? "thrown" : "failed", failure: failureOf(step) };
 		if (kind === "if") return { how: "took", side: step.side ?? null };
+		if (kind === "switch") return { how: "took", side: step.case === undefined ? null : caseSide(step.case) };
 		if (kind === "try") return { how: "took", side: "try" };
 		if (kind === "exit") return { how: "exit" };
 		return { how: "done" };

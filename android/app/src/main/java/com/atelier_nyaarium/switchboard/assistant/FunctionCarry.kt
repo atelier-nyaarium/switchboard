@@ -99,6 +99,7 @@ private fun stepRefusal(carried: AssistantHomeCarried?, held: AutomationFunction
 		when (step) {
 			is FunctionStep.Do -> step.action.takeIf { it !in held.steps }
 			is FunctionStep.If -> "if".takeIf { it !in statements }
+			is FunctionStep.Switch -> "switch".takeIf { it !in statements }
 			is FunctionStep.Try -> "try".takeIf { it !in statements }
 			is FunctionStep.Parallel -> "parallel".takeIf { it !in statements }
 			is FunctionStep.Start -> "start".takeIf { it !in statements }

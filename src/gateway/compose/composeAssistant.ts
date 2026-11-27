@@ -186,6 +186,8 @@ export interface AssistantStage {
 	eventWarning: (trigger: EventTrigger) => string | null;
 	/** A source's declared event fields; null when not held. */
 	eventFields: (source: string) => readonly string[] | null;
+	/** A choice field's options, else null. */
+	eventChoices: (source: string, field: string) => readonly string[] | null;
 	eventSentence: (trigger: EventTrigger) => string;
 	/** Over the live first page. */
 	previewTrigger: (trigger: AutomationTrigger) => Promise<ConsoleAutomationPreviewResult>;
@@ -306,6 +308,10 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	};
 	const eventFields = (sourceId: string): readonly string[] | null =>
 		sources.find((candidate) => candidate.id === sourceId)?.fieldSpecs.map((spec) => spec.field) ?? null;
+	const eventChoices = (sourceId: string, field: string): readonly string[] | null => {
+		const spec = specsOf(sourceId)?.find((candidate) => candidate.field === field);
+		return spec?.kind === "enumeration" ? spec.options.map((option) => option.value) : null;
+	};
 	const eventSentence = (trigger: EventTrigger): string => {
 		const source = sources.find((candidate) => candidate.id === trigger.source);
 		const said = trigger.conditions.map((condition) => {
@@ -888,6 +894,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 		eventIssue,
 		eventWarning,
 		eventFields,
+		eventChoices,
 		eventSentence,
 		iftttTrigger: (params, bound) => ifttt.trigger(params, bound),
 		previewTrigger: async (trigger) => {

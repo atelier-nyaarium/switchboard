@@ -311,6 +311,73 @@
 				{ "reach": "step", "path": "0.1", "index": 1, "kind": "call" },
 				{ "reach": "unfollowedCall", "path": "0.1", "kind": "run_function", "reason": "missing" }
 			]
+		},
+		{
+			"name": "a switch numbers each case, then its default past the last",
+			"automation": {
+				"enabled": true,
+				"trigger": { "kind": "interval", "everyMin": 5 },
+				"actions": [{ "kind": "run_function", "function": "route" }]
+			},
+			"functions": {
+				"route": {
+					"name": "Route",
+					"params": [],
+					"steps": [
+						{
+							"kind": "switch",
+							"subject": "event.reason",
+							"cases": [
+								{
+									"values": ["mention", "assign"],
+									"steps": [{ "kind": "note", "text": "asked" }]
+								},
+								{
+									"values": ["review_requested"],
+									"steps": [{ "kind": "note", "text": "review" }, { "kind": "exit" }]
+								},
+								{ "values": ["ci_activity"], "steps": [] }
+							],
+							"default": [{ "kind": "note", "text": "other" }]
+						},
+						{ "kind": "exit" }
+					]
+				}
+			},
+			"reached": [
+				{ "reach": "step", "path": "0.0", "index": 0, "kind": "switch" },
+				{ "reach": "step", "path": "0.0.0.0", "index": 0, "kind": "note" },
+				{ "reach": "step", "path": "0.0.1.0", "index": 0, "kind": "note" },
+				{ "reach": "step", "path": "0.0.1.1", "index": 1, "kind": "exit" },
+				{ "reach": "step", "path": "0.0.3.0", "index": 0, "kind": "note" },
+				{ "reach": "step", "path": "0.1", "index": 1, "kind": "exit" }
+			]
+		},
+		{
+			"name": "a switch with no default holds no step past its last case",
+			"automation": {
+				"enabled": true,
+				"trigger": { "kind": "interval", "everyMin": 5 },
+				"actions": [{ "kind": "run_function", "function": "route" }]
+			},
+			"functions": {
+				"route": {
+					"name": "Route",
+					"params": [],
+					"steps": [
+						{
+							"kind": "switch",
+							"subject": "label",
+							"cases": [{ "values": ["a"], "steps": [{ "kind": "call", "function": "gone" }] }]
+						}
+					]
+				}
+			},
+			"reached": [
+				{ "reach": "step", "path": "0.0", "index": 0, "kind": "switch" },
+				{ "reach": "step", "path": "0.0.0.0", "index": 0, "kind": "call" },
+				{ "reach": "unfollowedCall", "path": "0.0.0.0", "kind": "run_function", "reason": "missing" }
+			]
 		}
 	]
 }

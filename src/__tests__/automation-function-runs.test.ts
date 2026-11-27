@@ -15,6 +15,7 @@ import {
 	NEWER_SET,
 	NOT_TRUE_OR_FALSE,
 	STEP_UNFIT,
+	SUBJECT_UNREAD,
 	THROWN,
 	TOO_MANY_CALLS,
 	VALUE_TOO_LARGE,
@@ -100,6 +101,7 @@ function world(stored?: object) {
 				isHome: () => true,
 				eventIssue: () => null,
 				eventFields: () => ["reason"],
+				eventChoices: (_source, field) => (field === "reason" ? ["mention", "assign"] : null),
 				entropy: (size) => crypto.randomBytes(size),
 				holes: () => ({ ...holesOver(REGISTRY), evaluate: (source, names) => evaluating(source, names) }),
 				actions: {
@@ -1236,6 +1238,121 @@ describe("a tree of steps", () => {
 		]);
 	});
 
+	it("takes the first case holding its subject's shown text ignoring case, else its default, and serves the case taken", async () => {
+		const w = world();
+		const routes = (subject: string, values: string[]): AutomationFunctionInput["steps"][number] => ({
+			kind: "switch",
+			subject,
+			cases: [
+				{ values: ["fan"], steps: [ifttt("fan")] },
+				{ values, steps: [ifttt("matched")] },
+			],
+			default: [ifttt("other")],
+		});
+		w.save(pointing(hourly), [
+			routes("room", ["desk", " LAMP "]),
+			routes("1 + 1", ["3"]),
+			{ kind: "switch", subject: "true", cases: [{ values: ["false"], steps: [ifttt("never")] }] },
+			ifttt("after"),
+		]);
+		await w.later(HOUR);
+		const taken = w.automations
+			.listing()
+			.automations.find((row) => row.id === "warm")
+			?.lastRun?.steps.flatMap((step) => (step.kind === "switch" ? [[step.path, step.case]] : []));
+
+		expect(w.effects).toEqual(["ifttt:matched", "ifttt:other", "ifttt:after"]);
+		expect(w.where()).toEqual([
+			["0.0.1.0", "warm-up"],
+			["0.1.2.0", "warm-up"],
+			["0.3", "warm-up"],
+		]);
+		expect(taken).toEqual([
+			["0.0", 1],
+			["0.1", 2],
+			["0.2", 1],
+		]);
+	});
+
+	it("fails a switch whose subject cannot be read where it stands, taking no case, a try catching it", async () => {
+		const w = world();
+		w.save(pointing(hourly), [
+			{
+				kind: "try",
+				steps: [
+					{
+						kind: "switch",
+						subject: "room.missing",
+						cases: [{ values: ["x"], steps: [ifttt("never")] }],
+						default: [ifttt("never")],
+					},
+				],
+				catch: [ifttt("caught", "{e.code}")],
+			},
+			ifttt("after"),
+		]);
+		await w.later(HOUR);
+
+		expect(w.effects).toEqual(["ifttt:caught:unread", "ifttt:after"]);
+		expect(w.rows()).toEqual([
+			["switch", "refused", SUBJECT_UNREAD],
+			["ifttt_trigger", "ran", undefined],
+			["ifttt_trigger", "ran", undefined],
+		]);
+	});
+
+	it("saves a case value given twice as an error on that value, and a run fails at the switch", async () => {
+		const w = world();
+		const saved = w.saveOp(pointing(hourly), [
+			{
+				kind: "switch",
+				subject: "room",
+				cases: [
+					{ values: ["lamp"], steps: [ifttt("lamp")] },
+					{ values: ["Lamp", "LAMP "], steps: [] },
+				],
+			},
+			ifttt("after"),
+		]);
+		await w.later(HOUR);
+
+		expect(saved).toMatchObject({
+			stored: true,
+			issues: [
+				{ level: "error", record: "function", step: "0", case: 1, value: "Lamp" },
+				{ level: "error", record: "function", step: "0", case: 1, value: "LAMP " },
+			],
+		});
+		expect(w.rows()).toEqual([
+			["switch", "refused", STEP_ERRORS],
+			["ifttt_trigger", "ran", undefined],
+			["run_function", "refused", CALL_FAILED],
+		]);
+	});
+
+	it("warns of a case value its choice field no longer holds, and the case still runs on what it does hold", async () => {
+		const w = world();
+		const saved = w.saveOp(pointing(event), [
+			{
+				kind: "switch",
+				subject: "event.reason",
+				cases: [{ values: ["gone", "mention"], steps: [ifttt("asked")] }],
+				default: [ifttt("other")],
+			},
+		]);
+		w.automations.fireEvents(
+			[{ automation: "warm", key: "k", names: { event: { value: { reason: "Mention" }, shown: "A pull" } } }],
+			w.at(),
+		);
+		await w.automations.settled();
+
+		expect(saved).toMatchObject({
+			stored: true,
+			issues: [{ level: "warning", step: "0", case: 0, value: "gone" }],
+		});
+		expect(w.effects).toEqual(["ifttt:asked"]);
+	});
+
 	it("saves a name already taken, a wait out of range, a blank condition or value, and a condition it cannot read, assigns or holds twice, at any depth, each as its error", () => {
 		const bodies: AutomationFunctionInput["steps"][] = [
 			[{ kind: "let", name: "room", value: lit(1) }],
@@ -1251,6 +1368,8 @@ describe("a tree of steps", () => {
 			[turn("on", expr("room} {room"))],
 			[{ kind: "if", when: "", steps: [turn("on")] }],
 			[{ kind: "let", name: "count", value: expr("") }],
+			[{ kind: "switch", subject: "", cases: [] }],
+			[{ kind: "switch", subject: "room", cases: [{ values: [], steps: [turn("on")] }] }],
 		];
 
 		expect(

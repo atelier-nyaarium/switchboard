@@ -304,8 +304,9 @@ internal fun flowGraph(input: FlowInput): FlowGraph {
 							reached[entry.path] = FlowStep(owner, guarded)
 							b.note(owner, FlowNote.ScriptErrors)
 						}
-						is FunctionStep.If, is FunctionStep.Try, is FunctionStep.Parallel, is FunctionStep.Start, is FunctionStep.Await,
-						is FunctionStep.Exit, is FunctionStep.Throw, is FunctionStep.Let, is FunctionStep.Wait, is FunctionStep.Note,
+						is FunctionStep.If, is FunctionStep.Switch, is FunctionStep.Try, is FunctionStep.Parallel,
+						is FunctionStep.Start, is FunctionStep.Await, is FunctionStep.Exit, is FunctionStep.Throw,
+						is FunctionStep.Let, is FunctionStep.Wait, is FunctionStep.Note,
 						is FunctionStep.Unknown -> reached[entry.path] = FlowStep(owner, guarded)
 					}
 				}
@@ -336,7 +337,7 @@ private fun guardOf(entry: WalkStep, held: Map<String, WalkStep>): Pair<Boolean,
 		when (sidesOf(above.step).firstOrNull { (side, _) -> "${side.number}" == parts[cut] }?.first) {
 			Side.Body -> guarded = true
 			Side.Catch -> if (above.via == entry.via) caught = true
-			Side.Then, Side.Else, null -> Unit
+			Side.Then, Side.Else, is Side.Case, is Side.Default, null -> Unit
 		}
 	}
 	return guarded to caught

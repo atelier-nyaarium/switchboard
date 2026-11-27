@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { STEP_PATH_RE } from "../../shared/automation-walk.js";
 import { KEEP_TRYING_MIN_DEFAULT } from "../../shared/schemasAutomation.js";
-import { FUNCTION_STEPS_TOTAL_MAX, RUN_STRANDS_MAX } from "../../shared/schemasFunction.js";
+import { FUNCTION_STEPS_TOTAL_MAX, RUN_STRANDS_MAX, SWITCH_CASES_MAX } from "../../shared/schemasFunction.js";
 import type { Waited } from "../../shared/task-values.js";
 import { FAILURE_CODES, FAILURE_MESSAGE_MAX, type Failure, type FailureCode } from "./automationFrames.js";
 import type { LogRow } from "./automationLog.js";
@@ -73,6 +73,8 @@ export const StepSchema = z.strictObject({
 		.optional(),
 	/** The side an `if` took. */
 	side: z.enum(["then", "else"]).optional(),
+	/** The case a `switch` took. */
+	case: z.number().int().nonnegative().max(SWITCH_CASES_MAX).optional(),
 	/** When a `wait` ends. */
 	until: z.number().int().optional(),
 	awaits: WaitedSchema.optional(),
@@ -205,10 +207,10 @@ export const failedAs = (step: Step, code: FailureCode, message: string, errors?
 		: {}),
 });
 
-/** Ends a step that only steers. */
-export const steered = (step: Step, side?: "then" | "else"): Step => ({
+/** Ends a steering step; a number is a case. */
+export const steered = (step: Step, taken?: "then" | "else" | number): Step => ({
 	...ending(step, "done", "done"),
-	...(side ? { side } : {}),
+	...(typeof taken === "number" ? { case: taken } : taken ? { side: taken } : {}),
 });
 
 /** How an ended step logs. */

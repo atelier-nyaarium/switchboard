@@ -134,6 +134,7 @@ private const val STEP_KEY = "step"
 private fun stepKind(step: FunctionStep): String = when (step) {
 	is FunctionStep.Do -> step.action
 	is FunctionStep.If -> "if"
+	is FunctionStep.Switch -> "switch"
 	is FunctionStep.Try -> "try"
 	is FunctionStep.Parallel -> "parallel"
 	is FunctionStep.Start -> "start"

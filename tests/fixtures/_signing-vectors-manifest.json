@@ -34,6 +34,7 @@
 		"self-revocation",
 		"session-id",
 		"step-path",
+		"switch-cases",
 		"sync-cursor",
 		"transport-request",
 		"versioned-list",

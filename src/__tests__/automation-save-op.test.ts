@@ -137,6 +137,7 @@ describe("the automation save op", () => {
 			statements: [
 				"do",
 				"if",
+				"switch",
 				"try",
 				"parallel",
 				"start",

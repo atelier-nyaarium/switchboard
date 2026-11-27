@@ -75,6 +75,7 @@ export type WalkHandlers<E extends WalkEntry, R> = {
 /** Kinds that steer or hold steps and act on nothing themselves. A new kind joins by hand. */
 export const STEERING = [
 	"if",
+	"switch",
 	"try",
 	"parallel",
 	"start",
@@ -112,13 +113,23 @@ type Walked = { actions: Sealed<AutomationAction> };
 
 /** Concurrent `parallel` and `start`. */
 export const SIDES = ["then", "else", "try", "catch", "parallel", "start"] as const;
-export type Side = (typeof SIDES)[number];
+type Fixed = (typeof SIDES)[number];
+/** A switch's case; its default follows the last. */
+export type CaseSide = `case:${number}`;
+export type Side = Fixed | CaseSide;
+
+export const caseSide = (number: number): CaseSide => `case:${number}`;
+
+const isCase = (side: Side): side is CaseSide => side.startsWith("case:");
 
 /** Within one body: indexes and sides, ending on an index. */
 export type Address = readonly (number | Side)[];
 
-/** A step's first list is 0, its second 1. */
-export const sideNumber = (side: Side): 0 | 1 => (side === "else" || side === "catch" ? 1 : 0);
+/** A step's first list is 0, its second 1; a case its own number. */
+export const sideNumber = (side: Side): number => {
+	if (isCase(side)) return Number(side.slice("case:".length));
+	return side === "else" || side === "catch" ? 1 : 0;
+};
 
 /** What `sidesOf` reads of a step. */
 export interface Branching<T> {
@@ -126,6 +137,8 @@ export interface Branching<T> {
 	steps?: readonly T[];
 	else?: readonly T[];
 	catch?: readonly T[];
+	cases?: readonly { steps?: readonly T[] }[];
+	default?: readonly T[];
 }
 
 /** A step known by its sides alone. */
@@ -138,9 +151,10 @@ export interface HeldSide<T> {
 	steps: readonly T[];
 }
 
-/** Keyed by every kind, in written order. */
-const SIDES_BY_KIND: { readonly [K in StepKind]: readonly Side[] } = {
+/** Keyed by every kind; `cases` ends with the default. */
+const SIDES_BY_KIND: { readonly [K in StepKind]: readonly Fixed[] | "cases" } = {
 	if: ["then", "else"],
+	switch: "cases",
 	try: ["try", "catch"],
 	parallel: ["parallel"],
 	start: ["start"],
@@ -155,7 +169,7 @@ const SIDES_BY_KIND: { readonly [K in StepKind]: readonly Side[] } = {
 	call: [],
 };
 
-const fieldOf = (side: Side): "steps" | "else" | "catch" => {
+const fieldOf = (side: Fixed): "steps" | "else" | "catch" => {
 	switch (side) {
 		case "then":
 		case "try":
@@ -169,20 +183,36 @@ const fieldOf = (side: Side): "steps" | "else" | "catch" => {
 	}
 };
 
-const sidesNamed = (kind: string): readonly Side[] =>
-	Object.hasOwn(SIDES_BY_KIND, kind) ? SIDES_BY_KIND[kind as StepKind] : [];
+const sidesNamed = <T>(step: Branching<T>): readonly Side[] => {
+	const named = Object.hasOwn(SIDES_BY_KIND, step.kind) ? SIDES_BY_KIND[step.kind as StepKind] : [];
+	if (named !== "cases") return named;
+	return Array.from({ length: (step.cases?.length ?? 0) + 1 }, (_, at) => caseSide(at));
+};
+
+const listOf = <T>(step: Branching<T>, side: Side): readonly T[] | undefined => {
+	if (!isCase(side)) return step[fieldOf(side)];
+	const number = sideNumber(side);
+	return number < (step.cases?.length ?? 0) ? step.cases?.[number]?.steps : step.default;
+};
 
 /** The one reader of a step's lists. */
 export const sidesOf = <T>(step: Branching<T>): HeldSide<T>[] =>
-	sidesNamed(step.kind).map((side) => ({ side, number: sideNumber(side), steps: step[fieldOf(side)] ?? [] }));
+	sidesNamed(step).map((side) => ({ side, number: sideNumber(side), steps: listOf(step, side) ?? [] }));
 
 /** `lists` in `sidesOf` order; an absent side left empty stays absent. */
 export const withSides = (step: FunctionStep, lists: readonly (readonly FunctionStep[])[]): FunctionStep => {
-	const sides = sidesNamed(step.kind);
+	if (step.kind === "switch") {
+		const { default: fallback, ...rest } = step;
+		const cases = step.cases.map((held, at) => ({ ...held, steps: [...(lists[at] ?? [])] }));
+		const last = lists[step.cases.length] ?? [];
+		return { ...rest, cases, ...(fallback !== undefined || last.length > 0 ? { default: [...last] } : {}) };
+	}
+	const sides = sidesNamed(step);
 	if (sides.length === 0) return step;
 	const held: Branching<FunctionStep> = step;
 	const written: Partial<Record<"steps" | "else" | "catch", readonly FunctionStep[]>> = {};
 	sides.forEach((side, at) => {
+		if (isCase(side)) return;
 		const field = fieldOf(side);
 		const list = lists[at] ?? [];
 		if (held[field] !== undefined || list.length > 0) written[field] = list;

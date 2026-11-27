@@ -61,6 +61,7 @@ import {
 	unnamed,
 	WAIT_MINUTES_MAX,
 } from "../../shared/schemasFunction.js";
+import { caseTaken } from "../../shared/switch-cases.js";
 import { hasHoles, unescapedText, unreadText } from "../../shared/text-holes.js";
 import {
 	createOwnerRecords,
@@ -199,6 +200,7 @@ export { STEP_UNFIT };
 export const VALUE_UNREAD = "a value it takes could not be read";
 export const CONDITION_UNREAD = "its condition could not be read";
 export const NOT_TRUE_OR_FALSE = "its condition is not true or false";
+export const SUBJECT_UNREAD = "its subject could not be read";
 export const VALUE_TOO_LARGE = "its value is too large to keep";
 export const WAIT_UNREAD = "its minutes could not be read";
 export const THROWN = "it threw";
@@ -264,6 +266,8 @@ export interface AutomationHoles {
 	fill: (text: string, names: Readonly<FireNames>) => Promise<{ text: string; failed: number }>;
 	/** Null when it fails. */
 	evaluate: (source: string, names: Readonly<FireNames>) => Promise<{ value: unknown } | null>;
+	/** As a hole prints it; null when it fails. */
+	shown: (source: string, names: Readonly<FireNames>) => Promise<string | null>;
 	entity: (name: string) => boolean;
 }
 
@@ -282,6 +286,8 @@ export interface AutomationsDeps {
 	eventWarning?: (trigger: EventTrigger) => string | null;
 	/** A source's declared event fields; null when not held. */
 	eventFields?: (source: string) => readonly string[] | null;
+	/** A choice field's options, else null. */
+	eventChoices?: (source: string, field: string) => readonly string[] | null;
 	functionKey?: DurableStore;
 	entropy?: (size: number) => Buffer;
 	/** An event trigger in words. */
@@ -1189,6 +1195,12 @@ export function createAutomations(deps: AutomationsDeps) {
 				else outcome = { step: (held) => steered(held, read.value ? "then" : "else") };
 				break;
 			}
+			case "switch": {
+				const shown = await shownOf(written.subject, names);
+				if (shown === null) outcome = fail("unread", SUBJECT_UNREAD);
+				else outcome = { step: (held) => steered(held, caseTaken(written.cases, shown)) };
+				break;
+			}
 			case "let": {
 				const read = await argValue(written.value);
 				// Kept by name, never by standing.
@@ -1364,6 +1376,16 @@ export function createAutomations(deps: AutomationsDeps) {
 			return (await deps.holes?.()?.evaluate(source, names)) ?? null;
 		} catch (error) {
 			console.error(`[automations] a value read failed: ${errorName(error)}`);
+			return null;
+		}
+	};
+
+	/** Null on failure. */
+	const shownOf = async (source: string, names: FireNames): Promise<string | null> => {
+		try {
+			return (await deps.holes?.()?.shown(source, names)) ?? null;
+		} catch (error) {
+			console.error(`[automations] a subject read failed: ${errorName(error)}`);
 			return null;
 		}
 	};
@@ -1783,17 +1805,24 @@ export function createAutomations(deps: AutomationsDeps) {
 				.map((record) => ({ id: record.id, name: record.body.name, params: record.body.params })),
 		givenOf,
 		/** A refusal reads as error. */
-		stepIssuesOf(body: { params: readonly FunctionParam[]; steps: readonly FunctionStep[] }): StepIssueAt[] {
+		stepIssuesOf(
+			body: { params: readonly FunctionParam[]; steps: readonly FunctionStep[] },
+			trigger?: AutomationTrigger,
+		): StepIssueAt[] {
 			const parsed = FunctionSchema.safeParse({ name: "", ...body });
 			if (!parsed.success) return [];
-			return stepIssuesOf(parsed.data).map(({ step, param, start, end, message, level }) => ({
-				step,
-				...(param === undefined ? {} : { param }),
-				...(start === undefined ? {} : { start }),
-				...(end === undefined ? {} : { end }),
-				message,
-				level: level === "refuses" ? "error" : level,
-			}));
+			return stepIssuesOf(parsed.data, trigger).map(
+				({ step, param, start, end, case: at, chip, message, level }) => ({
+					step,
+					...(param === undefined ? {} : { param }),
+					...(start === undefined ? {} : { start }),
+					...(end === undefined ? {} : { end }),
+					...(at === undefined ? {} : { case: at }),
+					...(chip === undefined ? {} : { chip }),
+					message,
+					level: level === "refuses" ? "error" : level,
+				}),
+			);
 		},
 		rows: (): AutomationRow[] => records.list().map(rowOf),
 		listing,

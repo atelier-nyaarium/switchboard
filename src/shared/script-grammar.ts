@@ -10,6 +10,9 @@ import { SCRIPT_SOURCE_MAX } from "./schemasFunction.js";
 export const SCRIPT_RESERVED = [
 	"if",
 	"else",
+	"switch",
+	"case",
+	"default",
 	"try",
 	"catch",
 	"exit",
@@ -41,8 +44,21 @@ export interface ScriptBlock extends Span {
 
 export type ScriptIf = Span & { kind: "if"; when: ConsoleNode; then: ScriptBlock; otherwise?: ScriptBlock | ScriptIf };
 
+export interface ScriptCase extends Span {
+	values: ConsoleNode[];
+	body: ScriptBlock;
+}
+
+export type ScriptSwitch = Span & {
+	kind: "switch";
+	subject: ConsoleNode;
+	cases: ScriptCase[];
+	otherwise?: ScriptBlock;
+};
+
 export type ScriptNode =
 	| ScriptIf
+	| ScriptSwitch
 	| (Span &
 			(
 				| { kind: "note"; text: string }
@@ -133,7 +149,8 @@ class ScriptParser extends ConsoleParser {
 			return [];
 		}
 		const blocky =
-			first.kind === "ident" && (first.text === "if" || first.text === "try" || first.text === "parallel");
+			first.kind === "ident" &&
+			(first.text === "if" || first.text === "switch" || first.text === "try" || first.text === "parallel");
 		const faults = this.faults;
 		const step = first.kind === "ident" && RESERVED.has(first.text) ? this.worded(first) : this.plain(first);
 		// Faults say so once.
@@ -250,12 +267,87 @@ class ScriptParser extends ConsoleParser {
 		return otherwise && { kind: "if", when, then, otherwise, start: word.start, end: otherwise.end };
 	}
 
+	/** `case "a", "b" { }`. */
+	private casing(word: ConsoleToken): ScriptCase | null {
+		this.at++;
+		const values: ConsoleNode[] = [];
+		while (true) {
+			const token = this.next;
+			if (!token || token.kind === "newline" || token.kind === "comment" || this.is("{")) {
+				this.issue("incomplete", word.start, word.end, 'a case needs its values: case "a", "b" {');
+				return null;
+			}
+			values.push(this.expression());
+			if (!this.is(",")) break;
+			this.at++;
+		}
+		const body = this.block(word);
+		return body && { values, body, start: word.start, end: body.end };
+	}
+
+	private switched(word: ConsoleToken): ScriptSwitch | null {
+		const subject = this.parenthesized(
+			word,
+			"a subject is missing: switch (subject) {",
+			"write the subject in ( )",
+		);
+		if (!subject) return null;
+		const from = this.at;
+		this.lines();
+		if (!this.is("{")) {
+			this.at = from;
+			this.issue("incomplete", word.start, word.end, "a { is missing");
+			return null;
+		}
+		this.at++;
+		const faults = this.faults;
+		const cases: ScriptCase[] = [];
+		let otherwise: ScriptBlock | undefined;
+		while (true) {
+			this.lines();
+			const token = this.next;
+			if (!token) {
+				if (this.faults === faults) this.issue("incomplete", word.start, word.end, "its } is missing");
+				return null;
+			}
+			if (this.is("}")) {
+				this.at++;
+				return {
+					kind: "switch",
+					subject,
+					cases,
+					...(otherwise ? { otherwise } : {}),
+					start: word.start,
+					end: token.end,
+				};
+			}
+			const before = this.faults;
+			if (otherwise) this.issue("unexpected", token.start, token.end, "default comes last");
+			else if (this.word("case")) {
+				const read = this.casing(token);
+				if (read) cases.push(read);
+			} else if (this.word("default")) {
+				this.at++;
+				otherwise = this.block(token) ?? undefined;
+			} else this.issue("unexpected", token.start, token.end, "a switch holds case and default");
+			if (this.faults !== before) this.recover();
+		}
+	}
+
 	private worded(word: ConsoleToken): ScriptNode | null {
 		this.at++;
 		const { start } = word;
 		switch (word.text as ScriptWord) {
 			case "if":
 				return this.branch(word);
+			case "switch":
+				return this.switched(word);
+			case "case":
+				this.issue("unexpected", word.start, word.end, "a case goes inside a switch's { }");
+				return null;
+			case "default":
+				this.issue("unexpected", word.start, word.end, "a default goes inside a switch's { }");
+				return null;
 			case "try": {
 				const body = this.block(word);
 				if (!body) return null;

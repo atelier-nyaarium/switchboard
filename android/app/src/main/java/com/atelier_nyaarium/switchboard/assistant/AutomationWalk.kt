@@ -85,11 +85,19 @@ internal sealed class Side(val number: Int) {
 	data object Body : Side(0)
 
 	data object Catch : Side(1)
+
+	data class Case(val index: Int) : Side(index)
+
+	/** Past the last case. */
+	data class Default(val at: Int) : Side(at)
 }
 
 /** The one reader of a stored step's lists, in written order. */
 internal fun sidesOf(step: FunctionStep): List<Pair<Side, List<FunctionStep>>> = when (step) {
 	is FunctionStep.If -> listOf(Side.Then to step.steps.orEmpty(), Side.Else to step.`else`.orEmpty())
+	is FunctionStep.Switch ->
+		step.cases.mapIndexed { at, held -> Side.Case(at) to held.steps } +
+			(Side.Default(step.cases.size) to step.default.orEmpty())
 	is FunctionStep.Try -> listOf(Side.Body to step.steps, Side.Catch to step.catch)
 	is FunctionStep.Parallel -> listOf(Side.Body to step.steps)
 	is FunctionStep.Start -> listOf(Side.Body to step.steps)

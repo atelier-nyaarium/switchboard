@@ -178,6 +178,17 @@ const CANONICAL: Record<string, FunctionStep[]> = {
 		{ kind: "if", when: "armed" },
 		{ kind: "try", steps: [], catch: [] },
 	],
+	"a switch with its cases, an empty one, and its default": [
+		{
+			kind: "switch",
+			subject: "event.reason",
+			cases: [
+				{ values: ["mention", 'a "quoted" {brace}'], steps: [tell("Mentioned")] },
+				{ values: ["ci_activity"], steps: [] },
+			],
+			default: [{ kind: "switch", subject: "label", cases: [{ values: ["x"], steps: [{ kind: "exit" }] }] }],
+		},
+	],
 };
 
 describe("a function's steps as script", () => {
@@ -544,6 +555,23 @@ describe("a function's steps as script", () => {
 		expect([cut(0, 1), cut(1, 4), cut(4, 5)]).toEqual(["a", "\\{b\\}", "c"]);
 	});
 
+	it("reads a switch's values as quoted constants and drops an empty default", () => {
+		expect(stepsOf("switch (label) {\n\tcase \"a\", 'b' {\n\t\texit\n\t}\n\tdefault {\n\t}\n}")).toEqual([
+			{ kind: "switch", subject: "label", cases: [{ values: ["a", "b"], steps: [{ kind: "exit" }] }] },
+		]);
+		expect(spansOf('switch (label) {\n\tcase "{x}" {\n\t}\n}\nswitch (label) {\n\tcase 1 {\n\t}\n}')).toEqual([
+			'"{x}"',
+			"1",
+		]);
+	});
+
+	it("refuses a case or a default outside a switch, one after its default, and a line that is neither", () => {
+		expect(spansOf('case "a" {\n}\ndefault {\n}\nswitch label {\n}')).toEqual(["case", "default", "label"]);
+		expect(spansOf('switch (label) {\n\tdefault {\n\t}\n\tcase "a" {\n\t}\n}\nexit')).toEqual(["case"]);
+		expect(spansOf("switch (label) {\n\texit\n\tcase {\n\t}\n}\nx = 1")).toEqual(["exit", "case"]);
+		expect(stepsOf('switch (label) {\n\tcase "a" {\n\t}\n}\nexit')).toHaveLength(2);
+	});
+
 	it("reads a task started on one line as a block of one, and refuses a start or an await of nothing", () => {
 		expect(stepsOf('t = start devices.set("Desk lamp", "on")\nfirst = await any(t)')).toEqual([
 			{ kind: "start", as: "t", steps: [turn(lit(LAMP))] },
@@ -575,12 +603,12 @@ describe("a function's steps as script", () => {
 	});
 
 	it("reads only a stored name the language took, and quotes such a name where a call gives it", () => {
-		const taken = ["wait", "all", "and", "true"].map((name) =>
+		const taken = ["wait", "all", "and", "true", "default"].map((name) =>
 			printScript([{ kind: "let", name, value: lit(1) }], tables),
 		);
 		const given: FunctionStep = { kind: "call", function: "fn-old", values: { and: lit(1), wait: lit(2) } };
 
-		expect(taken.map((printed) => printed.readOnly !== undefined)).toEqual([true, true, true, true]);
+		expect(taken.map((printed) => printed.readOnly !== undefined)).toEqual([true, true, true, true, true]);
 		expect(print([given])).toBe('functions.run("Old names", {"and": 1, wait: 2})');
 		expect(stepsOf(print([given]))).toEqual([given]);
 	});
@@ -737,6 +765,18 @@ function drawn(seed: number): FunctionStep[] {
 				nested
 					? { kind: "if", when: draw.pick(EXPRESSIONS), steps: list(depth + 1, 3), else: list(depth + 1, 2) }
 					: { kind: "exit" },
+			() =>
+				nested
+					? {
+							kind: "switch",
+							subject: draw.pick(EXPRESSIONS),
+							cases: Array.from({ length: 1 + draw.int(3) }, () => ({
+								values: Array.from({ length: 1 + draw.int(3) }, constant),
+								steps: list(depth + 1, 2),
+							})),
+							...(draw.chance(0.5) ? { default: list(depth + 1, 2) } : {}),
+						}
+					: { kind: "exit" },
 			() => (nested ? { kind: "try", steps: list(depth + 1, 3), catch: list(depth + 1, 2) } : { kind: "exit" }),
 			() => (nested ? { kind: "parallel", steps: list(depth + 1, 3) } : { kind: "exit" }),
 			() =>
@@ -784,6 +824,11 @@ function meaningOf(steps: readonly FunctionStep[]): unknown[] {
 				return Object.values(step.values ?? {}).map(value);
 			case "if":
 				return [...meaningOf(step.steps ?? []), ...meaningOf(step.else ?? [])];
+			case "switch":
+				return [
+					...step.cases.flatMap((held) => [...held.values, ...meaningOf(held.steps)]),
+					...meaningOf(step.default ?? []),
+				];
 			case "try":
 				return [...meaningOf(step.steps), ...meaningOf(step.catch)];
 			case "parallel":
@@ -849,6 +894,7 @@ function stage() {
 			isHome: () => true,
 			eventIssue: () => null,
 			eventFields: () => ["reason"],
+			eventChoices: (_source, field) => (field === "reason" ? ["mention", "assign"] : null),
 			entropy: (size) => crypto.randomBytes(size),
 			holes: () => holesOver(REGISTRY),
 			actions: {
@@ -1035,6 +1081,22 @@ describe("the script's console reads", () => {
 		expect(cutOf("exit\nsensors = 1").flat()).toEqual(["sensors"]);
 		expect(parse({ text: 'devices.set("Desk lamp", "sideways")' }).steps).toHaveLength(1);
 		expect(cutOf('devices.set("Desk lamp", "on")\nwait(5)')).toEqual([]);
+	});
+
+	it("places a switch's case issues on their values: a repeat as an error, a lost choice as a warning", () => {
+		const { parse } = stage();
+		const text = 'switch (event.reason) {\n\tcase "mention", "gone" {\n\t}\n\tcase "MENTION" {\n\t}\n}';
+		const levelsOf = (trigger?: AutomationTrigger) =>
+			(parse({ text, ...(trigger ? { trigger } : {}) }).issues ?? []).map((issue) => [
+				text.slice(issue.start, issue.end),
+				issue.level,
+			]);
+
+		expect(levelsOf()).toEqual([['"MENTION"', "error"]]);
+		expect(levelsOf({ kind: "event", source: "github", conditions: [] })).toEqual([
+			['"MENTION"', "error"],
+			['"gone"', "warning"],
+		]);
 	});
 
 	it("says a printed step it cannot write back reads only, and still spans each step", () => {

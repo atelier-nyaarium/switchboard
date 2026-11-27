@@ -606,6 +606,7 @@ export function composeGateway(deps: GatewayDeps): GatewayGraph {
 			eventIssue: assistant.eventIssue,
 			eventWarning: assistant.eventWarning,
 			eventFields: assistant.eventFields,
+			eventChoices: assistant.eventChoices,
 			entropy: (size) => bootstrap.ambient.randomBytes(size),
 			eventSentence: assistant.eventSentence,
 			reading: devices!.watchedReading,

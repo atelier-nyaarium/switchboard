@@ -666,6 +666,7 @@ internal class SandboxAutomationGateway(
 			is WalkStep -> when (val step = entry.step) {
 				is FunctionStep.Do -> if (step.action != IFTTT) return null else step.args.mapValues { (_, arg) -> literalOf(arg) ?: arg }
 				is FunctionStep.If -> return null
+				is FunctionStep.Switch -> return null
 				is FunctionStep.Try -> return null
 				is FunctionStep.Parallel -> return null
 				is FunctionStep.Start -> return null

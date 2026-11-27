@@ -41,6 +41,7 @@ import {
 	WAIT_MINUTES_MAX,
 } from "../../shared/schemasFunction.js";
 import { SCRIPT_RESERVED } from "../../shared/script-grammar.js";
+import { choiceFieldOf, type SwitchIssueWhy, switchIssues } from "../../shared/switch-cases.js";
 import { hasHoles } from "../../shared/text-holes.js";
 import type { OwnerIssue, OwnerRecord } from "../ownerRecords.js";
 import { clockIssue, isClock } from "./automationClock.js";
@@ -53,7 +54,7 @@ import { crossingField } from "./crossingBand.js";
 
 export type ValidityDeps = Pick<
 	AutomationsDeps,
-	"fields" | "reading" | "eventIssue" | "eventWarning" | "eventFields" | "holes" | "actions"
+	"fields" | "reading" | "eventIssue" | "eventWarning" | "eventFields" | "eventChoices" | "holes" | "actions"
 >;
 
 type StepKind = (typeof FUNCTION_STEP_KINDS)[number];
@@ -105,6 +106,11 @@ export interface StepIssue {
 	param?: string;
 	start?: number;
 	end?: number;
+	/** A switch case's number. */
+	case?: number;
+	/** A value's place in its case. */
+	chip?: number;
+	value?: string;
 	message: string;
 	/** Beyond a plain error. */
 	why?: StepWhy;
@@ -112,9 +118,9 @@ export interface StepIssue {
 
 /**
  * `unrunnable`: no catalogue row; `alone`: a script beside steps; `shadows`: a held name hides an entity;
- * `unready`: no hole reader yet.
+ * `unready`: no hole reader yet; `vanished`: a case value its choice field no longer holds.
  */
-export type StepWhy = "unrunnable" | "alone" | "shadows" | "unready";
+export type StepWhy = "unrunnable" | "alone" | "shadows" | "unready" | "vanished";
 
 /** Why a call cannot run its function. */
 export type CallIssue = { kind: "unfit" } | { kind: "switch"; param: string };
@@ -179,6 +185,7 @@ const WHY_LEVELS: Readonly<Record<StepWhy, IssueLevel>> = {
 	alone: "refuses",
 	shadows: "warning",
 	unready: "unarmed",
+	vanished: "warning",
 };
 
 const stepLevel = (issue: StepIssue): IssueLevel => (issue.why ? WHY_LEVELS[issue.why] : "error");
@@ -217,7 +224,25 @@ const spanOf = (issue: StepIssue) => ({
 	...(issue.param === undefined ? {} : { param: issue.param }),
 	...(issue.start === undefined ? {} : { start: issue.start }),
 	...(issue.end === undefined ? {} : { end: issue.end }),
+	...(issue.case === undefined ? {} : { case: issue.case }),
+	...(issue.value === undefined ? {} : { value: issue.value.slice(0, SAVE_LINE_MAX) }),
 });
+
+const SWITCH_LINES: Readonly<Record<SwitchIssueWhy, (value: string) => string>> = {
+	empty: () => "a case holds no value",
+	twice: () => "this value is given before",
+	vanished: (value) => `${value} is no longer one of its values`,
+};
+
+/** A switch's case issues, in written order. */
+const caseIssues = (step: Extract<FunctionStep, { kind: "switch" }>, choices: readonly string[] | null): StepIssue[] =>
+	switchIssues(step, choices).map(({ why, case: at, chip, value }) => ({
+		case: at,
+		...(chip === undefined ? {} : { chip }),
+		...(value === undefined ? {} : { value }),
+		message: SWITCH_LINES[why](value ?? ""),
+		...(why === "vanished" ? { why } : {}),
+	}));
 
 const ANSWERS: {
 	[A in BodyIssue["at"]]: (issue: Extract<BodyIssue, { at: A }>, level: AutomationIssueLevel) => AutomationIssue;
@@ -322,6 +347,12 @@ export function createAutomationValidity(
 		if (trigger.kind === "event")
 			return triggerGiven("event", { eventFields: deps.eventFields?.(trigger.source) ?? [] });
 		return triggerGiven(trigger.kind);
+	};
+
+	/** A choice subject's options. */
+	const choicesOf = (trigger: AutomationTrigger, subject: string): readonly string[] | null => {
+		const field = trigger.kind === "event" ? choiceFieldOf(subject) : null;
+		return trigger.kind === "event" && field !== null ? (deps.eventChoices?.(trigger.source, field) ?? null) : null;
 	};
 
 	const switchHeld = (device: unknown): boolean =>
@@ -447,6 +478,8 @@ export function createAutomationValidity(
 			return expressionIssue("task", step.task, namesIn(fn));
 		},
 		if: (fn, step) => expressionIssue("when", step.when, namesIn(fn)),
+		switch: (fn, step) =>
+			expressionIssue("subject", step.subject, namesIn(fn)) ?? caseIssues(step, null)[0] ?? null,
 		let: (fn, step) => {
 			if (nameTaken(fn, step.name)) return { param: "name", message: NAME_TAKEN };
 			return valueIssue("value", step.value, namesIn(fn));
@@ -490,6 +523,20 @@ export function createAutomationValidity(
 		const kept = keptName(step);
 		if (kept === undefined || !reservedName(kept)) return null;
 		return { param: step.kind === "let" ? "name" : "as", message: NAME_RESERVED, why: "shadows" };
+	};
+
+	/** Its check's issue, then a switch's others. */
+	const issuesAt = (
+		fn: Checked,
+		step: FunctionStep,
+		address: Address,
+		trigger: AutomationTrigger | null,
+	): StepIssue[] => {
+		const issue = stepIssue(fn, step, address);
+		if (step.kind !== "switch") return issue ? [issue] : [];
+		const choices = trigger ? choicesOf(trigger, step.subject) : null;
+		const rest = caseIssues(step, choices).filter((held) => held.case !== issue?.case || held.chip !== issue?.chip);
+		return [...(issue ? [issue] : []), ...rest];
 	};
 
 	/** A run stops at its turn. */
@@ -583,8 +630,8 @@ export function createAutomationValidity(
 		const own = <K extends FunctionStep["kind"]>(at: WalkStep<K>): BodyIssue[] => {
 			if (!entered.includes(at.via)) entered.push(at.via);
 			const fn = functions?.(at.via);
-			const issue = fn ? stepIssue(fn, at.step, at.address) : null;
-			return issue ? [{ at: "step", via: at.via, step: placeOf(at), issue }] : [];
+			const issues = fn ? issuesAt(fn, at.step, at.address, body.trigger) : [];
+			return issues.map((issue) => ({ at: "step", via: at.via, step: placeOf(at), issue }));
 		};
 		for (const at of functions ? reached(body, functions) : reached(body)) {
 			const found = visit<WalkEntry, BodyIssue[]>(at, {
@@ -659,12 +706,18 @@ export function createAutomationValidity(
 		return null;
 	}
 
-	/** Every step issue. */
-	function stepIssuesOf(fn: AutomationFunction): (StepIssue & { step: string; level: IssueLevel })[] {
-		return stepsOf(fn).flatMap(({ step, path, address }) => {
-			const issue = stepIssue(fn, step, address);
-			return issue ? [{ ...issue, step: path, level: stepLevel(issue) }] : [];
-		});
+	/** Every step issue; a trigger adds warnings. */
+	function stepIssuesOf(
+		fn: AutomationFunction,
+		trigger?: AutomationTrigger,
+	): (StepIssue & { step: string; level: IssueLevel })[] {
+		return stepsOf(fn).flatMap(({ step, path, address }) =>
+			issuesAt(fn, step, address, trigger ?? null).map((issue) => ({
+				...issue,
+				step: path,
+				level: stepLevel(issue),
+			})),
+		);
 	}
 
 	/** A run stops at this flat action. */

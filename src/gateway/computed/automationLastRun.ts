@@ -72,6 +72,7 @@ const stepOf = (fire: Fire, path: string, step: Step, ports: LastRunPorts, stamp
 		...(ended ? { outcome: ended.outcome } : {}),
 		...(reason ? { reason: reason.slice(0, LAST_STEP_REASON_MAX) } : {}),
 		...(step.side ? { side: step.side } : {}),
+		...(step.case === undefined ? {} : { case: step.case }),
 		...(fn ? { function: fn } : {}),
 		...(startMs !== undefined ? { startMs } : {}),
 		...(endMs !== undefined ? { endMs } : {}),

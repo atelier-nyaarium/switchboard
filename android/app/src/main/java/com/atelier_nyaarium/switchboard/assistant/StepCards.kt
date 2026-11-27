@@ -100,7 +100,7 @@ internal fun CardsSection(
 private fun sideLabel(side: Side): String = when (side) {
 	Side.Else -> "Otherwise"
 	Side.Catch -> "If it fails"
-	Side.Then, Side.Body -> ""
+	Side.Then, Side.Body, is Side.Case, is Side.Default -> ""
 }
 
 @Composable

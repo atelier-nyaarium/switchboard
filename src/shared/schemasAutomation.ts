@@ -354,6 +354,8 @@ export const AutomationLastStepSchema = z
 		reason: z.string().max(LAST_STEP_REASON_MAX).optional(),
 		/** The side an `if` took. */
 		side: z.enum(["then", "else"]).optional(),
+		/** The case a `switch` took. */
+		case: z.number().int().nonnegative().optional(),
 		/** The function it ran in. */
 		function: z.string().optional(),
 		/** From the run's start; absent from older builds. */

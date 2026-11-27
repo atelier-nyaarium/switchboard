@@ -34,6 +34,7 @@ class AutomationWalkVectorsTest {
 			when (val step = entry.step) {
 				is FunctionStep.Do -> step.action
 				is FunctionStep.If -> "if"
+				is FunctionStep.Switch -> "switch"
 				is FunctionStep.Try -> "try"
 				is FunctionStep.Parallel -> "parallel"
 				is FunctionStep.Start -> "start"

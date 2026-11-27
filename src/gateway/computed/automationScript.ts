@@ -31,10 +31,19 @@ import {
 	SCRIPT_SOURCE_MAX,
 	STEP_TEXT_MAX,
 	type StepArg,
+	SWITCH_CASE_VALUES_MAX,
+	SWITCH_CASES_MAX,
 } from "../../shared/schemasFunction.js";
 import type { ConsoleDescription } from "../../shared/schemasLiveConsole.js";
-import { opensStatement, parseScriptSource, type ScriptIf, type ScriptNode } from "../../shared/script-grammar.js";
+import {
+	opensStatement,
+	parseScriptSource,
+	type ScriptIf,
+	type ScriptNode,
+	type ScriptSwitch,
+} from "../../shared/script-grammar.js";
 import { GIVEN_SCRIPT_TYPES, PARAM_SCRIPT_TYPES, typeOfNode } from "../../shared/script-types.js";
+import { ASSISTANT_RULE_VALUE_MAX } from "../../shared/wire-vocabulary.js";
 import { doingAction } from "../liveConsole/doing.js";
 
 export interface ScriptTables {
@@ -87,6 +96,8 @@ export type ScriptParse = ScriptRead &
 	);
 
 const ISSUES_MAX = 8;
+/** A case value's place. */
+const casePlace = (number: number, chip: number): string => `case:${number}:${chip}`;
 const CALL = AUTOMATION_ACTIONS.run_function.call;
 export const SCRIPT_UNWRITABLE = "it holds a step a script cannot write";
 export const SCRIPT_UNREADABLE = "its text would not read back as the same steps";
@@ -360,6 +371,23 @@ export function printScript(steps: readonly FunctionStep[], tables: ScriptTables
 					for (const link of chained) spans.push({ ...link, last: lines.length - 1, skip: "} else ".length });
 					break;
 				}
+				case "switch": {
+					lines.push(`${indent}switch (${canonicalExpression(step.subject)}) {`);
+					for (const [number, held] of step.cases.entries()) {
+						lines.push(
+							`${indent}\tcase ${held.values.map((each) => quoteConsoleString(each)).join(", ")} {`,
+						);
+						block(held.steps, `${indent}\t\t`, `${path}.${number}.`);
+						lines.push(`${indent}\t}`);
+					}
+					if ((step.default ?? []).length > 0) {
+						lines.push(`${indent}\tdefault {`);
+						block(step.default ?? [], `${indent}\t\t`, `${path}.${step.cases.length}.`);
+						lines.push(`${indent}\t}`);
+					}
+					lines.push(`${indent}}`);
+					break;
+				}
 			}
 			spans.push({ step: path, first, last: lines.length - 1, skip: 0 });
 		}
@@ -566,6 +594,35 @@ export function parseScript(source: string, tables: ScriptTables): ScriptParse {
 		};
 	};
 
+	/** A quoted constant. */
+	const caseValue = (node: ConsoleNode, place: { step: string; param: string }): string => {
+		if (node.kind === "template" && !node.grouped) fail(node.start, node.end, "a case value takes no hole");
+		if (node.kind !== "literal" || node.grouped || typeof node.value !== "string") {
+			return fail(node.start, node.end, "write a case value in quotes");
+		}
+		if (node.value.length > ASSISTANT_RULE_VALUE_MAX) {
+			fail(node.start, node.end, `longer than ${ASSISTANT_RULE_VALUE_MAX} characters`);
+		}
+		places.push({ ...place, start: node.start, end: node.end, chars: charsOf(node.pieces ?? []) });
+		return node.value;
+	};
+
+	const switched = (node: ScriptSwitch, path: string): FunctionStep => {
+		const subject = expression(node.subject, { step: path, param: "subject" });
+		if (node.cases.length > SWITCH_CASES_MAX) fail(node.start, node.end, `more than ${SWITCH_CASES_MAX} cases`);
+		const cases = node.cases.map((held, number) => {
+			if (held.values.length > SWITCH_CASE_VALUES_MAX) {
+				fail(held.start, held.body.start, `more than ${SWITCH_CASE_VALUES_MAX} values in one case`);
+			}
+			const values = held.values.map((value, chip) =>
+				caseValue(value, { step: path, param: casePlace(number, chip) }),
+			);
+			return { values, steps: block(held.body.steps, `${path}.${number}`) };
+		});
+		const fallback = node.otherwise ? block(node.otherwise.steps, `${path}.${node.cases.length}`) : [];
+		return { kind: "switch", subject, cases, ...(fallback.length > 0 ? { default: fallback } : {}) };
+	};
+
 	const named = (node: { as?: { text: string; start: number; end: number } }, path: string): string | undefined => {
 		const { as } = node;
 		if (!as) return undefined;
@@ -594,6 +651,8 @@ export function parseScript(source: string, tables: ScriptTables): ScriptParse {
 				return doing(node, path);
 			case "if":
 				return branch(node, path);
+			case "switch":
+				return switched(node, path);
 			case "try": {
 				const steps = block(node.body.steps, `${path}.0`);
 				bindings.push({ name: "e", start: node.handler.start, end: node.handler.end });
@@ -662,9 +721,11 @@ export function parseScript(source: string, tables: ScriptTables): ScriptParse {
 
 export function placeIssue(
 	read: { places: readonly ScriptPlace[]; statements: readonly ScriptStatement[] },
-	issue: { step: string; param?: string; start?: number; end?: number },
+	issue: { step: string; param?: string; start?: number; end?: number; case?: number; chip?: number },
 ): { start: number; end: number } | null {
-	const place = read.places.find((held) => held.step === issue.step && held.param === issue.param);
+	const param =
+		issue.case !== undefined && issue.chip !== undefined ? casePlace(issue.case, issue.chip) : issue.param;
+	const place = read.places.find((held) => held.step === issue.step && held.param === param);
 	if (!place) {
 		const whole = read.statements.find((held) => held.step === issue.step);
 		return whole ? { start: whole.start, end: whole.end } : null;

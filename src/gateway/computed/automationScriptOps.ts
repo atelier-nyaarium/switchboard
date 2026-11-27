@@ -23,6 +23,9 @@ export interface StepIssueAt {
 	param?: string;
 	start?: number;
 	end?: number;
+	/** A switch case, and its value. */
+	case?: number;
+	chip?: number;
 	message: string;
 	level: AutomationIssueLevel;
 }
@@ -34,7 +37,10 @@ export interface ScriptOpsDeps {
 	givenOf: (trigger: AutomationTrigger) => TriggerGiven;
 	vocabulary: () => ConsoleDescription;
 	/** Every step issue, in written order. */
-	stepIssues: (body: { params: readonly FunctionParam[]; steps: readonly FunctionStep[] }) => StepIssueAt[];
+	stepIssues: (
+		body: { params: readonly FunctionParam[]; steps: readonly FunctionStep[] },
+		trigger?: AutomationTrigger,
+	) => StepIssueAt[];
 }
 
 const cut = (message: string) => oneLine(message).slice(0, SCRIPT_ISSUE_MAX);
@@ -103,7 +109,7 @@ export function scriptOps(deps: ScriptOpsDeps) {
 				return { issues, names, types, statements: [] };
 			}
 			const issues = deps
-				.stepIssues({ params: request.params ?? [], steps: parsed.steps })
+				.stepIssues({ params: request.params ?? [], steps: parsed.steps }, request.trigger)
 				.slice(0, SCRIPT_ISSUES_MAX)
 				.map((issue) => ({
 					...(placeIssue(parsed, issue) ?? { start: 0, end: request.text.length }),

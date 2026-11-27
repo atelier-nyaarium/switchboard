@@ -37,7 +37,15 @@ export const AssistantFieldSpecSchema = z
 			kind: z.literal("enumeration"),
 			field: fieldName,
 			label: fieldLabel,
-			options: z.array(AssistantFieldOptionSchema).min(1).max(64),
+			options: z
+				.array(AssistantFieldOptionSchema)
+				.min(1)
+				.max(64)
+				// A switch case compares ignoring case.
+				.refine(
+					(options) => new Set(options.map((option) => option.value.toLowerCase())).size === options.length,
+					"two options differ only by case",
+				),
 		}),
 		/** Case-insensitive open text. */
 		z.strictObject({ kind: z.literal("text"), field: fieldName, label: fieldLabel }),

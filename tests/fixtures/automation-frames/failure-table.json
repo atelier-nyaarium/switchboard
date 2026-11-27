@@ -214,6 +214,72 @@
 			"visits": [[0], [1]],
 			"caught": [null, null],
 			"end": { "end": "failed", "code": "unread" }
+		},
+		{
+			"name": "a switch runs the case it took, then continues after itself",
+			"body": [
+				{
+					"kind": "switch",
+					"cases": [{ "steps": [{ "kind": "do" }] }, { "steps": [{ "kind": "do" }, { "kind": "do" }] }],
+					"default": [{ "kind": "do" }]
+				},
+				{ "kind": "do" }
+			],
+			"events": [{ "how": "took", "side": "case:1" }, { "how": "done" }, { "how": "done" }, { "how": "done" }],
+			"visits": [[0], [0, "case:1", 0], [0, "case:1", 1], [1]],
+			"caught": [null, null, null, null],
+			"end": { "end": "done" }
+		},
+		{
+			"name": "a switch takes its default past the last case, and an absent default leads on",
+			"body": [
+				{ "kind": "switch", "cases": [{ "steps": [{ "kind": "do" }] }], "default": [{ "kind": "do" }] },
+				{ "kind": "switch", "cases": [{ "steps": [{ "kind": "do" }] }] },
+				{ "kind": "do" }
+			],
+			"events": [
+				{ "how": "took", "side": "case:1" },
+				{ "how": "done" },
+				{ "how": "took", "side": "case:1" },
+				{ "how": "done" }
+			],
+			"visits": [[0], [0, "case:1", 0], [1], [2]],
+			"caught": [null, null, null, null],
+			"end": { "end": "done" }
+		},
+		{
+			"name": "a failure inside a case is caught by a try around the switch, the rest of the case skipped",
+			"body": [
+				{
+					"kind": "try",
+					"steps": [
+						{
+							"kind": "switch",
+							"cases": [{ "steps": [{ "kind": "do" }, { "kind": "do" }] }],
+							"default": [{ "kind": "do" }]
+						},
+						{ "kind": "do" }
+					],
+					"catch": [{ "kind": "do" }]
+				}
+			],
+			"events": [
+				{ "how": "took", "side": "try" },
+				{ "how": "took", "side": "case:0" },
+				{ "how": "failed", "failure": { "code": "refused", "message": "a" } },
+				{ "how": "done" }
+			],
+			"visits": [[0], [0, "try", 0], [0, "try", 0, "case:0", 0], [0, "catch", 0]],
+			"caught": [null, null, null, { "by": [0], "code": "refused" }],
+			"end": { "end": "done" }
+		},
+		{
+			"name": "a subject that cannot be read fails where the switch stands, no case taken",
+			"body": [{ "kind": "switch", "cases": [{ "steps": [{ "kind": "do" }] }], "default": [{ "kind": "do" }] }],
+			"events": [{ "how": "failed", "failure": { "code": "unread", "message": "a" } }],
+			"visits": [[0]],
+			"caught": [null],
+			"end": { "end": "failed", "code": "unread" }
 		}
 	]
 }
