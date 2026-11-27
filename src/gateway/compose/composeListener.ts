@@ -25,7 +25,7 @@ export interface ListenerStageDeps {
 	isClosing: () => boolean;
 	purgeSweep?: (input: { apply?: boolean; expect?: string }) => Promise<unknown>;
 	context: FederationContext;
-	stores: Pick<StoresStage, "blobStore">;
+	stores: Pick<StoresStage, "blobStore" | "repairs">;
 	sessions: Pick<SessionsStage, "sessionAuthority">;
 	agents: Pick<AgentsStage, "agentRoutes">;
 	enrollment: Pick<EnrollmentStage, "arm" | "status">;
@@ -107,7 +107,7 @@ export function composeListener(deps: ListenerStageDeps): ListenerStage {
 			...deps.liveConsole.routes,
 		]),
 		routes: routes.current,
-		unenrolledHealth: () => unenrolledHealth(deps.localGatewayId),
+		unenrolledHealth: () => unenrolledHealth(deps.localGatewayId, () => stores.repairs.pending()),
 		hostWsToken: deps.hostWsToken,
 		retire,
 		purgeSweep: deps.purgeSweep,

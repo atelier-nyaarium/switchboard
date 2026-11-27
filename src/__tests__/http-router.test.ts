@@ -10,7 +10,7 @@ function unenrolledRouter(overrides: Partial<Parameters<typeof createHttpRouter>
 		sessionAuthority: { mayUseLocalPlane: () => true },
 		loopbackRoutes: new Map([["/vault/entries", async () => Response.json({ entries: [] })]]),
 		routes: () => null,
-		unenrolledHealth: () => unenrolledHealth("gw"),
+		unenrolledHealth: () => unenrolledHealth("gw", () => ["routines"]),
 		...overrides,
 	});
 }
@@ -26,6 +26,7 @@ describe("createHttpRouter before a Domain", () => {
 			gatewayId: "gw",
 			domainId: null,
 			router_registered: false,
+			pendingRepairs: ["routines"],
 		});
 
 		for (const [method, path] of [

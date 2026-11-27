@@ -87,7 +87,7 @@ export function createStatusRoutes({
 }
 
 /** What /health answers before this Gateway belongs to a Domain. */
-export function unenrolledHealth(localGatewayId: string): Response {
+export function unenrolledHealth(localGatewayId: string, pendingRepairs: () => string[]): Response {
 	return jsonResponse({
 		ok: true,
 		version: packageJson.version,
@@ -95,5 +95,6 @@ export function unenrolledHealth(localGatewayId: string): Response {
 		domainId: null,
 		router_connected: false,
 		router_registered: false,
+		pendingRepairs: pendingRepairs(),
 	});
 }
