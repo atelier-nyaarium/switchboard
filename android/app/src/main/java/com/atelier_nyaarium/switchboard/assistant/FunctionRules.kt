@@ -9,6 +9,7 @@ import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationSaveRefusal
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
 import com.atelier_nyaarium.switchboard.proto.FunctionParam
+import com.atelier_nyaarium.switchboard.proto.FunctionStep
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationSaveRecord
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationSaveRefusalCode
@@ -381,6 +382,18 @@ internal fun functionLine(row: AutomationRow, functions: List<AutomationFunction
 		return FunctionLine.Own(written(held.function).joinToString(" · ") { cardLabel(treeOf(it, offer), offer) })
 	}
 	return FunctionLine.Named(held.function.name, usersCount(held))
+}
+
+internal const val SCRIPT_ERRORS_LINE = "Its script has errors. It will not run."
+
+internal fun rowScriptErrors(row: AutomationRow, served: Served): Boolean {
+	val rows = when (served) {
+		is Served.Known -> served.offer.functions?.rows
+		is Served.Unknown -> null
+	} ?: return false
+	val pointer = pointerOf(row.automation) ?: return false
+	val reached = reachOver(listOf(pointer)) { id -> rows.firstOrNull { it.id == id }?.let { callsOf(it.function) }.orEmpty() }
+	return rows.any { it.id in reached && written(it.function).singleOrNull() is FunctionStep.Unparsed }
 }
 
 /** Null where functions are not served or it runs its own steps. */

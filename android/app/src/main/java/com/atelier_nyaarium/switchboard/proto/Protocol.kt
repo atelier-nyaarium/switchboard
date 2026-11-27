@@ -173,6 +173,7 @@ object Protocol {
 		const val FUNCTION_PARAM_NAME_MAX: Int = 32
 		const val STEP_ARGS_MAX: Int = 4
 		const val STEP_TEXT_MAX: Int = 1000
+		const val SCRIPT_SOURCE_MAX: Int = 24000
 		const val WAIT_MINUTES_MAX: Int = 1440
 		const val RUN_NAMES_MAX: Int = 17
 		const val WALK_ENTRIES_MAX: Int = 256
@@ -181,6 +182,8 @@ object Protocol {
 		const val ASSISTANT_HOME_SEALED_MAX_BYTES: Int = 65536
 
 		val CONSOLE_INSTANT_KEYS: Set<String> = setOf("at", "heardAt", "lastAt", "firedAt", "readAt", "lastSuccessAt", "nextPollAt")
+
+		val SCRIPT_RESERVED: Set<String> = setOf("if", "else", "try", "catch", "exit", "throw", "wait", "parallel", "start", "await", "all", "any")
 
 		enum class ConsoleCompletes(val wire: String) {
 			DEVICES("devices"),
@@ -2991,6 +2994,12 @@ sealed class FunctionStep {
 	) : FunctionStep()
 
 	@Serializable
+	@SerialName("unparsed")
+	data class Unparsed(
+		val source: String,
+	) : FunctionStep()
+
+	@Serializable
 	@SerialName("call")
 	data class Call(
 		val function: String,
@@ -3023,6 +3032,7 @@ object FunctionStepSerializer : KSerializer<FunctionStep> {
 				"let" -> input.json.decodeFromJsonElement(FunctionStep.Let.serializer(), body)
 				"wait" -> input.json.decodeFromJsonElement(FunctionStep.Wait.serializer(), body)
 				"note" -> input.json.decodeFromJsonElement(FunctionStep.Note.serializer(), body)
+				"unparsed" -> input.json.decodeFromJsonElement(FunctionStep.Unparsed.serializer(), body)
 				"call" -> input.json.decodeFromJsonElement(FunctionStep.Call.serializer(), body)
 				else -> FunctionStep.Unknown(kind ?: "", raw)
 			}
@@ -3046,6 +3056,7 @@ object FunctionStepSerializer : KSerializer<FunctionStep> {
 			is FunctionStep.Let -> tagged("let", output.json.encodeToJsonElement(FunctionStep.Let.serializer(), value))
 			is FunctionStep.Wait -> tagged("wait", output.json.encodeToJsonElement(FunctionStep.Wait.serializer(), value))
 			is FunctionStep.Note -> tagged("note", output.json.encodeToJsonElement(FunctionStep.Note.serializer(), value))
+			is FunctionStep.Unparsed -> tagged("unparsed", output.json.encodeToJsonElement(FunctionStep.Unparsed.serializer(), value))
 			is FunctionStep.Call -> tagged("call", output.json.encodeToJsonElement(FunctionStep.Call.serializer(), value))
 			is FunctionStep.Unknown -> value.raw
 		}

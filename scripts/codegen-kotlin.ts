@@ -282,6 +282,7 @@ import {
 	PARAM_NAME_MAX,
 	PARAM_NAME_RE,
 	RUN_NAMES_MAX,
+	SCRIPT_SOURCE_MAX,
 	STEP_ARGS_MAX,
 	STEP_TEXT_MAX,
 	StepArgSchema,
@@ -456,6 +457,7 @@ import {
 	TreeAnswerSchema,
 	TreeEntrySchema,
 } from "../src/shared/schemasWorkspace.js";
+import { SCRIPT_RESERVED } from "../src/shared/script-grammar.js";
 import { HARNESS, SESSION_HARNESSES, UNNAMED_HARNESS, UNPICKED_WORD } from "../src/shared/session-harness.js";
 import {
 	ADDRESS_SEP,
@@ -1402,6 +1404,7 @@ const wireConstants: ReadonlyArray<readonly [string, string | number]> = [
 	["FUNCTION_PARAM_NAME_MAX", PARAM_NAME_MAX],
 	["STEP_ARGS_MAX", STEP_ARGS_MAX],
 	["STEP_TEXT_MAX", STEP_TEXT_MAX],
+	["SCRIPT_SOURCE_MAX", SCRIPT_SOURCE_MAX],
 	["WAIT_MINUTES_MAX", WAIT_MINUTES_MAX],
 	["RUN_NAMES_MAX", RUN_NAMES_MAX],
 	["WALK_ENTRIES_MAX", WALK_ENTRIES_MAX],
@@ -1846,6 +1849,8 @@ ${INDENT}object Wire {
 ${wireConstantBlock}
 
 ${wireSetBlock("CONSOLE_INSTANT_KEYS", CONSOLE_INSTANT_KEYS)}
+
+${wireSetBlock("SCRIPT_RESERVED", SCRIPT_RESERVED)}
 
 ${wireEnumBlock("ConsoleCompletes", CONSOLE_COMPLETES)}
 

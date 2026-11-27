@@ -14,6 +14,8 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationRunResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
+import com.atelier_nyaarium.switchboard.proto.ConsoleScriptParseResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleScriptPrintResult
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.assistant.AutomationDraft
 import com.atelier_nyaarium.switchboard.assistant.AutomationSaid
@@ -105,6 +107,12 @@ class AutomationOpsTest {
 			runCalls += automationId to callId
 			return runAnswer
 		}
+
+		override suspend fun scriptPrint(gatewayId: String, op: ConsoleOp.ScriptPrint): ConsoleScriptPrintResult? = null
+
+		override suspend fun scriptParse(gatewayId: String, op: ConsoleOp.ScriptParse): ConsoleScriptParseResult? = null
+
+		override suspend fun scriptVocabulary(gatewayId: String): com.atelier_nyaarium.switchboard.proto.ConsoleDescribeResult? = null
 
 		override suspend fun list(gatewayId: String): AutomationListing {
 			listCalls++

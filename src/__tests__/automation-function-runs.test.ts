@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { composeAutomations } from "../gateway/compose/composeAutomations.js";
 import { QUEUE_FULL, QUEUE_MAX_EVENTS } from "../gateway/computed/automationOutbox.js";
-import { CALL_FAILED, TOO_MANY_BESIDE } from "../gateway/computed/automationPass.js";
+import { CALL_FAILED, SCRIPT_ERRORS, TOO_MANY_BESIDE } from "../gateway/computed/automationPass.js";
 import type { Attempt } from "../gateway/computed/automationRunner.js";
 import {
 	type AutomationHoles,
@@ -27,6 +27,7 @@ import {
 	NAME_TAKEN,
 	NO_SWITCH,
 	TOO_WIDE,
+	UNPARSED_ALONE,
 } from "../gateway/computed/automationValidity.js";
 import { holesOver } from "../gateway/liveConsole/holes.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
@@ -1889,5 +1890,55 @@ describe("a restart", () => {
 
 			expect(w.effects.sort()).toEqual(["ifttt:after", "ifttt:beside", "ifttt:inner"]);
 		});
+	});
+});
+
+describe("a script saved with errors", () => {
+	const unparsed = { kind: "unparsed" as const, source: 'devices.set(room, "on"' };
+
+	it("keeps its text as the function's one step, stays armed, and fails each run there, which a caller's try catches", async () => {
+		const w = world();
+		const saved = w.save(pointing(hourly), [unparsed]);
+		const row = w.automations.listing().automations.find((held) => held.id === "warm");
+		await w.later(HOUR);
+		const alone = w.rows();
+
+		w.automations.save({
+			id: "h-inner",
+			body: { enabled: false, trigger: hourly, actions: [{ kind: "run_function", function: "inner" }] },
+			base: 0,
+			function: { as: "edit", id: "inner", body: { name: "Inner", params: [], steps: [unparsed] }, base: 0 },
+			confirmed: true,
+		});
+		w.save(
+			pointing(hourly),
+			[
+				{ kind: "try", steps: [{ kind: "call", function: "inner" }], catch: [ifttt("caught", "{e.code}")] },
+				ifttt("after"),
+			],
+			{ automation: 1, function: 1 },
+		);
+		await w.later(HOUR);
+
+		expect(saved.stored).toBe(true);
+		expect(row?.invalid).toBeUndefined();
+		expect(alone).toEqual([
+			["unparsed", "refused", SCRIPT_ERRORS],
+			["run_function", "refused", CALL_FAILED],
+		]);
+		expect(w.effects).toEqual(["ifttt:caught:call_failed", "ifttt:after"]);
+	});
+
+	it("refuses at the save a script with errors beside another step or inside a block", () => {
+		const said = (steps: AutomationFunctionInput["steps"]) => {
+			const saved = world().save(pointing(hourly), steps);
+			return saved.stored ? "stored" : saved.reason;
+		};
+
+		expect([
+			said([unparsed, ifttt("x")]),
+			said([{ kind: "try", steps: [unparsed], catch: [] }]),
+			said([unparsed]),
+		]).toEqual([UNPARSED_ALONE, UNPARSED_ALONE, "stored"]);
 	});
 });

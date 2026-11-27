@@ -8,7 +8,10 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPreviewResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationRunResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleDescribeResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
+import com.atelier_nyaarium.switchboard.proto.ConsoleScriptParseResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleScriptPrintResult
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import kotlinx.serialization.json.decodeFromJsonElement
 
@@ -84,5 +87,29 @@ internal suspend fun ConsoleClient.automationPreview(gatewayId: String, ask: Con
 	when (val answer = sendValueAnswer(gatewayId, ask)) {
 		is ConsoleClient.ValueAnswer.Answered ->
 			runIsolated { wireJson.decodeFromJsonElement<ConsoleAutomationPreviewResult>(answer.result) }.getOrNull()
+		is ConsoleClient.ValueAnswer.Refused, is ConsoleClient.ValueAnswer.Undelivered, ConsoleClient.ValueAnswer.Unreachable -> null
+	}
+
+/** Null when unread. */
+internal suspend fun ConsoleClient.scriptPrint(gatewayId: String, op: ConsoleOp.ScriptPrint): ConsoleScriptPrintResult? =
+	when (val answer = sendValueAnswer(gatewayId, op)) {
+		is ConsoleClient.ValueAnswer.Answered ->
+			runIsolated { wireJson.decodeFromJsonElement<ConsoleScriptPrintResult>(answer.result) }.getOrNull()
+		is ConsoleClient.ValueAnswer.Refused, is ConsoleClient.ValueAnswer.Undelivered, ConsoleClient.ValueAnswer.Unreachable -> null
+	}
+
+/** Null when unread. */
+internal suspend fun ConsoleClient.scriptParse(gatewayId: String, op: ConsoleOp.ScriptParse): ConsoleScriptParseResult? =
+	when (val answer = sendValueAnswer(gatewayId, op)) {
+		is ConsoleClient.ValueAnswer.Answered ->
+			runIsolated { wireJson.decodeFromJsonElement<ConsoleScriptParseResult>(answer.result) }.getOrNull()
+		is ConsoleClient.ValueAnswer.Refused, is ConsoleClient.ValueAnswer.Undelivered, ConsoleClient.ValueAnswer.Unreachable -> null
+	}
+
+/** Null when unread. */
+internal suspend fun ConsoleClient.scriptVocabulary(gatewayId: String): ConsoleDescribeResult? =
+	when (val answer = sendValueAnswer(gatewayId, ConsoleOp.ConsoleDescribe(script = true))) {
+		is ConsoleClient.ValueAnswer.Answered ->
+			runIsolated { wireJson.decodeFromJsonElement<ConsoleDescribeResult>(answer.result) }.getOrNull()
 		is ConsoleClient.ValueAnswer.Refused, is ConsoleClient.ValueAnswer.Undelivered, ConsoleClient.ValueAnswer.Unreachable -> null
 	}

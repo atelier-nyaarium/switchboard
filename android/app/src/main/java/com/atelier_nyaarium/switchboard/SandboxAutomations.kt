@@ -20,6 +20,12 @@ import com.atelier_nyaarium.switchboard.proto.AutomationSaveRefusal
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationCheckResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
+import com.atelier_nyaarium.switchboard.proto.ConsoleDescribeResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleScriptParseResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleScriptPrintResult
+import com.atelier_nyaarium.switchboard.proto.ScriptIssue
+import com.atelier_nyaarium.switchboard.proto.ScriptStatement
+import com.atelier_nyaarium.switchboard.assistant.written
 import com.atelier_nyaarium.switchboard.proto.FunctionParam
 import com.atelier_nyaarium.switchboard.proto.FunctionReads
 import com.atelier_nyaarium.switchboard.proto.FunctionStep
@@ -29,7 +35,6 @@ import kotlinx.serialization.json.JsonObject
 import com.atelier_nyaarium.switchboard.assistant.reached
 import com.atelier_nyaarium.switchboard.assistant.callsOf
 import com.atelier_nyaarium.switchboard.assistant.reachOver
-import com.atelier_nyaarium.switchboard.assistant.written
 import com.atelier_nyaarium.switchboard.assistant.testLabel
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.liveconsole.ConsoleStringPart
@@ -142,8 +147,9 @@ internal val SANDBOX_SERVES = AutomationServes(
 		max = Protocol.Wire.FUNCTIONS_MAX.toLong(),
 		steps = listOf("tell_assistant", "device_set", "ifttt_trigger"),
 		paramTypes = listOf("device", "text", "number"),
-		statements = listOf("do", "if", "try", "exit", "throw", "let", "wait", "note", "call"),
+		statements = listOf("do", "if", "try", "exit", "throw", "let", "wait", "note", "unparsed", "call"),
 		unnamed = true,
+		script = true,
 	),
 	numbers = listOf(
 		AutomationNumberOffer(SANDBOX_SENSOR, "temperature", "Outside thermometer temperature", "C", 1L),
@@ -151,6 +157,10 @@ internal val SANDBOX_SERVES = AutomationServes(
 	),
 	switches = listOf(AutomationSwitchOffer(SANDBOX_SWITCH, "Desk lamp")),
 )
+
+private const val SANDBOX_SCRIPT = "assistant.tell(\"quietly\", \"It is {value}.\")\ndevices.set(\"Desk lamp\", \"on\")"
+
+private const val SANDBOX_SCRIPT_ONLY = "The emulator reads only its own script."
 
 /** One shelf for both hosts. */
 internal val sandboxAutomations by lazy { SandboxAutomationGateway() }
@@ -306,6 +316,14 @@ internal class SandboxAutomationGateway(
 	private fun step(action: String, vararg args: Pair<String, StepArg>) =
 		FunctionStep.Do(action = action, args = JsonObject(args.associate { (name, arg) -> name to stepArg(arg) }))
 
+	/** The seed the canned script reads as. */
+	private val tooWarmSteps by lazy {
+		listOf(
+			step("tell_assistant", "when" to StepArg.Literal(JsonPrimitive("quietly")), "message" to StepArg.Literal(JsonPrimitive("It is {value}."))),
+			step("device_set", "device" to StepArg.Literal(JsonPrimitive(SANDBOX_SWITCH)), "verb" to StepArg.Literal(JsonPrimitive("on"))),
+		)
+	}
+
 	/** Revision and body, by id. */
 	private val functionShelves = mutableMapOf<String, MutableMap<String, Pair<Long, AutomationFunction>>>()
 
@@ -315,14 +333,7 @@ internal class SandboxAutomationGateway(
 	private fun functions(gatewayId: String) = functionShelves.getOrPut(gatewayId) {
 		if (gatewayId == EMPTY_GATEWAY) return@getOrPut mutableMapOf()
 		mutableMapOf(
-			"too-warm" to (2L to AutomationFunction(
-				name = "Too warm",
-				params = emptyList(),
-				steps = listOf(
-					step("tell_assistant", "when" to StepArg.Literal(JsonPrimitive("quietly")), "message" to StepArg.Literal(JsonPrimitive("It is {value}."))),
-					step("device_set", "device" to StepArg.Literal(JsonPrimitive(SANDBOX_SWITCH)), "verb" to StepArg.Literal(JsonPrimitive("on"))),
-				),
-			)),
+			"too-warm" to (2L to AutomationFunction(name = "Too warm", params = emptyList(), steps = tooWarmSteps)),
 			"blink" to (1L to AutomationFunction(
 				name = "Blink",
 				params = listOf(FunctionParam("lamp", "device"), FunctionParam("message", "text")),
@@ -597,6 +608,7 @@ internal class SandboxAutomationGateway(
 				is FunctionStep.Let -> return null
 				is FunctionStep.Wait -> return null
 				is FunctionStep.Note -> return null
+				is FunctionStep.Unparsed -> return null
 				is FunctionStep.Call -> return null
 				is FunctionStep.Unknown -> return null
 			}
@@ -682,6 +694,41 @@ internal class SandboxAutomationGateway(
 		val running = shelf(gatewayId).mapNotNull { pointerOf(it.automation) }.toSet()
 		functions(gatewayId).keys.retainAll(running)
 		return ConsoleAutomationDeleteResult(true)
+	}
+
+	/** Seed's canned script. */
+	private fun cannedScript(gatewayId: String): Pair<List<FunctionStep>, String>? =
+		(tooWarmSteps to SANDBOX_SCRIPT).takeIf { gatewayId != EMPTY_GATEWAY }
+
+	private fun statementsOf(text: String): List<ScriptStatement> {
+		var start = 0
+		return text.split("\n").mapIndexed { at, line -> ScriptStatement("$at", start.toLong(), (start + line.length).toLong()).also { start += line.length + 1 } }
+	}
+
+	override suspend fun scriptPrint(gatewayId: String, op: ConsoleOp.ScriptPrint): ConsoleScriptPrintResult? {
+		pause()
+		if (gatewayId == SANDBOX_NEVER_REGISTERED) return null
+		val canned = cannedScript(gatewayId)
+		if (canned == null || canned.first != op.steps) {
+			return ConsoleScriptPrintResult("", readOnly = SANDBOX_SCRIPT_ONLY, names = emptyList(), types = emptyList(), statements = emptyList())
+		}
+		return ConsoleScriptPrintResult(canned.second, names = emptyList(), types = emptyList(), statements = statementsOf(canned.second))
+	}
+
+	override suspend fun scriptParse(gatewayId: String, op: ConsoleOp.ScriptParse): ConsoleScriptParseResult? {
+		pause()
+		if (gatewayId == SANDBOX_NEVER_REGISTERED) return null
+		val canned = cannedScript(gatewayId)
+		if (canned == null || canned.second != op.text) {
+			val issue = ScriptIssue(0L, minOf(1, op.text.length).toLong(), SANDBOX_SCRIPT_ONLY)
+			return ConsoleScriptParseResult(issues = listOf(issue), names = emptyList(), types = emptyList(), statements = emptyList())
+		}
+		return ConsoleScriptParseResult(steps = canned.first, names = emptyList(), types = emptyList(), statements = statementsOf(canned.second))
+	}
+
+	override suspend fun scriptVocabulary(gatewayId: String): ConsoleDescribeResult? {
+		pause()
+		return ConsoleDescribeResult(SANDBOX_DESCRIPTION, SANDBOX_HASH)
 	}
 
 	override suspend fun run(gatewayId: String, automationId: String, callId: String): AutomationRan {

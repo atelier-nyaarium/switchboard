@@ -88,6 +88,7 @@ internal fun carryRefusal(
 			is FunctionStep.Let -> "let".takeIf { it !in statements }
 			is FunctionStep.Wait -> "wait".takeIf { it !in statements }
 			is FunctionStep.Note -> "note".takeIf { it !in statements }
+			is FunctionStep.Unparsed -> "unparsed".takeIf { it !in statements }
 			is FunctionStep.Call -> "call".takeIf { it !in statements }
 			is FunctionStep.Unknown -> step.kind.takeIf { it !in statements }
 		}

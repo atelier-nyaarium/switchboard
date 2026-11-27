@@ -109,8 +109,8 @@ internal class EditorSessions<K : Any, D : Any, S : Any>(
 	private val unattended: (EditSession<D, S>) -> Unit = {},
 	/** Closed by Back first. */
 	private val inner: InnerPages<D>? = null,
-	/** A said clears once the draft changes. */
-	private val clears: (S) -> Boolean = { false },
+	/** A said clears once the draft changes; reads the next draft. */
+	private val clears: (S, D) -> Boolean = { _, _ -> false },
 ) {
 	private val written = MutableStateFlow(EditState<K, D, S>())
 
@@ -165,7 +165,7 @@ internal class EditorSessions<K : Any, D : Any, S : Any>(
 			val session = now.held[key]
 			if (session == null || session.opening != opening || session.busy) return@update now
 			val next = change(session.draft)
-			val said = session.said?.takeUnless { clears(it) && changed(next, session.draft) }
+			val said = session.said?.takeUnless { clears(it, next) && changed(next, session.draft) }
 			now.copy(held = now.held + (key to session.copy(draft = next, said = said)))
 		}
 	}

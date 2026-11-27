@@ -161,6 +161,7 @@ export function functionReads(fn: Pick<AutomationFunction, "steps">): FunctionRe
 		start: none,
 		exit: none,
 		note: none,
+		unparsed: none,
 	};
 	for (const { step } of stepsOf(fn)) (reads[step.kind] as (step: FunctionStep) => void)(step);
 	return { names: [...into.names].sort(), eventFields: [...into.eventFields].sort() };

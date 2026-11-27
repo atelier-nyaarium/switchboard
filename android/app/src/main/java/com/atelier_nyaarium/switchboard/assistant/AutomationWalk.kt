@@ -86,7 +86,7 @@ private fun stepsIn(steps: List<FunctionStep>, base: List<Int>): List<Pair<List<
 			is FunctionStep.Parallel -> listOf(0 to step.steps)
 			is FunctionStep.Start -> listOf(0 to step.steps)
 			is FunctionStep.Do, is FunctionStep.Exit, is FunctionStep.Throw, is FunctionStep.Let, is FunctionStep.Await,
-			is FunctionStep.Wait, is FunctionStep.Note, is FunctionStep.Call, is FunctionStep.Unknown -> emptyList()
+			is FunctionStep.Wait, is FunctionStep.Note, is FunctionStep.Unparsed, is FunctionStep.Call, is FunctionStep.Unknown -> emptyList()
 		}
 		listOf(at to step) + sides.flatMap { (side, list) -> stepsIn(list, at + side) }
 	}
@@ -129,7 +129,7 @@ private fun called(steps: List<FunctionStep>): List<String> = steps.flatMap { st
 		is FunctionStep.Parallel -> called(step.steps)
 		is FunctionStep.Start -> called(step.steps)
 		is FunctionStep.Do, is FunctionStep.Exit, is FunctionStep.Throw, is FunctionStep.Let, is FunctionStep.Await,
-		is FunctionStep.Wait, is FunctionStep.Note, is FunctionStep.Unknown -> emptyList()
+		is FunctionStep.Wait, is FunctionStep.Note, is FunctionStep.Unparsed, is FunctionStep.Unknown -> emptyList()
 	}
 }
 

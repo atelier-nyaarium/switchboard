@@ -1037,4 +1037,16 @@ describe("the script's console reads", () => {
 		expect(printed.readOnly).toBeDefined();
 		expect(printed.statements.map((held) => held.step)).toEqual(["0", "1"]);
 	});
+
+	it("prints a script saved with errors as it was typed and open to edit, which a parse reads as issues", () => {
+		const { print, parse } = stage();
+		const source = 'try {\n\tdevices.set("Lamp", )\n}';
+		const printed = print({ steps: [{ kind: "unparsed", source }] });
+		const parsed = parse({ text: printed.text });
+
+		expect(printed).toMatchObject({ text: source, statements: [] });
+		expect(printed.readOnly).toBeUndefined();
+		expect(parsed.steps).toBeUndefined();
+		expect(parsed.issues?.length).toBeGreaterThan(0);
+	});
 });

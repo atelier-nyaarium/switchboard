@@ -404,13 +404,25 @@ private fun drawsField(draft: AutomationDraft, at: SaidAt, offer: AutomationOffe
 	}
 }
 
+/** A refusal held by a card no draft holds now. */
+internal fun keyGone(said: AutomationSaid, draft: AutomationDraft): Boolean = when (said) {
+	is AutomationSaid.Hole -> draft.stepAt(said.key) == null
+	is AutomationSaid.Field -> (said.at as? SaidAt.Card)?.let { draft.stepAt(it.key) == null } == true
+	is AutomationSaid.Line, is AutomationSaid.Note, is AutomationSaid.Confirm, is AutomationSaid.FunctionMoved -> false
+}
+
+/** Its card's tree is shown as script. */
+private fun scriptedAt(draft: AutomationDraft, key: String, offer: AutomationOffer): Boolean = showsScript(draft, draft.treeHolding(key), offer)
+
 /** What no field draws. */
 internal fun generalLine(said: AutomationSaid?, draft: AutomationDraft, offer: AutomationOffer): String? = when (said) {
 	null -> null
 	// Its block draws it.
 	is AutomationSaid.FunctionMoved -> null
-	is AutomationSaid.Hole ->
-		holeLine(said.text, said.line, said.start, said.end).takeIf { textParam(draft, TextRef(said.key, said.param), offer) == null }
-	is AutomationSaid.Field -> said.line.takeUnless { drawsField(draft, said.at, offer) }
+	is AutomationSaid.Hole -> holeLine(said.text, said.line, said.start, said.end)
+		.takeIf { textParam(draft, TextRef(said.key, said.param), offer) == null || scriptedAt(draft, said.key, offer) }
+	is AutomationSaid.Field -> said.line.takeUnless {
+		drawsField(draft, said.at, offer) && (said.at as? SaidAt.Card)?.let { at -> scriptedAt(draft, at.key, offer) } != true
+	}
 	is AutomationSaid.Line, is AutomationSaid.Note, is AutomationSaid.Confirm -> said.line
 }

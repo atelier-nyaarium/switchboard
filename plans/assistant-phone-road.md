@@ -1246,6 +1246,92 @@ The order that follows:
 
 At each pause: every gate green and pushed, both Gateways on the last commit, then the message.
 
+Changed 2026-11-26: the fourth block's questions and engineering rulings are settled on Fable first, then the switch.
+
+> I'll switch once the questionaire and engineering decisions are over again.
+
+Changed again the same day: Fable's allowance ran out partway through the questions, and the rest of the plan runs on Opus.
+
+> Fable is out. We stay on opus for the rest.
+
+## Question 92 - Where is the script read and edited?
+
+Q: Shown on the automation's page and edited full screen, edited in place, or full screen only?
+A: Shown on the page, edited full screen. Under the Cards and Script switch the script is painted and read-only, with the last run beside its lines. Tapping it opens a full-screen editor with completions above the keyboard, as a Message does. Back returns with the text kept.
+
+> A
+
+Recommended: it is the rule the owner set for texts with holes, applied to the bigger text. Reading takes no tap, and typing code inside a scrolling form leaves no room for completions.
+
+## Question 93 - The owner leaves the editor while the script has a mistake. What happens?
+
+Q: Does the text stay with Save waiting, or does the editor hold the owner until it parses or is discarded?
+A: The text stays, and a script with errors may be saved. Back always returns to the automation's page. Save asks once, only when the stored script had no errors and this one has. Confirmed, it is stored as typed and is non-functional: a run that reaches it fails there, as any failure does.
+
+> A. But let's also allow the script to be non-functional.
+> So leaving editor takes you to the editing overview thing you have. Attempting to save and leave again will prompt once (Iff we went from zero errors to any errors) that the script has errors. If they confirm save anyways, the script is just non-functional for that automation. Treat that action as error should or be encountered in a run.
+>
+> Something I do often is save with errors, bounce to another script, copy a chunk of code, and come back. so this will allow some leeway to editing.
+
+This supersedes "what is stored is steps, never text" for a script that does not parse: its text has to be stored as typed. Read as: the whole script does not run, as a file with a syntax error does not in any language; no line before the mistake runs.
+
+## Question 94 - What is a node on the map?
+
+Q: Automations only with a function as a mark on its pill, named functions as nodes of their own, or automations only until one is tapped?
+A: Named functions are nodes: a fourth row between the automations and what they act on. A call is a line from function to function. An automation's own unnamed steps stay inside its pill. A function's shape is a square-cornered box with the function mark. Mocked as `map-nodes.html` in the Designer dock.
+
+> B
+
+Recommended: the map is for finding where a flow breaks. A shared function is where two flows meet, so its failure shows once, on the thing that failed, with both automations leading to it.
+
+## Question 95 - What does a replay show?
+
+Q: The order of steps alone at an even pace, or their real times?
+A: Real times. The Gateway records when each step began and ended. The replay keeps the real order of steps that ran side by side, shows how long each took, and shortens long waits. A run recorded before this replays in written order. Mocked as `map-replay.html`.
+
+> B.
+>
+> And think carefully about the actual meaning of all styling. like what's a double line mean? white dot? should it be red above the node of the error? or non-red for nodes that passed? /ultrathink about it
+
+Recommended: a replay answers where a run got stuck. Without times, a step that kept trying for ten minutes looks like an instant one, and steps side by side or a task have no order to show.
+
+## Question 96 - What does each style on the map mean?
+
+Put to the owner on 2026-11-26 after their challenge above, mocked as `map-key.html` and the redrawn `map-replay.html`. It refines the list under Question 50.
+
+Q: Do the meanings below stand, or does one change?
+A: They stand as listed, a failure a catch handled included (red and thin).
+
+> A looks good.
+
+What the first cards got wrong: a selection ring around a node's own outline made a double line that said nothing, and the failure glow drawn as a hard band read as a second line; the replay's dot was white, which had no meaning, with a halo that looked like the failure glow; a node took the colour of its worst neighbour, so an automation was red above a grey line; a note on a line was a pill, the shape of an automation; a call ran sideways; the function mark was blue.
+
+One meaning per channel:
+
+- **Shape is what it is.** A ring is something outside: above, what starts a run; below, what a run acts on. A round pill is an automation. A square-cornered box with the function mark is a named function. A line with an arrowhead is one act: starting a run, running a function, calling one, acting on a thing. A diamond at a line's start is an act that runs only when something failed.
+- **Down is cause, with no exception.** What starts a run, the automation, its functions, what they act on. A called function sits below its caller.
+- **Colour is how its own newest part ended,** never a neighbour's. Cool grey: done as written. Amber: not clean (held up, retried, or no answer came back). Red: not done. Faint grey: nothing to end. A line's part is its act in the newest run that reached it. An automation's and a function's is its newest run. A thing acted on takes the newest act on it. A source takes its newest reading or poll.
+- **A failure is red as far up as it travelled.** Caught inside a function, only the failed act is red: the call above it ended fine. Uncaught, the function's run, the call into it and the automation's run failed too, so they are red. The trigger's line and its source did their part and are not.
+- **Pattern is whether it happened,** on a line and on a pill's or a box's outline alike. Solid: it happened in its last run. Dashed, the dashes moving: it is happening now. Sparse dots: it did not (switched off, or its last run never got there).
+- **Weight is where to look first.** Thick with a soft glow: the act where a failure nothing caught began. Red that only follows from it, and a failure a catch handled, stay thin.
+- **Fill is selection.** The primary colour fills what was tapped, and its outline keeps saying how it ended. Nothing else is filled, and no node has a second outline.
+- **Dim is outside the selection's reach** and says nothing of the thing itself: it keeps its own colour and pattern.
+- **Motion is now.** Moving dashes are in progress this moment. A dot in the primary colour travelling a line is the replay's moment, the same dot as the scrubber's, with no halo.
+- **Words on a line** are the newest thing worth saying of that act (why it failed and when), in its colour, with no outline.
+- **The function mark takes the label's colour** on the map.
+- **A replay is the map at an earlier moment:** every mark is read as it stood then, so an act not yet reached is dotted and one being retried is dashed amber, and it ends on the map as it stands now.
+- **A shared function's lines show the newest run that reached them;** with an automation selected, that automation's own.
+- **The rules cover the map's drawing.** The sheet's buttons keep the app's usual colours.
+
+## Question 97 - How does the map show several Gateways?
+
+Q: A band per Gateway stacked as the List groups them, or one Gateway at a time picked by chips?
+A: A band per Gateway, stacked: each Gateway's map under its own name in the List's order, scrolled down. Tapping something dims only within its band, and each band has its own summary line. A Gateway that has not answered, or holds none, says so under its name, as the List does.
+
+> A
+
+Recommended: it matches the List, so nothing on another Gateway is hidden behind a chip, and a failure anywhere is on screen. The bands never connect, so stacking them costs only scrolling.
+
 ## Question 50 - Where does the flow map live?
 
 Q: A Map and List toggle at the top of Automations, its own menu entry, or only inside an automation's page?
@@ -2497,6 +2583,53 @@ label = "Room {device}"
 
 **Order:** `and`, `or`, `sensors.value` and the one-expression parse; the names rule; strings as texts in `let` and call values; the scanner and its vectors; doing members and the fence; the parser, the printer and the corpus; the ops; types and scope. Each ends green.
 
+### How the script on the phone is to be built (Opus block)
+
+Written on the Fable tier before the phone work, from Questions 92 and 93. Each line is a ruling until the code says otherwise.
+
+**A script that does not parse is a step.**
+
+- **Step kind `unparsed`, one field `source`** within `SCRIPT_SOURCE_MAX`, and it is its function's only step: a save refuses one beside another step or inside a side. It is a step kind and not a field of the function, so a phone on an older build keeps it as sent and a Gateway that does not hold it refuses the move, as for any newer kind.
+- **At its turn it fails,** `unread` with "its script has errors", and nothing of it runs. Its frame ends failed, so the call that entered it ends `call_failed`: a caller's `try` catches it and anything else remembers it. The automation stays valid and armed, and nothing reads it as `invalid`.
+- **It reads nothing and reaches nothing:** no names, no calls, no dangerous action. A function reached only from the text counts unused until the script parses, and is kept its week. The save that later replaces it with steps is judged against a held record with no actions, so a dangerous action asks then.
+- **Print answers the source as typed,** with no statements. Parse never answers one: the phone writes it, when the last parse of exactly that text had issues.
+- **The stored text is not read again at a run.** A script that failed only for a plug since added stays non-functional until it is saved again.
+- `serves.functions.statements` lists it, so a phone offers "Save anyway" only where it is held.
+
+**The draft.**
+
+- **A tree's text is derived until it is typed.** Each tree the editor holds (the automation's own steps, a pointed function in edit or copy mode, a callee) may hold a script edit: the text, and the last parse answer for exactly that text. Without one, the text shown is the Gateway's print of the cards.
+- **A parse that answers steps replaces the tree's cards and ends the script edit.** A card keeps its key where the step at its path is unchanged, so a said-at and a last run stay on it. A parse with issues keeps the text and leaves the cards as they last parsed.
+- **What a save writes for a tree:** its cards, or one `unparsed` step holding the text when the last answer for that text had issues. Save waits while the parse of the text shown is out, since it cannot know which.
+- **Save asks once when errors are new:** the stored tree holds no `unparsed` step and the one to write does. The dialogue says the script will not run until they are fixed and names the other automations a shared function serves. A tree stored unparsed asks nothing. The rule sits beside `saveOpOf`, never in the page.
+- **A stored `unparsed` tree opens as its text.** When that text now parses, the cards are the parsed steps, the draft reads as changed, and a line says a save makes it run.
+- **"Discard script changes"** drops a tree's script edit and returns to its cards.
+- **Changed still compares wire forms,** so typing that parses to the same steps is no change.
+
+**The pages.**
+
+- **Cards and Script is a switch per tree, held on the edit** and outside its wire form. Script is forced while the tree's text has issues, with a line saying cards return when it parses.
+- **Script on the automation's page** is the painted text, read-only and selectable, each statement marked with its last outcome through the `statements` spans (the side an `if` took, the steps in flight), issues underlined, and "Edit". A read-only text says why and offers no edit.
+- **The editor is an inner page of the automation's edit** (`AUTOMATION_PAGES`, closed by Back before a callee's page), as the text page is: every change is written through to the draft, and its back arrow keeps the text. It heads with the signature, shown and not typed: the function's values with their types, then the trigger's names.
+- **Paint is the lexer's twin** (`lexScript`): keywords, comments, and strings with their holes as code. A name takes its colour from the parse's `names`.
+- **Completions and the hint card** are the Console's (`consoleAssist`) over the script vocabulary (`console_describe` with `script`, cached per Gateway by its hash), the names in scope at the cursor (`names` by span) and their types' members (`types`).
+- **A parse is asked once typing settles,** with the draft's trigger, values and functions, and its answer lands only for exactly that text and context, as a check's does. Issues are listed under the text, each jumping to its place; a save's refusal arrives placed the same way (`placed`).
+- **A kept card shows its statement's text,** cut from the print by its span, and opens the editor at that line.
+- **The emulator's Gateway** answers a print for its seeded tree and a parse that echoes canned steps, with one text that answers issues.
+
+**Order:** the `unparsed` kind through the schema, the walk and its twin, the save checks, the pass and the print, with a Gateway that lists it; the draft's script edit with its save and ask rules; the read-only view with the last run; the editor page with paint, issues and completions; a kept card's line. Each ends green.
+
+**As built (2026-11-26, Opus):**
+
+- **The Gateway:** `unparsed` is a steering kind in the walk, so every visitor answers it as one that acts on nothing; its save check is `UNPARSED_ALONE`; the pass ends it failed `unread` with `SCRIPT_ERRORS` at its turn; print answers its source with no statements and nothing read-only. `SCRIPT_SOURCE_MAX` moved to `schemasFunction.ts` beside the step that holds it, and is generated for the phone with `SCRIPT_RESERVED`.
+- **The script edit stays until Cards, Save or Discard,** not until the first parse that reads, so the editor keeps the owner's layout while they type; each parse that reads replaces the cards under it. Switching to Cards ends it, and is allowed only once the text reads.
+- **Cards rebuilt from a parse take fresh keys.** Nothing held by key outlives one: a text page cannot be open over the script editor, and a refusal by key is dropped by the next edit.
+- **A script with errors is the tree's one card,** `Kept` holding the `unparsed` step, so the save, the check and "changed" need nothing new. A tree opened from a stored one starts as its text (`scriptOfCards`).
+- **The editor is the full-screen text editor in a third mode** (`TextMode.SCRIPT`): `consoleScriptPaint` paints the lexer's tokens with the statement words as keywords, and `consoleScriptAssist` completes over the line under the cursor through the console's own assist. Its vocabulary is `console_describe` with `script`, held per Gateway in `AutomationOps.scriptWords`.
+- **The emulator** serves the script; its Gateway prints and reads back only its seeded function's text, and any other text answers one issue saying so.
+- **After the alignment and adversarial reads (Luna, Opus join):** a parse answer lands and shows only for its whole op, text and context (`scriptCurrent`); typing counts as a change only until it is read, then the cards say; the errors ask names who runs each shared function through calls, and nobody for a copy; a list refresh keeps a callee holding typed text and drops a script page whose tree it replaced; picking a callee whose text is unread carries the text to the automation, so Save waits for it; a parse that gets no answer is held with Retry, and a text over the cap is said and never sent; a refusal held by a card a parse replaced is dropped, and a keyed refusal shows in the general line while its tree is shown as script; issues jump to their place, the same one again; the editor's completions get live ids and names scoped to the cursor; the view's rules are one pure function (`scriptShown`); the emulator's canned script is pinned to its seed.
+- **Known and accepted:** a save's refusal is shown in the general line, not placed in the text (`place` is unused on the phone); completions read the line under the cursor, so a call spanning lines loses its hint on the later lines; a run of a stored script with errors marks no line, and the page and the list say it will not run.
+
 ## Phase 2.7g - Side by side, and the map (Q50, Q64)
 
 Stands on 2.7e and 2.7f.
@@ -2611,6 +2744,43 @@ Written before the code. Each line is a ruling until the code says otherwise. Th
 - **Phone:** the twins draw both as kept cards ("Start a task", "Wait for a task"), the walk and carry descend a task's list, and a Gateway that does not run them refuses the move.
 - **After the adversarial read (Opus):** its eight findings fixed. An `any` whose every task waits on the await was missed, since a revisited await counted as free: `waitsForever` is now a fixpoint over what can end. A kept join was typed Task and refused by `all` and `any`: joins nest. A task's block failure lost its `errors`: a strand keeps them. A catch's width now counts beside what its try started, an empty task counts none. A record a person writes with a `task` key read as a task, and a task inside a list went stale: a task is marked `$task` (`$all`, `$any`) and dressed at every depth. The one-line `start` reads any statement and finds its brace on a later line. A failed task's row says why.
 - **A read that changed nothing pumped again at once:** found when a mutation made an await read loop. The engine spun without yielding, so the test runner's timeout could not stop it. `startRead` pumps again only when the read moved its fire, and each mutation run is now bounded.
+
+### How the map is to be built (Opus block)
+
+Written on the Fable tier before the phone work, from Questions 50, 94, 95 and 96. Each line is a ruling until the code says otherwise. Question 96 holds what each style means; nothing here restates it.
+
+**The Gateway's part is the last run's times.**
+
+- **Each step record stamps when its turn began and when it ended,** and the last run serves both per step as milliseconds from the run's start, with whether an open step has already heard a refusal, so a retry reads amber. All optional on the wire: a run recorded before, or a Gateway on an older build, answers none, and a replay then plays written order, a beat a step.
+- Nothing else is served. The phone derives the graph from the listing it already reads.
+
+**The graph is derived by one pure module** (`assistant/FlowMap.kt`) from one Gateway's listing (its automations and functions), its sources and its devices. The screen draws and decides nothing.
+
+- **Nodes:** one per distinct thing that starts a run (an event's source, a crossing's or a value's sensor, the clock for a time or an interval); one per automation row; one per named function a listed automation reaches, an unnamed one being its automation's pill; one per distinct thing an action names (a switch, the assistant, IFTTT). A device that both starts a run and is acted on is two rings, since place is its role.
+- **Lines come from the walk alone** (`reached` with the listing's functions), so nothing else reads what an automation reaches: a source to its automation; an automation to the function it points at; a function to one it calls; an automation or a function to what a `do` step of its own body acts on. Steps of one body that act on one thing share a line, and those inside a `catch` share another, with the diamond. An unfollowed call draws no line and its node says why.
+- **A switch a step reads at its turn** is drawn where the pointer's or the call's value gives it as a literal. One only an expression names is a ring labelled with that expression.
+- **An automation the Gateway cannot run** (`invalid`) is faint and dotted, its reason in the sheet. One whose script does not parse keeps its own style and says so in the sheet.
+
+**Facts, then style.**
+
+- **Each node and line carries the facts a style reads:** how its newest part ended, whether it happened, whether it is happening, whether an uncaught failure began there, whether it runs only on failure. One function maps a Gateway's last runs onto the graph by step path; a line's newest part is the newest run, among the automations that reach it, holding one of its steps.
+- **Where an uncaught failure began** is the deepest failed step no `try` of its own function holds. A failed call whose function holds one is a consequence and stays thin; a call that failed at its entry is itself the start.
+- **Facts to style is one `when` per channel, with no `else`,** so a fact added later does not compile until each channel answers it.
+
+**Layout is a second pure function.** Rows by kind. Functions are layered by call depth, one layer below the deepest caller that reaches them. Within a row, a node sits at the average place of what points at it, so lines cross least. A line is one quadratic curve trimmed to its nodes' edges, its words at the curve's middle. The canvas scales to the page and pans and pinches when a row is wider.
+
+**Selection, the sheet and the replay.**
+
+- **Tapping a node selects it** and dims what is outside its reach, up to what starts it and down to what it acts on. Tapping the canvas clears.
+- **The sheet says what was tapped:** an automation (its sentence, its last run's steps with their times, Replay, Open), a function (what runs it, Open), a source or a thing acted on (what touches it, each with its newest outcome).
+- **A selected automation's lines show its own last run,** where an unselected map shows each line's newest.
+- **A replay is the same facts read at a moment** of the selected automation's last run and drawn by the same styles. Playing moves the moment, with a long gap shortened, and the scrubber sets it.
+
+**The page.** A List and Map switch at the top of Automations, remembered on the phone. One band per Gateway in the List's order (Question 97), each under its Gateway's name with its own summary line (how many, how many did not finish, how many are running) and its own selection; a Gateway unread, unreachable or holding none says so in its band as the List does. The key sits behind an info button.
+
+**Tests.** The three functions and the style mapping are driven on the JVM over listings: a shared function, a call chain, a caught and an uncaught failure, a block in flight, a switched-off automation, an unfollowed call, a run with no times. The emulator's Gateway serves a listing that shows each style once.
+
+**Order:** the step times on the Gateway; the graph and its facts; the layout; the drawing with the key; selection and the sheet; the replay. Each ends green.
 
 ## Phase 2.7d - Walk-through and cleanup
 

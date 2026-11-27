@@ -114,7 +114,7 @@ private fun isPunct(token: ConsoleToken?, text: String) = token?.kind == Console
 
 private fun savedBy(statements: List<ConsoleToken>): Set<String> =
 	statements.filterIndexed { at, token ->
-		val opens = at == 0 || isPunct(statements[at - 1], ";")
+		val opens = at == 0 || isPunct(statements[at - 1], ";") || statements[at - 1].kind == ConsoleTokenKind.NEWLINE
 		val equals = statements.getOrNull(at + 1)
 		opens && token.kind == ConsoleTokenKind.IDENT && equals?.kind == ConsoleTokenKind.OP && equals.text == "="
 	}.map { it.text }.toSet()
@@ -203,6 +203,19 @@ fun consoleAssist(
 	return assistOver(source, lexConsole(source), cursor, description, ids, variables, noSlow)
 }
 
+/** Complete current line. */
+fun consoleScriptAssist(
+	source: String,
+	cursor: Int,
+	description: ConsoleDescription?,
+	ids: ConsoleIds?,
+	variables: Map<String, VariableShape?>,
+): ConsoleAssist {
+	if (description == null) return ConsoleAssist(null, emptyList())
+	val tokens = lexScript(source).filter { it.kind != ConsoleTokenKind.COMMENT }
+	return assistOver(source, tokens, cursor, description, ids, variables, noSlow = true)
+}
+
 fun consoleTextAssist(
 	text: String,
 	cursor: Int,
@@ -230,7 +243,7 @@ private fun assistOver(
 	val slot = slotAt(source, all, cursor)
 	val before = all.filter { it.start < slot.start }
 	// Complete only the statement under the cursor.
-	val cut = before.indexOfLast { isPunct(it, ";") } + 1
+	val cut = before.indexOfLast { isPunct(it, ";") || it.kind == ConsoleTokenKind.NEWLINE } + 1
 	val tokens = before.drop(cut)
 	val local = savedBy(before.take(cut))
 	val call = openCall(tokens)

@@ -52,6 +52,10 @@ internal fun CardsSection(
 	reload: (String) -> Unit,
 	/** Null selects automation cards. */
 	tree: String? = null,
+	/** Kept script lines. */
+	kept: Map<String, KeptLine> = emptyMap(),
+	/** Opens script at offset. */
+	onScriptAt: ((Int) -> Unit)? = null,
 ) {
 	val functionParams = if (tree == null) (draft.runs as? RunsHead.Points)?.pointing?.params.orEmpty() else draft.callees[tree]?.params.orEmpty()
 	val valueNames = functionParams.filter { it.param.name.isNotBlank() }.map { it.key }.toSet()
@@ -69,7 +73,7 @@ internal fun CardsSection(
 		key(row.rowKey) {
 			Box(Modifier.padding(start = INDENT * row.depth)) {
 				when (row) {
-					is CardRow.Card -> StepCard(row, draft, offer, plugs, valueNames, enabled, said, textRead, conditionRead, asked, running, edit, reload, tree)
+					is CardRow.Card -> StepCard(row, draft, offer, plugs, valueNames, enabled, said, textRead, conditionRead, asked, running, edit, reload, tree, kept[row.step.key], onScriptAt)
 					is CardRow.SideLabel -> Text(
 						sideLabel(row.side),
 						style = MaterialTheme.typography.labelLarge,
@@ -106,6 +110,8 @@ private fun StepCard(
 	edit: ((AutomationDraft) -> AutomationDraft) -> Unit,
 	reload: (String) -> Unit,
 	tree: String?,
+	kept: KeptLine?,
+	onScriptAt: ((Int) -> Unit)?,
 ) {
 	val step = row.step
 	val key = step.key
@@ -156,7 +162,12 @@ private fun StepCard(
 					is StepDraft.Exit -> Text("Ends the run here.", style = MaterialTheme.typography.bodySmall, color = dim)
 					is StepDraft.Try -> Unit
 					is StepDraft.Call -> CallFields(step, draft, offer, tree, enabled, said, edit, reload)
-					is StepDraft.Kept -> Text("This app cannot edit this step yet. It is kept as it is.", style = MaterialTheme.typography.bodySmall, color = dim)
+					is StepDraft.Kept -> if (kept != null) {
+						Text(kept.text, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+						onScriptAt?.let { open -> TextButton(onClick = hapticClick { open(kept.at) }, enabled = enabled) { Text("Edit in script") } }
+					} else {
+						Text("This app cannot edit this step yet. It is kept as it is.", style = MaterialTheme.typography.bodySmall, color = dim)
+					}
 				}
 				IssueLine(row.issue)
 				lastStepLine(row, running)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = dim) }

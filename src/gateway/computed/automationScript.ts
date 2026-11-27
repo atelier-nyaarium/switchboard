@@ -27,17 +27,12 @@ import {
 	type FunctionStep,
 	FunctionStepSchema,
 	PARAM_NAME_RE,
+	SCRIPT_SOURCE_MAX,
 	STEP_TEXT_MAX,
 	type StepArg,
 } from "../../shared/schemasFunction.js";
 import type { ConsoleDescription } from "../../shared/schemasLiveConsole.js";
-import {
-	opensStatement,
-	parseScriptSource,
-	SCRIPT_SOURCE_MAX,
-	type ScriptIf,
-	type ScriptNode,
-} from "../../shared/script-grammar.js";
+import { opensStatement, parseScriptSource, type ScriptIf, type ScriptNode } from "../../shared/script-grammar.js";
 import { GIVEN_SCRIPT_TYPES, PARAM_SCRIPT_TYPES, typeOfNode } from "../../shared/script-types.js";
 import { doingAction } from "../liveConsole/doing.js";
 
@@ -211,6 +206,9 @@ export interface ScriptPrint extends ScriptRead {
 }
 
 export function printScript(steps: readonly FunctionStep[], tables: ScriptTables): ScriptPrint {
+	const [only] = steps;
+	// Stored errors stay editable.
+	if (steps.length === 1 && only?.kind === "unparsed") return { text: only.source, bindings: [], statements: [] };
 	let unwritable = false;
 	const lines: string[] = [];
 
@@ -292,6 +290,10 @@ export function printScript(steps: readonly FunctionStep[], tables: ScriptTables
 					break;
 				case "exit":
 					lines.push(`${indent}exit`);
+					break;
+				case "unparsed":
+					unwritable = true;
+					lines.push(`${indent}// ${SCRIPT_UNWRITABLE}`);
 					break;
 				case "throw":
 					lines.push(`${indent}throw${step.text === undefined ? "" : ` ${quoteText(step.text)}`}`);

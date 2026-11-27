@@ -84,6 +84,7 @@ export const STEERING = [
 	"let",
 	"wait",
 	"note",
+	"unparsed",
 ] as const satisfies readonly StepKind[];
 type Steering = (typeof STEERING)[number];
 

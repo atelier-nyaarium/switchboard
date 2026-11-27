@@ -231,6 +231,9 @@ internal fun CalleePage(
 	edit: ((AutomationDraft) -> AutomationDraft) -> Unit,
 	reload: (String) -> Unit,
 	rows: List<AutomationRow>,
+	kept: KeptScript,
+	/** Its script, read-only. */
+	script: @Composable () -> Unit,
 ) {
 	val others = alsoRunBy(draft, offer, rows, callee.id)
 	Scaffold(
@@ -257,7 +260,9 @@ internal fun CalleePage(
 				Text(REACHES_HEADER, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				for (sentence in others) Text(sentence, style = MaterialTheme.typography.bodyMedium)
 			}
-			CardsSection(
+			ScriptSwitch(draft, callee.id, offer, enabled, edit)
+			if (showsScript(draft, callee.id, offer)) script()
+			else CardsSection(
 				draft = draft,
 				offer = offer,
 				enabled = enabled,
@@ -269,6 +274,8 @@ internal fun CalleePage(
 				edit = edit,
 				reload = reload,
 				tree = callee.id,
+				kept = kept.lines,
+				onScriptAt = kept.open,
 			)
 		}
 	}

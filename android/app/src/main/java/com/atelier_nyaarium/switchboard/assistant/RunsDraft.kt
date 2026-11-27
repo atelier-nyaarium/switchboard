@@ -143,6 +143,7 @@ private fun stepKind(step: FunctionStep): String = when (step) {
 	is FunctionStep.Let -> "let"
 	is FunctionStep.Wait -> "wait"
 	is FunctionStep.Note -> "note"
+	is FunctionStep.Unparsed -> "unparsed"
 	is FunctionStep.Call -> "call"
 	is FunctionStep.Unknown -> step.kind
 }
@@ -402,7 +403,8 @@ internal fun AutomationDraft.pointedTo(row: AutomationFunctionRow, offer: Automa
 	val pointing = pointedAt(runsDraft(), id, row, offer).let { at ->
 		edited?.let { at.copy(base = it.base, params = it.params, steps = it.steps, original = it.original) } ?: at
 	}
-	return withRuns(pointing).copy(
+	val placed = withRuns(pointing).let { at -> edited?.script?.let { at.copy(script = it, scripted = edited.scripted) } ?: at.withOwnScript() }
+	return placed.copy(
 		picking = false,
 		callees = callees - row.id,
 		inside = inside - row.id,
@@ -412,7 +414,7 @@ internal fun AutomationDraft.pointedTo(row: AutomationFunctionRow, offer: Automa
 
 /** A fresh empty body, a function once named. */
 internal fun AutomationDraft.freshBody(): AutomationDraft =
-	withRuns(RunsDraft.Flat(emptyList())).copy(picking = false, newFunctionId = null)
+	withRuns(RunsDraft.Flat(emptyList())).withOwnScript().copy(picking = false, newFunctionId = null)
 
 /** Other users first. */
 /** Other automations, then calling functions. */
@@ -427,7 +429,8 @@ internal fun sharedName(runs: RunsDraft.Pointing, others: List<String>): Boolean
 internal fun AutomationDraft.reloadedFunction(row: AutomationFunctionRow, offer: AutomationOffer): Pair<AutomationDraft, Boolean> {
 	val runs = runsDraft() as? RunsDraft.Pointing ?: return this to false
 	if (runs.mode !in setOf(PointMode.SHARED, PointMode.UNIQUE) || runs.functionId != row.id) return this to false
-	val dropped = runs.mode == PointMode.UNIQUE || bodyOf(runs.name, runs.params, runs.steps, offer, calleeParamsOf(this, offer)) != runs.original
+	val dropped = runs.mode == PointMode.UNIQUE || script?.unread() == true ||
+		bodyOf(runs.name, runs.params, runs.steps, offer, calleeParamsOf(this, offer)) != runs.original
 	val oldValues = runs.params.associate { it.param.name to (it.param.type to runs.values[it.key]) }
 	val params = functionValues(row.function.params)
 	val values = params.mapNotNull { param ->
@@ -443,7 +446,7 @@ internal fun AutomationDraft.reloadedFunction(row: AutomationFunctionRow, offer:
 		mode = PointMode.SHARED,
 		original = row.function,
 	)
-	return withRuns(reloaded) to dropped
+	return withRuns(reloaded).withOwnScript() to dropped
 }
 
 /** A card back as an automation's action; null for any card but a filled action. */

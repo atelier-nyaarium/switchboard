@@ -86,15 +86,24 @@ internal fun HoleTextEditor(
 	enabled: Boolean,
 	onChange: (String) -> Unit,
 	onBack: () -> Unit,
+	/** Content above editor. */
+	above: @Composable () -> Unit = {},
+	/** Cursor opens or moves here. */
+	start: Int? = null,
+	/** Cursor-specific variable shapes. */
+	/** A new value moves again. */
+	startKey: Int = 0,
+	shapesAt: ((Int) -> Map<String, VariableShape?>)? = null,
 	/** Gateway preview below. */
 	below: @Composable (String) -> Unit,
 ) {
-	var field by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
+	var field by remember { mutableStateOf(TextFieldValue(value, TextRange((start ?: value.length).coerceIn(0, value.length)))) }
 	val entities = remember(description) { description?.entities?.map { it.name }?.toSet().orEmpty() }
 	val named = remember(names) { names.map { it.name }.toSet() }
-	val assist = remember(field.text, field.selection, description, ids, shapes) {
-		textAssist(mode, field.text, field.selection.start, description, ids, shapes)
+	val assist = remember(field.text, field.selection, description, ids, shapes, shapesAt) {
+		textAssist(mode, field.text, field.selection.start, description, ids, shapesAt?.invoke(field.selection.start) ?: shapes)
 	}
+	LaunchedEffect(start, startKey) { start?.let { at -> field = field.copy(selection = TextRange(at.coerceIn(0, field.text.length))) } }
 	val issue = issueOf(field.text)
 	val focus = remember { FocusRequester() }
 	LaunchedEffect(Unit) { focus.requestFocus() }
@@ -126,6 +135,7 @@ internal fun HoleTextEditor(
 				Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 16.dp),
 				verticalArrangement = Arrangement.spacedBy(12.dp),
 			) {
+				above()
 				BasicTextField(
 					value = field,
 					onValueChange = ::edit,

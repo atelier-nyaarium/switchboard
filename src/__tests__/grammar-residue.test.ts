@@ -113,9 +113,9 @@ describe("one lexer and one parser read the language", () => {
 	/** Who may lex on the phone, and why. */
 	const PHONE_LEXES: Record<string, readonly string[]> = {
 		// Paint, the names a read sends, a key's one token.
-		[`${PHONE}/liveconsole/ConsoleRules.kt`]: ["lexConsole", "lexConsoleText"],
+		[`${PHONE}/liveconsole/ConsoleRules.kt`]: ["lexConsole", "lexConsoleText", "lexScript"],
 		// Hints and completions.
-		[`${PHONE}/liveconsole/ConsoleAssist.kt`]: ["lexConsole", "lexConsoleText"],
+		[`${PHONE}/liveconsole/ConsoleAssist.kt`]: ["lexConsole", "lexConsoleText", "lexScript"],
 		// Where the cursor's hole is, its close and its gap.
 		[`${PHONE}/assistant/HoleTextRules.kt`]: ["lexConsoleText"],
 		// Whether a text holds a hole.

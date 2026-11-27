@@ -8,6 +8,7 @@ import com.atelier_nyaarium.switchboard.assistant.AutomationSaid
 import com.atelier_nyaarium.switchboard.assistant.AutomationSlot
 import com.atelier_nyaarium.switchboard.assistant.EditContext
 import com.atelier_nyaarium.switchboard.assistant.fieldsOf
+import com.atelier_nyaarium.switchboard.assistant.keyGone
 import com.atelier_nyaarium.switchboard.assistant.SaveAnswer
 import com.atelier_nyaarium.switchboard.assistant.fittingAutomation
 import com.atelier_nyaarium.switchboard.assistant.refusedAtOf
@@ -36,6 +37,9 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationPutResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationRunResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleDescribeResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleScriptParseResult
+import com.atelier_nyaarium.switchboard.proto.ConsoleScriptPrintResult
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -73,6 +77,12 @@ internal interface AutomationGateway {
 
 	/** `callId` joins retries. */
 	suspend fun run(gatewayId: String, automationId: String, callId: String): AutomationRan
+
+	suspend fun scriptPrint(gatewayId: String, op: ConsoleOp.ScriptPrint): ConsoleScriptPrintResult?
+
+	suspend fun scriptParse(gatewayId: String, op: ConsoleOp.ScriptParse): ConsoleScriptParseResult?
+
+	suspend fun scriptVocabulary(gatewayId: String): ConsoleDescribeResult?
 }
 
 internal sealed interface AutomationRan {
@@ -180,12 +190,16 @@ internal data class MovedFunction(val id: String?)
 
 internal data class AutomationDraftKey(val gatewayId: String, val slot: AutomationSlot)
 
-/** Text, picker, innermost callee. */
+/** Text, script, picker, callee. */
 internal val AUTOMATION_PAGES = InnerPages<AutomationDraft>(
-	open = { draft -> Triple(draft.text, draft.picking, draft.inside).takeIf { draft.text != null || draft.picking || draft.inside.isNotEmpty() } },
+	open = { draft ->
+		listOf(draft.text, draft.scriptPage, draft.picking, draft.inside)
+			.takeIf { draft.text != null || draft.scriptPage != null || draft.picking || draft.inside.isNotEmpty() }
+	},
 	close = { draft ->
 		when {
 			draft.text != null -> draft.copy(text = null)
+			draft.scriptPage != null -> draft.copy(scriptPage = null)
 			draft.picking -> draft.copy(picking = false)
 			else -> draft.copy(inside = draft.inside.dropLast(1))
 		}
@@ -203,12 +217,15 @@ internal class AutomationOps(
 
 	val runs = MutableStateFlow<Map<RunKey, RunState>>(emptyMap())
 
+	/** Vocabulary by Gateway. */
+	val scriptWords = MutableStateFlow<Map<String, ConsoleDescribeResult>>(emptyMap())
+
 	/** The editor's edits, with what the last send said. */
 	val edits = EditorSessions<AutomationDraftKey, AutomationDraft, AutomationSaid>(
 		changed = { draft, opened -> draft.changedFrom(opened) },
 		unattended = { left -> tell(leftLine("", "Automation", left.said?.line.orEmpty())) },
 		inner = AUTOMATION_PAGES,
-		clears = { said -> said is AutomationSaid.Confirm || said is AutomationSaid.Note },
+		clears = { said, next -> said is AutomationSaid.Confirm || said is AutomationSaid.Note || keyGone(said, next) },
 	)
 
 	private fun tell(message: String) = state.update { it.withNotice(message) }
@@ -229,6 +246,7 @@ internal class AutomationOps(
 		toggles.clear()
 		edits.clear()
 		runs.value = emptyMap()
+		scriptWords.value = emptyMap()
 	}
 
 	/** Retry reuses unanswered tap's id. */
@@ -436,6 +454,26 @@ internal class AutomationOps(
 			confirmed = true,
 		)
 		return attempt { client.check(gatewayId, op) }
+	}
+
+	suspend fun scriptPrint(gatewayId: String, op: ConsoleOp.ScriptPrint): ConsoleScriptPrintResult? {
+		val client = host.gateway ?: return null
+		if (gatewayId.isBlank()) return null
+		return attempt { client.scriptPrint(gatewayId, op) }
+	}
+
+	suspend fun scriptParse(gatewayId: String, op: ConsoleOp.ScriptParse): ConsoleScriptParseResult? {
+		val client = host.gateway ?: return null
+		if (gatewayId.isBlank()) return null
+		return attempt { client.scriptParse(gatewayId, op) }
+	}
+
+	/** Refresh on each opening. */
+	suspend fun describeScript(gatewayId: String) {
+		val client = host.gateway ?: return
+		if (gatewayId.isBlank()) return
+		val answer = attempt { client.scriptVocabulary(gatewayId) } ?: return
+		scriptWords.update { it + (gatewayId to answer) }
 	}
 
 	/** `id`: pointer or callee. */

@@ -11,9 +11,9 @@ import {
 	FunctionParamSchema,
 	FunctionStepSchema,
 	PARAM_NAME_MAX,
+	SCRIPT_SOURCE_MAX,
 	STEP_TEXT_MAX,
 } from "./schemasFunction.js";
-import { SCRIPT_SOURCE_MAX } from "./script-grammar.js";
 import { SCRIPT_TYPE_MAX } from "./script-types.js";
 
 export const SCRIPT_TEXT_SCHEMA = z.string().max(SCRIPT_SOURCE_MAX);

@@ -36,7 +36,7 @@ import com.atelier_nyaarium.switchboard.paramIssueLine
 import com.atelier_nyaarium.switchboard.typeWordText
 import com.atelier_nyaarium.switchboard.usedByLine
 
-private val FUNCTION_MARK = Char(0x0192).toString()
+internal val FUNCTION_MARK = Char(0x0192).toString()
 
 /** The mark, the name, a count when shared. */
 @Composable

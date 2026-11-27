@@ -115,8 +115,11 @@ internal data class CalleeDraft(
 	val original: AutomationFunction?,
 	/** Opened cards without keys. */
 	val opened: List<StepDraft>,
+	val script: ScriptEdit? = null,
+	/** Shown as script. */
+	val scripted: Boolean = false,
 ) {
-	fun edited(): Boolean = base == 0L || unkeyed(steps) != opened
+	fun edited(): Boolean = base == 0L || unkeyed(steps) != opened || script?.unread() == true
 
 	/** An empty new one holds none. */
 	fun holdsWork(): Boolean = edited() && !(base == 0L && steps.isEmpty())
@@ -156,6 +159,11 @@ internal data class AutomationDraft(
 	val callees: Map<String, CalleeDraft> = emptyMap(),
 	/** Innermost page last. */
 	val inside: List<String> = emptyList(),
+	val script: ScriptEdit? = null,
+	/** Own script mode. */
+	val scripted: Boolean = false,
+	/** Open script page. */
+	val scriptPage: ScriptPage? = null,
 ) {
 	fun runsDraft(): RunsDraft = runsOf(runs, steps)
 
@@ -273,20 +281,25 @@ internal data class AutomationDraft(
 	/** Untouched copies whose row moved, read again. */
 	fun freshened(offer: AutomationOffer): AutomationDraft {
 		val moved = callees.values.mapNotNull { held ->
-			offer.functions?.row(held.id)?.takeIf { !held.edited() && it.revision != held.base }
+			offer.functions?.row(held.id)?.takeIf { !held.edited() && held.script?.typed() != true && it.revision != held.base }
 		}
 		if (moved.isEmpty()) return this
 		val ids = moved.map { it.id }.toSet()
 		return copy(
 			callees = callees + moved.associate { it.id to calleeOf(it, offer) },
 			text = text?.takeIf { treeHolding(it.key) !in ids },
+			scriptPage = scriptPage?.takeIf { it.tree !in ids },
 		)
 	}
 
 	/** True means edits dropped. */
 	fun reloadedCallee(row: AutomationFunctionRow, offer: AutomationOffer): Pair<AutomationDraft, Boolean> {
 		val held = callees[row.id] ?: return this to false
-		val reloaded = copy(callees = callees + (row.id to calleeOf(row, offer)), text = text?.takeIf { treeHolding(it.key) != row.id })
+		val reloaded = copy(
+			callees = callees + (row.id to calleeOf(row, offer)),
+			text = text?.takeIf { treeHolding(it.key) != row.id },
+			scriptPage = scriptPage?.takeIf { it.tree != row.id },
+		)
 		return reloaded to held.edited()
 	}
 
@@ -333,6 +346,7 @@ internal data class AutomationDraft(
 			enabled != opened.enabled ||
 			runs != opened.runs ||
 			keepTryingMin != opened.keepTryingMin ||
+			script?.unread() == true ||
 			callees.values.any { it.holdsWork() }
 }
 
@@ -460,7 +474,13 @@ internal fun automationDraftOf(row: AutomationRow, context: EditContext, display
 	)
 	// Functions only where served.
 	val functions = offer.functions ?: return draft
-	return draft.withRuns(runsDraftOf(row.id, row.automation, functions.rows, offer))
+	return draft.withRuns(runsDraftOf(row.id, row.automation, functions.rows, offer)).withOwnScript()
+}
+
+/** Stored errors open as text. */
+internal fun AutomationDraft.withOwnScript(): AutomationDraft {
+	val edit = scriptOfCards(steps)
+	return copy(script = edit, scripted = edit != null, scriptPage = null)
 }
 
 /** The draft's source's fields. */
@@ -557,7 +577,8 @@ internal fun automationEditing(
 	val edit = standing && !holdsUnserved(draft.steps, offer)
 	return AutomationEditing(
 		edit = edit,
-		save = edit && offered && saveAllowedAfterCheck(checkSaid, said, draft, offer) && if (offer.functions != null) {
+		save = edit && offered && !scriptPending(draft, offer) && !errorsUnkept(draft, offer) &&
+			saveAllowedAfterCheck(checkSaid, said, draft, offer) && if (offer.functions != null) {
 			functionSaveOf(draft, fields, offer, confirmed = false) != null
 		} else {
 			fittingAutomation(draft, fields, offer) != null
@@ -578,7 +599,8 @@ internal fun runShown(state: RunState?, opening: Long): String? = when (state) {
 internal fun calleeOf(row: AutomationFunctionRow, offer: AutomationOffer): CalleeDraft {
 	val params = row.function.params.map { FunctionValueDraft(java.util.UUID.randomUUID().toString(), it) }
 	val cards = written(row.function).map { treeOf(it, offer, params) }
-	return CalleeDraft(row.id, row.revision, row.function.name, params, cards, row.function, unkeyed(cards))
+	val script = scriptOfCards(cards)
+	return CalleeDraft(row.id, row.revision, row.function.name, params, cards, row.function, unkeyed(cards), script, script != null)
 }
 
 /** Refusal blocks; movement too. */

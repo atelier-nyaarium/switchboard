@@ -146,6 +146,7 @@ describe("the automation save op", () => {
 				"let",
 				"wait",
 				"note",
+				"unparsed",
 				"call",
 			],
 			paramTypes: ["device", "text", "number"],

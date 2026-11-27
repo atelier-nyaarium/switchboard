@@ -108,7 +108,7 @@ internal fun AutomationEditorPage(
 	val gone = lookup == Lookup.Gone
 	val busy = session.busy
 	val rows = automationGroups(state.gateways, state.assistantHome).firstOrNull { it.gatewayId == gatewayId }?.rows.orEmpty()
-	val checkOp = functionSaveOf(draft, fields, offer, confirmed = true)
+	val checkOp = functionSaveOf(draft, fields, offer, confirmed = true)?.takeUnless { errorsUnkept(draft, offer) }
 	val check = checkRead(ops, key, checkOp)
 	val checkSaid = checkSaidOf(checkedFor(check, checkOp), draft, heard)
 	val said = checkSaid ?: session.said
@@ -129,12 +129,14 @@ internal fun AutomationEditorPage(
 	val triggerRead = previewRead(ops, gatewayId, previewAsk(trigger, null, previewScope))
 	var confirmingDelete by remember(key) { mutableStateOf(false) }
 	var asking by remember(key) { mutableStateOf<AutomationSaid.Confirm?>(null) }
+	var askingErrors by remember(key) { mutableStateOf<ErrorsAsk?>(null) }
 	LaunchedEffect(busy, session.said) { asking = (session.said as? AutomationSaid.Confirm)?.takeUnless { busy } }
 
 	fun save(confirmed: Boolean) = repo.command { automationOps.commit(key, open.opening, confirmed) }
 
 	val edit: ((AutomationDraft) -> AutomationDraft) -> Unit = { change -> draft = change(draft) }
 
+	ScriptParses(ops, gatewayId, draft, offer, edit)
 	val functions = offer.functions
 	if (draft.picking && functions != null) {
 		val pointed = (draft.runs as? RunsHead.Points)?.pointing?.functionId
@@ -203,6 +205,13 @@ internal fun AutomationEditorPage(
 		}
 	}
 
+	draft.scriptPage?.let { page ->
+		val consoles by repo.liveConsoleOps.state.collectAsState()
+		LaunchedEffect(gatewayId) { repo.command { liveConsoleOps.open(gatewayId) } }
+		ScriptEditorPage(ops, gatewayId, draft, page.tree, offer, can.edit, consoles[gatewayId]?.ids, edit)
+		return
+	}
+
 	val textRead: @Composable (String?) -> PreviewRead = { text -> previewRead(ops, gatewayId, previewAsk(trigger.takeIf { text != null }, text, previewScope)) }
 	val conditionRead: @Composable (String) -> PreviewRead = { condition ->
 		previewRead(ops, gatewayId, conditionAsk(trigger, condition, previewScope, draft.steps))
@@ -223,7 +232,8 @@ internal fun AutomationEditorPage(
 			edit = edit,
 			reload = reload,
 			rows = rows,
-		)
+			kept = keptScript(ops, gatewayId, draft, callee.id, offer, edit),
+		) { ScriptSection(ops, gatewayId, draft, callee.id, offer, can.edit, null, edit) }
 		return
 	}
 
@@ -231,7 +241,7 @@ internal fun AutomationEditorPage(
 		title = if (gone) "Deleted elsewhere" else "Automation",
 		saving = busy,
 		canSave = can.save,
-		onSave = { save(confirmed = false) },
+		onSave = { errorsAsk(draft, offer, rows)?.let { askingErrors = it } ?: save(confirmed = false) },
 		onBack = onBack,
 		leaving = open.leaving,
 		menu = {
@@ -258,18 +268,27 @@ internal fun AutomationEditorPage(
 			Text("This Gateway cannot run some of these steps.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		}
 		if (runs?.kept != true) {
-			CardsSection(
-				draft = draft,
-				offer = offer,
-				enabled = can.edit,
-				said = said,
-				textRead = textRead,
-				conditionRead = conditionRead,
-				asked = trigger != null,
-				lastRun = lastRunShown(draft, session.opened, lookup?.let(::keptRow), offer.functions),
-				edit = edit,
-				reload = reload,
-			)
+			val lastRun = lastRunShown(draft, session.opened, lookup?.let(::keptRow), offer.functions)
+			ScriptSwitch(draft, null, offer, can.edit, edit)
+			if (showsScript(draft, null, offer)) {
+				ScriptSection(ops, gatewayId, draft, null, offer, can.edit, lastRun, edit)
+			} else {
+				val kept = keptScript(ops, gatewayId, draft, null, offer, edit)
+				CardsSection(
+					draft = draft,
+					offer = offer,
+					enabled = can.edit,
+					said = said,
+					textRead = textRead,
+					conditionRead = conditionRead,
+					asked = trigger != null,
+					lastRun = lastRun,
+					edit = edit,
+					reload = reload,
+					kept = kept.lines,
+					onScriptAt = kept.open,
+				)
+			}
 		}
 		HorizontalDivider()
 		OutlinedTextField(
@@ -300,6 +319,18 @@ internal fun AutomationEditorPage(
 				repo.command { automationOps.remove(key, open.opening) }
 			},
 			onDismiss = { confirmingDelete = false },
+		)
+	}
+	askingErrors?.let { ask ->
+		ConfirmDialog(
+			title = "Save with errors?",
+			body = errorsLine(ask),
+			confirmText = "Save anyway",
+			onConfirm = {
+				askingErrors = null
+				save(confirmed = false)
+			},
+			onDismiss = { askingErrors = null },
 		)
 	}
 	asking?.let { confirm ->

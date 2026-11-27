@@ -139,6 +139,7 @@ export const FRAME_UNREAD = "the function it ran could not be read";
 export const CALL_FAILED = "a step in it failed";
 export const TOO_MANY_BESIDE = `more than ${RUN_STRANDS_MAX} steps would run at once`;
 export const TOO_MANY_KEPT = `more than ${FRAME_VARS_MAX} values would be kept`;
+export const SCRIPT_ERRORS = "its script has errors";
 const MESSAGE_UNREAD = "its message was not read before the restart";
 // Remove 2026-12-16 with the fire's `tell`.
 export const untold = ({ tell: _tell, waiting: _waiting, ...rest }: Fire): Fire => rest;
@@ -660,6 +661,10 @@ export function createPass(ports: PassPorts): {
 				const { failure } = outcome;
 				if (!failure) end(path, steered(step));
 				else end(path, failedAs(step, failure.code, failure.message, failure.errors), failure.message);
+				return;
+			}
+			if (kind === "unparsed") {
+				end(path, failedAs(step, "unread", SCRIPT_ERRORS), SCRIPT_ERRORS);
 				return;
 			}
 			if (kind !== undefined && kind !== "do") {

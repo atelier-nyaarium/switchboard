@@ -22,6 +22,8 @@ export const FUNCTION_NAME_MAX = 80;
 export const STEP_TEXT_MAX = 1_000;
 /** The widest action row's parameters. */
 export const STEP_ARGS_MAX = 4;
+/** A script's whole text. */
+export const SCRIPT_SOURCE_MAX = 24_000;
 export const FUNCTION_PARAM_TYPES = ["device", "text", "number"] as const;
 export type FunctionParamType = (typeof FUNCTION_PARAM_TYPES)[number];
 
@@ -106,6 +108,8 @@ export const FunctionStepSchema = z
 		z.strictObject({ kind: z.literal("let"), name: z.string().regex(PARAM_NAME_RE), value: StepArgSchema }),
 		z.strictObject({ kind: z.literal("wait"), minutes: StepArgSchema }),
 		z.strictObject({ kind: z.literal("note"), text: z.string().max(STEP_TEXT_MAX) }),
+		/** Unparsed scripts stand alone. */
+		z.strictObject({ kind: z.literal("unparsed"), source: z.string().max(SCRIPT_SOURCE_MAX) }),
 		/** Runs another function and waits for it. */
 		z.strictObject({
 			kind: z.literal("call"),
@@ -136,6 +140,7 @@ const STATEMENTS: { [K in FunctionStep["kind"]]: true } = {
 	let: true,
 	wait: true,
 	note: true,
+	unparsed: true,
 	call: true,
 };
 /** Every kind a step may be. */

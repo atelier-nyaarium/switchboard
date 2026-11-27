@@ -43,6 +43,10 @@ internal fun consolePaint(source: String, entities: Set<String>, variables: Set<
 internal fun consoleTextPaint(text: String, entities: Set<String>, variables: Set<String>): List<PaintSpan> =
 	paintParts(lexConsoleText(text), null, entities, variables)
 
+/** Statement words as keywords. */
+internal fun consoleScriptPaint(source: String, entities: Set<String>, variables: Set<String>): List<PaintSpan> =
+	paintTokens(lexScript(source), entities, variables, Protocol.Wire.SCRIPT_RESERVED)
+
 private fun paintParts(
 	parts: List<ConsoleStringPart>,
 	run: CodeToken?,
@@ -62,7 +66,12 @@ private fun paintParts(
 		}
 	}
 
-private fun paintTokens(tokens: List<ConsoleToken>, entities: Set<String>, variables: Set<String>): List<PaintSpan> =
+private fun paintTokens(
+	tokens: List<ConsoleToken>,
+	entities: Set<String>,
+	variables: Set<String>,
+	words: Set<String> = emptySet(),
+): List<PaintSpan> =
 	tokens.flatMapIndexed { at, token ->
 		val parts = token.parts
 		if (parts != null && parts.any { it !is ConsoleStringPart.Text }) {
@@ -79,6 +88,7 @@ private fun paintTokens(tokens: List<ConsoleToken>, entities: Set<String>, varia
 				ConsoleTokenKind.IDENT ->
 					when {
 						afterDot -> CodeToken.FUNCTION
+						token.text in words -> CodeToken.KEYWORD
 						// A held name shadows an entity.
 						token.text in variables -> CodeToken.VARIABLE
 						token.text in entities -> CodeToken.TYPE

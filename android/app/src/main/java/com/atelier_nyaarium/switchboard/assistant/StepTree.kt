@@ -174,7 +174,7 @@ internal fun stepPaths(steps: List<FunctionStep>, base: String? = null): List<St
 			is FunctionStep.Parallel -> listOf(Side.BODY to step.steps)
 			is FunctionStep.Start -> listOf(Side.BODY to step.steps)
 			is FunctionStep.Do, is FunctionStep.Exit, is FunctionStep.Throw, is FunctionStep.Let, is FunctionStep.Await,
-			is FunctionStep.Wait, is FunctionStep.Note, is FunctionStep.Call, is FunctionStep.Unknown -> emptyList()
+			is FunctionStep.Wait, is FunctionStep.Note, is FunctionStep.Unparsed, is FunctionStep.Call, is FunctionStep.Unknown -> emptyList()
 		}
 		listOf(path) + sides.flatMap { (side, list) -> stepPaths(list, "$path.${side.number}") }
 	}
@@ -213,7 +213,7 @@ internal fun treeOf(
 	is FunctionStep.Note -> StepDraft.Note(key(), step.text)
 	is FunctionStep.Call -> callValuesOf(step)?.let { StepDraft.Call(key(), step.function, it) } ?: StepDraft.Kept(key(), step)
 	is FunctionStep.Throw, is FunctionStep.Let, is FunctionStep.Parallel, is FunctionStep.Start, is FunctionStep.Await,
-	is FunctionStep.Unknown -> StepDraft.Kept(key(), step)
+	is FunctionStep.Unparsed, is FunctionStep.Unknown -> StepDraft.Kept(key(), step)
 }
 
 private fun callValuesOf(step: FunctionStep.Call): Map<String, CallValue>? =
@@ -330,6 +330,7 @@ internal fun cardLabel(step: StepDraft, offer: AutomationOffer): String = when (
 		is FunctionStep.Parallel -> "Together"
 		is FunctionStep.Start -> "Start a task"
 		is FunctionStep.Await -> "Wait for a task"
+		is FunctionStep.Unparsed -> "Script with errors"
 		is FunctionStep.Unknown -> held.kind
 		is FunctionStep.Do, is FunctionStep.If, is FunctionStep.Try, is FunctionStep.Exit, is FunctionStep.Note -> "Step"
 	}

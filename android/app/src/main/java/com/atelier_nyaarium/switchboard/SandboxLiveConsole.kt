@@ -20,7 +20,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 
 private const val CONSOLE_ROUND_TRIP_MS = 400L
-private const val SANDBOX_HASH = "sandbox"
+internal const val SANDBOX_HASH = "sandbox"
 private const val OLDER_GATEWAY = "unknown op console_describe"
 
 private fun param(name: String, description: String, completes: String) =
@@ -37,7 +37,7 @@ private fun method(name: String, returns: String, description: String, vararg pa
 private fun entity(name: String, description: String, vararg members: ConsoleMemberDescription) =
 	ConsoleEntityDescription(name, description, false, members.toList())
 
-private val SANDBOX_DESCRIPTION =
+internal val SANDBOX_DESCRIPTION =
 	ConsoleDescription(
 		builtins =
 			listOf(

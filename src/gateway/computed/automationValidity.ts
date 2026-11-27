@@ -83,6 +83,7 @@ export const NAME_TAKEN = "that name is already a value here";
 export const NAME_RESERVED = "that name is reserved";
 export const EXIT_BESIDE = "an exit here would leave the steps beside it running";
 export const TOO_WIDE = `more than ${RUN_STRANDS_MAX} steps would run at once`;
+export const UNPARSED_ALONE = "a script with errors stands alone in its function";
 
 /** Words the language keeps. */
 const RESERVED_NAMES = new Set<string>([...SCRIPT_RESERVED, ...CONSOLE_WORD_OPS, "true", "false", "null"]);
@@ -286,6 +287,8 @@ export function createAutomationValidity(
 		// Exit abandons sibling steps.
 		exit: (_fn, _step, address) => (ownerOf(address) ? { message: EXIT_BESIDE } : null),
 		note: () => null,
+		unparsed: (fn, _step, address) =>
+			address.length !== 1 || stepsOf(fn).length !== 1 ? { message: UNPARSED_ALONE } : null,
 		try: () => null,
 		parallel: (_fn, step) => (widthOf([step]) > RUN_STRANDS_MAX ? { message: TOO_WIDE } : null),
 		start: (fn, step) => {

@@ -272,6 +272,12 @@ internal class ConsoleAutomationGateway(private val client: ConsoleClient) : Aut
 	override suspend fun save(gatewayId: String, op: ConsoleOp.AutomationSave) = client.automationSave(gatewayId, op)
 
 	override suspend fun check(gatewayId: String, op: ConsoleOp.AutomationCheck) = client.automationCheck(gatewayId, op)
+
+	override suspend fun scriptPrint(gatewayId: String, op: ConsoleOp.ScriptPrint) = client.scriptPrint(gatewayId, op)
+
+	override suspend fun scriptParse(gatewayId: String, op: ConsoleOp.ScriptParse) = client.scriptParse(gatewayId, op)
+
+	override suspend fun scriptVocabulary(gatewayId: String) = client.scriptVocabulary(gatewayId)
 }
 
 internal class ChatRepositoryAutomationHost(private val repo: ChatRepository) : AutomationHost {

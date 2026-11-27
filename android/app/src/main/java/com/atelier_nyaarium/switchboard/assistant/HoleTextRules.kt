@@ -9,6 +9,8 @@ import com.atelier_nyaarium.switchboard.liveconsole.PaintSpan
 import com.atelier_nyaarium.switchboard.liveconsole.VariableShape
 import com.atelier_nyaarium.switchboard.liveconsole.applyTo
 import com.atelier_nyaarium.switchboard.liveconsole.consoleAssist
+import com.atelier_nyaarium.switchboard.liveconsole.consoleScriptAssist
+import com.atelier_nyaarium.switchboard.liveconsole.consoleScriptPaint
 import com.atelier_nyaarium.switchboard.liveconsole.consolePaint
 import com.atelier_nyaarium.switchboard.liveconsole.consoleTextAssist
 import com.atelier_nyaarium.switchboard.liveconsole.consoleTextPaint
@@ -28,7 +30,7 @@ internal const val WHEN = "when"
 /** Wait minutes parameter. */
 internal const val MINUTES = "minutes"
 
-internal enum class TextMode { HOLES, EXPRESSION }
+internal enum class TextMode { HOLES, EXPRESSION, SCRIPT }
 
 internal fun conditionAt(draft: AutomationDraft, ref: TextRef): String? =
 	(draft.stepAt(ref.key) as? StepDraft.If)?.condition?.takeIf { ref.param == WHEN }
@@ -46,6 +48,7 @@ private fun insideCatch(steps: List<StepDraft>, key: String): Boolean =
 internal fun textPaint(mode: TextMode, text: String, entities: Set<String>, names: Set<String>): List<PaintSpan> = when (mode) {
 	TextMode.HOLES -> holePaint(text, entities, names)
 	TextMode.EXPRESSION -> consolePaint(text, entities, names)
+	TextMode.SCRIPT -> consoleScriptPaint(text, entities, names)
 }
 
 internal fun textAssist(
@@ -58,27 +61,28 @@ internal fun textAssist(
 ): ConsoleAssist = when (mode) {
 	TextMode.HOLES -> holeAssist(text, cursor, description, ids, names)
 	TextMode.EXPRESSION -> consoleAssist(text, cursor, description, ids, names, noSlow = true)
+	TextMode.SCRIPT -> consoleScriptAssist(text, cursor, description, ids, names)
 }
 
 internal fun nameInserted(mode: TextMode, text: String, cursor: Int, name: String): Pair<String, Int> = when (mode) {
 	TextMode.HOLES -> withName(text, cursor, name)
-	TextMode.EXPRESSION -> inserted(text, cursor, name)
+	TextMode.EXPRESSION, TextMode.SCRIPT -> inserted(text, cursor, name)
 }
 
 internal fun entityInserted(mode: TextMode, text: String, cursor: Int, name: String): Pair<String, Int> = when (mode) {
 	TextMode.HOLES -> withEntity(text, cursor, name)
-	TextMode.EXPRESSION -> inserted(text, cursor, "$name.")
+	TextMode.EXPRESSION, TextMode.SCRIPT -> inserted(text, cursor, "$name.")
 }
 
 internal fun completionPicked(mode: TextMode, text: String, completion: ConsoleCompletion, entities: Set<String>): Pair<String, Int> =
 	when (mode) {
 		TextMode.HOLES -> pickCompletion(text, completion, entities)
-		TextMode.EXPRESSION -> completion.applyTo(text)
+		TextMode.EXPRESSION, TextMode.SCRIPT -> completion.applyTo(text)
 	}
 
 internal fun nameShown(mode: TextMode, name: String): String = when (mode) {
 	TextMode.HOLES -> "{$name}"
-	TextMode.EXPRESSION -> name
+	TextMode.EXPRESSION, TextMode.SCRIPT -> name
 }
 
 private fun inserted(text: String, cursor: Int, insert: String): Pair<String, Int> {
