@@ -192,7 +192,7 @@ const listOf = <T>(step: Branching<T>, side: Side): readonly T[] | undefined => 
 	return number < (step.cases?.length ?? 0) ? step.cases?.[number]?.steps : step.default;
 };
 
-/** Sole step-list reader. */
+/** Sole step-list reader; see docs/fields.md. */
 export const sidesOf = <T>(step: Branching<T>): HeldSide<T>[] =>
 	sidesNamed(step).map((side) => ({ side, number: sideNumber(side), steps: listOf(step, side) ?? [] }));
 

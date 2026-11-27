@@ -598,13 +598,13 @@ no TTL.
   nobody read never passes for an empty one. A view speaks per Gateway: each one that answered is
   a group, one with nothing says "No routines" under its own name, and the whole line is drawn
   only while none has answered, so it never says none for a Gateway it has not heard. Groups are
-  named whenever more than one Gateway is in the view's scope. A runbook's delete says when its Gateway's routines
-  are unread. A Gateway's peers alone outlive its restart on the entry, so its linked Domains stay
-  until it answers again. Refresh re-reads the view that is drawn. The `not_served` token always reads as
-  not served. A refusal in prose is a fault, so what was drawn stays. Runbooks keep only rows, since
-  the phone's library is durable. Peers are
-  read by `TrustOps`, which keeps what it had on any failure. A re-provision clears each fence, so
-  a read still out lands nothing.
+  named whenever more than one Gateway is in the view's scope. A runbook's delete says when its
+  Gateway's routines are unread. A Gateway's peers alone outlive its restart on the entry, so its
+  linked Domains stay until it answers again. Refresh re-reads the view that is drawn. The
+  `not_served` token always reads as not served. A refusal in prose is a fault, so what was drawn
+  stays. Runbooks keep only rows, since the phone's library is durable. Peers are read by
+  `TrustOps`, which keeps what it had on any failure. A re-provision clears each fence, so a read
+  still out lands nothing.
 - **Policies** (`PolicyOps.kt`, `policies/`): one group per Gateway, read when the view shows and
   after every mutation, never held. A refusal hides that Gateway's group, unreachable keeps what was
   drawn, and the fence drops a stale read. "Save over revision N" rebases onto the newer record and

@@ -199,6 +199,7 @@ const causeLevel = (cause: Cause | undefined): IssueLevel => {
 
 const stepLevel = (issue: StepIssue): IssueLevel => causeLevel(issue.cause);
 
+/** One level per cause; see docs/fields.md. */
 export const levelOf = (issue: BodyIssue): IssueLevel =>
 	causeLevel((CAUSES[issue.at] as (held: BodyIssue) => Cause | undefined)(issue));
 

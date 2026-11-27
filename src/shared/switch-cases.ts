@@ -27,7 +27,7 @@ const offeredBy = (choices: readonly string[] | null): ((key: string) => boolean
 	return (key) => offered.has(key);
 };
 
-/** Choice options, if named. */
+/** Causes, never levels; see docs/fields.md. */
 export function switchIssues(
 	step: { cases: readonly { values: readonly string[] }[] },
 	choices: readonly string[] | null,

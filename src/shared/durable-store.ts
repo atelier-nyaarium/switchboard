@@ -256,7 +256,7 @@ export interface HeldOptions<T> {
 	repairs: RestoreRepairs;
 }
 
-/** Rewrites stale until landed. */
+/** Rewrites stale until landed; see AGENTS.md. */
 export function restoreHeld<T>({ store, label, decode, encode, repairs }: HeldOptions<T>): Held<T> {
 	const decoded = decode(store.load());
 	let value = decoded.value;

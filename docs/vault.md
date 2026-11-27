@@ -64,10 +64,10 @@ and the delta list are in `docs/federation.md` under Owner state.
   are both `docker exec`.
 - **A grant resolved through a policy is qualified by it:** it carries a `policy` reference, the
   policy id and the revision that answered, and covers only a scope the same policy resolved at
-  the same revision, never a bare `vault_run`. A window under a policy covers only the one key it was
-  given for, whatever else the line it came from ran. An entry-wide grant covers a policy scope as
-  it covers any other. Only a session holds a qualified grant; a routine's standing grant is entry-wide, and the
-  schema refuses the other shape. `qualificationRefusal` is the one reading of why a policy no
+  the same revision, never a bare `vault_run`. A window under a policy covers only the one key it
+  was given for, whatever else the line it came from ran. An entry-wide grant covers a policy scope
+  as it covers any other. Only a session holds a qualified grant; a standing grant, a routine's or a
+  service's, is entry-wide, and the schema refuses the other shape. `qualificationRefusal` is the one reading of why a policy no
   longer answers for what it resolved: gone, disabled, rebound to another entry, no longer naming
   the selector, or at another revision. `policyMoved` prunes the grants that policy qualified, and
   `policiesListed` does the same at startup over the store's whole list. `vault_grants` shows what

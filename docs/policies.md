@@ -91,8 +91,9 @@ its policy, with one log line naming the policy and the count, and drops a polic
 since a record holds at least one key. It never re-keys one, which could select lines the owner never
 approved. A pruned policy takes the next revision, so a phone saving over the revision it read
 gets `moved` and re-reads rather than putting a dropped key back; one already at the ceiling keeps
-it, since every put to it is `spent` anyway. The cleaned file is written back. So a change to the key rule narrows: those lines ask
-again with a typed card. Anything else a put could not have written (a duplicate id, two enabled
+it, since every put to it is `spent` anyway. The cleaned file is rewritten on each persist pass
+until a write lands (`restoreHeld`). So a change to the key rule narrows: those lines ask again
+with a typed card. Anything else a put could not have written (a duplicate id, two enabled
 holders of one key, more than the cap) starts the store fresh, as an unparseable file does, since
 fewer policies is the safe direction.
 

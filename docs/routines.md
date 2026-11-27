@@ -256,8 +256,8 @@ delete ends it. An id reused after a delete gets a new incarnation, which is wha
 routine inheriting a dead one's history. A change of target kind mints one too, since a spawn run's
 history can hold what a check-in must not see. A routine stored before incarnations gets one at
 restore, held in memory and rewritten on each persist pass until it lands (`restoreHeld`), so a
-failed write never mints a second. Not `since`: two routines stored in one millisecond would share that, and a number shaped
-like a time invites being read as one. `sameContent` excludes it alongside the revision and `since`,
+failed write never mints a second. Not `since`: two routines stored in one millisecond would share
+that, and a number shaped like a time invites being read as one. `sameContent` excludes it alongside the revision and `since`,
 or a save would look like an edit because the gateway owns a field.
 
 **A run belongs to the incarnation it was prepared under.** The occurrence records it, and `pastLife`

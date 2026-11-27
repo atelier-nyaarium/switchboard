@@ -96,7 +96,7 @@ neutralizer for model-bound text.
   spellings only.
 - **The guard is the only road to a tool:** it wraps `registerTool` and a later `update` callback,
   and `tool()` refuses.
-- **A value that must stay one line is collapsed by `oneLine`:** a watcher event's values and the
+- **A value that must stay one line is collapsed by `oneLine`:** a source event's values and the
   baseline's lines, so a newline in foreign text cannot forge another data line.
 - **An event is data:** a push with `event="true"` carries no sender, `session_id` or
   `meta.instructions`, and `CHANNEL_INSTRUCTIONS` says no `channel_reply` is owed.
@@ -114,8 +114,9 @@ neutralizer for model-bound text.
 - **The baseline comes back as hook context:** `hooks/hooks.json` runs `main-session-hook` on
   SessionStart `compact`, after both auto and manual compaction. It posts the session token to
   `/session/baseline` and prints one reminder block: conversations addressed to the session, newest
-  first, open routine runs, agents with a turn running, the assistant's watcher lines (for
-  `host.assistant` alone), and its unfinished board entries. Board lines go last and are cut first, measured after escaping, under Claude Code's 10,000-character hook cap.
+  first, open routine runs, workflow runs, agents with a turn running, the assistant's hold and
+  source lines (for `host.assistant` alone), and its unfinished board entries. Board lines go last
+  and are cut first, measured after escaping, under Claude Code's 10,000-character hook cap.
   Anything short of a valid answer prints nothing.
 - **A Copilot session gets the same lines pushed:** the daemon's `copilotCompaction.ts` overlay sets
   `compacting` on the session's derived presence. When it falls, `composeWebSockets` tells
