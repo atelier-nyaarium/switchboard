@@ -96,10 +96,20 @@ Router's record names. That Gateway feeds it events. The session decides what to
         in minutes, blank for the Gateway's ten.
       - **Runs** is a list of cards (`cardsDraw` in `assistant/CardsDraw.kt`): an action, an If with
         its Condition and its two sides ("Otherwise" for the second), a Switch, a Try with "If it
-        fails", a Wait, "Stop here" and a Note, each side indented under its card and each list
-        ending in "+ Add", which offers the Gateway's actions and then the statements it runs
-        (`statementsOffered`). A card has a move menu (up or down its own list) and its remove, and
-        shows how the last run went on it while the editor shows what is stored (`lastRunShown`). A
+        fails", a Wait, "Stop here" and a Note. A card draws everything it owns inside its border:
+        its fields, each side's label and chips, the side's steps indented as cards of their own, and
+        "+ Case", "+ Else if", DEFAULT or ELSE (`cardBlocks` groups the rows by depth). Each list
+        ends in "+ Add step", which offers the Gateway's actions and then the statements it runs
+        (`statementsOffered`). A condition's values and a case's values are the same outlined chip
+        with an X, a tap anywhere on it removing it (`ValueChip`), and a case's + is `AddChip`. An
+        issue line drawn on its own starts with a capital (`issueText`). A card has its remove and a
+        move menu (`moveChoices`, read when it opens): up or down its own list, into the end of each
+        side of the card above it, named as the card draws it ("Into Otherwise above", "Into If it
+        fails above", "Into CASE Mention above"; labels that repeat are numbered, "Into Else if 2
+        above"), and out of the card drawing it, landing right after that card. A move that would
+        not land, or would turn a card into an else-if link or a link into a card (`linkKeys`), is
+        not offered. A card shows how the last
+        run went on it while the editor shows what is stored (`lastRunShown`). A
         body holding a statement the Gateway does not run opens read-only. With no name, cards that
         are all plain actions save flat, anything else as an unnamed function. Where the Gateway
         serves functions, the Runs block (`runsView`) also offers "Run a function" and draws a

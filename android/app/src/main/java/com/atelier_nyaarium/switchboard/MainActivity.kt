@@ -947,6 +947,7 @@ fun App(
 						boardLine = { team -> boardLines[team.name] },
 						boardBranch = { team -> boardBranches[team.name] },
 						vaultTier = { team -> vaultTiers[team.name] },
+						onToggleCollapsed = repo::toggleGatewayCollapsed,
 						undoneFor = { team ->
 							if (pluginManager.isActive("taskboard")) {
 								repo.boardOps.boardUndoneCountFor(team.name)

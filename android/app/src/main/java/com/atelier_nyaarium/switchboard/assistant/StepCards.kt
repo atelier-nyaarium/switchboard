@@ -1,6 +1,5 @@
 package com.atelier_nyaarium.switchboard.assistant
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,13 +14,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
@@ -35,7 +32,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -43,7 +39,8 @@ import com.atelier_nyaarium.switchboard.hapticClick
 import com.atelier_nyaarium.switchboard.proto.AutomationLastRun
 import com.atelier_nyaarium.switchboard.proto.Protocol
 
-private val INDENT = 16.dp
+/** Past the card's padding. */
+private val INDENT = 8.dp
 
 @Composable
 internal fun CardsSection(
@@ -80,7 +77,6 @@ internal fun CardsSection(
 		pointing = draft.runs is RunsHead.Points,
 		choicesOf = { subject -> switchOptions(subject, fields) },
 	)
-	val flagged = issues?.functions.orEmpty()
 	val running = lastRun?.running == true
 	lastRun?.let { run ->
 		Text(
@@ -89,25 +85,65 @@ internal fun CardsSection(
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 	}
-	for (row in rows) {
-		key(row.rowKey) {
-			Box(Modifier.padding(start = INDENT * row.depth)) {
-				when (row) {
-					is CardRow.Card -> StepCard(row, draft, offer, fields, plugs, valueNames, enabled, said, textRead, conditionRead, asked, running, edit, reload, tree, kept[row.step.key], onScriptAt, flagged)
-					is CardRow.SideLabel -> Text(
-						sideLabel(row.side),
-						style = MaterialTheme.typography.labelLarge,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-					)
-					is CardRow.AddSlot -> AddStep(slotOffers(draft, offer, row), enabled, nested = row.depth > 0, { freshAction(it, offer) }) { added ->
-						edit { held -> held.plusStep(row.slot, added, tree) }
-					}
-					is CardRow.Branch -> BranchRow(row, enabled, said, conditionRead, asked, edit)
-					is CardRow.AddBranch -> TextButton(onClick = hapticClick { edit { addedBranch(it, row) } }, enabled = enabled && !row.full) {
-						Text(addBranchText(row.kind))
-					}
+	val inputs = CardInputs(
+		draft, offer, fields, plugs, valueNames, enabled, said, textRead, conditionRead, asked, running, edit, reload, tree, kept, onScriptAt,
+		flagged = issues?.functions.orEmpty(),
+	)
+	CardBlocks(cardBlocks(rows), inputs)
+}
+
+private class CardInputs(
+	val draft: AutomationDraft,
+	val offer: AutomationOffer,
+	val fields: SourceFields,
+	val plugs: List<PlugChoice>,
+	val valueNames: Set<String>,
+	val enabled: Boolean,
+	val said: AutomationSaid?,
+	val textRead: @Composable (String?) -> PreviewRead,
+	val conditionRead: @Composable (String) -> PreviewRead,
+	val asked: Boolean,
+	val running: Boolean,
+	val edit: ((AutomationDraft) -> AutomationDraft) -> Unit,
+	val reload: (String) -> Unit,
+	val tree: String?,
+	val kept: Map<String, KeptLine>,
+	val onScriptAt: ((Int) -> Unit)?,
+	val flagged: Set<String>,
+)
+
+@Composable
+private fun CardBlocks(blocks: List<CardBlock>, inputs: CardInputs) {
+	for (block in blocks) {
+		key(block.row.rowKey) {
+			Box(Modifier.padding(start = if (block.indented) INDENT else 0.dp)) {
+				when (block) {
+					is CardBlock.Owner -> StepCard(block.row, inputs) { CardBlocks(block.inside, inputs) }
+					is CardBlock.Loose -> LooseRow(block.row, inputs)
 				}
 			}
+		}
+	}
+}
+
+@Composable
+private fun LooseRow(row: CardRow, inputs: CardInputs) {
+	val enabled = inputs.enabled
+	val edit = inputs.edit
+	when (row) {
+		// Owners hold cards.
+		is CardRow.Card -> Unit
+		is CardRow.SideLabel -> Text(
+			sideLabel(row.side),
+			style = MaterialTheme.typography.labelLarge,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+		is CardRow.AddSlot -> AddStep(slotOffers(inputs.draft, inputs.offer, row), enabled, { freshAction(it, inputs.offer) }) { added ->
+			edit { held -> held.plusStep(row.slot, added, inputs.tree) }
+		}
+		is CardRow.Branch -> BranchRow(row, enabled, inputs.said, inputs.conditionRead, inputs.asked, edit)
+		is CardRow.AddBranch -> TextButton(onClick = hapticClick { edit { addedBranch(it, row) } }, enabled = enabled && !row.full) {
+			Text(addBranchText(row.kind))
 		}
 	}
 }
@@ -119,41 +155,34 @@ private fun sideLabel(side: Side): String = when (side) {
 }
 
 @Composable
-private fun StepCard(
-	row: CardRow.Card,
-	draft: AutomationDraft,
-	offer: AutomationOffer,
-	fields: SourceFields,
-	plugs: List<PlugChoice>,
-	valueNames: Set<String>,
-	enabled: Boolean,
-	said: AutomationSaid?,
-	textRead: @Composable (String?) -> PreviewRead,
-	conditionRead: @Composable (String) -> PreviewRead,
-	asked: Boolean,
-	running: Boolean,
-	edit: ((AutomationDraft) -> AutomationDraft) -> Unit,
-	reload: (String) -> Unit,
-	tree: String?,
-	kept: KeptLine?,
-	onScriptAt: ((Int) -> Unit)?,
-	flagged: Set<String>,
-) {
+private fun StepCard(row: CardRow.Card, inputs: CardInputs, inside: @Composable () -> Unit) {
+	val draft = inputs.draft
+	val offer = inputs.offer
+	val enabled = inputs.enabled
+	val said = inputs.said
+	val conditionRead = inputs.conditionRead
+	val asked = inputs.asked
+	val edit = inputs.edit
 	val step = row.step
 	val key = step.key
+	val kept = inputs.kept[key]
+	val onScriptAt = inputs.onScriptAt
 	val dim = MaterialTheme.colorScheme.onSurfaceVariant
 	OutlinedCard(Modifier.fillMaxWidth()) {
 		Column(Modifier.padding(start = 12.dp, end = 4.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 			Row(verticalAlignment = Alignment.CenterVertically) {
 				Text(cardLabel(step, offer), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-				MoveMenu(draft.stepsOf(draft.treeHolding(key)), key, enabled) { slot -> edit { it.movedTo(key, slot) } }
+				val siblings = draft.stepsOf(draft.treeHolding(key))
+				MoveMenu(mayMove(siblings, key), enabled, { moveChoices(siblings, key, offer) { switchOptions(it, inputs.fields) } }) { slot ->
+					edit { it.movedTo(key, slot) }
+				}
 				IconButton(onClick = hapticClick { edit { it.minusStep(key) } }, enabled = enabled && canRemove(draft, key, offer)) {
 					Icon(Icons.Default.Close, contentDescription = "Remove step")
 				}
 			}
 			Column(Modifier.padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 				when (step) {
-					is StepDraft.Do -> ActionFields(key, step.action, offer, plugs, valueNames, enabled, said, textRead, asked, edit)
+					is StepDraft.Do -> ActionFields(key, step.action, offer, inputs.plugs, inputs.valueNames, enabled, said, inputs.textRead, asked, edit)
 					is StepDraft.If -> if (!drawnAsChain(step)) ConditionBlock(step, "Condition", enabled, said, conditionRead, asked, edit)
 					is StepDraft.Switch -> {
 						val refused = refusedHole(said, key, SUBJECT, step.subject)
@@ -185,7 +214,7 @@ private fun StepCard(
 					)
 					is StepDraft.Exit -> Text("Ends the run here.", style = MaterialTheme.typography.bodySmall, color = dim)
 					is StepDraft.Try -> Unit
-					is StepDraft.Call -> CallFields(step, draft, offer, fields, tree, enabled, said, edit, reload, flagged)
+					is StepDraft.Call -> CallFields(step, draft, offer, inputs.fields, inputs.tree, enabled, said, edit, inputs.reload, inputs.flagged)
 					is StepDraft.Kept -> if (kept != null) {
 						Text(kept.text, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
 						onScriptAt?.let { open -> TextButton(onClick = hapticClick { open(kept.at) }, enabled = enabled) { Text("Edit in script") } }
@@ -194,26 +223,26 @@ private fun StepCard(
 					}
 				}
 				CardIssueLine(row.issue)
-				lastStepLine(row, running)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = dim) }
+				lastStepLine(row, inputs.running)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = dim) }
+				inside()
 			}
 		}
 	}
 }
 
-/** Moves within sibling list. */
+/** Choices read on open. */
 @Composable
-private fun MoveMenu(steps: List<StepDraft>, key: String, enabled: Boolean, onMove: (Slot) -> Unit) {
-	val up = shiftedSlot(steps, key, -1)
-	val down = shiftedSlot(steps, key, 1)
-	if (up == null && down == null) return
-	var open by remember { mutableStateOf(false) }
+private fun MoveMenu(movable: Boolean, enabled: Boolean, choicesOf: () -> List<MoveChoice>, onMove: (Slot) -> Unit) {
+	if (!movable) return
+	var shown by remember { mutableStateOf(emptyList<MoveChoice>()) }
 	Box {
-		IconButton(onClick = hapticClick { open = true }, enabled = enabled) {
+		IconButton(onClick = hapticClick { shown = choicesOf() }, enabled = enabled) {
 			Icon(Icons.Default.MoreVert, contentDescription = "Move step")
 		}
-		DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-			up?.let { slot -> DropdownMenuItem(text = { Text("Move up") }, onClick = hapticClick { open = false; onMove(slot) }) }
-			down?.let { slot -> DropdownMenuItem(text = { Text("Move down") }, onClick = hapticClick { open = false; onMove(slot) }) }
+		DropdownMenu(expanded = shown.isNotEmpty(), onDismissRequest = { shown = emptyList() }) {
+			for (choice in shown) {
+				DropdownMenuItem(text = { Text(choice.label) }, onClick = hapticClick { shown = emptyList(); onMove(choice.slot) })
+			}
 		}
 	}
 }
@@ -298,24 +327,13 @@ private fun CaseChips(view: CaseView, enabled: Boolean, change: ((StepDraft.Swit
 	FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.Center) {
 		view.chips.forEachIndexed { at, chip ->
 			val tone = chip.issue?.let { if (drawsAsError(it.level)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline }
-			InputChip(
-				selected = false,
-				onClick = {},
-				enabled = enabled,
-				label = { Text(chip.label, maxLines = 1, color = tone ?: Color.Unspecified) },
-				border = tone?.let { BorderStroke(1.dp, it) },
-				trailingIcon = {
-					IconButton(onClick = hapticClick { change { held -> withoutCaseValue(held, case, at) } }, enabled = enabled) {
-						Icon(Icons.Default.Close, contentDescription = "Remove ${chip.label}")
-					}
-				},
-			)
+			ValueChip(chip.label, enabled, tone) { change { held -> withoutCaseValue(held, case, at) } }
 		}
 		when (val add = view.add) {
 			CaseAdd.Full -> Unit
-			CaseAdd.Type -> AssistChip(onClick = hapticClick { typing = true }, label = { Text("+") }, enabled = enabled)
+			CaseAdd.Type -> AddChip(enabled) { typing = true }
 			is CaseAdd.Pick -> Box {
-				AssistChip(onClick = hapticClick { picking = true }, label = { Text("+") }, enabled = enabled)
+				AddChip(enabled) { picking = true }
 				DropdownMenu(expanded = picking, onDismissRequest = { picking = false }) {
 					for (option in add.options) {
 						DropdownMenuItem(
@@ -389,24 +407,18 @@ internal fun ConditionPreviewBlock(value: String, preview: ConditionPreview, ref
 			style = MaterialTheme.typography.bodySmall,
 			color = if (preview.holds) MaterialTheme.colorScheme.primary else dim,
 		)
-		is ConditionPreview.CannotTell -> Text("Can't tell now: ${preview.why}", style = MaterialTheme.typography.bodySmall, color = dim)
+		is ConditionPreview.CannotTell -> Text("No preview: ${preview.why}", style = MaterialTheme.typography.bodySmall, color = dim)
 		is ConditionPreview.Refused -> IssueLine(holeLine(value, preview.line, preview.start, preview.end))
 	}
 	if (preview !is ConditionPreview.Refused) IssueLine(refused?.let { holeLine(value, it.line, it.start, it.end) })
 }
 
 @Composable
-private fun AddStep(
-	offers: SlotOffers,
-	enabled: Boolean,
-	nested: Boolean,
-	freshOf: (String) -> ActionDraft?,
-	onAdd: (StepDraft) -> Unit,
-) {
+private fun AddStep(offers: SlotOffers, enabled: Boolean, freshOf: (String) -> ActionDraft?, onAdd: (StepDraft) -> Unit) {
 	if (offers.empty) return
 	var open by remember { mutableStateOf(false) }
 	Box {
-		TextButton(onClick = hapticClick { open = true }, enabled = enabled) { Text(if (nested) "+ Add" else "+ Add step") }
+		TextButton(onClick = hapticClick { open = true }, enabled = enabled) { Text("+ Add step") }
 		DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
 			for (action in offers.actions) {
 				DropdownMenuItem(

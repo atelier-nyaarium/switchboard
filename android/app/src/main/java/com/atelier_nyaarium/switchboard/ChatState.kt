@@ -15,6 +15,8 @@ data class ChatState(
 	val lastProjectByGateway: Map<String, String> = emptyMap(),
 	/** Automations shown as the map. */
 	val automationsMap: Boolean = false,
+	/** Machines collapsed on Sessions. */
+	val collapsedGateways: Set<String> = emptySet(),
 	val threads: Map<String, List<Message>> = emptyMap(),
 	/** Highest id a cut retired per thread; ids reassign on load. */
 	val idFloors: Map<String, Long> = emptyMap(),

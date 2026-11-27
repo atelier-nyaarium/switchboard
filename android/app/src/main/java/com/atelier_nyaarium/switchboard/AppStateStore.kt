@@ -477,6 +477,13 @@ class AppStateStore internal constructor(
 			prefs.edit().putBoolean(KEY_AUTOMATIONS_MAP, value).apply()
 		}
 
+	/** Machines collapsed on Sessions. */
+	var collapsedGateways: Set<String>
+		get() = prefs.getStringSet(KEY_COLLAPSED_GATEWAYS, null)?.toSet() ?: emptySet()
+		set(value) {
+			prefs.edit().putStringSet(KEY_COLLAPSED_GATEWAYS, value.toSet()).apply()
+		}
+
 	/** Per-Gateway project suggestions. */
 	var lastProjectByGateway: Map<String, String>
 		get() {
@@ -551,6 +558,7 @@ class AppStateStore internal constructor(
 		const val KEY_PROFILE_NAME = "federation_profile_name"
 		const val KEY_LAST_PROJECT = "create_last_project_by_gateway"
 		const val KEY_AUTOMATIONS_MAP = "automations_map"
+		const val KEY_COLLAPSED_GATEWAYS = "sessions_collapsed"
 		const val KEY_HOSTED_TENANTS = "federation_hosted_tenants"
 		const val KEY_PENDING_ENROLLS = "federation_pending_enrolls"
 		const val KEY_TRUSTED_OWNERS = "federation_trusted_owners"
@@ -618,6 +626,7 @@ class AppStateStore internal constructor(
 			KEY_SYNC_EPOCH, KEY_SYNC_ACKED, KEY_SYNC_DROPPED, KEY_ABSENCE_STREAKS, KEY_TASK_BOARD, KEY_VAULT, KEY_ASSISTANT_SENDS, KEY_ASSISTANT_ACTS,
 			KEY_PHONE_CAPABILITY_RUNS, KEY_ASSISTANT_FEATURES,
 			KEY_RUNBOOKS, KEY_LAST_PROJECT, KEY_ROLES, KEY_LAUNCH_ERRORS, KEY_ASSISTANT_HOME, KEY_AUTOMATIONS_MAP,
+			KEY_COLLAPSED_GATEWAYS,
 		)
 	}
 }

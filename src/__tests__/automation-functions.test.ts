@@ -615,6 +615,36 @@ describe("an automation that runs a function", () => {
 			expect(refusalOf(promoted)).toMatchObject({ code: "confirm", labels: ["Switch a plug"] });
 		});
 
+		it("counts what steps do, never the steps that steer them", () => {
+			const { save } = open();
+			const told: AutomationInput = {
+				enabled: true,
+				trigger: event,
+				actions: [{ kind: "tell_assistant", when: "now" }],
+			};
+			save("gh", told, 0);
+			const branch = (steps: AutomationFunctionInput["steps"]) => ({
+				as: "edit" as const,
+				id: "own",
+				body: { ...fn([{ kind: "if", when: 'event.reason == "mention"', steps }]), name: "" },
+				base: 0,
+			});
+
+			const tells = save("gh", pointing(event, "own"), 1, branch([tell]), false);
+			const switches = save(
+				"other",
+				pointing(event, "plug"),
+				0,
+				{
+					...branch([bell]),
+					id: "plug",
+				},
+				false,
+			);
+
+			expect([tells.stored, refusalOf(switches)]).toEqual([true, { code: "confirm", labels: ["Send to IFTTT"] }]);
+		});
+
 		it("lets an event automation toggle without asking again", () => {
 			const { automations, save } = open();
 			const body: AutomationInput = {

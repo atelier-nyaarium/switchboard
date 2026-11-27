@@ -353,11 +353,21 @@ internal sealed interface FunctionLine {
 internal fun functionLine(row: AutomationRow, functions: List<AutomationFunctionRow>?, offer: AutomationOffer): FunctionLine? {
 	val pointer = pointerOf(row.automation) ?: return null
 	val held = functions?.firstOrNull { it.id == pointer } ?: return FunctionLine.Unlisted
-	if (held.function.name.isBlank()) {
-		return FunctionLine.Own(written(held.function).joinToString(" · ") { cardLabel(treeOf(it, offer), offer) })
-	}
+	if (held.function.name.isBlank()) return FunctionLine.Own(ownLine(written(held.function), offer))
 	return FunctionLine.Named(held.function.name, usersCount(held))
 }
+
+/** Line naming reached actions. */
+internal fun ownLine(steps: List<FunctionStep>, offer: AutomationOffer): String = steps.joinToString(" · ") { step ->
+	doingText(step, offer) ?: run {
+		val label = cardLabel(treeOf(step, offer), offer)
+		val reached = stepsUnder(step).mapNotNull { doingText(it, offer) }.distinct()
+		if (reached.isEmpty()) label else "$label → ${reached.joinToString("; ")}"
+	}
+}
+
+private fun doingText(step: FunctionStep, offer: AutomationOffer): String? =
+	(step as? FunctionStep.Do)?.let { doesLine(stepDraftOf(it, offer), it.action, offer) }
 
 internal const val SCRIPT_ERRORS_LINE = "Its script has errors. It will not run."
 

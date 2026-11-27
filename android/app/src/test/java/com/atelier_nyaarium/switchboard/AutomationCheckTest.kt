@@ -144,7 +144,7 @@ class AutomationCheckTest {
 		assertTrue(saveAllowedAfterCheck(checkSaidOf(read.answer, draft, context), null, draft, offer))
 		// Error outranks warning.
 		assertEquals(mapOf(step.key to CardIssue(AutomationIssueLevel.ERROR, "no such plug")), drawn.cards)
-		assertEquals(listOf("unknown source", "elsewhere: gone"), drawn.rest.map { it.text })
+		assertEquals(listOf("Unknown source", "elsewhere: gone"), drawn.rest.map { it.text })
 		assertEquals(setOf("elsewhere"), drawn.functions)
 		assertEquals(drawn.cards[step.key], cardIssueOf(step, drawn) { "its own hint" })
 		assertNull(cardIssueOf(step, drawn.copy(cards = emptyMap())) { "its own hint" })

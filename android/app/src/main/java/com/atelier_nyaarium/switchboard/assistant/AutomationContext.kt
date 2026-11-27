@@ -167,7 +167,7 @@ internal fun functionsServedBy(listing: AutomationListing?): FunctionsServed = w
 /** Unknown names kinds raw. */
 internal fun doesText(automation: Automation, served: Served): String = when (served) {
 	is Served.Known -> written(automation).joinToString(" · ") { action ->
-		actionLine(action, served.offer) + if (homeOnly(kindOf(action), served.offer)) " (only where the assistant lives)" else ""
+		doesLine(actionDraftOf(action, served.offer), kindOf(action), served.offer)
 	}
 	is Served.Unknown -> written(automation).joinToString(" · ") { action -> kindOf(action) }
 }

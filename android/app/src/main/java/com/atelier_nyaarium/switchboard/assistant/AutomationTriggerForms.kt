@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard.assistant
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -16,6 +18,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
+import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
@@ -32,6 +35,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -211,20 +215,32 @@ private fun ConditionRow(
 private fun ValueChips(values: List<String>, labelOf: (String) -> String, enabled: Boolean, onRemove: (String) -> Unit) {
 	if (values.isEmpty()) return
 	FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-		for (value in values) {
-			InputChip(
-				selected = false,
-				onClick = {},
-				enabled = enabled,
-				label = { Text(labelOf(value), maxLines = 1) },
-				trailingIcon = {
-					IconButton(onClick = hapticClick { onRemove(value) }, enabled = enabled) {
-						Icon(Icons.Default.Close, contentDescription = "Remove ${labelOf(value)}")
-					}
-				},
-			)
-		}
+		for (value in values) ValueChip(labelOf(value), enabled) { onRemove(value) }
 	}
+}
+
+/** Whole chip removes: 48dp target. */
+@Composable
+internal fun ValueChip(label: String, enabled: Boolean, tone: Color? = null, onRemove: () -> Unit) {
+	InputChip(
+		selected = false,
+		onClick = hapticClick(onRemove),
+		enabled = enabled,
+		label = { Text(label, maxLines = 1, color = tone ?: Color.Unspecified) },
+		border = tone?.let { BorderStroke(1.dp, it) } ?: InputChipDefaults.inputChipBorder(enabled = enabled, selected = false),
+		trailingIcon = { Icon(Icons.Default.Close, contentDescription = "Remove $label", Modifier.size(InputChipDefaults.IconSize)) },
+	)
+}
+
+@Composable
+internal fun AddChip(enabled: Boolean, onClick: () -> Unit) {
+	InputChip(
+		selected = false,
+		onClick = hapticClick(onClick),
+		enabled = enabled,
+		label = { Text("+") },
+		border = InputChipDefaults.inputChipBorder(enabled = enabled, selected = false),
+	)
 }
 
 @Composable

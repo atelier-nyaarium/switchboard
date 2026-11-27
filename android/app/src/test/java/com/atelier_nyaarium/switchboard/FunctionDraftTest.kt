@@ -414,7 +414,7 @@ class FunctionDraftTest {
 
 		// A step's field.
 		val step = said(AutomationSaveRefusal(code = "invalid", record = "function", path = "steps.0.device", line = "its values do not fit what it does"))
-		assertEquals("its values do not fit what it does", refusedField(step, SaidAt.Card(picked.steps[0].key, "device"), SANDBOX_SWITCH))
+		assertEquals("Its values do not fit what it does", refusedField(step, SaidAt.Card(picked.steps[0].key, "device"), SANDBOX_SWITCH))
 		assertNull(generalLine(step, picked, serving.offer))
 		val whole = said(AutomationSaveRefusal(code = "invalid", record = "function", path = "steps.0"))
 		assertEquals(whole.line, generalLine(whole, picked, serving.offer))

@@ -25,8 +25,9 @@ export interface AutomationPreviewDeps {
 export type PreviewRequest = Omit<Extract<ConsoleOp, { kind: "automation_preview" }>, "kind">;
 
 const NAME_SHOWN_MAX = 200;
-const RUN_VALUE = "it reads a value set while it runs";
+const RUN_VALUE = "it reads a value an earlier step keeps";
 const UNREAD_NOW = "it cannot be read now";
+const NO_EVENT_YET = "no event has come in yet";
 const NOT_BOOLEAN = "it is not true or false";
 const ISSUE_MAX = 200;
 const FILLED_MAX = 4_000;
@@ -77,7 +78,7 @@ export async function previewAutomation(
 							condition,
 							holeScope(names, params, values, deps.switchName),
 						);
-						if (value === null) return { unread: UNREAD_NOW };
+						if (value === null) return { unread: seen && !names?.event ? NO_EVENT_YET : UNREAD_NOW };
 						return typeof value.value === "boolean" ? { holds: value.value } : { unread: NOT_BOOLEAN };
 					})(),
 				};

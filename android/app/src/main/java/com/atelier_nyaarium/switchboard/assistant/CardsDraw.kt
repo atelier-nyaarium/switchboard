@@ -17,8 +17,11 @@ import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationSaveRecord
 
 /** Null means uncaused. */
 internal data class CardIssue(val level: AutomationIssueLevel?, val line: String, val chip: String? = null) {
-	val text: String get() = chip?.let { "$it: $line" } ?: line
+	val text: String get() = chip?.let { "$it: $line" } ?: issueText(line)
 }
+
+/** A standalone issue line. */
+internal fun issueText(line: String): String = line.replaceFirstChar { it.uppercaseChar() }
 
 internal fun drawsAsError(level: AutomationIssueLevel?): Boolean = when (level) {
 	AutomationIssueLevel.UNARMED, AutomationIssueLevel.ERROR -> true
@@ -59,7 +62,7 @@ internal fun drawnIssuesOf(issues: List<AutomationIssue>, draft: AutomationDraft
 		if (issue.case != null && key != null && tree?.let { findStep(it, key) } is StepDraft.Switch) continue
 		if (key == null) {
 			val named = other?.let { id -> draft.callees[id]?.name ?: offer.functions?.row(id)?.function?.name ?: id }
-			rest += CardIssue(level, named?.let { "$it: ${issue.line}" } ?: issue.line, issue.value)
+			rest += CardIssue(level, issue.line, listOfNotNull(named, issue.value).joinToString(": ").ifEmpty { null })
 			continue
 		}
 		val held = cards[key]
@@ -102,6 +105,34 @@ internal sealed interface CardRow {
 	data class AddBranch(val parent: String, val kind: BranchKind, override val depth: Int, val full: Boolean) : CardRow {
 		override val rowKey: String get() = "$parent/${kind.name}/add"
 	}
+}
+
+/** Row or owning card. */
+internal sealed interface CardBlock {
+	val row: CardRow
+
+	/** Steps and add slots. */
+	val indented: Boolean
+
+	data class Owner(override val row: CardRow.Card, val inside: List<CardBlock>) : CardBlock {
+		override val indented: Boolean get() = row.depth > 0
+	}
+
+	data class Loose(override val row: CardRow) : CardBlock {
+		override val indented: Boolean get() = row is CardRow.AddSlot && row.depth > 0
+	}
+}
+
+/** Deeper rows join above. */
+internal fun cardBlocks(rows: List<CardRow>): List<CardBlock> {
+	var at = 0
+	fun level(depth: Int): List<CardBlock> = buildList {
+		while (at < rows.size && rows[at].depth >= depth) {
+			val row = rows[at++]
+			add(if (row is CardRow.Card) CardBlock.Owner(row, level(row.depth + 1)) else CardBlock.Loose(row))
+		}
+	}
+	return level(0)
 }
 
 internal enum class BranchKind { CASE, ELSE_IF }

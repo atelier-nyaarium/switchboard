@@ -172,11 +172,12 @@ const sameBody = (a: Automation, b: Automation): boolean =>
 const onlyEnabledMoved = (next: Automation, held: Automation | undefined): boolean =>
 	held !== undefined && sameBody(next, held);
 
-const doneKind = (at: FollowedEntry): string | null =>
+/** Entry's own effect. */
+const doneKind = (at: FollowedEntry, unfollowed: string | null): string | null =>
 	visit(at, {
 		action: ({ action }) => action.kind,
 		step: { do: ({ step }) => step.action, call: () => null, ...steering(() => null) },
-		unfollowedCall: () => null,
+		unfollowedCall: () => unfollowed,
 	});
 
 /** One key for an action, flat or as a step. */
@@ -237,7 +238,7 @@ const sentWords = (at: FollowedEntry): string[] =>
 
 /** What a confirm asks, naming outside words that would leave. */
 const askLabel = (at: FollowedEntry): string => {
-	const label = labelOf(doneKind(at) ?? CALL_KIND);
+	const label = labelOf(doneKind(at, CALL_KIND) ?? CALL_KIND);
 	const words = sentWords(at);
 	return (words.length === 0 ? label : `${label}, with the event's ${listed(words)}`).slice(0, LABEL_MAX);
 };
@@ -250,9 +251,10 @@ function asksOf(next: FollowedEntry[], held: FollowedEntry[] | null, event: bool
 		return key !== null && !known.has(key);
 	});
 	// Unfollowed calls prove nothing.
-	const prior = (held ?? []).map(doneKind).filter((kind) => kind !== null);
+	const prior = (held ?? []).map((at) => doneKind(at, null)).filter((kind) => kind !== null);
 	const toldOnly = !heldWasEvent || prior.every((kind) => kind === "tell_assistant");
-	const reach = event && toldOnly ? next.filter((at) => doneKind(at) !== "tell_assistant") : [];
+	const reach =
+		event && toldOnly ? next.filter((at) => ![null, "tell_assistant"].includes(doneKind(at, CALL_KIND))) : [];
 	return [...danger, ...reach].map(askLabel);
 }
 

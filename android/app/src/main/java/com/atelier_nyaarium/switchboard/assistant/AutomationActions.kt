@@ -228,9 +228,13 @@ internal fun withReference(action: ActionDraft, param: String, reference: Functi
 	is ActionDraft.Kept -> action
 }
 
+/** A flat row's text. */
+internal fun doesLine(action: ActionDraft, kind: String, offer: AutomationOffer): String =
+	actionLineOf(action, kind, offer) + if (homeOnly(kind, offer)) " (only where the assistant lives)" else ""
+
 /** Its label, then what its choices, switch and words are set to. */
-internal fun actionLine(action: AutomationAction, offer: AutomationOffer): String {
-	val draft = actionDraftOf(action, offer) as? ActionDraft.Filled ?: return offer.labelOf(kindOf(action))
+private fun actionLineOf(action: ActionDraft, kind: String, offer: AutomationOffer): String {
+	val draft = action as? ActionDraft.Filled ?: return offer.labelOf(kind)
 	val row = offer.action(draft.kind) ?: return draft.kind
 	val set = row.params.mapNotNull { param ->
 		val value = draft.values[param.name].orEmpty()

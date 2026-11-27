@@ -291,11 +291,25 @@ describe("a crossing", () => {
 
 		expect(await read("value < threshold")).toEqual({ holds: true });
 		expect(await read("level > 5")).toEqual({ holds: false });
-		expect(await read("count > 1", ["count"])).toEqual({ unread: "it reads a value set while it runs" });
-		expect(await read("level > 1", ["level"])).toEqual({ unread: "it reads a value set while it runs" });
+		expect(await read("count > 1", ["count"])).toEqual({ unread: "it reads a value an earlier step keeps" });
+		expect(await read("level > 1", ["level"])).toEqual({ unread: "it reads a value an earlier step keeps" });
 		expect(await read("level + 1")).toEqual({ unread: "it is not true or false" });
 		expect(await read("nobody > 1")).toMatchObject({ issue: { start: 0, end: 6 } });
 		expect(await read("level = 1")).toMatchObject({ issue: { start: 0 } });
+	});
+
+	it("says no event has come in when an event condition has nothing to read", async () => {
+		const { automations } = world();
+		const preview = await previewAutomation(
+			{
+				event: async () => ({ names: null, preview: { matched: 0, of: 0, matches: [] } }),
+				namesNow: automations.namesNow,
+				holes: () => HOLES,
+			},
+			{ trigger: { kind: "event", source: "github", conditions: [] }, condition: 'event.reason == "mention"' },
+		);
+
+		expect(preview.condition).toEqual({ unread: "no event has come in yet" });
 	});
 
 	it("keeps the names and the fill beside a condition", async () => {

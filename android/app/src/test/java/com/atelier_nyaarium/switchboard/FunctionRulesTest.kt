@@ -23,6 +23,7 @@ import com.atelier_nyaarium.switchboard.assistant.ValueSource
 import com.atelier_nyaarium.switchboard.assistant.automationDeleteTakes
 import com.atelier_nyaarium.switchboard.assistant.functionLine
 import com.atelier_nyaarium.switchboard.assistant.offerOf
+import com.atelier_nyaarium.switchboard.assistant.ownLine
 import com.atelier_nyaarium.switchboard.assistant.pickerChoices
 import com.atelier_nyaarium.switchboard.assistant.pointedAt
 import com.atelier_nyaarium.switchboard.assistant.reachLine
@@ -44,6 +45,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationSaveResult
 import com.atelier_nyaarium.switchboard.proto.FunctionParam
 import com.atelier_nyaarium.switchboard.proto.FunctionReads
 import com.atelier_nyaarium.switchboard.proto.FunctionStep
+import com.atelier_nyaarium.switchboard.proto.SwitchCase
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationSaveRecord
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationSaveRefusalCode
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.GivenType
@@ -226,6 +228,26 @@ class FunctionRulesTest {
 	}
 
 	@Test
+	fun anOwnLineReadsDoStepsAsFlatRowsAndSteeringCardsByWhatTheyReach() {
+		val tell = FunctionStep.Do(action = "tell_assistant", args = JsonObject(mapOf("when" to literal("now"))))
+		val steps = listOf(
+			FunctionStep.Switch(
+				subject = "event.kind",
+				cases = listOf(SwitchCase(listOf("a"), listOf(plugStep("on"), tell))),
+				default = listOf(plugStep("on")),
+			),
+			FunctionStep.Parallel(listOf(plugStep("off"))),
+			FunctionStep.Try(emptyList(), emptyList()),
+			tell,
+		)
+
+		assertEquals(
+			"Switch → Switch a plug: Desk lamp, On; Tell the assistant: Now · Together → Switch a plug: Desk lamp, Off · Try · Tell the assistant: Now",
+			ownLine(steps, FN_OFFER),
+		)
+	}
+
+	@Test
 	fun theListNamesEachRowsFunctionAndCountsOnlyAShared() {
 		val functions = listOf(tooWarm, frost)
 
@@ -236,7 +258,10 @@ class FunctionRulesTest {
 		assertEquals(FunctionLine.Named("Frost warning", null), functionLine(rows[2], functions, FN_OFFER))
 		assertNull(functionLine(rows[3], functions, FN_OFFER))
 		assertEquals(FunctionLine.Unlisted, functionLine(rows[4], functions, FN_OFFER))
-		assertEquals(FunctionLine.Own("If · Switch a plug"), functionLine(pointing, functions + own, FN_OFFER))
+		assertEquals(
+			FunctionLine.Own("If → Switch a plug: Desk lamp, On · Switch a plug: Desk lamp, Off"),
+			functionLine(pointing, functions + own, FN_OFFER),
+		)
 		assertEquals(listOf("Downstairs thermometer above 26 °C"), reachLine(tooWarm, "mine", rows))
 		assertEquals("Frost warning", automationDeleteTakes(rows[2], functions))
 		assertNull(automationDeleteTakes(rows[0], functions))

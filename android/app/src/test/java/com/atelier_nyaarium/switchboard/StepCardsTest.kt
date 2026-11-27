@@ -2,7 +2,12 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.assistant.AutomationContext
 import com.atelier_nyaarium.switchboard.assistant.BranchLabel
+import com.atelier_nyaarium.switchboard.assistant.CardBlock
+import com.atelier_nyaarium.switchboard.assistant.CardIssue
 import com.atelier_nyaarium.switchboard.assistant.CardRow
+import com.atelier_nyaarium.switchboard.assistant.cardBlocks
+import com.atelier_nyaarium.switchboard.assistant.holeLine
+import com.atelier_nyaarium.switchboard.assistant.issueText
 import com.atelier_nyaarium.switchboard.assistant.HomeSources
 import com.atelier_nyaarium.switchboard.assistant.Served
 import com.atelier_nyaarium.switchboard.assistant.fieldsOf
@@ -214,6 +219,39 @@ class StepCardsTest {
 		assertNull(lastStepLine(cards.getValue("b"), running = true))
 	}
 
+	@Test
+	fun aStandaloneIssueLineStartsWithACapitalAndAPrefixedOneKeepsItsMessage() {
+		assertEquals(
+			listOf("It needs an expression", "Already said", "", "1 error"),
+			listOf("it needs an expression", "Already said", "", "1 error").map(::issueText),
+		)
+		assertEquals(
+			listOf("No such plug", "mention: no longer offered"),
+			listOf(CardIssue(null, "no such plug"), CardIssue(null, "no longer offered", "mention")).map { it.text },
+		)
+		assertEquals(listOf("{valu}: no name", "No name"), listOf(holeLine("{valu}", "no name", 0, 6), holeLine("", "no name", 0, 0)))
+	}
+
+	@Test
+	fun eachBranchingCardHoldsItsSidesAndNestedCardsWithStepsIndented() {
+		val switch = StepDraft.Switch("s", "event.kind", listOf(CaseDraft("c0", listOf("a"), listOf(on("x")))), listOf(on("y")))
+		val chain = listOf(StepDraft.If("a", "v > 3", listOf(on("b")), listOf(StepDraft.If("c", "v > 2", emptyList(), listOf(on("e"))))))
+		fun grouped(steps: List<StepDraft>) = blockShape(cardBlocks(cardsDraw(steps, { null }, null, pointing = false)))
+
+		assertEquals(listOf("a[>b >+a +ELSE_IF Else >c >+a]", "d[>+d Catch >e >+d]", "+top"), grouped(tree))
+		assertEquals(listOf("s[CASE a >x >+s +CASE DEFAULT >y >+s]", "+top"), grouped(listOf(switch)))
+		assertEquals(listOf("a[IF a@0 >b >+a IF c@0.1.0 >+c +ELSE_IF ELSE >e >+c]", "+top"), grouped(chain))
+		assertEquals(listOf("t[>i[>k >+i +ELSE_IF Else >+i] >+t Catch >+t]", "+top"), grouped(deep))
+	}
+
+	private fun blockShape(blocks: List<CardBlock>): List<String> = blocks.map { block ->
+		val mark = if (block.indented) ">" else ""
+		when (block) {
+			is CardBlock.Owner -> mark + block.row.step.key + block.inside.takeIf { it.isNotEmpty() }?.let { "[${blockShape(it).joinToString(" ")}]" }.orEmpty()
+			is CardBlock.Loose -> mark + shapeOf(listOf(block.row)).single().substringAfter(':')
+		}
+	}
+
 	private fun shapeOf(rows: List<CardRow>): List<String> = rows.map { row ->
 		when (row) {
 			is CardRow.Card -> "${row.depth}:${row.step.key}@${row.path}"
@@ -416,7 +454,7 @@ class StepCardsTest {
 
 		assertEquals(listOf(draft.steps.single().key), drawnIssuesOf(listOf(issue), draft, flat = true, FN_OFFER).cards.keys.toList())
 		val pointed = drawnIssuesOf(listOf(issue), draft, flat = false, FN_OFFER)
-		assertEquals(listOf(emptyMap<String, Any>(), listOf("no such plug")), listOf(pointed.cards, pointed.rest.map { it.text }))
+		assertEquals(listOf(emptyMap<String, Any>(), listOf("No such plug")), listOf(pointed.cards, pointed.rest.map { it.text }))
 	}
 
 	@Test

@@ -28,7 +28,8 @@ import com.atelier_nyaarium.switchboard.assistant.actionFields
 import com.atelier_nyaarium.switchboard.assistant.ParamOffer
 import com.atelier_nyaarium.switchboard.assistant.actionHint
 import com.atelier_nyaarium.switchboard.assistant.actionIssue
-import com.atelier_nyaarium.switchboard.assistant.actionLine
+import com.atelier_nyaarium.switchboard.assistant.doesLine
+import com.atelier_nyaarium.switchboard.assistant.kindOf
 import com.atelier_nyaarium.switchboard.assistant.actionOf
 import com.atelier_nyaarium.switchboard.assistant.actionOfferOf
 import com.atelier_nyaarium.switchboard.assistant.actionWarning
@@ -757,7 +758,8 @@ class AutomationPartsTest {
 		assertEquals(listOf(false, false), issues(plugDraft(PLUG, "toggle")))
 		assertEquals(listOf(true, true), issues(withValue(told, "message", "x".repeat(1_001))))
 		assertEquals(listOf(true, true), issues(withValue(told, "when", "later")))
-		assertEquals("Switch a plug: Desk lamp, Toggle", actionLine(AutomationAction.DeviceSet(PLUG, "toggle"), FULL))
+		val toggle = AutomationAction.DeviceSet(PLUG, "toggle")
+		assertEquals("Switch a plug: Desk lamp, Toggle", doesLine(actionDraftOf(toggle, FULL), kindOf(toggle), FULL))
 		assertEquals(iftttDraft("door", "open", "now"), withValue(door, "value2", "now"))
 		assertEquals("Each time it runs it will send to IFTTT, without asking you.", confirmBody(listOf("Send to IFTTT")))
 	}
@@ -782,7 +784,7 @@ class AutomationPartsTest {
 		assertEquals(listOf(true, true, true, false), offer.actions.map { it.drawable })
 		assertEquals(listOf(true, true, true, false), drafts.map { it is ActionDraft.Filled })
 		assertEquals(ActionDraft.Kept(called), drafts.last())
-		assertEquals("Run a function", actionLine(called, offer))
+		assertEquals("Run a function", doesLine(drafts.last(), kindOf(called), offer))
 		assertEquals(listOf("tell_assistant", "device_set", "ifttt_trigger"), addableActions(offer, emptyList()).map { it.kind })
 		assertEquals(stored, drafts.map { actionOf(it, offer) })
 		assertEquals(SANDBOX_SERVES.actions, served.actions)
@@ -861,7 +863,7 @@ class AutomationPartsTest {
 			textPreviewOf(text, asked = true, answered(null, AutomationPreviewHole(6L, 12L, "no name valu here"))),
 		)
 		assertEquals("{valu}: no name valu here", holeLine(text, "no name valu here", 6, 12))
-		assertEquals("missing }", holeLine(text, "missing }", 40, 50))
+		assertEquals("Missing }", holeLine(text, "missing }", 40, 50))
 		val refused = AutomationSaid.Hole("key-1", "value2", 0, 4, "no", "{x} here")
 		assertEquals(
 			listOf(refused, null, null, null),

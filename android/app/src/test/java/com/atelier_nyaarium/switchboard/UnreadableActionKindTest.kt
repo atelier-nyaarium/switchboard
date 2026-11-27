@@ -5,12 +5,14 @@ import com.atelier_nyaarium.switchboard.assistant.ActionOffer
 import com.atelier_nyaarium.switchboard.assistant.EditContext
 import com.atelier_nyaarium.switchboard.assistant.ParamOffer
 import com.atelier_nyaarium.switchboard.assistant.StepDraft
-import com.atelier_nyaarium.switchboard.assistant.actionLine
+import com.atelier_nyaarium.switchboard.assistant.actionDraftOf
 import com.atelier_nyaarium.switchboard.assistant.actionOf
 import com.atelier_nyaarium.switchboard.assistant.addableActions
 import com.atelier_nyaarium.switchboard.assistant.automationDraftOf
 import com.atelier_nyaarium.switchboard.assistant.canRemove
+import com.atelier_nyaarium.switchboard.assistant.doesLine
 import com.atelier_nyaarium.switchboard.assistant.editable
+import com.atelier_nyaarium.switchboard.assistant.kindOf
 import com.atelier_nyaarium.switchboard.assistant.offerOf
 import com.atelier_nyaarium.switchboard.assistant.written
 import com.atelier_nyaarium.switchboard.proto.Automation
@@ -69,7 +71,7 @@ class UnreadableActionKindTest {
 		val card = draft.steps.single() as StepDraft.Do
 
 		assertTrue(card.action is ActionDraft.Kept)
-		assertEquals("Run a function", actionLine(unread, served))
+		assertEquals("Run a function", doesLine(actionDraftOf(unread, served), kindOf(unread), served))
 		assertTrue(editable(alone, served))
 		assertTrue(addableActions(served, draft.steps).none { it.kind == kind })
 		// The only action stays while its Gateway still offers it.

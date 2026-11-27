@@ -361,7 +361,7 @@ internal fun textPreviewOf(text: String, asked: Boolean, read: PreviewRead): Tex
 internal fun holeLine(text: String, line: String, start: Int, end: Int): String {
 	val from = start.coerceIn(0, text.length)
 	val quoted = text.substring(from, end.coerceIn(from, text.length))
-	return if (quoted.isBlank()) line else "$quoted: $line"
+	return if (quoted.isBlank()) issueText(line) else "$quoted: $line"
 }
 
 internal fun freshClock(kind: String, zone: String): TriggerDraft? = when (kind) {
@@ -402,7 +402,7 @@ internal fun saidText(draft: AutomationDraft, at: SaidAt): String = when (at) {
 
 /** Refusal while text stands. */
 internal fun refusedField(said: AutomationSaid?, at: SaidAt, text: String): String? =
-	(said as? AutomationSaid.Field)?.takeIf { it.at == at && it.text == text }?.line
+	(said as? AutomationSaid.Field)?.takeIf { it.at == at && it.text == text }?.line?.let(::issueText)
 
 private fun drawsField(draft: AutomationDraft, at: SaidAt, offer: AutomationOffer): Boolean = when (at) {
 	is SaidAt.Value -> offer.functions != null &&

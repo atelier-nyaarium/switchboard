@@ -1,6 +1,7 @@
 package com.atelier_nyaarium.switchboard.assistant
 
 import com.atelier_nyaarium.switchboard.parseDecimal
+import com.atelier_nyaarium.switchboard.proto.AssistantFieldOption
 import com.atelier_nyaarium.switchboard.proto.FunctionParam
 import com.atelier_nyaarium.switchboard.proto.FunctionStep
 import com.atelier_nyaarium.switchboard.proto.Protocol
@@ -113,6 +114,10 @@ internal fun findStep(steps: List<StepDraft>, key: String): StepDraft? = everySt
 internal fun chainOf(step: StepDraft.If): List<StepDraft.If> =
 	generateSequence(step) { it.otherwise.singleOrNull() as? StepDraft.If }.toList()
 
+/** Ifs drawn as else-if links. */
+internal fun linkKeys(steps: List<StepDraft>): Set<String> =
+	everyStep(steps).mapNotNull { ((it as? StepDraft.If)?.otherwise?.singleOrNull() as? StepDraft.If)?.key }.toSet()
+
 /** Null where caps refuse. */
 internal fun withElseIf(steps: List<StepDraft>, head: String): List<StepDraft>? {
 	val last = (findStep(steps, head) as? StepDraft.If)?.let { chainOf(it).last() } ?: return null
@@ -167,6 +172,77 @@ internal fun shiftedSlot(steps: List<StepDraft>, key: String, delta: Int): Slot?
 	val (parent, side, list) = listHolding(steps, key) ?: return null
 	val index = list.indexOfFirst { it.key == key } + delta
 	return Slot(parent, side, index).takeIf { index in list.indices }
+}
+
+internal data class MoveChoice(val label: String, val slot: Slot)
+
+/** Whether `moveChoices` can offer any. */
+internal fun mayMove(steps: List<StepDraft>, key: String): Boolean {
+	val (parent, _, list) = listHolding(steps, key) ?: return false
+	return parent != null || list.size > 1
+}
+
+/** Only moves that land and leave every link a link. */
+internal fun moveChoices(
+	steps: List<StepDraft>,
+	key: String,
+	offer: AutomationOffer,
+	choicesOf: (String) -> List<AssistantFieldOption>?,
+): List<MoveChoice> {
+	val (parent, _, list) = listHolding(steps, key) ?: return emptyList()
+	val index = list.indexOfFirst { it.key == key }
+	val shifts = listOfNotNull(
+		shiftedSlot(steps, key, -1)?.let { MoveChoice("Move up", it) },
+		shiftedSlot(steps, key, 1)?.let { MoveChoice("Move down", it) },
+	)
+	val into = list.getOrNull(index - 1)?.let { drawnSides(it, choicesOf) }.orEmpty().map { (label, slot) -> MoveChoice("Into $label above", slot) }
+	val out = parent?.let { owner ->
+		val container = drawnOwner(steps, owner)
+		val (above, aboveSide, aboveList) = listHolding(steps, container) ?: return@let null
+		val step = findStep(steps, container) ?: return@let null
+		MoveChoice("Out of ${cardLabel(step, offer)}", Slot(above, aboveSide, aboveList.indexOfFirst { it.key == container } + 1))
+	}
+	val links = linkKeys(steps)
+	return (shifts + into + listOfNotNull(out)).filter { choice -> movedStep(steps, key, choice.slot)?.let(::linkKeys) == links }
+}
+
+/** Sides as drawn, repeats numbered. */
+private fun drawnSides(step: StepDraft, choicesOf: (String) -> List<AssistantFieldOption>?): List<Pair<String, Slot>> {
+	val sides = when (step) {
+		is StepDraft.If -> {
+			val links = chainOf(step)
+			val end = links.last()
+			links.mapIndexed { at, link -> (if (at == 0) "If" else "Else if") to Slot(link.key, Side.Then, link.then.size) } +
+				((if (links.size == 1) "Otherwise" else "ELSE") to Slot(end.key, Side.Else, end.otherwise.size))
+		}
+		is StepDraft.Switch ->
+			caseViews(step, choicesOf(step.subject)).mapIndexed { at, view ->
+				listOfNotNull("CASE", view.chips.firstOrNull()?.label).joinToString(" ") to Slot(step.key, Side.Case(at), view.case.steps.size)
+			} + ("DEFAULT" to Slot(step.key, Side.Default(step.cases.size), step.default.size))
+		is StepDraft.Try -> listOf("Try" to Slot(step.key, Side.Body, step.body.size), "If it fails" to Slot(step.key, Side.Catch, step.catch.size))
+		is StepDraft.Do, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Call, is StepDraft.Kept -> emptyList()
+	}
+	return numberedRepeats(sides.map { it.first }).zip(sides) { label, (_, slot) -> label to slot }
+}
+
+/** Repeated labels, numbered in order. */
+private fun numberedRepeats(labels: List<String>): List<String> {
+	val counts = labels.groupingBy { it }.eachCount()
+	val seen = mutableMapOf<String, Int>()
+	return labels.map { label ->
+		if (counts.getValue(label) == 1) return@map label
+		val number = (seen[label] ?: 0) + 1
+		seen[label] = number
+		"$label $number"
+	}
+}
+
+/** Else-if chain heads. */
+private fun drawnOwner(steps: List<StepDraft>, key: String): String {
+	val links = linkKeys(steps)
+	var at = key
+	while (at in links) at = listHolding(steps, at)?.first ?: return at
+	return at
 }
 
 private fun listHolding(steps: List<StepDraft>, key: String): Triple<String?, Side?, List<StepDraft>>? {

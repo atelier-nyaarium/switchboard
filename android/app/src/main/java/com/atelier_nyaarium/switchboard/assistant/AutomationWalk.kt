@@ -120,6 +120,9 @@ internal fun reached(automation: Automation, functionOf: (String) -> AutomationF
 
 internal fun stepsOf(function: AutomationFunction): List<FunctionStep> = stepsIn(written(function), emptyList()).map { it.second }
 
+/** Every depth, step excluded. */
+internal fun stepsUnder(step: FunctionStep): List<FunctionStep> = stepsIn(listOf(step), emptyList()).drop(1).map { it.second }
+
 /** A function's steps as written. */
 @OptIn(OpensWalk::class)
 internal fun written(function: AutomationFunction): List<FunctionStep> = function.steps

@@ -14,7 +14,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -108,6 +107,7 @@ fun SessionsScreen(
 	undoneFor: (Team) -> Int = { 0 },
 	onForgetWithTasks: (String, Boolean) -> Unit = { _, _ -> },
 	vaultTier: (Team) -> String? = { null },
+	onToggleCollapsed: (String) -> Unit = {},
 	modifier: Modifier = Modifier,
 ) {
 	var actionTeam by remember { mutableStateOf<Team?>(null) }
@@ -115,7 +115,6 @@ fun SessionsScreen(
 	var renameTeam by remember { mutableStateOf<Team?>(null) }
 	var forgetTeam by remember { mutableStateOf<Team?>(null) }
 	var stopAsking by remember { mutableStateOf<StopAsk?>(null) }
-	val collapsedGateways = rememberSaveable { mutableStateOf(setOf<String>()) }
 
 	stopAsking?.let { ask ->
 		ConfirmDialog(
@@ -247,7 +246,7 @@ fun SessionsScreen(
 				) {
 					for ((key, group) in byGateway) {
 						val composite = "${key.domainId}/${key.gatewayId}"
-						val collapsed = composite in collapsedGateways.value
+						val collapsed = composite in state.collapsedGateways
 						val isPeer = key.domainId.isNotEmpty() && adminDomainId.isNotEmpty() && key.domainId != adminDomainId
 						val headerName = if (isPeer) composite else key.gatewayId
 						val showCreate = !isPeer && state.gateways.offersSpawn(key.gatewayId)
@@ -258,10 +257,7 @@ fun SessionsScreen(
 								name = headerName,
 								online = group.any { it.isLive },
 								collapsed = collapsed,
-								onToggle = {
-								val open = collapsedGateways.value
-								collapsedGateways.value = if (collapsed) open - composite else open + composite
-							},
+								onToggle = { onToggleCollapsed(composite) },
 								showCreate = showCreate,
 								onCreate = {
 									createDialogFor = CreateDialogTarget.of(
@@ -355,7 +351,7 @@ fun SessionsScreen(
 						item(key = "linked-friends-label") { SectionLabel("Linked friends") }
 						for (friend in linkedDomains) {
 							val friendKey = "friend:${friend.domainId}"
-							val collapsed = friendKey in collapsedGateways.value
+							val collapsed = friendKey in state.collapsedGateways
 							val entry = state.crossDomainPeerSessions[friend.domainId]
 							val freshness = crossDomainFreshness(entry?.lastRefreshedAt, freshnessNow)
 							val friendSessions = dedupedFriendSessions(entry?.sessions.orEmpty())
@@ -364,10 +360,7 @@ fun SessionsScreen(
 									name = friend.displayName ?: friend.domainId,
 									freshness = freshness,
 									collapsed = collapsed,
-									onToggle = {
-										val open = collapsedGateways.value
-										collapsedGateways.value = if (collapsed) open - friendKey else open + friendKey
-									},
+									onToggle = { onToggleCollapsed(friendKey) },
 								)
 							}
 							if (!collapsed) {

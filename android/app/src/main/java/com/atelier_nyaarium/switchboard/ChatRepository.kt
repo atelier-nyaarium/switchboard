@@ -134,6 +134,7 @@ class ChatRepository(
 			firstRooted = store.firstRooted,
 			lastProjectByGateway = store.lastProjectByGateway,
 			automationsMap = store.automationsMap,
+			collapsedGateways = store.collapsedGateways,
 			scheduledSends = persistence.loadPersistedScheduledSends(),
 			goals = persistence.loadPersistedGoals(),
 			drafts = persistence.loadPersistedDrafts(),
@@ -301,6 +302,12 @@ class ChatRepository(
 	fun showAutomationsAsMap(map: Boolean) {
 		store.automationsMap = map
 		_state.update { it.copy(automationsMap = map) }
+	}
+
+	/** Toggles a Sessions machine. */
+	fun toggleGatewayCollapsed(key: String) {
+		_state.update { held -> held.copy(collapsedGateways = held.collapsedGateways.let { if (key in it) it - key else it + key }) }
+		store.collapsedGateways = _state.value.collapsedGateways
 	}
 
 	/** A container start a held forget asked for, and that failed. */

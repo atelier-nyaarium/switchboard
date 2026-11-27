@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
+import com.atelier_nyaarium.switchboard.assistant.CaseDraft
 import com.atelier_nyaarium.switchboard.assistant.STEPS_PER_LIST
 import com.atelier_nyaarium.switchboard.assistant.STEPS_TOTAL
 import com.atelier_nyaarium.switchboard.assistant.Side
@@ -11,6 +12,9 @@ import com.atelier_nyaarium.switchboard.assistant.everyStep
 import com.atelier_nyaarium.switchboard.assistant.findStep
 import com.atelier_nyaarium.switchboard.assistant.insertedStep
 import com.atelier_nyaarium.switchboard.assistant.keyAt
+import com.atelier_nyaarium.switchboard.assistant.linkKeys
+import com.atelier_nyaarium.switchboard.assistant.mayMove
+import com.atelier_nyaarium.switchboard.assistant.moveChoices
 import com.atelier_nyaarium.switchboard.assistant.movedStep
 import com.atelier_nyaarium.switchboard.assistant.pathsOf
 import com.atelier_nyaarium.switchboard.assistant.removedStep
@@ -20,6 +24,7 @@ import com.atelier_nyaarium.switchboard.assistant.stepPaths
 import com.atelier_nyaarium.switchboard.assistant.treeOf
 import com.atelier_nyaarium.switchboard.assistant.withElseIf
 import com.atelier_nyaarium.switchboard.assistant.withoutLink
+import com.atelier_nyaarium.switchboard.proto.AssistantFieldOption
 import com.atelier_nyaarium.switchboard.proto.FunctionStep
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -84,6 +89,60 @@ class StepTreeTest {
 			pathsOf(moved),
 		)
 		assertEquals("false", (findStep(moved, "a") as StepDraft.If).condition)
+	}
+
+	@Test
+	fun aCardMovesIntoTheSidesOfTheCardAboveOrOutOfTheCardDrawingIt() {
+		val chained = listOf(
+			StepDraft.If("a", "v > 3", listOf(exit("b")), listOf(StepDraft.If("c", "v > 2", listOf(exit("x")), listOf(exit("e"))))),
+			StepDraft.Switch(
+				"s",
+				"event.kind",
+				listOf(CaseDraft("k0", listOf("mention"), emptyList()), CaseDraft("k1", emptyList(), emptyList()), CaseDraft("k2", emptyList(), emptyList())),
+				listOf(exit("y")),
+			),
+			exit("g"),
+		)
+		val kinds = listOf(AssistantFieldOption("mention", "Mention"))
+		fun choices(steps: List<StepDraft>, key: String) = moveChoices(steps, key, FN_OFFER) { kinds.takeIf { _ -> it == "event.kind" } }
+		fun labels(steps: List<StepDraft>, key: String) = choices(steps, key).map { it.label }
+		fun moved(steps: List<StepDraft>, key: String, label: String) =
+			pathsOf(movedStep(steps, key, choices(steps, key).single { it.label == label }.slot)!!)[key]
+
+		assertEquals(listOf("Move up", "Into Try above", "Into If it fails above"), labels(tree, "g"))
+		assertEquals(listOf("Move down", "Out of If"), labels(tree, "b"))
+		assertEquals(listOf("Move up", "Move down", "Into If above", "Into Else if above", "Into ELSE above"), labels(chained, "s"))
+		assertEquals(
+			listOf("Move up", "Into CASE Mention above", "Into CASE 1 above", "Into CASE 2 above", "Into DEFAULT above"),
+			labels(chained, "g"),
+		)
+		assertEquals(listOf(false, true), listOf(mayMove(listOf(exit("lone")), "lone"), mayMove(chained, "x")))
+		// Leaves the whole chain.
+		assertEquals(listOf("Out of If"), labels(chained, "x"))
+		assertEquals("1", moved(chained, "x", "Out of If"))
+		assertEquals("0.1.0.1.1", moved(chained, "s", "Into ELSE above"))
+		assertEquals("1.3.1", moved(chained, "g", "Into DEFAULT above"))
+		assertEquals("1.1.0", moved(tree, "g", "Into If it fails above"))
+		val longer = listOf(
+			StepDraft.If("a", "v > 3", emptyList(), listOf(StepDraft.If("c", "v > 2", emptyList(), listOf(StepDraft.If("d", "v > 1", emptyList(), emptyList()))))),
+			exit("g"),
+		)
+		assertEquals(
+			listOf("Move up", "Into If above", "Into Else if 1 above", "Into Else if 2 above", "Into ELSE above"),
+			labels(longer, "g"),
+		)
+	}
+
+	@Test
+	fun noMoveTurnsACardIntoALinkOrALinkIntoACard() {
+		val trailing = listOf(StepDraft.If("a", "v > 3", emptyList(), emptyList()), StepDraft.If("x", "v > 2", listOf(exit("t")), emptyList()))
+		val beside = listOf(StepDraft.If("a", "v > 3", emptyList(), listOf(StepDraft.If("b", "v > 2", emptyList(), emptyList()), exit("x"))))
+
+		assertEquals(setOf<String>(), linkKeys(trailing))
+		// Would make x a link.
+		assertEquals(listOf("Move up", "Into If above"), moveChoices(trailing, "x", FN_OFFER) { null }.map { it.label })
+		// Each other move leaves b alone.
+		assertEquals(listOf("Move up"), moveChoices(beside, "x", FN_OFFER) { null }.map { it.label })
 	}
 
 	@Test
