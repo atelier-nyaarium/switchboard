@@ -273,6 +273,34 @@ class FlowMapTest {
 	}
 
 	@Test
+	fun `the legend shows every colour, pattern and weight the map draws`() {
+		val shown = com.atelier_nyaarium.switchboard.assistant.FLOW_LEGEND.flatMap { it.rows }.map { it.facts }
+
+		assertEquals(FlowColour.entries.toSet(), shown.map(::colourOf).toSet())
+		assertEquals(FlowPattern.entries.toSet(), shown.map(::patternOf).toSet())
+		assertEquals(FlowWeight.entries.toSet(), shown.map(::weightOf).toSet())
+	}
+
+	@Test
+	fun `an automation the lane told alone reads as run at its last-ran time, and its card says when`() {
+		val told = automationRow("told", "Told", listOf(AutomationAction.TellAssistant("now"))).copy(lastRanAt = 5_000L)
+		val graph = flowGraph(input(listOf(told)))
+		val facts = flowFacts(graph, flowRuns(listOf(told)))
+		val sheet = flowSheet(graph, facts, listOf(told), FlowKey.Automation("told")) as com.atelier_nyaarium.switchboard.assistant.FlowSheet.OfAutomation
+
+		assertEquals(
+			listOf(FlowPattern.SOLID, FlowPattern.SOLID, FlowPattern.SOLID),
+			listOf(
+				patternOf(facts.nodes.getValue(FlowKey.Automation("told"))),
+				patternOf(facts.lines[graph.line(FlowKey.Sensor(SANDBOX_SENSOR), FlowKey.Automation("told"))]),
+				patternOf(facts.lines[graph.line(FlowKey.Automation("told"), FlowKey.Assistant)]),
+			),
+		)
+		assertEquals(FlowColour.OK, colourOf(facts.nodes.getValue(FlowKey.Assistant)))
+		assertEquals(5_000L, sheet.ranAt)
+	}
+
+	@Test
 	fun `a replay reads the run at a moment by its times, and a beat a step in written order when it has none`() {
 		val timed = run(
 			0L,

@@ -90,6 +90,8 @@ internal data class FlowGraph(
 	val enabled: Map<String, Boolean>,
 	/** Unrunnable automation ids. */
 	val invalid: Set<String>,
+	/** Last run times; lane-told runs keep no steps. */
+	val ranAt: Map<String, Long>,
 	val sources: Map<String, AssistantSource>,
 ) {
 	fun node(key: FlowKey): FlowNode? = nodes.firstOrNull { it.key == key }
@@ -318,6 +320,7 @@ internal fun flowGraph(input: FlowInput): FlowGraph {
 		steps = b.steps,
 		enabled = input.rows.associate { it.id to it.automation.enabled },
 		invalid = input.rows.filter { it.invalid != null }.map { it.id }.toSet(),
+		ranAt = input.rows.mapNotNull { row -> row.lastRanAt?.let { row.id to it } }.toMap(),
 		sources = input.sources.associateBy { it.id },
 	)
 }
@@ -432,21 +435,27 @@ internal fun flowFacts(graph: FlowGraph, runs: Map<String, AutomationLastRun>, p
 		}.maxByOrNull { it.at }
 	}
 
+	fun toldAt(ids: Collection<String>): Long? = ids.filter { runs[it] == null }.mapNotNull { graph.ranAt[it] }.maxOrNull()
+	val told = FlowFacts(FlowEnded.DONE, FlowHappened.RAN)
+
 	val lineAt = graph.lines.map { line ->
 		when (line.act) {
-			FlowAct.STARTS -> runs[(line.to as FlowKey.Automation).id]?.let { ActAt(it.at, -1) }
-			FlowAct.POINTS, FlowAct.CALLS, FlowAct.ACTS -> newest(line.steps)?.at
+			FlowAct.STARTS -> (line.to as FlowKey.Automation).id.let { id ->
+				runs[id]?.let { ActAt(it.at, -1) } ?: toldAt(listOf(id))?.let { ActAt(it, -1) }
+			}
+			FlowAct.POINTS, FlowAct.CALLS, FlowAct.ACTS ->
+				newest(line.steps)?.at ?: toldAt(line.steps.keys)?.let { ActAt(it, -1) }
 		}
 	}
 	val lineFacts = graph.lines.map { line ->
 		val facts = when (line.act) {
 			FlowAct.STARTS -> {
 				val id = (line.to as FlowKey.Automation).id
-				if (runs[id] == null) NOTHING else FlowFacts(FlowEnded.DONE, FlowHappened.RAN)
+				if (runs[id] == null && toldAt(listOf(id)) == null) NOTHING else told
 			}
 			FlowAct.POINTS, FlowAct.CALLS, FlowAct.ACTS ->
 				newest(line.steps)?.let { (id, run, held) -> factsOver(run, held, starts.getValue(id), line.onFailure) }
-					?: NOTHING.copy(onFailure = line.onFailure)
+					?: (if (toldAt(line.steps.keys) != null) told else NOTHING).copy(onFailure = line.onFailure)
 		}
 		if (off(line.steps.keys)) facts.copy(happened = FlowHappened.NOT) else facts
 	}
@@ -468,9 +477,10 @@ internal fun flowFacts(graph: FlowGraph, runs: Map<String, AutomationLastRun>, p
 	for (node in graph.nodes) {
 		val key = node.key
 		val facts = when (key) {
-			is FlowKey.Automation -> if (key.id in graph.invalid) NOTHING else runs[key.id]?.let { run ->
-				bodyFacts(key, key.id, run, run.steps.filter { '.' !in it.path }, whole = true)
-			}?.let { if (stopped(key.id)) it.copy(happened = FlowHappened.NOT) else it } ?: NOTHING
+			is FlowKey.Automation -> if (key.id in graph.invalid) NOTHING else (
+				runs[key.id]?.let { run -> bodyFacts(key, key.id, run, run.steps.filter { '.' !in it.path }, whole = true) }
+					?: told.takeIf { toldAt(listOf(key.id)) != null }
+			)?.let { if (stopped(key.id)) it.copy(happened = FlowHappened.NOT) else it } ?: NOTHING
 			is FlowKey.Function -> {
 				val entries = graph.steps.mapValues { (_, steps) -> steps.filterValues { it.enters == key.id }.keys }.filterValues { it.isNotEmpty() }
 				newest(entries)?.let { (id, run, held) -> bodyFacts(key, id, run, held, whole = false) }
@@ -479,7 +489,7 @@ internal fun flowFacts(graph: FlowGraph, runs: Map<String, AutomationLastRun>, p
 			is FlowKey.Source -> sourceFacts(graph.sources[key.id])
 			is FlowKey.Sensor, is FlowKey.Field, FlowKey.Clock, is FlowKey.Trigger -> {
 				val started = graph.lines.filter { it.from == key }.map { (it.to as FlowKey.Automation).id }
-				if (started.any { runs[it] != null }) FlowFacts(FlowEnded.DONE, FlowHappened.RAN) else NOTHING
+				if (started.any { runs[it] != null || graph.ranAt[it] != null }) told else NOTHING
 			}
 			is FlowKey.Switch, is FlowKey.Named, FlowKey.Assistant, FlowKey.Ifttt, is FlowKey.Other -> {
 				val into = graph.lines.withIndex().filter { it.value.to == key }

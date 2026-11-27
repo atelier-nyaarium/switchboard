@@ -10,6 +10,8 @@ internal sealed interface FlowSheet {
 		val notes: List<FlowNote>,
 		val steps: List<SheetStep>,
 		val replays: Boolean,
+		/** Ran with no steps kept. */
+		val ranAt: Long?,
 	) : FlowSheet
 
 	data class OfFunction(val id: String, val name: String, val notes: List<FlowNote>, val runBy: List<SheetUser>) : FlowSheet
@@ -47,6 +49,7 @@ internal fun flowSheet(graph: FlowGraph, facts: FlowFactsMap, rows: List<Automat
 					SheetStep(step.path, step.kind, stateOf(step, row.lastRun?.running == true), step.reason, step.function, took, row.lastRun?.running == true && step.outcome == null)
 				},
 				replays = row.lastRun != null,
+				ranAt = row.lastRanAt.takeIf { row.lastRun == null },
 			)
 		}
 		is FlowKey.Function -> FlowSheet.OfFunction(
@@ -118,3 +121,56 @@ internal fun endedWord(ended: FlowEnded): String = when (ended) {
 	FlowEnded.NOT_DONE -> "failed"
 	FlowEnded.NOTHING -> "not run"
 }
+
+/** What a legend row draws. */
+internal enum class LegendSample { RING, AUTOMATION, FUNCTION, LINE, PICKED, MOMENT }
+
+internal data class LegendRow(val sample: LegendSample, val facts: FlowFacts, val title: String, val note: String? = null)
+
+internal data class LegendGroup(val heading: String, val rows: List<LegendRow>)
+
+private val RAN = FlowFacts(FlowEnded.DONE, FlowHappened.RAN)
+
+/** Drawn through the map's own styles. */
+internal val FLOW_LEGEND = listOf(
+	LegendGroup(
+		"Shape is what it is",
+		listOf(
+			LegendRow(LegendSample.RING, RAN, "Something outside", "Above: what starts a run. Below: what a run acts on."),
+			LegendRow(LegendSample.AUTOMATION, RAN, "An automation"),
+			LegendRow(LegendSample.FUNCTION, RAN, "A named function"),
+			LegendRow(LegendSample.LINE, RAN, "One act, pointing down at what it causes", "Start a run, run a function, call one, act on a thing."),
+			LegendRow(LegendSample.LINE, RAN.copy(onFailure = true), "An act that runs only when something failed"),
+		),
+	),
+	LegendGroup(
+		"Colour is how it ended",
+		listOf(
+			LegendRow(LegendSample.LINE, RAN, "Done as written"),
+			LegendRow(LegendSample.LINE, FlowFacts(FlowEnded.NOT_CLEAN, FlowHappened.RAN), "Not clean", "Held up, retried, or no answer came back."),
+			LegendRow(LegendSample.LINE, FlowFacts(FlowEnded.NOT_DONE, FlowHappened.RAN), "Not done"),
+			LegendRow(LegendSample.LINE, FlowFacts(FlowEnded.NOTHING, FlowHappened.RAN), "Nothing to show"),
+		),
+	),
+	LegendGroup(
+		"Pattern is whether it happened",
+		listOf(
+			LegendRow(LegendSample.LINE, RAN, "Happened, in its last run"),
+			LegendRow(LegendSample.LINE, FlowFacts(FlowEnded.DONE, FlowHappened.NOW), "Happening now", "The dashes move."),
+			LegendRow(LegendSample.LINE, FlowFacts(FlowEnded.NOTHING, FlowHappened.NOT), "Did not happen", "Switched off, or its last run never got there."),
+		),
+	),
+	LegendGroup(
+		"Weight, fill and motion",
+		listOf(
+			LegendRow(
+				LegendSample.LINE,
+				FlowFacts(FlowEnded.NOT_DONE, FlowHappened.RAN, failureStart = true),
+				"Look here first",
+				"Where a failure nothing caught began. Red that only follows from it stays thin.",
+			),
+			LegendRow(LegendSample.PICKED, RAN, "What you tapped", "Everything outside its reach dims."),
+			LegendRow(LegendSample.MOMENT, FlowFacts(FlowEnded.DONE, FlowHappened.NOW), "The replay's moment", "The same dot as the scrubber's."),
+		),
+	),
+)

@@ -17,19 +17,24 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -100,7 +105,11 @@ private fun FlowPalette.of(colour: FlowColour): Color = when (colour) {
 internal fun AutomationsMapView(groups: List<AutomationGroup>, onOpen: (String, String) -> Unit) {
 	var keyShown by remember { mutableStateOf(false) }
 	Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-		TextButton(onClick = hapticClick { keyShown = true }) { Text("Key") }
+		OutlinedButton(onClick = hapticClick { keyShown = true }) {
+			Icon(Icons.Outlined.Info, contentDescription = null, modifier = Modifier.size(18.dp))
+			Spacer(Modifier.width(8.dp))
+			Text("Legend")
+		}
 	}
 	for (group in groups) {
 		key(group.gatewayId) {
@@ -140,11 +149,11 @@ private fun FlowBand(band: String, input: FlowInput, offer: AutomationOffer, ope
 	val shown = playing?.takeIf { it.moment < it.replay.length }?.let { runs + (it.id to it.replay.runAt(it.moment)) } ?: runs
 	val facts = remember(graph, shown, chosen) { flowFacts(graph, shown, chosen) }
 	val newest = remember(graph, runs) { flowFacts(graph, runs) }
-	Text(summaryLine(flowSummary(input.rows, newest)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 	if (input.rows.isEmpty()) {
 		NoneLine("automations")
 		return
 	}
+	Text(summaryLine(flowSummary(input.rows, newest)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 	val reach = remember(graph, selected) { selected?.let { flowReach(graph, it) } }
 	val dot = playing?.let { held -> held.replay.dotAt(held.moment)?.let { (path, through) -> Triple(held.id, path, through) } }
 	FlowCanvas(graph, facts, selected, reach, dot) { key ->
@@ -413,7 +422,9 @@ private fun FlowSheetCard(
 						}
 					}
 					for (note in sheet.notes) Text(noteText(note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-					if (sheet.steps.isEmpty()) Text("Has not run", style = MaterialTheme.typography.bodySmall, color = dim)
+					if (sheet.steps.isEmpty()) {
+						Text(sheet.ranAt?.let { "Ran ${agoText(it)}" } ?: "Has not run", style = MaterialTheme.typography.bodySmall, color = dim)
+					}
 					for (step in sheet.steps) {
 						Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 							Text(offer.labelOf(step.kind), style = MaterialTheme.typography.bodySmall, color = palette.of(colourOf(FlowFacts(step.ended, FlowHappened.RAN))), modifier = Modifier.weight(1f))
@@ -472,24 +483,51 @@ private fun ReplayControls(id: String, replaying: Replaying?, onReplay: (String)
 
 @Composable
 private fun FlowKeyDialog(onDismiss: () -> Unit) {
+	val palette = flowPalette()
+	val dash = movingDash()
+	val measurer = rememberTextMeasurer()
+	val style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp)
 	AlertDialog(
 		onDismissRequest = onDismiss,
 		confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
-		title = { Text("Key") },
+		title = { Text("Legend") },
 		text = {
-			Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-				for (line in FLOW_KEY) Text(line, style = MaterialTheme.typography.bodySmall)
+			Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+				for (group in FLOW_LEGEND) {
+					Text(
+						group.heading.uppercase(),
+						style = MaterialTheme.typography.labelSmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						modifier = Modifier.padding(top = 8.dp),
+					)
+					for (row in group.rows) {
+						Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+							Canvas(Modifier.size(56.dp, 24.dp)) { drawSample(row, palette, density, dash, measurer, style) }
+							Column(Modifier.weight(1f)) {
+								Text(row.title, style = MaterialTheme.typography.bodyMedium)
+								row.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+							}
+						}
+					}
+				}
 			}
 		},
 	)
 }
 
-private val FLOW_KEY = listOf(
-	"A ring is what starts a run (above) or what a run acts on (below). A round pill is an automation; a square box with ${FUNCTION_MARK} is a named function.",
-	"Down is cause: what starts it, the automation, its functions, what they act on.",
-	"Grey ran as written. Amber was not clean: held up, retried or no answer. Red did not get done. Faint has nothing to show.",
-	"Solid happened in its last run. Moving dashes are happening now. Dots did not happen: switched off, or never reached.",
-	"Thick with a glow is where a failure nothing caught began.",
-	"A diamond at a line's start runs only when something failed.",
-	"Tap to select: the rest dims, and the sheet says more.",
-)
+private fun DrawScope.drawSample(row: LegendRow, palette: FlowPalette, k: Float, dash: Float, measurer: TextMeasurer, style: TextStyle) {
+	val width = size.width / k
+	val center = FlowPoint(width / 2, size.height / k / 2)
+	fun node(key: FlowKey, boxWidth: Float, boxHeight: Float, selected: Boolean = false) =
+		drawNode(FlowNode(key, ""), FlowBox(key, center, boxWidth, boxHeight), row.facts, selected, palette, k, dash, 1f, measurer, style)
+	when (row.sample) {
+		LegendSample.RING -> node(FlowKey.Clock, FlowSize.RING, FlowSize.RING)
+		LegendSample.AUTOMATION -> node(FlowKey.Automation(""), 44f, 18f)
+		LegendSample.FUNCTION -> node(FlowKey.Function(""), 44f, 18f)
+		LegendSample.PICKED -> node(FlowKey.Automation(""), 44f, 18f, selected = true)
+		LegendSample.LINE, LegendSample.MOMENT -> {
+			drawLine(FlowCurve(FlowPoint(6f, center.y), center, FlowPoint(width - 4f, center.y)), row.facts, palette, k, dash, 1f)
+			if (row.sample == LegendSample.MOMENT) drawCircle(palette.primary, 4f * k, Offset(center.x * k, center.y * k))
+		}
+	}
+}
