@@ -3256,6 +3256,8 @@ One word per concept across wire, script, code, cards and prose, on the owner's 
 
 **One slice:** the whole pass lands together, since a clean break needs the wire, the Gateway, the phone and sakura's data to move at once: the wire and the Gateway engine, script grammar and printer, Gateway prose and the codegen, with vectors and fixtures regenerated; the phone's labels and lines, the new cards and the condition preview removed; docs and `AGENTS.md`; and the one-off migration script with its dry run against a copy of sakura's data.
 
+**Where it stands (2026-11-27):** built and deployed as 8.14.91: sakura migrated and restarted, phone installed, plugin released, the migration script removed. Every gate passed. Left for next week, on the owner's word (credits): the comment-cleanup pass, align, adversarial, architecture, docs and `AGENTS.md` (not yet updated for the new names), crust, completeness, and the walkthrough. The cycle stands at `implementation-phase`. Wire fields `called` and `callers` still say "call".
+
 **For the architecture step (owner):** look for code the rewording lets go. Duplicate prose constants (`TOO_WIDE` and `TOO_MANY_BESIDE`, `NO_ACTION` and `NO_RUNNER`, `NOT_HOME` and `NOT_HERE`, `NOT_BOOLEAN` and `NOT_TRUE_OR_FALSE`), and the automation-domain skew windows (`step-refusals`, `condition-lists`, `function-serves`, `fire-84-shape`, `fire-tell`, `frame-values`) and readers of older shapes, which a clean break with sakura as the only Gateway no longer needs.
 
 ## Painpoints
