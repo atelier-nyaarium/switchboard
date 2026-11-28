@@ -53,7 +53,7 @@ class UnreadableActionKindTest {
 			actions = offer.actions + ActionOffer(
 				kind = kind,
 				label = "Run a function",
-				danger = false,
+				confirm = false,
 				params = listOf(ParamOffer("function", "Function", "future_function_kind"), ParamOffer("values", "Values", "future_values_kind")),
 			),
 		)
@@ -65,12 +65,12 @@ class UnreadableActionKindTest {
 	private fun jsonOf(action: AutomationAction) = wireJson.encodeToJsonElement(AutomationAction.serializer(), action)
 
 	@Test
-	fun anActionThisBuildCannotDrawIsKeptLabelledNeverOfferedAndSavedAsSent() {
+	fun anActionThisBuildCannotDrawIsUnsupportedLabelledNeverOfferedAndSavedAsSent() {
 		val alone = row(unread)
 		val draft = automationDraftOf(alone, EditContext(served, emptyList()))!!
-		val card = draft.steps.single() as StepDraft.Do
+		val card = draft.steps.single() as StepDraft.Action
 
-		assertTrue(card.action is ActionDraft.Kept)
+		assertTrue(card.action is ActionDraft.Unsupported)
 		assertEquals("Run a function", doesLine(actionDraftOf(unread, served), kindOf(unread), served))
 		assertTrue(editable(alone, served))
 		assertTrue(addableActions(served, draft.steps).none { it.kind == kind })

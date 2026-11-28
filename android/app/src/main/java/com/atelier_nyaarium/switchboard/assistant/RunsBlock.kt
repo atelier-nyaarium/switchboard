@@ -24,7 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.atelier_nyaarium.switchboard.EXACT_KEYBOARD
-import com.atelier_nyaarium.switchboard.FUNCTION_MOVED_LINE
+import com.atelier_nyaarium.switchboard.FUNCTION_CHANGED_LINE
 import com.atelier_nyaarium.switchboard.PickMenu
 import com.atelier_nyaarium.switchboard.REACHES_HEADER
 import com.atelier_nyaarium.switchboard.UNIQUE_LINE
@@ -49,7 +49,7 @@ internal fun FunctionName(name: String, count: Int?) {
 	}
 }
 
-/** The function head, its values, who else it reaches. */
+/** The function head, its parameters, who else it reaches. */
 @Composable
 internal fun RunsBlock(
 	view: RunsView,
@@ -61,7 +61,7 @@ internal fun RunsBlock(
 	val dim = MaterialTheme.colorScheme.onSurfaceVariant
 	Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 		Text(FUNCTION_MARK, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-		if (view.kept) {
+		if (view.unlisted) {
 			Text(FUNCTION_UNLISTED, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = dim)
 		} else {
 			OutlinedTextField(
@@ -78,16 +78,16 @@ internal fun RunsBlock(
 			Icon(Icons.Default.ArrowDropDown, contentDescription = "Run another function")
 		}
 	}
-	if (view.moved) {
+	if (view.changed) {
 		Column {
-			Text(FUNCTION_MOVED_LINE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+			Text(FUNCTION_CHANGED_LINE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 			TextButton(onClick = hapticClick(onReload), enabled = enabled) { Text("Reload") }
 		}
 	}
 	view.invalid?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
 	for (row in view.values) ValueRowView(row, offer, enabled, edit)
-	if (canAddValue(view)) {
-		TextButton(onClick = hapticClick { edit { it.plusFunctionParam() } }, enabled = enabled) { Text("+ Add value") }
+	if (canAddParam(view)) {
+		TextButton(onClick = hapticClick { edit { it.plusFunctionParam() } }, enabled = enabled) { Text("+ Add parameter") }
 	}
 	if (view.makeUnique || view.unique) {
 		OutlinedCard(Modifier.fillMaxWidth()) {
@@ -136,7 +136,7 @@ private fun ValueRowView(row: ValueRow, offer: AutomationOffer, enabled: Boolean
 					enabled = enabled,
 				)
 				IconButton(onClick = hapticClick { edit { it.withoutFunctionParam(row.key.orEmpty()) } }, enabled = enabled) {
-					Icon(Icons.Default.Close, contentDescription = "Remove value")
+					Icon(Icons.Default.Close, contentDescription = "Remove parameter")
 				}
 				row.issue?.let { Text(paramIssueLine(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
 			}
@@ -153,16 +153,16 @@ private fun ValueRowView(row: ValueRow, offer: AutomationOffer, enabled: Boolean
 				param == null -> Text("not given", style = MaterialTheme.typography.bodySmall, color = dim)
 				param.type == FunctionParamType.DEVICE.wire -> PickMenu(
 					label = "Device",
-					choices = offer.switches,
-					picked = offer.switches.find { it.device == set },
+					choices = offer.devices,
+					picked = offer.devices.find { it.device == set },
 					labelOf = { it.name },
-					onPick = { picked -> row.key?.let { key -> edit { it.withFunctionValue(key, picked.device) } } },
+					onPick = { picked -> row.key?.let { key -> edit { it.withFunctionArg(key, picked.device) } } },
 					enabled = enabled,
-					placeholder = "Set a value",
+					placeholder = "Pick a device",
 				)
 				else -> OutlinedTextField(
 					value = set,
-					onValueChange = { typed -> row.key?.let { key -> edit { it.withFunctionValue(key, typed) } } },
+					onValueChange = { typed -> row.key?.let { key -> edit { it.withFunctionArg(key, typed) } } },
 					label = { Text(functionParamTypeText(param.type)) },
 					singleLine = true,
 					keyboardOptions = EXACT_KEYBOARD,

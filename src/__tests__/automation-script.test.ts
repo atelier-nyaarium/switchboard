@@ -12,7 +12,7 @@ import {
 	type ScriptTables,
 } from "../gateway/computed/automationScript.js";
 import { withDoing } from "../gateway/liveConsole/doing.js";
-import { holesOver } from "../gateway/liveConsole/holes.js";
+import { placeholdersOver } from "../gateway/liveConsole/placeholders.js";
 import { type ConsoleEntity, createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { createRestoreRepairs } from "../shared/durable-store.js";
 import { unknown } from "../shared/expressions.js";
@@ -36,7 +36,7 @@ const ODD = "aa:bb:cc:dd:ee:04";
 
 /** Lamp, same-named fans, every naming case. */
 const tables: ScriptTables = {
-	switches: [
+	devices: [
 		{ id: LAMP, name: "Desk lamp" },
 		{ id: FAN, name: "Fan" },
 		{ id: OTHER_FAN, name: "Fan" },
@@ -67,15 +67,15 @@ const tables: ScriptTables = {
 
 const lit = (value: string | number | boolean): StepArg => ({ kind: "literal", value });
 const expr = (text: string): StepArg => ({ kind: "expression", text });
-/** A quoted string with a hole: an expression, written as it stands. */
+/** A template: an expression, written as it stands. */
 const quoted = (body: string): StepArg => ({ kind: "expression", text: `"${body}"` });
 const turn = (device: StepArg, verb = "on"): FunctionStep => ({
-	kind: "do",
+	kind: "action",
 	action: "device_set",
 	args: { device, verb: lit(verb) },
 });
 const tell = (message?: string): FunctionStep => ({
-	kind: "do",
+	kind: "action",
 	action: "tell_assistant",
 	args: { when: lit("now"), ...(message === undefined ? {} : { message: lit(message) }) },
 });
@@ -87,69 +87,73 @@ const spansOf = (source: string) => (read(source).issues ?? []).map((issue) => s
 
 const CANONICAL: Record<string, FunctionStep[]> = {
 	"every statement": [
-		{ kind: "note", text: "Warm the room, then say so." },
-		{ kind: "let", name: "label", value: quoted("Room {device}") },
+		{ kind: "comment", text: "Warm the room, then say so." },
+		{ kind: "variable", name: "label", value: quoted("Room {device}") },
 		{
 			kind: "if",
-			when: 'value < threshold and sensors.value("Hall", "humidity") > 60',
+			condition: 'value < threshold and sensors.value("Hall", "humidity") > 60',
 			steps: [turn(lit(LAMP)), { kind: "wait", minutes: lit(5) }],
 			else: [
 				{
 					kind: "if",
-					when: "value > 30",
+					condition: "value > 30",
 					steps: [{ kind: "throw", text: "Too hot: {value}" }],
-					else: [{ kind: "exit" }],
+					else: [{ kind: "return" }],
 				},
 			],
 		},
 		{
 			kind: "try",
 			steps: [
-				{ kind: "do", action: "ifttt_trigger", args: { event: lit("lamp_on"), value1: lit("{device}") } },
-				{ kind: "call", function: "fn-blink", values: { lamp: lit(LAMP), message: expr("label") } },
+				{ kind: "action", action: "ifttt_trigger", args: { event: lit("lamp_on"), value1: lit("{device}") } },
+				{ kind: "run_function", function: "fn-blink", args: { lamp: lit(LAMP), message: expr("label") } },
 			],
 			catch: [tell("It failed: {e}")],
 		},
 	],
 	"values of each kind": [
-		{ kind: "let", name: "count", value: lit(3) },
-		{ kind: "let", name: "low", value: lit(-0.5) },
-		{ kind: "let", name: "armed", value: lit(true) },
-		{ kind: "let", name: "twice", value: expr("count * 2") },
+		{ kind: "variable", name: "count", value: lit(3) },
+		{ kind: "variable", name: "low", value: lit(-0.5) },
+		{ kind: "variable", name: "armed", value: lit(true) },
+		{ kind: "variable", name: "twice", value: expr("count * 2") },
 		{ kind: "wait", minutes: expr("twice + 1") },
 		{ kind: "throw" },
 	],
 	"a value left out, in the middle and at the end": [
-		{ kind: "do", action: "ifttt_trigger", args: { event: lit("go"), value2: lit("second") } },
+		{ kind: "action", action: "ifttt_trigger", args: { event: lit("go"), value2: lit("second") } },
 		tell(),
-		{ kind: "call", function: "fn-own" },
+		{ kind: "run_function", function: "fn-own" },
 	],
-	"names that two hold, written by id": [turn(lit(FAN), "toggle"), { kind: "call", function: "fn-a" }],
+	"names that two hold, written by id": [turn(lit(FAN), "toggle"), { kind: "run_function", function: "fn-a" }],
 	"a plug by a value, and one no longer held": [turn(expr("lamp"), "off"), turn(lit("aa:bb:cc:dd:ee:99"))],
 	"a plug whose name holds a backslash, braces and quotes": [
 		turn(lit(ODD)),
-		{ kind: "call", function: "fn-blink", values: { lamp: lit(ODD), message: quoted("kept \\\\ {value}") } },
+		{ kind: "run_function", function: "fn-blink", args: { lamp: lit(ODD), message: quoted("kept \\\\ {value}") } },
 	],
 	"a value that reads null, beside one left out": [
-		{ kind: "do", action: "ifttt_trigger", args: { event: lit("go"), value1: expr("(null)"), value3: lit("x") } },
-		{ kind: "let", name: "nothing", value: expr("null") },
-		{ kind: "call", function: "fn-blink", values: { message: expr("null") } },
+		{
+			kind: "action",
+			action: "ifttt_trigger",
+			args: { event: lit("go"), value1: expr("(null)"), value3: lit("x") },
+		},
+		{ kind: "variable", name: "nothing", value: expr("null") },
+		{ kind: "run_function", function: "fn-blink", args: { message: expr("null") } },
 	],
 	"a text with quotes, a line break, a tab and escaped braces": [tell('He said "hi"\n\tnow \\{kept\\} \\\\ {value}')],
-	"a hole whose own strings need no escaping": [
+	"a placeholder whose own strings need no escaping": [
 		tell('{if(cold, "brr", \'ok\')} and {sensors.value("Hall", "t")}'),
 		{ kind: "throw", text: 'No {"a\\nb" + "\\{"}' },
-		{ kind: "let", name: "said", value: expr('"It is {if(cold, "brr", "ok")}" + "!"') },
+		{ kind: "variable", name: "said", value: expr('"It is {if(cold, "brr", "ok")}" + "!"') },
 	],
 	"a constant with braces, a backslash and both quotes": [
-		{ kind: "let", name: "raw", value: lit("as {written} \\ \"here\" 'now'") },
-		{ kind: "call", function: "fn-blink", values: { message: lit("{kept}") } },
+		{ kind: "variable", name: "raw", value: lit("as {written} \\ \"here\" 'now'") },
+		{ kind: "run_function", function: "fn-blink", args: { message: lit("{kept}") } },
 	],
 	"notes: several lines, an empty line, a leading space, and two in a row": [
-		{ kind: "note", text: "first\n\n indented" },
-		{ kind: "note", text: "second" },
-		{ kind: "note", text: "" },
-		{ kind: "exit" },
+		{ kind: "comment", text: "first\n\n indented" },
+		{ kind: "comment", text: "second" },
+		{ kind: "comment", text: "" },
+		{ kind: "return" },
 	],
 	"a block of steps side by side, one holding a try": [
 		{
@@ -161,11 +165,11 @@ const CANONICAL: Record<string, FunctionStep[]> = {
 					steps: [turn(lit(FAN), "off"), { kind: "wait", minutes: lit(1) }],
 					catch: [tell("{e.errors}")],
 				},
-				{ kind: "note", text: "beside the rest" },
+				{ kind: "comment", text: "beside the rest" },
 			],
 		},
 		{ kind: "parallel", steps: [] },
-		{ kind: "exit" },
+		{ kind: "return" },
 	],
 	"tasks started, awaited one by one, all together and the first of several": [
 		{ kind: "start", as: "slow", steps: [{ kind: "wait", minutes: lit(5) }, turn(lit(LAMP))] },
@@ -174,15 +178,15 @@ const CANONICAL: Record<string, FunctionStep[]> = {
 		{ kind: "await", task: "slow" },
 		{ kind: "await", task: "all(slow, quick)", as: "both" },
 		{ kind: "await", task: "any(slow, quick)", as: "first" },
-		{ kind: "if", when: "first == quick and both.done and !slow.failed", steps: [tell("{first}")] },
+		{ kind: "if", condition: "first == quick and both.done and !slow.failed", steps: [tell("{first}")] },
 	],
 	"an else that is not a lone if, and sides left empty": [
 		{
 			kind: "if",
-			when: "armed",
-			else: [{ kind: "if", when: "cold", steps: [{ kind: "exit" }] }, { kind: "exit" }],
+			condition: "armed",
+			else: [{ kind: "if", condition: "cold", steps: [{ kind: "return" }] }, { kind: "return" }],
 		},
-		{ kind: "if", when: "armed" },
+		{ kind: "if", condition: "armed" },
 		{ kind: "try", steps: [], catch: [] },
 	],
 	"a switch with its cases, an empty one, and its default": [
@@ -192,9 +196,9 @@ const CANONICAL: Record<string, FunctionStep[]> = {
 			cases: [
 				{ values: ["mention", 'a "quoted" {brace}'], steps: [tell("Mentioned")] },
 				{ values: ["ci_activity"], steps: [] },
-				{ values: [], steps: [{ kind: "exit" }] },
+				{ values: [], steps: [{ kind: "return" }] },
 			],
-			default: [{ kind: "switch", subject: "label", cases: [{ values: ["x"], steps: [{ kind: "exit" }] }] }],
+			default: [{ kind: "switch", subject: "label", cases: [{ values: ["x"], steps: [{ kind: "return" }] }] }],
 		},
 	],
 };
@@ -211,7 +215,7 @@ describe("a function's steps as script", () => {
 				"} else if (value > 30) {",
 				'\tthrow "Too hot: {value}"',
 				"} else {",
-				"\texit",
+				"\treturn",
 				"}",
 				"try {",
 				'\tifttt.trigger("lamp_on", "{device}")',
@@ -230,7 +234,7 @@ describe("a function's steps as script", () => {
 
 			expect(parsed).toMatchObject({ steps });
 			expect(printed.readOnly).toBeUndefined();
-			expect([parsed.statements, parsed.bindings]).toEqual([printed.statements, printed.bindings]);
+			expect([parsed.statements, parsed.variables]).toEqual([printed.statements, printed.variables]);
 		});
 	}
 
@@ -248,37 +252,37 @@ describe("a function's steps as script", () => {
 			expect({ seed, text: second.text }).toEqual({ seed, text: first.text });
 			expect({ seed, steps: again.steps }).toEqual({ seed, steps: canonical.steps });
 			// A loose value keeps its own spelling in the first print.
-			const reach = (held: { bindings: { name: string; start: number; end: number }[] }) =>
-				held.bindings.map(({ name, start, end }) => [name, start, end]);
+			const reach = (held: { variables: { name: string; start: number; end: number }[] }) =>
+				held.variables.map(({ name, start, end }) => [name, start, end]);
 			expect({ seed, spans: [canonical.statements, reach(canonical)] }).toEqual({
 				seed,
 				spans: [first.statements, reach(first)],
 			});
-			expect({ seed, spans: [again.statements, again.bindings] }).toEqual({
+			expect({ seed, spans: [again.statements, again.variables] }).toEqual({
 				seed,
-				spans: [second.statements, second.bindings],
+				spans: [second.statements, second.variables],
 			});
 			expect(canonical.steps.every((step) => FunctionStepSchema.safeParse(step).success)).toBe(true);
-			// The first round changes no text's meaning: each run and each hole reads as it did.
+			// Round one keeps each meaning.
 			expect({ seed, texts: meaningOf(canonical.steps) }).toEqual({ seed, texts: meaningOf(loose) });
 		}
 	});
 
 	it("spans each step by its path, and offers a kept name after its line and e inside its catch", () => {
-		const source = 'x = 1\nif (a) {\n\texit\n} else if (b) {\n\ty = x\n}\ntry {\n} catch (e) {\n\tthrow "{e}"\n}';
+		const source = 'x = 1\nif (a) {\n\treturn\n} else if (b) {\n\ty = x\n}\ntry {\n} catch (e) {\n\tthrow "{e}"\n}';
 		const parsed = read(source);
 		const cut = (span: { start: number; end: number }) => source.slice(span.start, span.end);
 
 		expect((parsed.statements ?? []).map((held) => [held.step, cut(held).split("\n")[0]])).toEqual([
 			["0", "x = 1"],
 			["1", "if (a) {"],
-			["1.0.0", "exit"],
+			["1.0.0", "return"],
 			["1.1.0", "if (b) {"],
 			["1.1.0.0.0", "y = x"],
 			["2", "try {"],
 			["2.1.0", 'throw "{e}"'],
 		]);
-		expect(parsed.bindings.map((held) => [held.name, cut(held).trim().split("\n")[0]])).toEqual([
+		expect(parsed.variables.map((held) => [held.name, cut(held).trim().split("\n")[0]])).toEqual([
 			["x", "if (a) {"],
 			["y", "}"],
 			["e", "{"],
@@ -286,13 +290,13 @@ describe("a function's steps as script", () => {
 	});
 
 	it("keeps a value's place under its step when a trailing comment becomes a note before it", () => {
-		const source = 'exit\nassistant.tell("now", "{nowhere}") // why';
+		const source = 'return\nassistant.tell("now", "{nowhere}") // why';
 		const parsed = read(source);
 		if (!parsed.steps) throw new Error("it parses");
-		const hole = placeIssue(parsed, { step: "2", param: "message", start: 1, end: 8 });
+		const placeholder = placeIssue(parsed, { step: "2", param: "message", start: 1, end: 8 });
 
-		expect(parsed.steps.map((step) => step.kind)).toEqual(["exit", "note", "do"]);
-		expect(hole && source.slice(hole.start, hole.end)).toBe("nowhere");
+		expect(parsed.steps.map((step) => step.kind)).toEqual(["return", "comment", "action"]);
+		expect(placeholder && source.slice(placeholder.start, placeholder.end)).toBe("nowhere");
 	});
 
 	it("refuses a body past a function's bounds at the first step over, and a value too long", () => {
@@ -300,7 +304,7 @@ describe("a function's steps as script", () => {
 		const many = Array.from({ length: over + 1 }, (_, index) => `x${index} = ${index}`).join("\n");
 		const wide = Array.from(
 			{ length: FUNCTION_STEPS_TOTAL_MAX / 8 + 1 },
-			() => `if (a) {\n${Array.from({ length: 7 }, () => "exit").join("\n")}\n}`,
+			() => `if (a) {\n${Array.from({ length: 7 }, () => "return").join("\n")}\n}`,
 		).join("\n");
 		const long = `x = "${"a".repeat(1001)}"`;
 
@@ -312,37 +316,41 @@ describe("a function's steps as script", () => {
 
 	it("writes two spellings of one meaning one way, and what it reads back is stable", () => {
 		const loose: FunctionStep[] = [
-			{ kind: "let", name: "a", value: expr("  count +\n 1 ") },
-			{ kind: "let", name: "b", value: lit("plain {braces} \\ x") },
-			{ kind: "let", name: "c", value: lit("on") },
+			{ kind: "variable", name: "a", value: expr("  count +\n 1 ") },
+			{ kind: "variable", name: "b", value: lit("plain {braces} \\ x") },
+			{ kind: "variable", name: "c", value: lit("on") },
 			tell("lone \\ backslash"),
-			{ kind: "if", when: " armed ", steps: [], else: [] },
-			{ kind: "note", text: "one\r\ntwo" },
+			{ kind: "if", condition: " armed ", steps: [], else: [] },
+			{ kind: "comment", text: "one\r\ntwo" },
 		];
 		const canonical = stepsOf(print(loose)) as FunctionStep[];
 
 		expect(canonical).toEqual([
-			{ kind: "let", name: "a", value: expr("count +  1") },
+			{ kind: "variable", name: "a", value: expr("count +  1") },
 			// A constant is as written, whatever it holds.
-			{ kind: "let", name: "b", value: lit("plain {braces} \\ x") },
-			{ kind: "let", name: "c", value: lit("on") },
+			{ kind: "variable", name: "b", value: lit("plain {braces} \\ x") },
+			{ kind: "variable", name: "c", value: lit("on") },
 			tell("lone \\\\ backslash"),
-			{ kind: "if", when: "armed" },
-			{ kind: "note", text: "one\ntwo" },
+			{ kind: "if", condition: "armed" },
+			{ kind: "comment", text: "one\ntwo" },
 		]);
 		expect(stepsOf(print(canonical))).toEqual(canonical);
 	});
 
 	it("keeps an expression an expression, though it is one literal or names a plug", () => {
 		const held: FunctionStep[] = [
-			{ kind: "let", name: "a", value: expr("5") },
-			{ kind: "let", name: "b", value: expr('"plain \\{braces\\}"') },
-			{ kind: "let", name: "c", value: expr("-2") },
-			{ kind: "let", name: "d", value: expr("null") },
+			{ kind: "variable", name: "a", value: expr("5") },
+			{ kind: "variable", name: "b", value: expr('"plain \\{braces\\}"') },
+			{ kind: "variable", name: "c", value: expr("-2") },
+			{ kind: "variable", name: "d", value: expr("null") },
 			turn(expr('"Desk lamp"')),
-			{ kind: "do", action: "tell_assistant", args: { when: lit("now"), message: expr('"is {a}"') } },
+			{ kind: "action", action: "tell_assistant", args: { when: lit("now"), message: expr('"is {a}"') } },
 			turn(expr('"Lamp {a}"')),
-			{ kind: "do", action: "ifttt_trigger", args: { event: lit("go"), value1: expr("null"), value3: lit("x") } },
+			{
+				kind: "action",
+				action: "ifttt_trigger",
+				args: { event: lit("go"), value1: expr("null"), value3: lit("x") },
+			},
 		];
 		const settled = stepsOf(print(held)) as FunctionStep[];
 
@@ -357,7 +365,7 @@ describe("a function's steps as script", () => {
 			'ifttt.trigger("go", (null), null, "x")',
 		]);
 		expect(
-			settled.flatMap((step) => Object.values("args" in step ? step.args : {}).map((arg) => arg.kind)),
+			settled.flatMap((step) => Object.values("args" in step ? (step.args ?? {}) : {}).map((arg) => arg.kind)),
 		).toEqual([
 			"expression",
 			"literal",
@@ -380,16 +388,16 @@ describe("a function's steps as script", () => {
 			'assistant.tell("now", "a \\{b\\} {value}")',
 		]);
 		expect(stepsOf('ifttt.trigger("a\\\\b", "c\\\\d \\{e\\}")')).toEqual([
-			{ kind: "do", action: "ifttt_trigger", args: { event: lit("a\\b"), value1: lit("c\\\\d \\{e\\}") } },
+			{ kind: "action", action: "ifttt_trigger", args: { event: lit("a\\b"), value1: lit("c\\\\d \\{e\\}") } },
 		]);
 		expect(
 			stepsOf('x = "a {b}"\ny = "plain"\nfunctions.run("Blink", {message: "\\{kept\\}", lamp: "Desk lamp"})'),
 		).toEqual([
-			{ kind: "let", name: "x", value: quoted("a {b}") },
-			{ kind: "let", name: "y", value: lit("plain") },
-			{ kind: "call", function: "fn-blink", values: { lamp: lit(LAMP), message: lit("{kept}") } },
+			{ kind: "variable", name: "x", value: quoted("a {b}") },
+			{ kind: "variable", name: "y", value: lit("plain") },
+			{ kind: "run_function", function: "fn-blink", args: { lamp: lit(LAMP), message: lit("{kept}") } },
 		]);
-		// A plug, a word and a function's name take no hole.
+		// A plug, a word and a function's name take no placeholder.
 		expect(spansOf('devices.set("{room}", "on")\nifttt.trigger("go {x}")\nfunctions.run("{f}")')).toEqual([
 			'"{room}"',
 			'"go {x}"',
@@ -397,25 +405,25 @@ describe("a function's steps as script", () => {
 		]);
 	});
 
-	it("reads only what would not read back: a value past its cap as text, a text with an open hole, a value a function does not take", () => {
+	it("reads only what would not read back: a value past its cap as text, a text with an open placeholder, a value a function does not take", () => {
 		const grown = tell("a\\b".repeat(333));
 		const open = tell("It is {value");
-		const stray: FunctionStep = { kind: "call", function: "fn-a", values: { nope: lit(1) } };
+		const stray: FunctionStep = { kind: "run_function", function: "fn-a", args: { nope: lit(1) } };
 		const long = Array.from({ length: 30 }, (): FunctionStep => tell("x".repeat(999)));
 		// One line would close this string and make it mean something.
-		const broken: FunctionStep = { kind: "let", name: "a", value: expr('"abc\n" + 1') };
+		const broken: FunctionStep = { kind: "variable", name: "a", value: expr('"abc\n" + 1') };
 
 		// A string holds no line break of either kind, and space is the lexer's alone.
-		const returned: FunctionStep = { kind: "if", when: 'y == "a\rb"', steps: [{ kind: "exit" }] };
-		const inHole = tell('x {"a\rb"} y');
-		const padded: FunctionStep = { kind: "let", name: "a", value: expr("\u00a0x\u00a0") };
+		const returned: FunctionStep = { kind: "if", condition: 'y == "a\rb"', steps: [{ kind: "return" }] };
+		const inPlaceholder = tell('x {"a\rb"} y');
+		const padded: FunctionStep = { kind: "variable", name: "a", value: expr("\u00a0x\u00a0") };
 
 		expect(
-			[grown, open, stray, broken, returned, inHole, padded].map(
+			[grown, open, stray, broken, returned, inPlaceholder, padded].map(
 				(step) => printScript([step], tables).readOnly !== undefined,
 			),
 		).toEqual([true, true, true, true, true, true, true]);
-		expect(printScript(long, tables)).toMatchObject({ text: "", statements: [], bindings: [] });
+		expect(printScript(long, tables)).toMatchObject({ text: "", statements: [], variables: [] });
 		expect(printScript(long, tables).readOnly).toBeDefined();
 		expect(spansOf('functions.run("Twin", {nope: 1})\nfunctions.run("fn-a", {nope: 1})')).toEqual([
 			'"Twin"',
@@ -423,18 +431,18 @@ describe("a function's steps as script", () => {
 		]);
 	});
 
-	it("keeps a hole's expression as written: its strings sit in the script unescaped, and their own escapes stay theirs", () => {
-		const hole = tell('{"a\\nb"} and {x == "}"} and {if(a, "\\"", \'\\{\')}');
-		const printed = print([hole]);
+	it("keeps a placeholder's expression as written: its strings sit in the script unescaped, and their own escapes stay theirs", () => {
+		const placeholder = tell('{"a\\nb"} and {x == "}"} and {if(a, "\\"", \'\\{\')}');
+		const printed = print([placeholder]);
 		const strings = (source: string) =>
 			lexConsole(source)
 				.filter((token) => token.kind === "string")
 				.map((token) => token.value);
 
 		expect(printed).toBe(
-			`assistant.tell("now", "${(hole.kind === "do" && hole.args.message?.kind === "literal" && hole.args.message.value) || ""}")`,
+			`assistant.tell("now", "${(placeholder.kind === "action" && placeholder.args.message?.kind === "literal" && placeholder.args.message.value) || ""}")`,
 		);
-		expect(stepsOf(printed)).toEqual([hole]);
+		expect(stepsOf(printed)).toEqual([placeholder]);
 		expect(strings('"a\\nb" + "\\{" + "\\q"')).toEqual(["a\nb", "{", "\\q"]);
 	});
 
@@ -462,15 +470,15 @@ describe("a function's steps as script", () => {
 	});
 
 	it("reads a text pasted with carriage returns as the same steps, with each span on its own characters", () => {
-		const source = "// abc\r\n// def\r\nx = (1 +\r\n  bogus.thing)\r\nexit\r\n";
+		const source = "// abc\r\n// def\r\nx = (1 +\r\n  bogus.thing)\r\nreturn\r\n";
 		const parsed = read(source);
 		if (!parsed.steps) throw new Error("it parses");
 		const where = placeIssue(parsed, { step: "1", param: "value", start: 8, end: 13 });
 
 		expect(parsed.steps).toEqual([
-			{ kind: "note", text: "abc\ndef" },
-			{ kind: "let", name: "x", value: expr("(1 +    bogus.thing)") },
-			{ kind: "exit" },
+			{ kind: "comment", text: "abc\ndef" },
+			{ kind: "variable", name: "x", value: expr("(1 +    bogus.thing)") },
+			{ kind: "return" },
 		]);
 		expect(where && source.slice(where.start, where.end)).toBe("bogus");
 		expect(stepsOf(print(parsed.steps))).toEqual(parsed.steps);
@@ -479,23 +487,23 @@ describe("a function's steps as script", () => {
 	it("reads a plug or a function by its name, and either quote", () => {
 		expect(stepsOf("devices.set('Desk lamp', \"off\")\nfunctions.run(\"Blink\", {lamp: 'Desk lamp'})")).toEqual([
 			turn(lit(LAMP), "off"),
-			{ kind: "call", function: "fn-blink", values: { lamp: lit(LAMP) } },
+			{ kind: "run_function", function: "fn-blink", args: { lamp: lit(LAMP) } },
 		]);
 		expect(stepsOf(`devices.set("${OTHER_FAN}", "on")`)).toEqual([turn(lit(OTHER_FAN))]);
 	});
 
 	it("turns a comment after a statement into a note before it, and one line after another into one note", () => {
-		expect(stepsOf("// a\n// b\n\n// c\nexit // done\nif (armed) { // why\n\texit\n}")).toEqual([
-			{ kind: "note", text: "a\nb" },
-			{ kind: "note", text: "c" },
-			{ kind: "note", text: "done" },
-			{ kind: "exit" },
-			{ kind: "if", when: "armed", steps: [{ kind: "note", text: "why" }, { kind: "exit" }] },
+		expect(stepsOf("// a\n// b\n\n// c\nreturn // done\nif (armed) { // why\n\treturn\n}")).toEqual([
+			{ kind: "comment", text: "a\nb" },
+			{ kind: "comment", text: "c" },
+			{ kind: "comment", text: "done" },
+			{ kind: "return" },
+			{ kind: "if", condition: "armed", steps: [{ kind: "comment", text: "why" }, { kind: "return" }] },
 		]);
 	});
 
 	it("refuses what it cannot keep, with the span it means, and carries on to the next line", () => {
-		expect(spansOf('devices.set("Fan", "on")\nfunctions.run("Twin")\nfunctions.run("Nobody")\nexit')).toEqual([
+		expect(spansOf('devices.set("Fan", "on")\nfunctions.run("Twin")\nfunctions.run("Nobody")\nreturn')).toEqual([
 			'"Fan"',
 			'"Twin"',
 			'"Nobody"',
@@ -507,8 +515,8 @@ describe("a function's steps as script", () => {
 			'"open',
 		]);
 		expect(spansOf("if armed {\n}\nelse {\n}\ntry {\n}\nany x")).toEqual(["armed", "else", "try", "any"]);
-		expect(spansOf("if (armed) {\n\texit")).toEqual(["if"]);
-		expect(spansOf("}\nexit")).toEqual(["}"]);
+		expect(spansOf("if (armed) {\n\treturn")).toEqual(["if"]);
+		expect(spansOf("}\nreturn")).toEqual(["}"]);
 		expect(spansOf('f(a, // one\n b)\nifttt.trigger("a", "b", "c", "d", "e")\nthrow 5\nwait()')).toEqual([
 			"// one",
 			'ifttt.trigger("a", "b", "c", "d", "e")',
@@ -518,31 +526,31 @@ describe("a function's steps as script", () => {
 		expect(spansOf("x = (1 +")).toHaveLength(1);
 	});
 
-	it("keeps one mistake to its line: an open string, an open hole, an open bracket, a comment in a bracket", () => {
-		expect(spansOf('x = "abc\ny = 1\nexit')).toEqual(['"abc']);
-		expect(spansOf('if (a) {\n\tassistant.tell("now", "{x")\n}\nexit\nexit')).toHaveLength(1);
-		expect(spansOf('assistant.tell("now", "Hi {name")\nx = 1\nexit')).toHaveLength(1);
-		expect(stepsOf("y = 1\nexit")).toHaveLength(2);
-		expect(spansOf("x = round(1,\ny = 2\nexit")).toHaveLength(1);
-		expect(spansOf("x = [1, // one\n 2]\nexit")).toEqual(["// one"]);
+	it("keeps one mistake to its line: an open string, an open placeholder, an open bracket, a comment in a bracket", () => {
+		expect(spansOf('x = "abc\ny = 1\nreturn')).toEqual(['"abc']);
+		expect(spansOf('if (a) {\n\tassistant.tell("now", "{x")\n}\nreturn\nreturn')).toHaveLength(1);
+		expect(spansOf('assistant.tell("now", "Hi {name")\nx = 1\nreturn')).toHaveLength(1);
+		expect(stepsOf("y = 1\nreturn")).toHaveLength(2);
+		expect(spansOf("x = round(1,\ny = 2\nreturn")).toHaveLength(1);
+		expect(spansOf("x = [1, // one\n 2]\nreturn")).toEqual(["// one"]);
 	});
 
 	it("reads a brace by where it stands: a record in a value, a block after its word, on its line or the next", () => {
-		expect(stepsOf("x = {a: 1,\n\tb: [2,\n\t3]}\nif (x.a == 1)\n{\n\texit\n}\nelse\n{\n\texit\n}")).toEqual([
-			{ kind: "let", name: "x", value: expr("{a: 1, \tb: [2, \t3]}") },
-			{ kind: "if", when: "x.a == 1", steps: [{ kind: "exit" }], else: [{ kind: "exit" }] },
+		expect(stepsOf("x = {a: 1,\n\tb: [2,\n\t3]}\nif (x.a == 1)\n{\n\treturn\n}\nelse\n{\n\treturn\n}")).toEqual([
+			{ kind: "variable", name: "x", value: expr("{a: 1, \tb: [2, \t3]}") },
+			{ kind: "if", condition: "x.a == 1", steps: [{ kind: "return" }], else: [{ kind: "return" }] },
 		]);
-		expect(stepsOf("try {\n}\ncatch (e) {\n}\nparallel { exit }")).toEqual([
+		expect(stepsOf("try {\n}\ncatch (e) {\n}\nparallel { return }")).toEqual([
 			{ kind: "try", steps: [], catch: [] },
-			{ kind: "parallel", steps: [{ kind: "exit" }] },
+			{ kind: "parallel", steps: [{ kind: "return" }] },
 		]);
-		expect(spansOf("{\n\texit\n}")).toEqual(["{"]);
+		expect(spansOf("{\n\treturn\n}")).toEqual(["{"]);
 	});
 
 	it("counts a value's nodes where it is saved, so a long value reads in script as it saves", () => {
 		const long = Array.from({ length: 127 }, () => "1").join(" + ");
 		const steps: FunctionStep[] = [
-			{ kind: "do", action: "tell_assistant", args: { when: lit("now"), message: expr(long) } },
+			{ kind: "action", action: "tell_assistant", args: { when: lit("now"), message: expr(long) } },
 		];
 
 		expect(stepsOf(print(steps))).toEqual(steps);
@@ -558,13 +566,13 @@ describe("a function's steps as script", () => {
 			return at && source.slice(at.start, at.end);
 		};
 
-		expect(parsed.steps).toEqual([{ kind: "do", action: "ifttt_trigger", args: { event: lit("a{b}c") } }]);
+		expect(parsed.steps).toEqual([{ kind: "action", action: "ifttt_trigger", args: { event: lit("a{b}c") } }]);
 		expect([cut(0, 1), cut(1, 4), cut(4, 5)]).toEqual(["a", "\\{b\\}", "c"]);
 	});
 
 	it("reads a switch's values as quoted constants and drops an empty default", () => {
-		expect(stepsOf("switch (label) {\n\tcase \"a\", 'b' {\n\t\texit\n\t}\n\tdefault {\n\t}\n}")).toEqual([
-			{ kind: "switch", subject: "label", cases: [{ values: ["a", "b"], steps: [{ kind: "exit" }] }] },
+		expect(stepsOf("switch (label) {\n\tcase \"a\", 'b' {\n\t\treturn\n\t}\n\tdefault {\n\t}\n}")).toEqual([
+			{ kind: "switch", subject: "label", cases: [{ values: ["a", "b"], steps: [{ kind: "return" }] }] },
 		]);
 		expect(spansOf('switch (label) {\n\tcase "{x}" {\n\t}\n}\nswitch (label) {\n\tcase 1 {\n\t}\n}')).toEqual([
 			'"{x}"',
@@ -582,9 +590,9 @@ describe("a function's steps as script", () => {
 
 	it("refuses a case or a default outside a switch, one after its default, and a line that is neither", () => {
 		expect(spansOf('case "a" {\n}\ndefault {\n}\nswitch label {\n}')).toEqual(["case", "default", "label"]);
-		expect(spansOf('switch (label) {\n\tdefault {\n\t}\n\tcase "a" {\n\t}\n}\nexit')).toEqual(["case"]);
-		expect(spansOf("switch (label) {\n\texit\n\tcase {\n\t}\n}\nx = 1")).toEqual(["exit"]);
-		expect(stepsOf('switch (label) {\n\tcase "a" {\n\t}\n}\nexit')).toHaveLength(2);
+		expect(spansOf('switch (label) {\n\tdefault {\n\t}\n\tcase "a" {\n\t}\n}\nreturn')).toEqual(["case"]);
+		expect(spansOf("switch (label) {\n\treturn\n\tcase {\n\t}\n}\nx = 1")).toEqual(["return"]);
+		expect(stepsOf('switch (label) {\n\tcase "a" {\n\t}\n}\nreturn')).toHaveLength(2);
 	});
 
 	it("reads a task started on one line as a block of one, and refuses a start or an await of nothing", () => {
@@ -607,21 +615,26 @@ describe("a function's steps as script", () => {
 	});
 
 	it("reads only a step a script cannot write, and a call to a function not held", () => {
-		const kept = { kind: "do", action: "device_set", as: "result", args: { device: lit(LAMP), verb: lit("on") } };
-		const unknown = { kind: "do", action: "launch_rocket", args: {} };
-		const gone = { kind: "call", function: "fn-gone" };
+		const kept = {
+			kind: "action",
+			action: "device_set",
+			as: "result",
+			args: { device: lit(LAMP), verb: lit("on") },
+		};
+		const unknown = { kind: "action", action: "launch_rocket", args: {} };
+		const gone = { kind: "run_function", function: "fn-gone" };
 
 		expect(
 			[kept, unknown, gone].map((step) => printScript([step as FunctionStep], tables).readOnly !== undefined),
 		).toEqual([true, true, true]);
-		expect(printScript([unknown as FunctionStep, { kind: "exit" }], tables).text.split("\n")[1]).toBe("exit");
+		expect(printScript([unknown as FunctionStep, { kind: "return" }], tables).text.split("\n")[1]).toBe("return");
 	});
 
 	it("reads only a stored name the language took, and quotes such a name where a call gives it", () => {
 		const taken = ["wait", "all", "and", "true", "default"].map((name) =>
-			printScript([{ kind: "let", name, value: lit(1) }], tables),
+			printScript([{ kind: "variable", name, value: lit(1) }], tables),
 		);
-		const given: FunctionStep = { kind: "call", function: "fn-old", values: { and: lit(1), wait: lit(2) } };
+		const given: FunctionStep = { kind: "run_function", function: "fn-old", args: { and: lit(1), wait: lit(2) } };
 
 		expect(taken.map((printed) => printed.readOnly !== undefined)).toEqual([true, true, true, true, true]);
 		expect(print([given])).toBe('functions.run("Old names", {"and": 1, wait: 2})');
@@ -629,18 +642,18 @@ describe("a function's steps as script", () => {
 	});
 
 	it("places a save's refusal in the script, through a text's escapes", () => {
-		const source = 'exit\nassistant.tell("now", "a\\"b {nowhere}")';
+		const source = 'return\nassistant.tell("now", "a\\"b {nowhere}")';
 		const parsed = read(source);
 		if (!parsed.steps) throw new Error("it parses");
 		// The text is `a"b {nowhere}`: the name sits at 5 to 12.
-		const hole = placeIssue(parsed, { step: "1", param: "message", start: 5, end: 12 });
+		const placeholder = placeIssue(parsed, { step: "1", param: "message", start: 5, end: 12 });
 		const whole = placeIssue(parsed, { step: "1", param: "when" });
 		const statement = placeIssue(parsed, { step: "0" });
 
-		expect([hole, whole, statement].map((span) => span && source.slice(span.start, span.end))).toEqual([
+		expect([placeholder, whole, statement].map((span) => span && source.slice(span.start, span.end))).toEqual([
 			"nowhere",
 			'"now"',
-			"exit",
+			"return",
 		]);
 		expect(placeIssue(parsed, { step: "7" })).toBeNull();
 	});
@@ -694,7 +707,7 @@ const PIECES = [
 	"{'q\\'s' + \"\\\\\"}",
 	"{if(a, \"x\", 'y')}",
 ];
-/** What a constant may hold and a text may not: a brace that opens no hole. */
+/** A brace opening no placeholder. */
 const LOOSE = [...PIECES, "{", "{open"];
 const EXPRESSIONS = [
 	"count + 1",
@@ -723,7 +736,7 @@ function drawn(seed: number): FunctionStep[] {
 	const draw = drawer(seed);
 	const drawnFrom = (pieces: readonly string[]) =>
 		Array.from({ length: draw.int(6) }, () => draw.pick(pieces)).join("");
-	/** A text a save keeps: its holes read. */
+	/** A text with placeholders read. */
 	const text = () => {
 		const said = drawnFrom(PIECES);
 		return parseConsoleText(said).issues.length === 0 ? said : "";
@@ -748,15 +761,15 @@ function drawn(seed: number): FunctionStep[] {
 		if (left-- <= 0) return null;
 		const nested = depth < 3;
 		return draw.pick<() => FunctionStep>([
-			() => ({ kind: "note", text: constant() }),
-			() => ({ kind: "let", name: draw.pick(NAMES), value: value() }),
-			() => ({ kind: "exit" }),
+			() => ({ kind: "comment", text: constant() }),
+			() => ({ kind: "variable", name: draw.pick(NAMES), value: value() }),
+			() => ({ kind: "return" }),
 			() => (draw.chance(0.3) ? { kind: "throw" } : { kind: "throw", text: text() }),
 			() => ({ kind: "wait", minutes: draw.pick([lit(5), lit(0.25), expr("count * 2")]) }),
 			() => turn(device(), draw.pick(VERBS)),
 			() => (draw.chance(0.4) ? tell() : tell(text())),
 			() => ({
-				kind: "do",
+				kind: "action",
 				action: "ifttt_trigger",
 				args: {
 					event: draw.pick([lit("go"), lit(constant() || "e"), expr("label")]),
@@ -765,7 +778,7 @@ function drawn(seed: number): FunctionStep[] {
 				},
 			}),
 			() => ({
-				kind: "call",
+				kind: "run_function",
 				function: "fn-blink",
 				...(draw.chance(0.6)
 					? {
@@ -778,8 +791,13 @@ function drawn(seed: number): FunctionStep[] {
 			}),
 			() =>
 				nested
-					? { kind: "if", when: draw.pick(EXPRESSIONS), steps: list(depth + 1, 3), else: list(depth + 1, 2) }
-					: { kind: "exit" },
+					? {
+							kind: "if",
+							condition: draw.pick(EXPRESSIONS),
+							steps: list(depth + 1, 3),
+							else: list(depth + 1, 2),
+						}
+					: { kind: "return" },
 			() =>
 				nested
 					? {
@@ -791,13 +809,13 @@ function drawn(seed: number): FunctionStep[] {
 							})),
 							...(draw.chance(0.5) ? { default: list(depth + 1, 2) } : {}),
 						}
-					: { kind: "exit" },
-			() => (nested ? { kind: "try", steps: list(depth + 1, 3), catch: list(depth + 1, 2) } : { kind: "exit" }),
-			() => (nested ? { kind: "parallel", steps: list(depth + 1, 3) } : { kind: "exit" }),
+					: { kind: "return" },
+			() => (nested ? { kind: "try", steps: list(depth + 1, 3), catch: list(depth + 1, 2) } : { kind: "return" }),
+			() => (nested ? { kind: "parallel", steps: list(depth + 1, 3) } : { kind: "return" }),
 			() =>
 				nested
 					? { kind: "start", ...(draw.chance(0.5) ? { as: "task" } : {}), steps: list(depth + 1, 2) }
-					: { kind: "exit" },
+					: { kind: "return" },
 			() => ({
 				kind: "await",
 				task: draw.pick(["task", "all(task)", "any(task, task)"]),
@@ -808,14 +826,14 @@ function drawn(seed: number): FunctionStep[] {
 	return list(1, 7);
 }
 
-/** What each value says: a text's runs as they fill and its holes as written, a constant as it is. */
+/** What each value says: a text's runs as they fill and its placeholders as written, a constant as it is. */
 function meaningOf(steps: readonly FunctionStep[]): unknown[] {
 	/** Runs join where an escape stood, so what a run says is compared whole. */
 	const said = (text: string) => {
 		const out: unknown[] = [];
 		for (const part of lexConsoleText(text)) {
 			const last = out.at(-1) as [string, string] | undefined;
-			if (part.kind === "hole") out.push(["hole", text.slice(part.start, part.end), part.closed]);
+			if (part.kind === "placeholder") out.push(["placeholder", text.slice(part.start, part.end), part.closed]);
 			else if (last?.[0] === "run") last[1] += part.value;
 			else out.push(["run", part.value]);
 		}
@@ -825,7 +843,7 @@ function meaningOf(steps: readonly FunctionStep[]): unknown[] {
 	const texts = new Set(["message", "value1", "value2", "value3"]);
 	return steps.flatMap((step): unknown[] => {
 		switch (step.kind) {
-			case "do":
+			case "action":
 				return Object.entries(step.args).map(([name, arg]) =>
 					arg.kind === "literal" && typeof arg.value === "string" && texts.has(name)
 						? said(arg.value)
@@ -833,10 +851,10 @@ function meaningOf(steps: readonly FunctionStep[]): unknown[] {
 				);
 			case "throw":
 				return step.text === undefined ? [] : [said(step.text)];
-			case "let":
+			case "variable":
 				return [value(step.value)];
-			case "call":
-				return Object.values(step.values ?? {}).map(value);
+			case "run_function":
+				return Object.values(step.args ?? {}).map(value);
 			case "if":
 				return [...meaningOf(step.steps ?? []), ...meaningOf(step.else ?? [])];
 			case "switch":
@@ -903,7 +921,7 @@ function stage() {
 		newIncarnation: () => `a${++n}`,
 		now: () => 1_000,
 		input: () => ({ type: { type: "number", integral: false }, value: unknown("not heard") }),
-		offers: () => ({ numbers: [], switches: [{ device: LAMP, name: "Desk lamp" }] }),
+		offers: () => ({ numbers: [], devices: [{ device: LAMP, name: "Desk lamp" }] }),
 		previewEvent: async () => ({ events: [] }) as never,
 		scriptVocabulary: () => REGISTRY.projection("script"),
 		automations: {
@@ -912,10 +930,10 @@ function stage() {
 			eventFields: () => ["reason"],
 			eventChoices: (_source, field) => (field === "reason" ? ["mention", "assign"] : null),
 			entropy: (size) => crypto.randomBytes(size),
-			holes: () => holesOver(REGISTRY),
+			placeholders: () => placeholdersOver(REGISTRY),
 			actions: {
 				ready: () => true,
-				switchName: (device) => (device === LAMP ? "Desk lamp" : null),
+				deviceName: (device) => (device === LAMP ? "Desk lamp" : null),
 				deviceSet: async () => ({ word: "done" }),
 				iftttTrigger: async () => ({ word: "done" }),
 			},
@@ -943,18 +961,18 @@ function stage() {
 
 describe("the script's console reads", () => {
 	const steps: FunctionStep[] = [
-		{ kind: "let", name: "humid", value: expr('sensors.value("Hall", "humidity")') },
-		{ kind: "let", name: "damp", value: expr("humid > 60 and value < threshold") },
-		{ kind: "let", name: "first", value: expr("sensors.list[0].name") },
+		{ kind: "variable", name: "humid", value: expr('sensors.value("Hall", "humidity")') },
+		{ kind: "variable", name: "damp", value: expr("humid > 60 and value < threshold") },
+		{ kind: "variable", name: "first", value: expr("sensors.list[0].name") },
 		{
 			kind: "try",
 			steps: [turn(lit(LAMP))],
-			catch: [{ kind: "let", name: "why", value: expr("e.message") }, tell("{why}")],
+			catch: [{ kind: "variable", name: "why", value: expr("e.message") }, tell("{why}")],
 		},
-		{ kind: "let", name: "humid", value: lit("gone") },
-		{ kind: "let", name: "odd", value: expr("damp[0]") },
-		{ kind: "let", name: "joined", value: expr('first + " here"') },
-		{ kind: "let", name: "said", value: quoted("{humid} now") },
+		{ kind: "variable", name: "humid", value: lit("gone") },
+		{ kind: "variable", name: "odd", value: expr("damp[0]") },
+		{ kind: "variable", name: "joined", value: expr('first + " here"') },
+		{ kind: "variable", name: "said", value: quoted("{humid} now") },
 	];
 
 	it("prints a function with each name typed where it is offered, and parses that text back to the same answer", () => {
@@ -973,13 +991,13 @@ describe("the script's console reads", () => {
 			"try {",
 		]);
 		expect(typed).toEqual([
-			["value", "Number", 0, end],
+			["reading", "Number", 0, end],
 			["device", "Text", 0, end],
 			["measure", "Text", 0, end],
 			["threshold", "Number", 0, end],
 			["room", "Device", 0, end],
 			["humid", "Number", at('"humidity")'), at('humid = "gone"')],
-			["damp", "Truth", at("< threshold"), end],
+			["damp", "Boolean", at("< threshold"), end],
 			["first", "Text", at("[0].name"), end],
 			[
 				"e",
@@ -1006,8 +1024,8 @@ describe("the script's console reads", () => {
 			{
 				name: "Task",
 				members: [
-					{ name: "done", type: "Truth" },
-					{ name: "failed", type: "Truth" },
+					{ name: "done", type: "Boolean" },
+					{ name: "failed", type: "Boolean" },
 					{ name: "error", type: "Error" },
 				],
 			},
@@ -1039,8 +1057,8 @@ describe("the script's console reads", () => {
 		];
 		const text = 'functions.run("New name")\nfunctions.run("Fresh", {lamp: "Desk lamp"})';
 		const calls: FunctionStep[] = [
-			{ kind: "call", function: "fn-old" },
-			{ kind: "call", function: "fn-new", values: { lamp: lit(LAMP) } },
+			{ kind: "run_function", function: "fn-old" },
+			{ kind: "run_function", function: "fn-new", args: { lamp: lit(LAMP) } },
 		];
 
 		expect(stored).toMatchObject({ stored: true });
@@ -1054,14 +1072,14 @@ describe("the script's console reads", () => {
 		const { parse } = stage();
 		const broken = parse({ text: 'kept = 1\nwait(\nlater = "x"', trigger: crossing });
 		const placed = parse({
-			text: 'exit\nassistant.tell("now", "{nowhere}")',
+			text: 'return\nassistant.tell("now", "{nowhere}")',
 			place: { step: "1", param: "message", start: 1, end: 8 },
 		});
 
 		expect(broken.steps).toBeUndefined();
 		expect(broken.issues).toHaveLength(1);
 		expect(broken.statements).toEqual([]);
-		expect(broken.names.map((held) => held.name)).toEqual(["value", "device", "measure", "threshold", "kept"]);
+		expect(broken.names.map((held) => held.name)).toEqual(["reading", "device", "measure", "threshold", "kept"]);
 		expect(
 			parse({ text: "x = event.reason", trigger: { kind: "event", source: "github", conditions: [] } }),
 		).toMatchObject({
@@ -1072,8 +1090,8 @@ describe("the script's console reads", () => {
 				{ name: "Event", members: [{ name: "id" }, { name: "title" }, { name: "url" }, { name: "reason" }] },
 			],
 		});
-		expect(placed.placed).toEqual({ start: 29, end: 36 });
-		expect(parse({ text: "exit", place: { step: "4" } }).placed).toBeUndefined();
+		expect(placed.placed).toEqual({ start: 31, end: 38 });
+		expect(parse({ text: "return", place: { step: "4" } }).placed).toBeUndefined();
 	});
 
 	it("answers every issue of the steps by its level, where it sits in the text", () => {
@@ -1090,11 +1108,11 @@ describe("the script's console reads", () => {
 		]);
 		expect(levelsOf("wait(")).toEqual([[expect.any(String), "error"]]);
 
-		expect(cutOf('exit\nassistant.tell("now", "a\\"b {nowhere}")')).toEqual([["nowhere"]]);
+		expect(cutOf('return\nassistant.tell("now", "a\\"b {nowhere}")')).toEqual([["nowhere"]]);
 		expect(cutOf('x = 1\nif (devices.set("Desk lamp", "on")) {\n}').flat()).toEqual(["devices.set"]);
 		expect(cutOf('devices.set("aa:bb:cc:dd:ee:99", "on")').flat()).toEqual(['"aa:bb:cc:dd:ee:99"']);
 		expect(cutOf('devices.set("Desk lamp", "sideways")').flat()).toEqual(['"sideways"']);
-		expect(cutOf("exit\nsensors = 1").flat()).toEqual(["sensors"]);
+		expect(cutOf("return\nsensors = 1").flat()).toEqual(["sensors"]);
 		expect(parse({ text: 'devices.set("Desk lamp", "sideways")' }).steps).toHaveLength(1);
 		expect(cutOf('devices.set("Desk lamp", "on")\nwait(5)')).toEqual([]);
 	});
@@ -1120,7 +1138,7 @@ describe("the script's console reads", () => {
 	it("says a printed step it cannot write back reads only, and still spans each step", () => {
 		const { print } = stage();
 		const printed = print({
-			steps: [{ kind: "do", action: "device_set", as: "result", args: {} }, { kind: "exit" }],
+			steps: [{ kind: "action", action: "device_set", as: "result", args: {} }, { kind: "return" }],
 		});
 
 		expect(printed.readOnly).toBeDefined();

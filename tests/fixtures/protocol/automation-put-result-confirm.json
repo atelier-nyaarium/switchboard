@@ -19,7 +19,7 @@
 				{
 					"kind": "tell_assistant",
 					"when": "quietly",
-					"message": "It is {value} at {device}."
+					"message": "It is {reading} at {device}."
 				}
 			]
 		},

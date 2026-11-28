@@ -31,11 +31,11 @@ export interface WalkAction {
 	action: LeafAction;
 }
 
-/** Called function step, at any depth. */
+/** A step of a function it runs, at any depth. */
 export interface WalkStep<K extends StepKind = StepKind> {
 	reach: "step";
 	path: string;
-	/** Its call's path. */
+	/** The path of the step that runs its function. */
 	site: string;
 	/** In its own list. */
 	index: number;
@@ -48,22 +48,22 @@ export interface WalkStep<K extends StepKind = StepKind> {
 /** Unexpanded, not held, already above it, or past the walk's bound. */
 export type Unfollowed = "not-expanded" | "missing" | "loop" | "budget";
 
-/** Steps one walk answers before it follows no further call. */
+/** Steps one walk answers before it follows no further function. */
 export const WALK_ENTRIES_MAX = 256;
-/** Functions one run may enter; a walk follows no call past it. */
+/** Functions one run may enter; a walk follows no function past it. */
 export const RUN_FRAMES_MAX = 256;
 
-export interface UnfollowedCall<R extends Unfollowed = Unfollowed> {
-	reach: "unfollowedCall";
+export interface UnfollowedFunction<R extends Unfollowed = Unfollowed> {
+	reach: "unfollowedFunction";
 	path: string;
-	call: RunFunction;
+	runFunction: RunFunction;
 	reason: R;
 }
 
-export type WalkEntry = WalkAction | WalkStep | UnfollowedCall;
+export type WalkEntry = WalkAction | WalkStep | UnfollowedFunction;
 /** Walked without functions. */
-export type FlatEntry = WalkAction | UnfollowedCall<"not-expanded">;
-export type FollowedEntry = WalkAction | WalkStep | UnfollowedCall<"missing" | "loop" | "budget">;
+export type FlatEntry = WalkAction | UnfollowedFunction<"not-expanded">;
+export type FollowedEntry = WalkAction | WalkStep | UnfollowedFunction<"missing" | "loop" | "budget">;
 
 /** Exhaustive walk handlers. */
 export type WalkHandlers<E extends WalkEntry, R> = {
@@ -80,11 +80,11 @@ export const STEERING = [
 	"parallel",
 	"start",
 	"await",
-	"exit",
+	"return",
 	"throw",
-	"let",
+	"variable",
 	"wait",
-	"note",
+	"comment",
 	"unparsed",
 ] as const satisfies readonly StepKind[];
 type Steering = (typeof STEERING)[number];
@@ -101,8 +101,8 @@ export function visit<E extends WalkEntry, R>(entry: E, handlers: WalkHandlers<E
 			return all.action(at);
 		case "step":
 			return (all.step[at.step.kind] as (held: WalkStep) => R)(at);
-		case "unfollowedCall":
-			return all.unfollowedCall(at);
+		case "unfollowedFunction":
+			return all.unfollowedFunction(at);
 	}
 }
 
@@ -155,15 +155,15 @@ const SIDES_BY_KIND: { readonly [K in StepKind]: readonly Fixed[] | "cases" } = 
 	try: ["try", "catch"],
 	parallel: ["parallel"],
 	start: ["start"],
-	do: [],
+	action: [],
 	await: [],
-	exit: [],
+	return: [],
 	throw: [],
-	let: [],
+	variable: [],
 	wait: [],
-	note: [],
+	comment: [],
 	unparsed: [],
-	call: [],
+	run_function: [],
 };
 
 const fieldOf = (side: Fixed): "steps" | "else" | "catch" => {
@@ -217,16 +217,16 @@ export const withSides = (step: FunctionStep, lists: readonly (readonly Function
 	return { ...step, ...written } as FunctionStep;
 };
 
-/** Numbers alone: a call, an index and a side each read as one. */
+/** Numbers alone: a run function step, an index and a side each read as one. */
 export const STEP_PATH_RE = /^\d+(\.\d+)*$/;
 
 const numbered = (address: Address): number[] =>
 	address.map((segment) => (typeof segment === "number" ? segment : sideNumber(segment)));
 
-/** A step of the body the call at `site` runs. */
+/** A step of the body the step at `site` runs. */
 export const within = (site: string, address: Address): string => [site, ...numbered(address)].join(".");
 
-/** The call a step runs under: the longest of `sites` above it. */
+/** The run function step a step runs under: the longest of `sites` above it. */
 export const siteAmong = (path: string, sites: Iterable<string>): string | null => {
 	let found: string | null = null;
 	for (const site of sites) {
@@ -260,30 +260,30 @@ export function reached(automation: Walked, functionOf?: FunctionOf): WalkEntry[
 	return open(automation.actions).flatMap((action, at): WalkEntry[] => {
 		const path = String(at);
 		if (action.kind !== "run_function") return [{ reach: "action", path, index: at, action }];
-		if (!functionOf) return [{ reach: "unfollowedCall", path, call: action, reason: "not-expanded" }];
+		if (!functionOf) return [{ reach: "unfollowedFunction", path, runFunction: action, reason: "not-expanded" }];
 		return followed(action, path, [], functionOf, budget);
 	});
 }
 
-/** Steps under the call's path. */
+/** Steps under the path of the step that runs the function. */
 function followed(
-	call: RunFunction,
+	runFunction: RunFunction,
 	site: string,
 	chain: readonly string[],
 	functionOf: FunctionOf,
 	budget: { left: number; frames: number },
 ): WalkEntry[] {
 	const unfollowed = (reason: "missing" | "loop" | "budget"): WalkEntry[] => [
-		{ reach: "unfollowedCall", path: site, call, reason },
+		{ reach: "unfollowedFunction", path: site, runFunction, reason },
 	];
-	if (chain.includes(call.function)) return unfollowed("loop");
-	const fn = functionOf(call.function);
+	if (chain.includes(runFunction.function)) return unfollowed("loop");
+	const fn = functionOf(runFunction.function);
 	if (!fn) return unfollowed("missing");
 	const steps = stepsIn(open(fn.steps), []);
 	if (steps.length > budget.left || budget.frames === 0) return unfollowed("budget");
 	budget.left -= steps.length;
 	budget.frames -= 1;
-	const above = [...chain, call.function];
+	const above = [...chain, runFunction.function];
 	return steps.flatMap(({ address, step }): WalkEntry[] => {
 		const path = within(site, address);
 		const here: WalkStep = {
@@ -293,9 +293,9 @@ function followed(
 			index: address.at(-1) as number,
 			address,
 			step,
-			via: call.function,
+			via: runFunction.function,
 		};
-		if (step.kind !== "call") return [here];
+		if (step.kind !== "run_function") return [here];
 		const inner: RunFunction = { kind: "run_function", function: step.function };
 		return [here, ...followed(inner, path, above, functionOf, budget)];
 	});
@@ -357,8 +357,8 @@ function stepWidth(step: FunctionStep): Width {
 		// A catch runs while what the try started still runs.
 		case "try": {
 			const body = listWidth(first);
-			const handler = listWidth(second);
-			return { peak: Math.max(1, body.peak, body.rest + handler.peak), rest: body.rest + handler.rest };
+			const caught = listWidth(second);
+			return { peak: Math.max(1, body.peak, body.rest + caught.peak), rest: body.rest + caught.rest };
 		}
 		default:
 			return widest(...lists);
@@ -370,9 +370,9 @@ export const widthOf = (steps: readonly FunctionStep[]): number => Math.max(1, l
 /** A whole function's peak width. */
 export const functionWidth = (fn: { steps: Sealed<FunctionStep> }): number => widthOf(open(fn.steps));
 
-/** The functions a function's steps call, at any depth. */
-export const callsOf = (fn: { steps: Sealed<FunctionStep> }): string[] =>
-	stepsOf(fn).flatMap(({ step }) => (step.kind === "call" ? [step.function] : []));
+/** The functions a function's steps run, at any depth. */
+export const functionsRunBy = (fn: { steps: Sealed<FunctionStep> }): string[] =>
+	stepsOf(fn).flatMap(({ step }) => (step.kind === "run_function" ? [step.function] : []));
 
 /** Every function a run can enter. */
 export function reachOf(automation: Walked, functionOf: FunctionOf): Set<string> {
@@ -381,19 +381,19 @@ export function reachOf(automation: Walked, functionOf: FunctionOf): Set<string>
 		if (seen.has(id)) return;
 		seen.add(id);
 		const fn = functionOf(id);
-		for (const called of fn ? callsOf(fn) : []) take(called);
+		for (const run of fn ? functionsRunBy(fn) : []) take(run);
 	};
 	const pointer = pointerOf(automation);
 	if (pointer) take(pointer.function);
 	return seen;
 }
 
-/** A function's steps as written, each call naming what `to` answers. */
+/** A function's steps as written, each run function step naming what `to` answers. */
 export const recalled = (fn: { steps: Sealed<FunctionStep> }, to: (id: string) => string): FunctionStep[] => {
 	const each = (steps: readonly FunctionStep[]): FunctionStep[] =>
 		steps.map(
 			(step): FunctionStep =>
-				step.kind === "call"
+				step.kind === "run_function"
 					? { ...step, function: to(step.function) }
 					: withSides(
 							step,
@@ -406,7 +406,7 @@ export const recalled = (fn: { steps: Sealed<FunctionStep> }, to: (id: string) =
 export const pointerOf = (automation: Walked): RunFunction | null =>
 	open(automation.actions).find((action): action is RunFunction => action.kind === "run_function") ?? null;
 
-/** One level; never through a call. */
+/** One level; never into a function. */
 export function written(body: Walked): readonly AutomationAction[];
 export function written(fn: { steps: Sealed<FunctionStep> }): readonly FunctionStep[];
 export function written(

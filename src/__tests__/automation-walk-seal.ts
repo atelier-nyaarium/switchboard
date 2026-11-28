@@ -29,9 +29,9 @@ export function visitSamples(flat: FlatEntry, followed: FollowedEntry): unknown[
 	// @ts-expect-error a call left unhandled
 	const noCall = visit(flat, { action: () => 1 });
 	// @ts-expect-error steps left unhandled
-	const noSteps = visit(followed, { action: () => 1, unfollowedCall: () => 1 });
+	const noSteps = visit(followed, { action: () => 1, unfollowedFunction: () => 1 });
 	// @ts-expect-error a step kind left unhandled
-	const noKind = visit(followed, { action: () => 1, step: {}, unfollowedCall: () => 1 });
+	const noKind = visit(followed, { action: () => 1, step: {}, unfollowedFunction: () => 1 });
 	// @ts-expect-error an entry read unvisited
 	const unvisited = followed.action;
 	return [noCall, noSteps, noKind, unvisited];

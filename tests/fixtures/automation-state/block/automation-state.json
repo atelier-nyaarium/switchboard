@@ -63,10 +63,10 @@
 					"function": "warm-up",
 					"incarnation": "inc-3",
 					"revision": 1,
-					"values": {
+					"args": {
 						"room": "aa:bb:cc:dd:ee:01"
 					},
-					"strands": {
+					"branches": {
 						"0.0.0.2": {
 							"code": "thrown",
 							"message": "no"
@@ -106,7 +106,7 @@
 				{
 					"kind": "run_function",
 					"function": "warm-up",
-					"values": {
+					"args": {
 						"room": "aa:bb:cc:dd:ee:01"
 					}
 				}
@@ -127,7 +127,7 @@
 					"kind": "parallel",
 					"steps": [
 						{
-							"kind": "do",
+							"kind": "action",
 							"action": "device_set",
 							"args": {
 								"device": {
@@ -151,7 +151,7 @@
 									}
 								},
 								{
-									"kind": "do",
+									"kind": "action",
 									"action": "ifttt_trigger",
 									"args": {
 										"event": {
@@ -170,7 +170,7 @@
 					]
 				},
 				{
-					"kind": "do",
+					"kind": "action",
 					"action": "ifttt_trigger",
 					"args": {
 						"event": {
@@ -216,7 +216,7 @@
 					{
 						"path": "0.0.0.1",
 						"kind": "try",
-						"outcome": "ran",
+						"outcome": "done",
 						"function": "warm-up"
 					},
 					{
@@ -227,13 +227,13 @@
 					{
 						"path": "0.0.0.2",
 						"kind": "throw",
-						"outcome": "refused",
+						"outcome": "failed",
 						"reason": "no",
 						"function": "warm-up"
 					}
 				],
 				"active": "0.0.0.0",
-				"beside": ["0.0.0.0", "0.0.0.1.0.0"],
+				"inFlight": ["0.0.0.0", "0.0.0.1.0.0"],
 				"running": true
 			}
 		}
@@ -249,7 +249,7 @@
 			"automation": "warm",
 			"seq": 0,
 			"at": 4600000,
-			"outcome": "refused",
+			"outcome": "failed",
 			"reason": "it threw",
 			"action": "throw",
 			"step": "0.0.0.2",

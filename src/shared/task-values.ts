@@ -1,4 +1,4 @@
-// A task as a value: what names it, and how it is kept.
+// A task as a value: what names it, and how it is stored.
 
 /** What an `await` waits on: a task by its start step's path, or `all` or `any` of them. */
 export type Waited = string | { all: Waited[] } | { any: Waited[] };
@@ -12,7 +12,7 @@ export const JOIN_KEYS = { all: "$all", any: "$any" } as const;
 /** Joins nest no deeper. */
 const NEST_MAX = 8;
 
-/** What a value names to wait on: a task, or `all` or `any` of them, as kept or as read. */
+/** What a value names to wait on: a task, or `all` or `any` of them, as stored or as read. */
 export function waitedOf(value: unknown, depth = 0): Waited | null {
 	if (!isRecord(value) || depth > NEST_MAX) return null;
 	if (typeof value[TASK_KEY] === "string") return value[TASK_KEY] as string;
@@ -28,19 +28,19 @@ export function waitedOf(value: unknown, depth = 0): Waited | null {
 	return null;
 }
 
-/** A task as a value keeps: its name and nothing that goes stale. */
-export const keptOf = (waited: Waited): Record<string, unknown> =>
+/** A task as a stored value: its name and nothing that goes stale. */
+export const storedOf = (waited: Waited): Record<string, unknown> =>
 	typeof waited === "string"
 		? { [TASK_KEY]: waited }
 		: "all" in waited
-			? { [JOIN_KEYS.all]: waited.all.map(keptOf) }
-			: { [JOIN_KEYS.any]: waited.any.map(keptOf) };
+			? { [JOIN_KEYS.all]: waited.all.map(storedOf) }
+			: { [JOIN_KEYS.any]: waited.any.map(storedOf) };
 
-/** A value as it is kept: every task in it by name alone. */
-export function kept(value: unknown): unknown {
+/** A value as it is stored: every task in it by name alone. */
+export function stored(value: unknown): unknown {
 	const waited = waitedOf(value);
-	if (waited !== null) return keptOf(waited);
-	if (Array.isArray(value)) return value.map(kept);
-	if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, kept(item)]));
+	if (waited !== null) return storedOf(waited);
+	if (Array.isArray(value)) return value.map(stored);
+	if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, stored(item)]));
 	return value;
 }

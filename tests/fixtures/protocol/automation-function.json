@@ -1,11 +1,25 @@
 {
 	"name": "Warm up",
-	"params": [{ "name": "room", "type": "device" }],
+	"params": [
+		{
+			"name": "room",
+			"type": "device"
+		}
+	],
 	"steps": [
 		{
-			"kind": "do",
+			"kind": "action",
 			"action": "device_set",
-			"args": { "device": { "kind": "expression", "text": "room" }, "verb": { "kind": "literal", "value": "on" } }
+			"args": {
+				"device": {
+					"kind": "expression",
+					"text": "room"
+				},
+				"verb": {
+					"kind": "literal",
+					"value": "on"
+				}
+			}
 		}
 	]
 }

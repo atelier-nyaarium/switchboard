@@ -48,9 +48,9 @@ import {
 	FIELD_KINDS,
 	FIELD_TYPES,
 	type FieldTypeRow,
-	LIST_TEST_LABELS,
-	RULE_TESTS,
-	TEST_LABELS,
+	LIST_OPERATOR_LABELS,
+	OPERATOR_LABELS,
+	RULE_OPERATORS,
 	UNIT_DISPLAYS,
 	UNITS,
 } from "../src/shared/field-types.js";
@@ -185,9 +185,9 @@ import {
 	ConsoleAutomationRunResultSchema,
 	CROSSING_DIRECTIONS,
 	FunctionReadsSchema,
-	KEEP_TRYING_MIN_DEFAULT,
-	KEEP_TRYING_MIN_MAX,
-	KEEP_TRYING_MIN_MIN,
+	RETRY_FOR_MIN_DEFAULT,
+	RETRY_FOR_MIN_MAX,
+	RETRY_FOR_MIN_MIN,
 	RUN_OUTCOMES,
 } from "../src/shared/schemasAutomation.js";
 import {
@@ -271,7 +271,7 @@ import {
 	FunctionStepSchema,
 	PARAM_NAME_MAX,
 	PARAM_NAME_RE,
-	RUN_NAMES_MAX,
+	RUN_VARIABLES_MAX,
 	SCRIPT_SOURCE_MAX,
 	STEP_ARGS_MAX,
 	STEP_TEXT_MAX,
@@ -1375,9 +1375,9 @@ const wireConstants: ReadonlyArray<readonly [string, string | number]> = [
 	["AUTOMATION_ACTIONS_MAX", AUTOMATION_ACTIONS_MAX],
 	["AUTOMATION_INTERVAL_MAX_MIN", AUTOMATION_INTERVAL_MAX_MIN],
 	["AUTOMATION_COOL_DOWN_MAX_SEC", AUTOMATION_COOL_DOWN_MAX_SEC],
-	["KEEP_TRYING_MIN_DEFAULT", KEEP_TRYING_MIN_DEFAULT],
-	["KEEP_TRYING_MIN_MIN", KEEP_TRYING_MIN_MIN],
-	["KEEP_TRYING_MIN_MAX", KEEP_TRYING_MIN_MAX],
+	["RETRY_FOR_MIN_DEFAULT", RETRY_FOR_MIN_DEFAULT],
+	["RETRY_FOR_MIN_MIN", RETRY_FOR_MIN_MIN],
+	["RETRY_FOR_MIN_MAX", RETRY_FOR_MIN_MAX],
 	["FUNCTIONS_MAX", FUNCTIONS_MAX],
 	["FUNCTION_STEPS_MAX", FUNCTION_STEPS_MAX],
 	["FUNCTION_STEPS_TOTAL_MAX", FUNCTION_STEPS_TOTAL_MAX],
@@ -1390,7 +1390,7 @@ const wireConstants: ReadonlyArray<readonly [string, string | number]> = [
 	["SWITCH_CASE_VALUES_MAX", SWITCH_CASE_VALUES_MAX],
 	["SCRIPT_SOURCE_MAX", SCRIPT_SOURCE_MAX],
 	["WAIT_MINUTES_MAX", WAIT_MINUTES_MAX],
-	["RUN_NAMES_MAX", RUN_NAMES_MAX],
+	["RUN_VARIABLES_MAX", RUN_VARIABLES_MAX],
 	["WALK_ENTRIES_MAX", WALK_ENTRIES_MAX],
 	["RUN_FRAMES_MAX", RUN_FRAMES_MAX],
 	["FUNCTION_NAME_MAX", FUNCTION_NAME_MAX],
@@ -1951,17 +1951,17 @@ function emitFieldTypeTable(): string {
 	const double = (value: number) => (Number.isInteger(value) ? `${value}.0` : String(value));
 	const rows = FIELD_KINDS.map((kind) => {
 		const row: FieldTypeRow = FIELD_TYPES[kind];
-		return `${INDENT}${INDENT}${kotlinString(kind)} to FieldTypeRow(${kotlinString(kind)}, ${kotlinString(row.label)}, ${list(row.tests)}),`;
+		return `${INDENT}${INDENT}${kotlinString(kind)} to FieldTypeRow(${kotlinString(kind)}, ${kotlinString(row.label)}, ${list(row.operators)}),`;
 	});
-	const labelsOf = (table: Readonly<Record<(typeof RULE_TESTS)[number], string>>) =>
-		RULE_TESTS.map((test) => `${kotlinString(test)} to ${kotlinString(table[test])}`).join(", ");
+	const labelsOf = (table: Readonly<Record<(typeof RULE_OPERATORS)[number], string>>) =>
+		RULE_OPERATORS.map((operator) => `${kotlinString(operator)} to ${kotlinString(table[operator])}`).join(", ");
 	const suffixes = UNITS.map((row) => `${kotlinString(row.unit)} to ${kotlinString(row.suffix)}`);
 	const displays = UNIT_DISPLAYS.map(
 		(row) =>
 			`UnitDisplay(${kotlinString(row.unit)}, ${kotlinString(row.display)}, ${double(row.scale)}, ${double(row.offset)})`,
 	);
 	return [
-		`data class FieldTypeRow(val kind: String, val label: String, val tests: List<String>)`,
+		`data class FieldTypeRow(val kind: String, val label: String, val operators: List<String>)`,
 		"",
 		`/** shown = stored * scale + offset. */`,
 		`data class UnitDisplay(val unit: String, val display: String, val scale: Double, val offset: Double)`,
@@ -1970,9 +1970,9 @@ function emitFieldTypeTable(): string {
 		`${INDENT}val ROWS: Map<String, FieldTypeRow> = mapOf(`,
 		...rows,
 		`${INDENT})`,
-		`${INDENT}val TEST_LABELS: Map<String, String> = mapOf(${labelsOf(TEST_LABELS)})`,
+		`${INDENT}val OPERATOR_LABELS: Map<String, String> = mapOf(${labelsOf(OPERATOR_LABELS)})`,
 		`${INDENT}/** A condition holding several values. */`,
-		`${INDENT}val LIST_TEST_LABELS: Map<String, String> = mapOf(${labelsOf(LIST_TEST_LABELS)})`,
+		`${INDENT}val LIST_OPERATOR_LABELS: Map<String, String> = mapOf(${labelsOf(LIST_OPERATOR_LABELS)})`,
 		`${INDENT}val UNIT_SUFFIXES: Map<String, String> = mapOf(${suffixes.join(", ")})`,
 		`${INDENT}val UNIT_DISPLAYS: List<UnitDisplay> = listOf(${displays.join(", ")})`,
 		`${INDENT}const val CONVERTED_DECIMALS: Int = ${CONVERTED_DECIMALS}`,

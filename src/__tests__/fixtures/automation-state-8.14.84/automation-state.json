@@ -24,9 +24,9 @@
 		]
 	},
 	"log": [
-		{ "automation": "heat", "seq": 1, "at": 2000, "outcome": "ran", "action": "tell_assistant" },
-		{ "automation": "heat", "seq": 1, "at": 2000, "outcome": "ran", "action": "device_set" },
-		{ "automation": "heat", "seq": 3, "at": 4000, "outcome": "ran", "action": "tell_assistant" }
+		{ "automation": "heat", "seq": 1, "at": 2000, "outcome": "done", "action": "tell_assistant" },
+		{ "automation": "heat", "seq": 1, "at": 2000, "outcome": "done", "action": "device_set" },
+		{ "automation": "heat", "seq": 3, "at": 4000, "outcome": "done", "action": "tell_assistant" }
 	],
 	"ran": { "heat": 4000 },
 	"fires": [

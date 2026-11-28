@@ -11,7 +11,7 @@ import {
 	type SavedFunction,
 } from "../gateway/computed/automationJudge.js";
 import { FUNCTION_UNREAD } from "../gateway/computed/automationValidity.js";
-import { holesOver } from "../gateway/liveConsole/holes.js";
+import { placeholdersOver } from "../gateway/liveConsole/placeholders.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import type { OwnerRecord } from "../gateway/ownerRecords.js";
 import { createRestoreRepairs } from "../shared/durable-store.js";
@@ -49,13 +49,13 @@ const event: AutomationTrigger = { kind: "event", source: "github", conditions: 
 const hourly: AutomationTrigger = { kind: "interval", everyMin: 60 };
 
 const lit = (value: string | number) => ({ kind: "literal" as const, value });
-const tell = { kind: "do", action: "tell_assistant", args: { when: lit("now") } } as const;
+const tell = { kind: "action", action: "tell_assistant", args: { when: lit("now") } } as const;
 const on = {
-	kind: "do",
+	kind: "action",
 	action: "device_set",
 	args: { device: { kind: "expression", text: "room" }, verb: lit("on") },
 } as const;
-const bell = { kind: "do", action: "ifttt_trigger", args: { event: lit("bell") } } as const;
+const bell = { kind: "action", action: "ifttt_trigger", args: { event: lit("bell") } } as const;
 
 const fn = (steps: AutomationFunctionInput["steps"], params: AutomationFunctionInput["params"] = []) => ({
 	name: "Warm up",
@@ -71,7 +71,7 @@ const pointing = (
 ): AutomationInput => ({
 	enabled: true,
 	trigger,
-	actions: [{ kind: "run_function", function: function_, values }],
+	actions: [{ kind: "run_function", function: function_, args: values }],
 });
 
 /** `seed`: records as a file already holds them. */
@@ -94,10 +94,10 @@ function open(home = true, seed: object[] = [], keyFile?: string) {
 			eventIssue: () => null,
 			eventFields: () => ["reason"],
 			entropy: (size) => crypto.randomBytes(size),
-			holes: () => holesOver(REGISTRY),
+			placeholders: () => placeholdersOver(REGISTRY),
 			actions: {
 				ready: () => true,
-				switchName: (device) => (switches.has(device) ? "Lamp" : null),
+				deviceName: (device) => (switches.has(device) ? "Lamp" : null),
 				deviceSet: async () => ({ word: "done" }),
 				iftttTrigger: async () => ({ word: "done" }),
 			},
@@ -165,7 +165,7 @@ describe("a save that changes who owns a function", () => {
 			confirmed: true,
 		});
 
-		expect([codeOf(flatten(1), view()), codeOf(flatten(2), view())]).toEqual(["moved", "written"]);
+		expect([codeOf(flatten(1), view()), codeOf(flatten(2), view())]).toEqual(["changed", "written"]);
 	});
 
 	it("makes no function unnamed while an unread row may run it", () => {
@@ -178,7 +178,7 @@ describe("a save that changes who owns a function", () => {
 			confirmed: true,
 		};
 
-		expect([codeOf(clear, view()), codeOf(clear, view({ unreadAutomations: 1 }))]).toEqual(["written", "private"]);
+		expect([codeOf(clear, view()), codeOf(clear, view({ unreadAutomations: 1 }))]).toEqual(["written", "unnamed"]);
 	});
 
 	it("points nothing new at an unnamed function while an unread row may run it", () => {
@@ -203,7 +203,7 @@ describe("a save that changes who owns a function", () => {
 		expect([
 			codeOf(point, view({ held: [], functions: [own] })),
 			codeOf(point, view({ held: [], functions: [own], unreadAutomations: 1 })),
-		]).toEqual(["written", "private"]);
+		]).toEqual(["written", "unnamed"]);
 		expect(codeOf(edit, view({ held: ownedBy("warm"), functions: [own], unreadAutomations: 1 }))).toBe("written");
 	});
 });
@@ -288,7 +288,7 @@ describe("save refusal lines", () => {
 					functions: [savedFunction],
 					assess: () => [
 						{ at: "fit", function: "fn", issue: { kind: "unfit" } },
-						{ at: "call", function: "fn", why: "loop" },
+						{ at: "runFunction", function: "fn", why: "loop" },
 					],
 				}),
 			),
@@ -354,8 +354,8 @@ describe("an automation that runs a function", () => {
 
 		expect(first).toMatchObject({ stored: true, automation: { revision: 1 }, function: { revision: 1 } });
 		expect([refusalOf(staleFunction), refusalOf(staleAutomation)]).toEqual([
-			{ code: "moved", record: "function", id: "warm-up", revision: 1 },
-			{ code: "moved", record: "automation", revision: 1 },
+			{ code: "changed", record: "function", id: "warm-up", revision: 1 },
+			{ code: "changed", record: "automation", revision: 1 },
 		]);
 		expect([automations.list().map((row) => row.revision), functions()]).toEqual([[1], ["warm-up"]]);
 	});
@@ -373,7 +373,7 @@ describe("an automation that runs a function", () => {
 			{
 				...pointing(hourly, "warm-up"),
 				actions: [
-					{ kind: "run_function", function: "warm-up", values: { room: PLUG } },
+					{ kind: "run_function", function: "warm-up", args: { room: PLUG } },
 					{ kind: "tell_assistant", when: "now" },
 				],
 			},
@@ -445,7 +445,7 @@ describe("an automation that runs a function", () => {
 
 	it("points a new automation at a function whose own step no longer holds, reading its error, and leaves its user to edit and toggle", () => {
 		const { automations, save, unplug } = open();
-		const literal = { kind: "do", action: "device_set", args: { device: lit(PLUG), verb: lit("on") } } as const;
+		const literal = { kind: "action", action: "device_set", args: { device: lit(PLUG), verb: lit("on") } } as const;
 		save("first", pointing(hourly, "steps"), 0, { as: "edit", id: "steps", body: fn([literal]), base: 0 });
 		unplug();
 
@@ -543,7 +543,7 @@ describe("an automation that runs a function", () => {
 		);
 
 		expect([refusalOf(reach), confirmed.stored, again.stored, refusalOf(danger)]).toEqual([
-			{ code: "confirm", labels: ["Switch a plug"] },
+			{ code: "confirm", labels: ["Set device"] },
 			true,
 			true,
 			{ code: "confirm", labels: ["Send to IFTTT"] },
@@ -596,7 +596,7 @@ describe("an automation that runs a function", () => {
 			const confirmed = save("lost", body, 1, function_);
 
 			expect([refusalOf(prompted), confirmed.stored]).toEqual([
-				{ code: "confirm", labels: ["Switch a plug"] },
+				{ code: "confirm", labels: ["Set device"] },
 				true,
 			]);
 		});
@@ -612,7 +612,7 @@ describe("an automation that runs a function", () => {
 
 			const promoted = save("clock", pointing(event, "steps", { room: PLUG }), 1, undefined, false);
 
-			expect(refusalOf(promoted)).toMatchObject({ code: "confirm", labels: ["Switch a plug"] });
+			expect(refusalOf(promoted)).toMatchObject({ code: "confirm", labels: ["Set device"] });
 		});
 
 		it("counts what steps do, never the steps that steer them", () => {
@@ -626,7 +626,7 @@ describe("an automation that runs a function", () => {
 			const branch = (steps: AutomationFunctionInput["steps"]) => ({
 				as: "edit" as const,
 				id: "own",
-				body: { ...fn([{ kind: "if", when: 'event.reason == "mention"', steps }]), name: "" },
+				body: { ...fn([{ kind: "if", condition: 'event.reason == "mention"', steps }]), name: "" },
 				base: 0,
 			});
 
@@ -734,7 +734,8 @@ describe("an automation that runs a function", () => {
 	});
 
 	describe("a function's steps, checked as a flat action is", () => {
-		const step = (args: Record<string, StepArg>, action = "device_set") => ({ kind: "do", action, args }) as const;
+		const step = (args: Record<string, StepArg>, action = "device_set") =>
+			({ kind: "action", action, args }) as const;
 		const issuedWith = (
 			steps: AutomationFunctionInput["steps"],
 			values: Record<string, string> = { room: PLUG },
@@ -751,7 +752,7 @@ describe("an automation that runs a function", () => {
 			return (answer.issues ?? []).map(({ line: _line, ...issue }) => issue);
 		};
 
-		it("saves a hole outside a text, a value its action does not take, a choice it does not offer, and a plug it does not hold, each as its error", () => {
+		it("saves a placeholder outside a text, a value its action does not take, a choice it does not offer, and a plug it does not hold, each as its error", () => {
 			const issued = [
 				issuedWith([step({ device: lit("{room}"), verb: lit("on") })]),
 				issuedWith([step({ device: lit(PLUG), verb: lit("on"), colour: lit("red") })]),
@@ -787,7 +788,11 @@ describe("an automation that runs a function", () => {
 		});
 
 		it("warns of a value or a variable named as an entity or a word of the language on save, and reads a stored one as it is", () => {
-			const plain = { kind: "do", action: "device_set", args: { device: lit(PLUG), verb: lit("on") } } as const;
+			const plain = {
+				kind: "action",
+				action: "device_set",
+				args: { device: lit(PLUG), verb: lit("on") },
+			} as const;
 			const named = (
 				params: AutomationFunctionInput["params"],
 				steps: AutomationFunctionInput["steps"] = [plain],
@@ -806,7 +811,7 @@ describe("an automation that runs a function", () => {
 				named([{ name: "sensors", type: "text" }]),
 				named([{ name: "wait", type: "text" }]),
 				named([{ name: "e", type: "text" }]),
-				named([], [{ kind: "let", name: "or", value: lit(1) }, plain]),
+				named([], [{ kind: "variable", name: "or", value: lit(1) }, plain]),
 				named([{ name: "sensor", type: "text" }]),
 			]).toEqual([
 				byParam("sensors"),

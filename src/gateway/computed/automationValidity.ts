@@ -1,4 +1,4 @@
-// What makes an automation invalid or unarmed on this Gateway.
+// What makes an automation invalid or inactive on this Gateway.
 
 import { fitOf, functionReads, type TriggerGiven, triggerGiven } from "../../shared/automation-fit.js";
 import {
@@ -29,7 +29,7 @@ import {
 	AutomationActionSchema,
 	type AutomationTrigger,
 	FUNCTION_STEP_KINDS,
-	type FunctionValue,
+	type FunctionArg,
 } from "../../shared/schemasAutomation.js";
 import {
 	type AutomationIssue,
@@ -41,26 +41,26 @@ import {
 import {
 	type AutomationFunction,
 	type FunctionStep,
-	RUN_STRANDS_MAX,
+	RUN_BRANCHES_MAX,
 	type StepArg,
 	unnamed,
 	WAIT_MINUTES_MAX,
 } from "../../shared/schemasFunction.js";
 import { SCRIPT_RESERVED } from "../../shared/script-grammar.js";
 import { choiceFieldOf, type SwitchCause, switchIssues } from "../../shared/switch-cases.js";
-import { hasHoles } from "../../shared/text-holes.js";
+import { hasPlaceholders } from "../../shared/text-placeholders.js";
 import type { OwnerIssue, OwnerRecord } from "../ownerRecords.js";
 import { clockIssue, isClock } from "./automationClock.js";
 import { ownerOf } from "./automationFrames.js";
 import type { EffectKind } from "./automationRunner.js";
-import { holeNames } from "./automationScope.js";
+import { placeholderNames } from "./automationScope.js";
 import type { AutomationsDeps } from "./automations.js";
 import { stepOwnerIssue } from "./automationText.js";
 import { crossingField } from "./crossingBand.js";
 
 export type ValidityDeps = Pick<
 	AutomationsDeps,
-	"fields" | "reading" | "eventIssue" | "eventWarning" | "eventFields" | "eventChoices" | "holes" | "actions"
+	"fields" | "reading" | "eventIssue" | "eventWarning" | "eventFields" | "eventChoices" | "placeholders" | "actions"
 >;
 
 type StepKind = (typeof FUNCTION_STEP_KINDS)[number];
@@ -75,12 +75,12 @@ const TRIGGER_NAMES = [...new Set(Object.values(AUTOMATION_TRIGGER_NAMES).flat()
 
 export const FUNCTION_GONE = "the function it runs is gone";
 export const FUNCTION_LEFT = "its function did not come with the move";
-export const CALL_LOOPS = "a function it runs calls itself";
-export const FUNCTION_PRIVATE = "it runs steps that belong to one automation";
-export const CALLS_TOO_MUCH = "it runs more than one run may";
-export const FUNCTION_UNREAD = "the function it runs was written by a newer build; update this Gateway";
+export const FUNCTION_LOOPS = "a function it runs leads back to itself";
+export const FUNCTION_UNNAMED = "an unnamed function belongs to one automation; name it to share it";
+export const FUNCTIONS_TOO_MANY = "it reaches too many functions or steps";
+export const FUNCTION_UNREAD = "a newer version wrote the function it runs; update this Gateway";
 export const FUNCTION_UNFIT = "it does not fit the function it runs";
-export const NO_SWITCH = "no such switch on this Gateway";
+export const NO_DEVICE = "no such device on this Gateway";
 /** A step's values fail its action. */
 export const STEP_UNFIT = "its values do not fit what it does";
 
@@ -90,15 +90,15 @@ const writesText = (source: string): boolean => {
 };
 const NO_ACTION = "this Gateway runs no such action";
 const UNRUNNABLE = "a step does what this Gateway cannot run";
-export const NAME_TAKEN = "that name is already a value here";
+export const NAME_TAKEN = "that name is already taken here";
 export const NAME_RESERVED = "that name is reserved";
-export const EXIT_BESIDE = "an exit here would leave the steps beside it running";
-export const TOO_WIDE = `more than ${RUN_STRANDS_MAX} steps would run at once`;
+export const RETURN_IN_BRANCH = "a return here would leave other branches running";
+export const TOO_WIDE = `more than ${RUN_BRANCHES_MAX} steps would run at once`;
 export const UNPARSED_ALONE = "a script with errors stands alone in its function";
 
-/** Words the language keeps. */
+/** Words the language reserves. */
 const RESERVED_NAMES = new Set<string>([...SCRIPT_RESERVED, ...CONSOLE_WORD_OPS, "true", "false", "null"]);
-export const GIVES_NOTHING = "this action gives nothing to keep";
+export const GIVES_NOTHING = "this action gives no value";
 
 type Giving = {
 	[K in keyof typeof AUTOMATION_ACTIONS]: (typeof AUTOMATION_ACTIONS)[K] extends { gives: unknown } ? K : never;
@@ -123,19 +123,21 @@ export interface StepIssue {
 }
 
 /** Store or judge refusal. */
-const REFUSALS = { unrunnable: true, alone: true, loop: true, budget: true, private: true, gone: true } as const;
+const REFUSALS = { unrunnable: true, alone: true, loop: true, budget: true, unnamed: true, gone: true } as const;
 type Refusal = keyof typeof REFUSALS;
 
 export type StepCause = IssueCause | Extract<Refusal, "unrunnable" | "alone">;
 
-/** Why a call cannot run its function. */
-export type CallIssue = { kind: "unfit" } | { kind: "switch"; param: string };
+/** Why a run function step cannot run its function. */
+export type RunFunctionIssue = { kind: "unfit" } | { kind: "device"; param: string };
 
-/** Why a call stops. */
-export type CallCut = Extract<Refusal, "loop" | "budget" | "private" | "gone"> | Extract<IssueCause, "left" | "unread">;
+/** Why a run function step stops. */
+export type RunFunctionCut =
+	| Extract<Refusal, "loop" | "budget" | "unnamed" | "gone">
+	| Extract<IssueCause, "left" | "unread">;
 
-/** Call path. */
-export interface CallPlace {
+/** A run function step's path. */
+export interface RunFunctionPlace {
 	via: string;
 	step: string;
 }
@@ -147,16 +149,16 @@ export type BodyIssue =
 	| { at: "action"; index: number; issue: StepIssue }
 	/** Function-relative step path. */
 	| { at: "step"; via: string; step: string; issue: StepIssue }
-	| { at: "call"; function: string; why: CallCut }
-	/** Missing call marks pointer. */
-	| { at: "fit"; function: string; issue: CallIssue; call?: CallPlace }
+	| { at: "runFunction"; function: string; why: RunFunctionCut }
+	/** No place marks the automation's own action. */
+	| { at: "fit"; function: string; issue: RunFunctionIssue; place?: RunFunctionPlace }
 	/** Shadowing parameter. */
 	| { at: "name"; function: string; param: string };
 
-const CUT_LINES: Readonly<Record<CallCut, string>> = {
-	loop: CALL_LOOPS,
-	budget: CALLS_TOO_MUCH,
-	private: FUNCTION_PRIVATE,
+const CUT_LINES: Readonly<Record<RunFunctionCut, string>> = {
+	loop: FUNCTION_LOOPS,
+	budget: FUNCTIONS_TOO_MANY,
+	unnamed: FUNCTION_UNNAMED,
 	gone: FUNCTION_GONE,
 	left: FUNCTION_LEFT,
 	unread: FUNCTION_UNREAD,
@@ -167,8 +169,8 @@ const LINES: { [A in BodyIssue["at"]]: (issue: Extract<BodyIssue, { at: A }>) =>
 	choice: (issue) => issue.message,
 	action: ({ issue }) => issue.message,
 	step: ({ issue }) => issue.message,
-	call: (issue) => CUT_LINES[issue.why],
-	fit: ({ issue }) => (issue.kind === "unfit" ? FUNCTION_UNFIT : NO_SWITCH),
+	runFunction: (issue) => CUT_LINES[issue.why],
+	fit: ({ issue }) => (issue.kind === "unfit" ? FUNCTION_UNFIT : NO_DEVICE),
 	name: () => NAME_RESERVED,
 };
 
@@ -184,7 +186,7 @@ const CAUSES: { [A in BodyIssue["at"]]: (issue: Extract<BodyIssue, { at: A }>) =
 	choice: () => "vanished",
 	action: ({ issue }) => issue.cause,
 	step: ({ issue }) => issue.cause,
-	call: (issue) => issue.why,
+	runFunction: (issue) => issue.why,
 	fit: () => "unfit",
 	name: () => "shadows",
 };
@@ -203,9 +205,9 @@ const stepLevel = (issue: StepIssue): IssueLevel => causeLevel(issue.cause);
 export const levelOf = (issue: BodyIssue): IssueLevel =>
 	causeLevel((CAUSES[issue.at] as (held: BodyIssue) => Cause | undefined)(issue));
 
-const unarms = (issue: BodyIssue): boolean => {
+const deactivates = (issue: BodyIssue): boolean => {
 	const level = levelOf(issue);
-	return level === "refuses" || level === "unarmed";
+	return level === "refuses" || level === "inactive";
 };
 
 const stops = (level: IssueLevel): boolean => level === "refuses" || level === "error";
@@ -256,12 +258,12 @@ const ANSWERS: {
 		...spanOf(issue),
 		line: line(issue.message),
 	}),
-	call: (issue, level) => ({ level, record: "function", id: issue.function, line: CUT_LINES[issue.why] }),
+	runFunction: (issue, level) => ({ level, record: "function", id: issue.function, line: CUT_LINES[issue.why] }),
 	fit: (issue, level) => {
-		const param = issue.issue.kind === "switch" ? { param: issue.issue.param } : {};
+		const param = issue.issue.kind === "device" ? { param: issue.issue.param } : {};
 		const text = lineOf(issue);
-		return issue.call
-			? { level, record: "function", id: issue.call.via, step: issue.call.step, ...param, line: text }
+		return issue.place
+			? { level, record: "function", id: issue.place.via, step: issue.place.step, ...param, line: text }
 			: { level, record: "automation", ...param, line: text };
 	},
 	name: (issue, level) => ({
@@ -347,30 +349,30 @@ export function createAutomationValidity(
 		return trigger.kind === "event" && field !== null ? (deps.eventChoices?.(trigger.source, field) ?? null) : null;
 	};
 
-	const switchHeld = (device: unknown): boolean =>
-		typeof device === "string" && (deps.actions?.switchName(device) ?? null) !== null;
+	const deviceHeld = (device: unknown): boolean =>
+		typeof device === "string" && (deps.actions?.deviceName(device) ?? null) !== null;
 
 	type Spanned = Omit<StepIssue, "param">;
 	const unreadYet = (text: string): Spanned => ({
 		start: 0,
 		end: text.length,
-		message: "holes cannot be read yet",
+		message: "placeholders cannot be read yet",
 		cause: "unready",
 	});
 
-	/** A hole's issue in a text. */
-	const holeIn = (text: string, names: readonly string[]): Spanned | null => {
-		const holes = deps.holes?.();
-		return holes ? holes.issue(text, names) : unreadYet(text);
+	/** A placeholder's issue in a text. */
+	const placeholderIn = (text: string, names: readonly string[]): Spanned | null => {
+		const placeholders = deps.placeholders?.();
+		return placeholders ? placeholders.issue(text, names) : unreadYet(text);
 	};
 
 	/** A bare expression's issue. */
 	const expressionIn = (source: string, names: readonly string[]): Spanned | null => {
-		const holes = deps.holes?.();
-		return holes ? holes.expression(source, names) : unreadYet(source);
+		const placeholders = deps.placeholders?.();
+		return placeholders ? placeholders.expression(source, names) : unreadYet(source);
 	};
 
-	/** Null names skip holes. */
+	/** Null names skip placeholders. */
 	function argsIssue(
 		kind: string,
 		args: Readonly<Record<string, StepArg>>,
@@ -399,14 +401,19 @@ export function createAutomationValidity(
 			}
 			const { value } = arg;
 			literal[param.name] = value;
-			if (names !== null && typeof value === "string" && hasHoles(value)) {
+			if (names !== null && typeof value === "string" && hasPlaceholders(value)) {
 				if (param.kind !== "text")
-					return { param: param.name, start: 0, end: value.length, message: "only a text takes a hole" };
-				const issue = holeIn(value, names);
+					return {
+						param: param.name,
+						start: 0,
+						end: value.length,
+						message: "only a text takes a placeholder",
+					};
+				const issue = placeholderIn(value, names);
 				if (issue) return { param: param.name, ...issue };
 				continue;
 			}
-			if (param.kind === "switch" && !switchHeld(value)) return { param: param.name, message: NO_SWITCH };
+			if (param.kind === "device" && !deviceHeld(value)) return { param: param.name, message: NO_DEVICE };
 			if (param.kind === "choice" && !(param.options ?? []).some((option) => option.value === value))
 				return { param: param.name, message: `${String(value)} is not one of its values` };
 		}
@@ -416,19 +423,23 @@ export function createAutomationValidity(
 
 	type Checked = Pick<AutomationFunction, "params" | "steps">;
 
-	const keptName = (step: FunctionStep): string | undefined =>
-		step.kind === "let" ? step.name : step.kind === "start" || step.kind === "await" ? step.as : undefined;
+	const variableName = (step: FunctionStep): string | undefined =>
+		step.kind === "variable" ? step.name : step.kind === "start" || step.kind === "await" ? step.as : undefined;
 
-	const keptNames = (fn: Checked): string[] =>
+	const variableNames = (fn: Checked): string[] =>
 		stepsOf(fn).flatMap(({ step }) => {
-			const name = keptName(step);
+			const name = variableName(step);
 			return name === undefined ? [] : [name];
 		});
 
 	/** The run scopes `e` to a catch. */
-	const namesIn = (fn: Checked): string[] => [...holeNames(TRIGGER_NAMES, fn.params), ...keptNames(fn), "e"];
+	const namesIn = (fn: Checked): string[] => [
+		...placeholderNames(TRIGGER_NAMES, fn.params),
+		...variableNames(fn),
+		"e",
+	];
 
-	/** A name a kept value may not take. */
+	/** A name a variable may not take. */
 	const nameTaken = (fn: Checked, name: string): boolean =>
 		name === "e" || TRIGGER_NAMES.includes(name) || fn.params.some((param) => param.name === name);
 
@@ -438,8 +449,8 @@ export function createAutomationValidity(
 	};
 
 	const textIssue = (param: string, text: string, names: readonly string[]): StepIssue | null => {
-		if (!hasHoles(text)) return null;
-		const issue = holeIn(text, names);
+		if (!hasPlaceholders(text)) return null;
+		const issue = placeholderIn(text, names);
 		return issue ? { param, ...issue } : null;
 	};
 
@@ -454,25 +465,25 @@ export function createAutomationValidity(
 			address: Address,
 		) => StepIssue | null;
 	} = {
-		// Exit abandons sibling steps.
-		exit: (_fn, _step, address) => (ownerOf(address) ? { message: EXIT_BESIDE } : null),
-		note: () => null,
+		// Return abandons sibling branches.
+		return: (_fn, _step, address) => (ownerOf(address) ? { message: RETURN_IN_BRANCH } : null),
+		comment: () => null,
 		unparsed: (fn, _step, address) =>
 			address.length !== 1 || stepsOf(fn).length !== 1 ? { message: UNPARSED_ALONE, cause: "alone" } : null,
 		try: () => null,
-		parallel: (_fn, step) => (widthOf([step]) > RUN_STRANDS_MAX ? { message: TOO_WIDE } : null),
+		parallel: (_fn, step) => (widthOf([step]) > RUN_BRANCHES_MAX ? { message: TOO_WIDE } : null),
 		start: (fn, step) => {
 			if (step.as !== undefined && nameTaken(fn, step.as)) return { param: "as", message: NAME_TAKEN };
-			return functionWidth(fn) > RUN_STRANDS_MAX ? { message: TOO_WIDE } : null;
+			return functionWidth(fn) > RUN_BRANCHES_MAX ? { message: TOO_WIDE } : null;
 		},
 		await: (fn, step) => {
 			if (step.as !== undefined && nameTaken(fn, step.as)) return { param: "as", message: NAME_TAKEN };
 			return expressionIssue("task", step.task, namesIn(fn));
 		},
-		if: (fn, step) => expressionIssue("when", step.when, namesIn(fn)),
+		if: (fn, step) => expressionIssue("condition", step.condition, namesIn(fn)),
 		switch: (fn, step) =>
 			expressionIssue("subject", step.subject, namesIn(fn)) ?? caseIssues(step, null)[0] ?? null,
-		let: (fn, step) => {
+		variable: (fn, step) => {
 			if (nameTaken(fn, step.name)) return { param: "name", message: NAME_TAKEN };
 			return valueIssue("value", step.value, namesIn(fn));
 		},
@@ -484,14 +495,14 @@ export function createAutomationValidity(
 				: { param: "minutes", message: WAIT_RANGE };
 		},
 		throw: (fn, step) => (step.text === undefined ? null : textIssue("text", step.text, namesIn(fn))),
-		call: (fn, step) => {
-			for (const [name, arg] of Object.entries(step.values ?? {})) {
+		run_function: (fn, step) => {
+			for (const [name, arg] of Object.entries(step.args ?? {})) {
 				const issue = valueIssue(name, arg, namesIn(fn));
 				if (issue) return issue;
 			}
 			return null;
 		},
-		do: (fn, step) => {
+		action: (fn, step) => {
 			if (!stepAction(step.action)) return { message: UNRUNNABLE, cause: "unrunnable" };
 			const row: AutomationActionRow = AUTOMATION_ACTIONS[step.action];
 			const gives = STORES_RESULTS && row.gives !== undefined;
@@ -502,7 +513,8 @@ export function createAutomationValidity(
 	};
 
 	/** Reserved name or entity. */
-	const reservedName = (name: string): boolean => RESERVED_NAMES.has(name) || deps.holes?.()?.entity(name) === true;
+	const reservedName = (name: string): boolean =>
+		RESERVED_NAMES.has(name) || deps.placeholders?.()?.entity(name) === true;
 
 	/** Errors before shadowing names. */
 	const stepIssue = (fn: Checked, step: FunctionStep, address: Address): StepIssue | null => {
@@ -512,9 +524,9 @@ export function createAutomationValidity(
 			address,
 		);
 		if (issue) return issue;
-		const kept = keptName(step);
-		if (kept === undefined || !reservedName(kept)) return null;
-		return { param: step.kind === "let" ? "name" : "as", message: NAME_RESERVED, cause: "shadows" };
+		const named = variableName(step);
+		if (named === undefined || !reservedName(named)) return null;
+		return { param: step.kind === "variable" ? "name" : "as", message: NAME_RESERVED, cause: "shadows" };
 	};
 
 	/** Primary issue first. */
@@ -536,46 +548,46 @@ export function createAutomationValidity(
 		return issue !== null && stops(stepLevel(issue));
 	};
 
-	/** Fit, then held switches. */
+	/** Fit, then held devices. */
 	function boundIssue(
 		body: Automation,
 		fn: AutomationFunction,
-		values: Readonly<Record<string, FunctionValue>>,
-		/** Values read only at the call's turn. */
+		args: Readonly<Record<string, FunctionArg>>,
+		/** Arguments read only at the step's turn. */
 		unjudged: ReadonlySet<string> = new Set(),
-	): CallIssue | null {
+	): RunFunctionIssue | null {
 		const given = givenOf(body.trigger);
-		// An unjudged value stands as its declared type.
+		// An unjudged argument stands as its declared type.
 		const standing = Object.fromEntries(
 			fn.params
 				.filter((param) => unjudged.has(param.name))
 				.map((param) => [param.name, param.type === "number" ? 0 : ""]),
 		);
-		if (!fitOf(given, { params: fn.params, reads: functionReads(fn) }, { ...values, ...standing }).fits)
+		if (!fitOf(given, { params: fn.params, reads: functionReads(fn) }, { ...args, ...standing }).fits)
 			return { kind: "unfit" };
 		const fromTrigger = new Set(given.names.map((held) => held.name));
 		for (const param of fn.params) {
-			if (param.type !== "device" || fromTrigger.has(param.name) || !Object.hasOwn(values, param.name)) continue;
-			if (!switchHeld(values[param.name])) return { kind: "switch", param: param.name };
+			if (param.type !== "device" || fromTrigger.has(param.name) || !Object.hasOwn(args, param.name)) continue;
+			if (!deviceHeld(args[param.name])) return { kind: "device", param: param.name };
 		}
 		return null;
 	}
 
-	const callIssue = (body: Automation, fn: AutomationFunction): CallIssue | null => {
-		const call = pointerOf(body);
-		return call ? boundIssue(body, fn, call.values ?? {}) : null;
+	const pointerIssue = (body: Automation, fn: AutomationFunction): RunFunctionIssue | null => {
+		const pointer = pointerOf(body);
+		return pointer ? boundIssue(body, fn, pointer.args ?? {}) : null;
 	};
 
-	type CallStep = Extract<FunctionStep, { kind: "call" }>;
+	type RunFunctionStep = Extract<FunctionStep, { kind: "run_function" }>;
 
 	/** Literals typed; expressions judged at entry. */
-	function callFits(body: Automation, step: CallStep, callee: AutomationFunction): boolean {
-		const literal: Record<string, FunctionValue> = {};
+	function runFunctionFits(body: Automation, step: RunFunctionStep, callee: AutomationFunction): boolean {
+		const literal: Record<string, FunctionArg> = {};
 		const unjudged = new Set<string>();
-		for (const [name, arg] of Object.entries(step.values ?? {})) {
+		for (const [name, arg] of Object.entries(step.args ?? {})) {
 			if (!callee.params.some((param) => param.name === name)) return false;
 			const declared = callee.params.find((param) => param.name === name);
-			// A string is a text, whatever its holes read.
+			// A string is a text, whatever its placeholders read.
 			if (arg.kind === "expression" && declared?.type === "number" && writesText(arg.text)) return false;
 			if (arg.kind !== "literal") unjudged.add(name);
 			else if (typeof arg.value === "boolean") return false;
@@ -584,20 +596,20 @@ export function createAutomationValidity(
 		return boundIssue(body, callee, literal, unjudged) === null;
 	}
 
-	/** Read values only. */
-	const calledEntryIssue = (
+	/** Read arguments only. */
+	const runFunctionEntryIssue = (
 		body: Automation,
 		id: string,
 		fn: AutomationFunction,
-		values: Readonly<Record<string, FunctionValue>>,
+		args: Readonly<Record<string, FunctionArg>>,
 	): string | null => {
-		const issue = boundIssue(body, fn, values);
+		const issue = boundIssue(body, fn, args);
 		return issue && lineOf({ at: "fit", function: id, issue });
 	};
 
-	/** The pointer's values only. */
+	/** The automation's own arguments only. */
 	const entryIssue = (body: Automation, id: string, fn: AutomationFunction): string | null => {
-		const issue = callIssue(body, fn);
+		const issue = pointerIssue(body, fn);
 		return issue && lineOf({ at: "fit", function: id, issue });
 	};
 
@@ -608,7 +620,7 @@ export function createAutomationValidity(
 		const healed = body.trigger.kind === "event" ? (deps.eventWarning?.(body.trigger) ?? null) : null;
 		if (healed !== null) yield { at: "choice", message: healed };
 		const names = AUTOMATION_TRIGGER_NAMES[body.trigger.kind];
-		const cuts: Record<Unfollowed, (id: string) => CallCut | null> = {
+		const cuts: Record<Unfollowed, (id: string) => RunFunctionCut | null> = {
 			"not-expanded": () => null,
 			// Moves strip event users.
 			missing: (id) => (unread(id) ? "unread" : body.trigger.kind === "event" ? "left" : "gone"),
@@ -631,21 +643,21 @@ export function createAutomationValidity(
 					return issue ? [{ at: "action", index, issue }] : [];
 				},
 				step: {
-					do: own,
-					call: (held): BodyIssue[] => {
+					action: own,
+					run_function: (held): BodyIssue[] => {
 						const id = held.step.function;
 						const callee = functions?.(id);
 						if (callee && unnamed(callee))
-							return [...own(held), { at: "call", function: id, why: "private" }];
-						if (!callee || callFits(body, held.step, callee)) return own(held);
-						const call = { via: held.via, step: placeOf(held) };
-						return [...own(held), { at: "fit", function: id, issue: { kind: "unfit" }, call }];
+							return [...own(held), { at: "runFunction", function: id, why: "unnamed" }];
+						if (!callee || runFunctionFits(body, held.step, callee)) return own(held);
+						const place = { via: held.via, step: placeOf(held) };
+						return [...own(held), { at: "fit", function: id, issue: { kind: "unfit" }, place }];
 					},
 					...steering(own),
 				},
-				unfollowedCall: ({ call, reason }) => {
-					const why = cuts[reason](call.function);
-					return why === null ? [] : [{ at: "call", function: call.function, why }];
+				unfollowedFunction: ({ runFunction, reason }) => {
+					const why = cuts[reason](runFunction.function);
+					return why === null ? [] : [{ at: "runFunction", function: runFunction.function, why }];
 				},
 			});
 			yield* found;
@@ -657,13 +669,13 @@ export function createAutomationValidity(
 					yield { at: "name", function: id, param: param.name };
 			}
 		}
-		const call = functions ? pointerOf(body) : null;
-		const fn = call ? functions?.(call.function) : null;
+		const pointer = functions ? pointerOf(body) : null;
+		const fn = pointer ? functions?.(pointer.function) : null;
 		// Its own steps, shared.
-		if (call && fn && unnamed(fn) && pointing(call.function) > 1)
-			yield { at: "call", function: call.function, why: "private" };
-		const unfit = call && fn ? callIssue(body, fn) : null;
-		if (call && unfit) yield { at: "fit", function: call.function, issue: unfit };
+		if (pointer && fn && unnamed(fn) && pointing(pointer.function) > 1)
+			yield { at: "runFunction", function: pointer.function, why: "unnamed" };
+		const unfit = pointer && fn ? pointerIssue(body, fn) : null;
+		if (pointer && unfit) yield { at: "fit", function: pointer.function, issue: unfit };
 	}
 
 	const first = (issues: Iterable<BodyIssue>, picked: (issue: BodyIssue) => boolean): BodyIssue | null => {
@@ -671,9 +683,9 @@ export function createAutomationValidity(
 		return null;
 	};
 
-	/** Recomputed unarming issue. */
+	/** Recomputed issue that leaves it inactive. */
 	const automationIssue = (body: Automation, functions: FunctionOf | null = functionOf): string | null => {
-		const issue = first(assessBody(body, functions), unarms);
+		const issue = first(assessBody(body, functions), deactivates);
 		return issue && lineOf(issue);
 	};
 
@@ -726,13 +738,13 @@ export function createAutomationValidity(
 		return issue ? { refused: issue.message } : { action: parsed.data };
 	}
 
-	/** A call's read values, as the pointer its frame is entered by. */
-	function resolvedCall(
+	/** A run function step's read arguments, as the action its frame is entered by. */
+	function resolvedRunFunction(
 		id: string,
-		values: Readonly<Record<string, unknown>>,
+		args: Readonly<Record<string, unknown>>,
 	): { action: RunFunction } | { refused: string } {
 		const kind: RunFunction["kind"] = "run_function";
-		const parsed = AutomationActionSchema.safeParse({ kind, function: id, values });
+		const parsed = AutomationActionSchema.safeParse({ kind, function: id, args });
 		return parsed.success && parsed.data.kind === kind ? { action: parsed.data } : { refused: STEP_UNFIT };
 	}
 
@@ -751,9 +763,9 @@ export function createAutomationValidity(
 		actionStops,
 		stepStops,
 		entryIssue,
-		calledEntryIssue,
+		runFunctionEntryIssue,
 		resolved,
-		resolvedCall,
+		resolvedRunFunction,
 		armed,
 	};
 }

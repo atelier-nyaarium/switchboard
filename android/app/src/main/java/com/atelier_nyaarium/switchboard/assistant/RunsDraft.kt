@@ -45,10 +45,10 @@ internal sealed interface RunsDraft {
 		/** The row's revision; 0 when new. */
 		val base: Long,
 		val name: String,
-		val params: List<FunctionValueDraft>,
+		val params: List<FunctionParamDraft>,
 		val steps: List<StepDraft>,
-		/** As typed, by param name. */
-		val values: Map<String, String>,
+		/** As typed, by parameter key. */
+		val args: Map<String, String>,
 		/** Carries what this build does not draw. */
 		val held: AutomationAction.RunFunction,
 		val mode: PointMode,
@@ -57,70 +57,70 @@ internal sealed interface RunsDraft {
 	) : RunsDraft
 
 	/** A pointer whose function is not listed. */
-	data class Kept(val action: AutomationAction) : RunsDraft
+	data class Unlisted(val action: AutomationAction) : RunsDraft
 }
 
-internal data class FunctionValueDraft(val key: String, val param: FunctionParam)
+internal data class FunctionParamDraft(val key: String, val param: FunctionParam)
 
-internal data class FunctionValueReference(val key: String, val name: String)
+internal data class FunctionParamReference(val key: String, val name: String)
 
-private fun functionValues(params: List<FunctionParam>): List<FunctionValueDraft> =
-	params.map { FunctionValueDraft(UUID.randomUUID().toString(), it) }
+private fun paramDrafts(params: List<FunctionParam>): List<FunctionParamDraft> =
+	params.map { FunctionParamDraft(UUID.randomUUID().toString(), it) }
 
 internal fun RunsDraft.Pointing.wireParams(): List<FunctionParam> = params.map { it.param }
 
-internal fun RunsDraft.Pointing.valuesByName(): Map<String, String> = params.mapNotNull { row ->
-	values[row.key]?.let { row.param.name to it }
+internal fun RunsDraft.Pointing.argsByName(): Map<String, String> = params.mapNotNull { row ->
+	args[row.key]?.let { row.param.name to it }
 }.toMap()
 
 /** What an automation runs, less its cards. */
 internal sealed interface RunsHead {
-	/** Its own steps. */
-	data object Own : RunsHead
+	/** Its own steps: flat, or an unnamed function. */
+	data object Unnamed : RunsHead
 
 	/** `pointing.steps` is unused; the cards are the steps. */
 	data class Points(val pointing: RunsDraft.Pointing) : RunsHead
 
-	data class Kept(val action: AutomationAction) : RunsHead
+	data class Unlisted(val action: AutomationAction) : RunsHead
 }
 
 internal fun runsOf(head: RunsHead, cards: List<StepDraft>): RunsDraft = when (head) {
-	RunsHead.Own -> RunsDraft.Flat(cards)
+	RunsHead.Unnamed -> RunsDraft.Flat(cards)
 	is RunsHead.Points -> head.pointing.copy(steps = cards)
-	is RunsHead.Kept -> RunsDraft.Kept(head.action)
+	is RunsHead.Unlisted -> RunsDraft.Unlisted(head.action)
 }
 
 internal fun headOf(runs: RunsDraft): Pair<RunsHead, List<StepDraft>> = when (runs) {
-	is RunsDraft.Flat -> RunsHead.Own to runs.steps
+	is RunsDraft.Flat -> RunsHead.Unnamed to runs.steps
 	is RunsDraft.Pointing -> RunsHead.Points(runs.copy(steps = emptyList())) to runs.steps
-	is RunsDraft.Kept -> RunsHead.Kept(runs.action) to emptyList()
+	is RunsDraft.Unlisted -> RunsHead.Unlisted(runs.action) to emptyList()
 }
 
-/** A `do` step's card; what it cannot draw stays whole. */
-internal fun stepDraftOf(step: FunctionStep, offer: AutomationOffer, params: List<FunctionValueDraft> = emptyList()): ActionDraft {
+/** An action step's card; what it cannot draw stays whole. */
+internal fun stepDraftOf(step: FunctionStep, offer: AutomationOffer, params: List<FunctionParamDraft> = emptyList()): ActionDraft {
 	val raw = wireJson.encodeToJsonElement(FunctionStep.serializer(), step).jsonObject
 	// Labelled by its action; carried whole.
-	val kept = ActionDraft.Kept(
-		AutomationAction.Unknown(stepKind(step), JsonObject(mapOf(KIND_KEY to JsonPrimitive(stepKind(step)), STEP_KEY to raw))),
+	val unsupported = ActionDraft.Unsupported(
+		AutomationAction.Unknown(stepKindOf(step), JsonObject(mapOf(KIND_KEY to JsonPrimitive(stepKindOf(step)), STEP_KEY to raw))),
 	)
-	val doing = step as? FunctionStep.Do ?: return kept
-	if (doing.`as` != null) return kept
-	val row = offer.action(doing.action)?.takeIf { it.drawable } ?: return kept
+	val action = step as? FunctionStep.Action ?: return unsupported
+	if (action.`as` != null) return unsupported
+	val row = offer.action(action.action)?.takeIf { it.drawable } ?: return unsupported
 	val values = mutableMapOf<String, String>()
-	val references = mutableMapOf<String, FunctionValueReference>()
-	for ((name, raw) in doing.args) {
-		val arg = runIsolated { wireJson.decodeFromJsonElement(StepArg.serializer(), raw) }.getOrNull() ?: return kept
+	val references = mutableMapOf<String, FunctionParamReference>()
+	for ((name, raw) in action.args) {
+		val arg = runIsolated { wireJson.decodeFromJsonElement(StepArg.serializer(), raw) }.getOrNull() ?: return unsupported
 		when (arg) {
 			is StepArg.Literal -> {
-				val text = (arg.value as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return kept
-				if (row.param(name) == null) return kept
+				val text = (arg.value as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return unsupported
+				if (row.param(name) == null) return unsupported
 				values[name] = text
 			}
 			is StepArg.Expression -> {
 				val named = lexConsole(arg.text).singleOrNull()?.takeIf { it.kind == ConsoleTokenKind.IDENT }?.text
-				val value = params.firstOrNull { it.param.name == named } ?: return kept
-				if (row.param(name)?.kind != PARAM_SWITCH || value.param.type != FunctionParamType.DEVICE.wire) return kept
-				references[name] = FunctionValueReference(value.key, value.param.name)
+				val param = params.firstOrNull { it.param.name == named } ?: return unsupported
+				if (row.param(name)?.kind != PARAM_DEVICE || param.param.type != FunctionParamType.DEVICE.wire) return unsupported
+				references[name] = FunctionParamReference(param.key, param.param.name)
 			}
 		}
 	}
@@ -131,27 +131,9 @@ private const val KIND_KEY = "kind"
 
 private const val STEP_KEY = "step"
 
-private fun stepKind(step: FunctionStep): String = when (step) {
-	is FunctionStep.Do -> step.action
-	is FunctionStep.If -> "if"
-	is FunctionStep.Switch -> "switch"
-	is FunctionStep.Try -> "try"
-	is FunctionStep.Parallel -> "parallel"
-	is FunctionStep.Start -> "start"
-	is FunctionStep.Await -> "await"
-	is FunctionStep.Exit -> "exit"
-	is FunctionStep.Throw -> "throw"
-	is FunctionStep.Let -> "let"
-	is FunctionStep.Wait -> "wait"
-	is FunctionStep.Note -> "note"
-	is FunctionStep.Unparsed -> "unparsed"
-	is FunctionStep.Call -> "call"
-	is FunctionStep.Unknown -> step.kind
-}
-
 /** Null when an action card cannot be a step. */
-internal fun stepOf(draft: ActionDraft, offer: AutomationOffer, params: List<FunctionValueDraft> = emptyList()): FunctionStep? {
-	val held = ((draft as? ActionDraft.Kept)?.action as? AutomationAction.Unknown)?.raw?.get(STEP_KEY)
+internal fun stepOf(draft: ActionDraft, offer: AutomationOffer, params: List<FunctionParamDraft> = emptyList()): FunctionStep? {
+	val held = ((draft as? ActionDraft.Unsupported)?.action as? AutomationAction.Unknown)?.raw?.get(STEP_KEY)
 	if (held != null) return runIsolated { wireJson.decodeFromJsonElement(FunctionStep.serializer(), held) }.getOrNull()
 	val filled = draft as? ActionDraft.Filled ?: return null
 	val byKey = params.associateBy { it.key }
@@ -164,22 +146,22 @@ internal fun stepOf(draft: ActionDraft, offer: AutomationOffer, params: List<Fun
 	if (args.values.any { !(it is JsonPrimitive && it.isString) }) return null
 	val encoded = args.mapValues { (_, value) -> wireJson.encodeToJsonElement(StepArg.serializer(), StepArg.Literal(value)) }.toMutableMap()
 	for ((name, reference) in filled.references) {
-		if (row.param(name)?.kind != PARAM_SWITCH) return null
-		val value = byKey[reference.key] ?: return null
-		encoded[name] = wireJson.encodeToJsonElement(StepArg.serializer(), StepArg.Expression(value.param.name))
+		if (row.param(name)?.kind != PARAM_DEVICE) return null
+		val param = byKey[reference.key] ?: return null
+		encoded[name] = wireJson.encodeToJsonElement(StepArg.serializer(), StepArg.Expression(param.param.name))
 	}
-	return FunctionStep.Do(action = kind, args = JsonObject(encoded))
+	return FunctionStep.Action(action = kind, args = JsonObject(encoded))
 }
 
 /** The runs a stored automation holds. */
 internal fun runsDraftOf(automationId: String, automation: Automation, functions: List<AutomationFunctionRow>?, offer: AutomationOffer): RunsDraft {
 	val pointer = written(automation).singleOrNull() as? AutomationAction.RunFunction
-		?: return RunsDraft.Flat(written(automation).map { StepDraft.Do(freshKey(), actionDraftOf(it, offer)) })
-	val row = functions?.firstOrNull { it.id == pointer.function } ?: return RunsDraft.Kept(pointer)
-	val params = functionValues(row.function.params)
+		?: return RunsDraft.Flat(written(automation).map { StepDraft.Action(freshKey(), actionDraftOf(it, offer)) })
+	val row = functions?.firstOrNull { it.id == pointer.function } ?: return RunsDraft.Unlisted(pointer)
+	val params = paramDrafts(row.function.params)
 	val steps = written(row.function).map { treeOf(it, offer, params) }
-	val values = params.mapNotNull { param ->
-		pointer.values?.get(param.param.name)?.let { value -> param.key to (value as? JsonPrimitive)?.contentOrNull.orEmpty() }
+	val args = params.mapNotNull { param ->
+		pointer.args?.get(param.param.name)?.let { value -> param.key to (value as? JsonPrimitive)?.contentOrNull.orEmpty() }
 	}.toMap()
 	return RunsDraft.Pointing(
 		functionId = row.id,
@@ -187,17 +169,17 @@ internal fun runsDraftOf(automationId: String, automation: Automation, functions
 		name = row.function.name,
 		params = params,
 		steps = steps,
-		values = values,
+		args = args,
 		held = pointer,
 		mode = PointMode.SHARED,
 		original = row.function,
 	)
 }
 
-/** Point at a listed function, keeping what the pointer carried. */
+/** Point at a listed function, carrying what the pointer held. */
 internal fun pointedAt(runs: RunsDraft, automationId: String, row: AutomationFunctionRow, offer: AutomationOffer): RunsDraft.Pointing {
 	val held = (runs as? RunsDraft.Pointing)?.held ?: AutomationAction.RunFunction(function = row.id)
-	val params = functionValues(row.function.params)
+	val params = paramDrafts(row.function.params)
 	val steps = written(row.function).map { treeOf(it, offer, params) }
 	return RunsDraft.Pointing(
 		functionId = row.id,
@@ -205,41 +187,41 @@ internal fun pointedAt(runs: RunsDraft, automationId: String, row: AutomationFun
 		name = row.function.name,
 		params = params,
 		steps = steps,
-		values = emptyMap(),
-		held = held.copy(function = row.id, values = null),
+		args = emptyMap(),
+		held = held.copy(function = row.id, args = null),
 		mode = PointMode.SHARED,
 		original = row.function,
 	)
 }
 
 /** Typed text as the value the Gateway reads. */
-internal fun functionValueOf(param: FunctionParam, text: String): JsonPrimitive? = when (param.type) {
+internal fun functionArgOf(param: FunctionParam, text: String): JsonPrimitive? = when (param.type) {
 	// Finite only.
 	FunctionParamType.NUMBER.wire -> parseDecimal(text.trim())?.let { decimal -> JsonPrimitive(text.trim().toLongOrNull() ?: decimal) }
 	else -> text.takeIf { it.isNotBlank() }?.let(::JsonPrimitive)
 }
 
 /** Else as typed. */
-internal fun sentValueOf(param: FunctionParam, text: String): JsonPrimitive? =
-	functionValueOf(param, text) ?: text.takeIf { it.isNotBlank() }?.let(::JsonPrimitive)
+internal fun sentArgOf(param: FunctionParam, text: String): JsonPrimitive? =
+	functionArgOf(param, text) ?: text.takeIf { it.isNotBlank() }?.let(::JsonPrimitive)
 
-internal data class FunctionPreviewScope(val params: List<FunctionParam>, val values: JsonObject)
+internal data class FunctionPreviewScope(val params: List<FunctionParam>, val args: JsonObject)
 
-/** Callee parameters; values unset. */
+/** Callee parameters; arguments unset. */
 internal fun calleePreviewScope(callee: CalleeDraft): FunctionPreviewScope =
 	FunctionPreviewScope(callee.params.map { it.param }, JsonObject(emptyMap()))
 
 internal fun functionPreviewScopeOf(runs: RunsDraft): FunctionPreviewScope? {
 	val pointing = runs as? RunsDraft.Pointing ?: return null
-	val values = pointing.params.mapNotNull { row ->
-		pointing.values[row.key]?.let { functionValueOf(row.param, it) }?.let { row.param.name to it }
+	val args = pointing.params.mapNotNull { row ->
+		pointing.args[row.key]?.let { functionArgOf(row.param, it) }?.let { row.param.name to it }
 	}.toMap()
-	return FunctionPreviewScope(pointing.wireParams(), JsonObject(values))
+	return FunctionPreviewScope(pointing.wireParams(), JsonObject(args))
 }
 
 private fun bodyOf(
 	name: String,
-	params: List<FunctionValueDraft>,
+	params: List<FunctionParamDraft>,
 	steps: List<StepDraft>,
 	offer: AutomationOffer,
 	calleeParams: CalleeParams,
@@ -293,7 +275,7 @@ internal fun saveOpOf(
 		)
 	}
 	return when (runs) {
-		is RunsDraft.Kept -> op(listOf(runs.action), null)
+		is RunsDraft.Unlisted -> op(listOf(runs.action), null)
 		is RunsDraft.Flat -> {
 			flatActions(runs.steps, offer)?.let { return op(it, null) }
 			val id = ownFunctionId?.takeIf { unnamedServed(offer) } ?: return null
@@ -309,8 +291,8 @@ internal fun saveOpOf(
 				if (runs.params.isEmpty()) flatActions(runs.steps, offer)?.let { return op(it, null, read) }
 				if (!unnamedServed(offer)) return null
 			}
-			val values = runs.params.mapNotNull { row -> runs.values[row.key]?.let { sentValueOf(row.param, it) }?.let { row.param.name to it } }
-			val pointer = runs.held.copy(function = runs.functionId, values = JsonObject(values.toMap()).takeIf { values.isNotEmpty() })
+			val args = runs.params.mapNotNull { row -> runs.args[row.key]?.let { sentArgOf(row.param, it) }?.let { row.param.name to it } }
+			val pointer = runs.held.copy(function = runs.functionId, args = JsonObject(args.toMap()).takeIf { args.isNotEmpty() })
 			val body = bodyOf(runs.name, runs.params, runs.steps, offer, calleeParams) ?: return null
 			val called = calledOf(sending, offer, calleeParams) ?: return null
 			val function = when (runs.mode) {
@@ -324,7 +306,7 @@ internal fun saveOpOf(
 }
 
 internal fun AutomationDraft.withFunctionName(name: String, functions: FunctionOffer? = context.offer.functions): AutomationDraft = when (val head = runs) {
-	RunsHead.Own -> {
+	RunsHead.Unnamed -> {
 		if (name.isBlank()) this else {
 			val id = newFunctionId ?: freshFunctionId()
 			withRuns(RunsDraft.Pointing(id, 0L, name, emptyList(), steps, emptyMap(), AutomationAction.RunFunction(function = id), PointMode.NEW, null)).copy(newFunctionId = id)
@@ -333,11 +315,11 @@ internal fun AutomationDraft.withFunctionName(name: String, functions: FunctionO
 	is RunsHead.Points -> {
 		val pointing = head.pointing.copy(steps = steps)
 		if (name.isNotBlank()) return copy(runs = RunsHead.Points(pointing.copy(name = name)))
-		// Others keep the name; this one copies.
+		// Others hold the name; this one copies.
 		val copies = sharedName(pointing, othersOf(pointing, id, functions)) && functions?.served?.unnamed == true
 		copy(runs = RunsHead.Points(pointing.copy(name = "", mode = if (copies) PointMode.UNIQUE else pointing.mode)))
 	}
-	is RunsHead.Kept -> this
+	is RunsHead.Unlisted -> this
 }
 
 internal fun AutomationDraft.withFunctionParam(key: String, param: FunctionParam): AutomationDraft = when (val head = runs) {
@@ -345,7 +327,7 @@ internal fun AutomationDraft.withFunctionParam(key: String, param: FunctionParam
 		if (head.pointing.params.none { it.key == key }) return this
 		copy(runs = RunsHead.Points(head.pointing.copy(params = head.pointing.params.map { row -> if (row.key == key) row.copy(param = param) else row })))
 	}
-	RunsHead.Own, is RunsHead.Kept -> this
+	RunsHead.Unnamed, is RunsHead.Unlisted -> this
 }
 
 internal fun AutomationDraft.withoutFunctionParam(key: String): AutomationDraft = when (val head = runs) {
@@ -353,27 +335,27 @@ internal fun AutomationDraft.withoutFunctionParam(key: String): AutomationDraft 
 		val gone = head.pointing.params.firstOrNull { it.key == key } ?: return this
 		copy(
 			// Named as it left.
-			steps = mapDoings(steps) { action ->
+			steps = mapActions(steps) { action ->
 				if (action !is ActionDraft.Filled) action
 				else action.copy(references = action.references.mapValues { (_, held) -> if (held.key == key) held.copy(name = gone.param.name) else held })
 			},
 			runs = RunsHead.Points(head.pointing.copy(
 				params = head.pointing.params.filterNot { it.key == key },
-				values = head.pointing.values - key,
+				args = head.pointing.args - key,
 			)),
 		)
 	}
-	RunsHead.Own, is RunsHead.Kept -> this
+	RunsHead.Unnamed, is RunsHead.Unlisted -> this
 }
 
 internal fun AutomationDraft.plusFunctionParam(): AutomationDraft = when (val head = runs) {
-	is RunsHead.Points -> copy(runs = RunsHead.Points(head.pointing.copy(params = head.pointing.params + FunctionValueDraft(UUID.randomUUID().toString(), FunctionParam(name = "", type = FunctionParamType.TEXT.wire)))))
-	RunsHead.Own, is RunsHead.Kept -> this
+	is RunsHead.Points -> copy(runs = RunsHead.Points(head.pointing.copy(params = head.pointing.params + FunctionParamDraft(UUID.randomUUID().toString(), FunctionParam(name = "", type = FunctionParamType.TEXT.wire)))))
+	RunsHead.Unnamed, is RunsHead.Unlisted -> this
 }
 
-internal fun AutomationDraft.withFunctionValue(key: String, text: String): AutomationDraft = when (val head = runs) {
-	is RunsHead.Points -> copy(runs = RunsHead.Points(head.pointing.copy(values = head.pointing.values + (key to text))))
-	is RunsHead.Own, is RunsHead.Kept -> this
+internal fun AutomationDraft.withFunctionArg(key: String, text: String): AutomationDraft = when (val head = runs) {
+	is RunsHead.Points -> copy(runs = RunsHead.Points(head.pointing.copy(args = head.pointing.args + (key to text))))
+	is RunsHead.Unnamed, is RunsHead.Unlisted -> this
 }
 
 /** First free suffix. */
@@ -396,7 +378,7 @@ internal fun AutomationDraft.madeUnique(offer: AutomationOffer): AutomationDraft
 		val name = if (base.isBlank()) "" else uniqueFunctionName(base, listed)
 		copy(runs = RunsHead.Points(head.pointing.copy(mode = PointMode.UNIQUE, name = name)))
 	}
-	is RunsHead.Own, is RunsHead.Kept -> this
+	is RunsHead.Unnamed, is RunsHead.Unlisted -> this
 }
 
 /** Only closes. */
@@ -422,8 +404,7 @@ internal fun AutomationDraft.pointedTo(row: AutomationFunctionRow, offer: Automa
 internal fun AutomationDraft.freshBody(): AutomationDraft =
 	swappedOwn(RunsDraft.Flat(emptyList())).copy(picking = false, newFunctionId = null)
 
-/** Other users first. */
-/** Other automations, then calling functions. */
+/** Other automations, then functions that run it. */
 internal fun othersOf(runs: RunsDraft.Pointing, selfId: String, functions: FunctionOffer?): List<String> {
 	val row = functions?.row(runs.functionId) ?: return emptyList()
 	return row.users.filter { it != selfId } + row.callers.orEmpty()
@@ -437,10 +418,10 @@ internal fun AutomationDraft.reloadedFunction(row: AutomationFunctionRow, offer:
 	if (runs.mode !in setOf(PointMode.SHARED, PointMode.UNIQUE) || runs.functionId != row.id) return this to false
 	val dropped = runs.mode == PointMode.UNIQUE || script?.unread() == true ||
 		bodyOf(runs.name, runs.params, runs.steps, offer, calleeParamsOf(this, offer)) != runs.original
-	val oldValues = runs.params.associate { it.param.name to (it.param.type to runs.values[it.key]) }
-	val params = functionValues(row.function.params)
-	val values = params.mapNotNull { param ->
-		val (type, value) = oldValues[param.param.name] ?: return@mapNotNull null
+	val oldArgs = runs.params.associate { it.param.name to (it.param.type to runs.args[it.key]) }
+	val params = paramDrafts(row.function.params)
+	val args = params.mapNotNull { param ->
+		val (type, value) = oldArgs[param.param.name] ?: return@mapNotNull null
 		value?.takeIf { type == param.param.type }?.let { param.key to it }
 	}.toMap()
 	val reloaded = runs.copy(
@@ -448,7 +429,7 @@ internal fun AutomationDraft.reloadedFunction(row: AutomationFunctionRow, offer:
 		name = row.function.name,
 		params = params,
 		steps = written(row.function).map { treeOf(it, offer, params) },
-		values = values,
+		args = args,
 		mode = PointMode.SHARED,
 		original = row.function,
 	)
@@ -457,10 +438,11 @@ internal fun AutomationDraft.reloadedFunction(row: AutomationFunctionRow, offer:
 
 /** A card back as an automation's action; null for any card but a filled action. */
 private fun stepAction(draft: StepDraft, offer: AutomationOffer): AutomationAction? = when (draft) {
-	is StepDraft.Do -> when (val action = draft.action) {
+	is StepDraft.Action -> when (val action = draft.action) {
 		is ActionDraft.Filled -> actionOf(action, offer)
-		is ActionDraft.Kept -> null
+		is ActionDraft.Unsupported -> null
 	}
-	is StepDraft.If, is StepDraft.Try, is StepDraft.Switch, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Call,
-	is StepDraft.Kept -> null
+	is StepDraft.If, is StepDraft.Try, is StepDraft.Switch, is StepDraft.Wait, is StepDraft.Return, is StepDraft.Comment,
+	is StepDraft.RunFunction, is StepDraft.Variable, is StepDraft.Parallel, is StepDraft.Start, is StepDraft.Await,
+	is StepDraft.Throw, is StepDraft.ScriptOnly -> null
 }

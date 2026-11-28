@@ -3,7 +3,7 @@ import { AUTOMATION_ACTIONS } from "../shared/schemasAutomation.js";
 import { FUNCTION_STEPS_MAX, FunctionSchema, STEP_ARGS_MAX } from "../shared/schemasFunction.js";
 
 const on = {
-	kind: "do",
+	kind: "action",
 	action: "device_set",
 	args: { device: { kind: "literal", value: "plug" }, verb: { kind: "literal", value: "on" } },
 };
@@ -13,7 +13,10 @@ describe("a function record", () => {
 		const held = {
 			name: "Warm up",
 			params: [{ name: "room", type: "device" }],
-			steps: [on, { kind: "do", action: "device_set", args: { device: { kind: "expression", text: "room" } } }],
+			steps: [
+				on,
+				{ kind: "action", action: "device_set", args: { device: { kind: "expression", text: "room" } } },
+			],
 		};
 
 		expect(FunctionSchema.safeParse(held).success).toBe(true);

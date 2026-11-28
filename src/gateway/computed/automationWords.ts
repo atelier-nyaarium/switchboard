@@ -73,7 +73,7 @@ export function createAutomationWords(deps: WordsDeps) {
 		if (!reading) return {};
 		const now = reading.now();
 		return {
-			value:
+			reading:
 				now === null
 					? { value: null, shown: "unread" }
 					: { value: reading.inUnit(now), shown: reading.shown(now) },

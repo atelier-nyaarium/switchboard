@@ -352,7 +352,7 @@ private fun invalidLine(refusal: AutomationSaveRefusal?): String {
 	val step = parts.getOrNull(1)?.toIntOrNull()?.plus(1)
 	return when {
 		// skew:step-refusals
-		parts.size == 2 && parts[0] == "values" -> "That plug is not on this Gateway."
+		parts.size == 2 && parts[0] == "args" -> "No such device on this Gateway."
 		parts.size == 3 && parts[0] == "steps" && step != null -> refusal?.line ?: "Step $step holds a value it cannot use."
 		parts.size == 2 && parts[0] == "steps" && step != null -> "Step $step cannot run here."
 		parts.size > 1 && (parts[0] == "steps" || parts[0] == "actions") && step != null -> "Step $step cannot be saved."
@@ -373,9 +373,13 @@ private fun unfitLine(refusal: AutomationSaveRefusal?, selfId: String?): String 
 	}
 }
 
-/** A refused `automation_save`; `code` null for one this build does not know. */
-internal const val FUNCTION_MOVED_LINE = "Its function changed elsewhere. Reload to see it."
+internal const val FUNCTION_CHANGED_LINE = "Its function changed elsewhere."
 
+internal const val FUNCTION_CHANGED_HERE = "This function changed elsewhere."
+
+internal const val CANNOT_SAVE = "Cannot be saved"
+
+/** A refused `automation_save`; `code` null for one this build does not know. */
 internal fun automationSaveLine(
 	code: Protocol.Wire.AutomationSaveRefusalCode?,
 	refusal: AutomationSaveRefusal?,
@@ -384,8 +388,8 @@ internal fun automationSaveLine(
 ): String {
 	val function = refusal?.record == Protocol.Wire.AutomationSaveRecord.FUNCTION.wire
 	return when (code) {
-		Protocol.Wire.AutomationSaveRefusalCode.MOVED ->
-			if (function) FUNCTION_MOVED_LINE else "Changed on another device."
+		Protocol.Wire.AutomationSaveRefusalCode.CHANGED ->
+			if (function) FUNCTION_CHANGED_LINE else "Changed elsewhere."
 		Protocol.Wire.AutomationSaveRefusalCode.GONE ->
 			if (function) "That function no longer exists." else "That automation no longer exists."
 		Protocol.Wire.AutomationSaveRefusalCode.FULL -> {
@@ -400,20 +404,20 @@ internal fun automationSaveLine(
 		}
 		Protocol.Wire.AutomationSaveRefusalCode.INVALID -> invalidLine(refusal)
 		// skew:step-refusals
-		Protocol.Wire.AutomationSaveRefusalCode.HOLE -> "That text cannot be filled here."
+		Protocol.Wire.AutomationSaveRefusalCode.PLACEHOLDER -> "That template cannot be filled here."
 		Protocol.Wire.AutomationSaveRefusalCode.UNFIT -> unfitLine(refusal, selfId)
 		Protocol.Wire.AutomationSaveRefusalCode.UNKNOWN_FUNCTION -> "That function no longer exists."
 		Protocol.Wire.AutomationSaveRefusalCode.MIXED -> "A function runs alone."
 		Protocol.Wire.AutomationSaveRefusalCode.NEWER_APP -> "Edit this in the newer app."
 		Protocol.Wire.AutomationSaveRefusalCode.NOT_HOME -> "Only the assistant's Gateway can save this."
-		Protocol.Wire.AutomationSaveRefusalCode.CONFIRM -> "It needs your go-ahead."
+		Protocol.Wire.AutomationSaveRefusalCode.CONFIRM -> "Needs your confirmation."
 		Protocol.Wire.AutomationSaveRefusalCode.NEWER_FUNCTION -> "Its function needs a newer Gateway."
 		Protocol.Wire.AutomationSaveRefusalCode.NO_KEY -> "This Gateway cannot make a copy right now."
 		Protocol.Wire.AutomationSaveRefusalCode.UNWRITTEN -> "The Gateway could not save it. Try again."
 		Protocol.Wire.AutomationSaveRefusalCode.NEWER_AUTOMATION -> "Edit this automation in the newer app."
 		Protocol.Wire.AutomationSaveRefusalCode.NO_FREE_ID -> "This Gateway has no room for another copy of that function."
-		Protocol.Wire.AutomationSaveRefusalCode.LOOP -> "A function it runs would end up calling itself."
-		Protocol.Wire.AutomationSaveRefusalCode.PRIVATE -> "Those steps belong to one automation. Give them a name to share them."
+		Protocol.Wire.AutomationSaveRefusalCode.LOOP -> "A function it runs leads back to itself."
+		Protocol.Wire.AutomationSaveRefusalCode.UNNAMED -> "An unnamed function belongs to one automation. Name it to share it."
 		null -> refusal?.line ?: "The Gateway refused it."
 	}
 }
@@ -439,12 +443,12 @@ internal fun typeWordText(word: TypeWord): String = when (word) {
 /** What blocks Save in the Runs block. */
 internal fun runsIssueLine(issue: RunsIssue): String = when (issue) {
 	RunsIssue.NoSteps -> "Add a step first."
-	is RunsIssue.NotAStep -> "One step cannot run in a function."
-	is RunsIssue.NeedsName -> "Name it to keep this step."
-	is RunsIssue.InCallee -> "Steps in ${issue.name} need attention."
-	RunsIssue.NameWithValues -> "Name it, or remove its values."
+	is RunsIssue.NotAStep -> "One step is not complete."
+	is RunsIssue.NeedsName -> "This Gateway cannot hold unnamed functions."
+	is RunsIssue.InCallee -> "${issue.name}: $CANNOT_SAVE"
+	RunsIssue.NameWithParams -> "Name it, or remove its parameters."
 	is RunsIssue.BadParam -> paramIssueLine(issue.issue)
-	RunsIssue.TooManyParams -> "A function takes at most ${Protocol.Wire.FUNCTION_PARAMS_MAX} values."
+	RunsIssue.TooManyParams -> "A function takes at most ${Protocol.Wire.FUNCTION_PARAMS_MAX} parameters."
 	is RunsIssue.SharedName -> "Used by ${issue.users}. Make unique first."
 	is RunsIssue.NameTooLong -> "A function name holds at most ${issue.max} characters."
 }
@@ -460,15 +464,17 @@ internal fun runsNoteLine(note: RunsNote): String = when (note) {
 internal fun savedIssuesLine(issues: List<AutomationIssue>): String? {
 	val errors = issues.count { drawsAsError(issueLevelOf(it.level)) }
 	val warnings = issues.size - errors
-	val counts = listOfNotNull(
-		errors.takeIf { it > 0 }?.let { if (it == 1) "1 error" else "$it errors" },
-		warnings.takeIf { it > 0 }?.let { if (it == 1) "1 warning" else "$it warnings" },
-	)
-	return counts.takeIf { it.isNotEmpty() }?.let { "Saved with ${it.joinToString(" and ")}." }
+	return issues.takeIf { it.isNotEmpty() }?.let { "Saved with ${issueCountsLine(errors, warnings)}." }
 }
 
+/** "2 errors · 1 warning". */
+internal fun issueCountsLine(errors: Int, warnings: Int): String = listOfNotNull(
+	errors.takeIf { it > 0 }?.let { if (it == 1) "1 error" else "$it errors" },
+	warnings.takeIf { it > 0 }?.let { if (it == 1) "1 warning" else "$it warnings" },
+).joinToString(" · ")
+
 internal fun paramIssueLine(issue: ParamIssue): String = when (issue) {
-	ParamIssue.EMPTY -> "Name this value."
+	ParamIssue.EMPTY -> "Name this parameter."
 	ParamIssue.INVALID -> "Use a lowercase name with letters, digits, and _."
 	ParamIssue.DUPLICATE -> "This name is used twice."
 }
@@ -502,7 +508,7 @@ internal fun carryRefusalLine(refusal: CarryRefusal): String = when (refusal) {
 	CarryRefusal.NoFunctions -> "That Gateway cannot hold functions."
 	is CarryRefusal.StepNotServed ->
 		refusal.label?.let { "That Gateway cannot run \"$it\" in a function." } ?: "That Gateway cannot run one of its steps in a function."
-	CarryRefusal.UnnamedNotServed -> "That Gateway cannot hold steps with no name."
+	CarryRefusal.UnnamedNotServed -> "That Gateway cannot hold unnamed functions."
 	CarryRefusal.ConditionsNotServed -> "That Gateway cannot hold a condition with several values or \"does not contain\"."
 	CarryRefusal.Reading -> "Still reading that Gateway. Try again in a moment."
 	CarryRefusal.TooLarge -> "The assistant's settings are too large to move."

@@ -26,7 +26,7 @@ const vectors = JSON.parse(
 	fs.readFileSync(path.resolve(import.meta.dirname, "../../tests/fixtures/live-console-tokens/vectors.json"), "utf8"),
 ) as { cases: Tokens[]; texts: Parts[]; scripts: Tokens[]; strings: Quoted[] };
 
-/** Every leaf a token covers, in order: a string's quotes, runs and escapes, and its holes' own. */
+/** Every leaf a token covers, in order: a string's quotes, runs and escapes, and its placeholders' own. */
 function leaves(tokens: readonly ConsoleToken[], into: [number, number][] = []): [number, number][] {
 	for (const token of tokens) {
 		if (!token.parts) {
@@ -40,7 +40,7 @@ function leaves(tokens: readonly ConsoleToken[], into: [number, number][] = []):
 
 function pieces(parts: readonly ConsoleStringPart[], into: [number, number][] = []): [number, number][] {
 	for (const part of parts) {
-		if (part.kind === "hole") leaves(part.tokens, into);
+		if (part.kind === "placeholder") leaves(part.tokens, into);
 		else into.push([part.start, part.end]);
 	}
 	return into;
@@ -73,10 +73,12 @@ describe("the one lexer, against the shared corpus", () => {
 		}
 		// Runs join where an escape was written, so compare what the whole says.
 		const said = (parts: ConsoleStringPart[], source: string) =>
-			parts.map((part) => (part.kind === "hole" ? source.slice(part.start, part.end) : part.value)).join("");
+			parts
+				.map((part) => (part.kind === "placeholder" ? source.slice(part.start, part.end) : part.value))
+				.join("");
 		for (const { input, parts } of vectors.texts) {
-			// Between quotes a hole ends with its line, so one that passes a line is written on one.
-			if (parts.some((part) => part.kind === "hole" && (!part.closed || lineIn(input, part)))) continue;
+			// Between quotes a placeholder ends with its line, so one that passes a line is written on one.
+			if (parts.some((part) => part.kind === "placeholder" && (!part.closed || lineIn(input, part)))) continue;
 			const written = quoteConsoleText(input);
 			const [token] = lexConsole(written);
 
@@ -116,7 +118,7 @@ describe("the one lexer, against the shared corpus", () => {
 		for (const { input, parts } of vectors.texts) {
 			// A quote, a line break or a backslash in a run means something else between quotes.
 			const same = parts.every((part) =>
-				part.kind === "hole"
+				part.kind === "placeholder"
 					? part.closed && !lineIn(input, part)
 					: part.kind === "escape" || !/["\n\\]/.test(part.value),
 			);

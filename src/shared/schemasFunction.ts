@@ -15,11 +15,11 @@ export const FUNCTION_STEPS_TOTAL_MAX = 256;
 export const WAIT_MINUTES_MAX = 1_440;
 export const FUNCTION_PARAMS_MAX = 256;
 /** Maximum concurrent steps. */
-export const RUN_STRANDS_MAX = 256;
+export const RUN_BRANCHES_MAX = 256;
 /** Run variables. */
-export const FRAME_VARS_MAX = 16;
+export const FRAME_VARIABLES_MAX = 16;
 /** A run's variables, and `e`. */
-export const RUN_NAMES_MAX = FRAME_VARS_MAX + 1;
+export const RUN_VARIABLES_MAX = FRAME_VARIABLES_MAX + 1;
 export const FUNCTION_NAME_MAX = 80;
 export const STEP_TEXT_MAX = 1_000;
 /** Step argument values. */
@@ -42,9 +42,9 @@ export const LiteralValueSchema = z.union([z.string().max(STEP_TEXT_MAX), z.numb
 /** Read at step start. */
 export const StepArgSchema = z
 	.discriminatedUnion("kind", [
-		/** As written; an action's text parameter alone fills its holes. */
+		/** As written; an action's text parameter alone fills its placeholders. */
 		z.strictObject({ kind: z.literal("literal"), value: LiteralValueSchema }),
-		/** Blank hole text fails. */
+		/** Blank text fails. */
 		z.strictObject({ kind: z.literal("expression"), text: z.string().max(STEP_TEXT_MAX) }),
 	])
 	.meta({ id: "StepArg" });
@@ -71,7 +71,7 @@ export const SwitchCaseSchema = z
 export const FunctionStepSchema = z
 	.discriminatedUnion("kind", [
 		z.strictObject({
-			kind: z.literal("do"),
+			kind: z.literal("action"),
 			action: z.string().min(1).max(32),
 			as: z.string().regex(PARAM_NAME_RE).optional(),
 			args: z
@@ -81,7 +81,7 @@ export const FunctionStepSchema = z
 		z.strictObject({
 			kind: z.literal("if"),
 			/** Blank expressions fail. */
-			when: z.string().max(STEP_TEXT_MAX),
+			condition: z.string().max(STEP_TEXT_MAX),
 			/** The side taken when it holds. */
 			get steps() {
 				return side().optional();
@@ -119,7 +119,7 @@ export const FunctionStepSchema = z
 				return side();
 			},
 		}),
-		/** Task kept under `as`. */
+		/** A task named by `as`. */
 		z.strictObject({
 			kind: z.literal("start"),
 			as: z.string().regex(PARAM_NAME_RE).optional(),
@@ -132,21 +132,21 @@ export const FunctionStepSchema = z
 			task: z.string().min(1).max(STEP_TEXT_MAX),
 			as: z.string().regex(PARAM_NAME_RE).optional(),
 		}),
-		z.strictObject({ kind: z.literal("exit") }),
+		z.strictObject({ kind: z.literal("return") }),
 		z.strictObject({ kind: z.literal("throw"), text: z.string().max(STEP_TEXT_MAX).optional() }),
-		z.strictObject({ kind: z.literal("let"), name: z.string().regex(PARAM_NAME_RE), value: StepArgSchema }),
+		z.strictObject({ kind: z.literal("variable"), name: z.string().regex(PARAM_NAME_RE), value: StepArgSchema }),
 		z.strictObject({ kind: z.literal("wait"), minutes: StepArgSchema }),
-		z.strictObject({ kind: z.literal("note"), text: z.string().max(STEP_TEXT_MAX) }),
+		z.strictObject({ kind: z.literal("comment"), text: z.string().max(STEP_TEXT_MAX) }),
 		/** Unparsed scripts stand alone. */
 		z.strictObject({ kind: z.literal("unparsed"), source: z.string().max(SCRIPT_SOURCE_MAX) }),
 		/** Runs another function and waits for it. */
 		z.strictObject({
-			kind: z.literal("call"),
+			kind: z.literal("run_function"),
 			function: z.string().regex(RULE_ID_RE),
-			/** By the callee's value names; read when the call starts. */
-			values: z
+			/** By its parameter names; read when it starts. */
+			args: z
 				.record(z.string().regex(PARAM_NAME_RE), StepArgSchema)
-				.refine((values) => Object.keys(values).length <= FUNCTION_PARAMS_MAX, { message: "too many values" })
+				.refine((args) => Object.keys(args).length <= FUNCTION_PARAMS_MAX, { message: "too many arguments" })
 				.optional(),
 		}),
 	])
@@ -158,20 +158,20 @@ export const unnamed = (fn: { name: string }): boolean => fn.name === "";
 
 /** Keyed by every kind. */
 const STATEMENTS: { [K in FunctionStep["kind"]]: true } = {
-	do: true,
+	action: true,
 	if: true,
 	switch: true,
 	try: true,
 	parallel: true,
 	start: true,
 	await: true,
-	exit: true,
+	return: true,
 	throw: true,
-	let: true,
+	variable: true,
 	wait: true,
-	note: true,
+	comment: true,
 	unparsed: true,
-	call: true,
+	run_function: true,
 };
 /** Every kind a step may be. */
 export const FUNCTION_STATEMENT_KINDS = Object.keys(STATEMENTS) as FunctionStep["kind"][];
@@ -197,7 +197,7 @@ export const FunctionSchema = z
 		steps: walked(FunctionStepsSchema.min(1)),
 	})
 	.refine((fn) => new Set(fn.params.map((param) => param.name)).size === fn.params.length, {
-		message: "a value is named twice",
+		message: "a parameter is named twice",
 		path: ["params"],
 	})
 	.meta({ id: "AutomationFunction" });

@@ -28,7 +28,7 @@ import com.atelier_nyaarium.switchboard.RemoveMenu
 import com.atelier_nyaarium.switchboard.RunKey
 import com.atelier_nyaarium.switchboard.assistantGateway
 import com.atelier_nyaarium.switchboard.deleteTakesLine
-import com.atelier_nyaarium.switchboard.keptRow
+import com.atelier_nyaarium.switchboard.foundRow
 import com.atelier_nyaarium.switchboard.homeDisplayUnit
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.Protocol
@@ -108,7 +108,7 @@ internal fun AutomationEditorPage(
 	val gone = lookup == Lookup.Gone
 	val busy = session.busy
 	val rows = automationGroups(state.gateways, state.assistantHome).firstOrNull { it.gatewayId == gatewayId }?.rows.orEmpty()
-	val checkOp = functionSaveOf(draft, fields, offer, confirmed = true)?.takeUnless { errorsUnkept(draft, offer) }
+	val checkOp = functionSaveOf(draft, fields, offer, confirmed = true)?.takeUnless { errorsRefused(draft, offer) }
 	val check = checkRead(ops, key, checkOp)
 	val checkSaid = checkSaidOf(checkedFor(check, checkOp), draft, heard)
 	val drawn = checkIssuesOf(check, checkOp, draft, offer)
@@ -142,7 +142,7 @@ internal fun AutomationEditorPage(
 	if (draft.picking && functions != null) {
 		val pointed = (draft.runs as? RunsHead.Points)?.pointing?.functionId
 		FunctionPicker(
-			subtitle = pickerSubtitle(draft.trigger, session.opened.trigger, lookup?.let(::keptRow)?.sentence),
+			subtitle = pickerSubtitle(draft.trigger, session.opened.trigger, lookup?.let(::foundRow)?.sentence),
 			choices = pickerChoices(givenOf(draft, fields), functions.rows, measureOf(draft), current = pointed),
 			onBack = { edit { it.copy(picking = false) } },
 			onFresh = { edit { it.freshBody() } },
@@ -156,8 +156,8 @@ internal fun AutomationEditorPage(
 	val textOf = ref?.let { textParam(draft, it, offer) }
 	val shownText = ref?.let { textAt(draft, it, offer) }
 	val shownCondition = ref?.let { conditionAt(draft, it) }
-	val shownSubject = ref?.let { subjectAt(draft, it) }
-	if (ref != null && (shownCondition != null || shownSubject != null || (textOf != null && shownText != null))) {
+	val shownExpression = ref?.let { expressionAt(draft, it) }
+	if (ref != null && (shownCondition != null || shownExpression != null || (textOf != null && shownText != null))) {
 		val consoles by repo.liveConsoleOps.state.collectAsState()
 		val console = consoles[gatewayId]
 		LaunchedEffect(gatewayId) { repo.command { liveConsoleOps.open(gatewayId) } }
@@ -165,55 +165,55 @@ internal fun AutomationEditorPage(
 		val names = namesAt(draft, offer, ref.key, triggerRead.answer?.names)
 		val cards = draft.stepsOf(draft.treeHolding(ref.key))
 		if (shownCondition != null) {
-			val here = names + runNamesHere(cards, ref.key)
+			val here = names + variablesHere(cards, ref.key)
 			val read = previewRead(ops, gatewayId, conditionAsk(trigger, shownCondition, pageScope, cards))
-			val preview = conditionPreviewOf(shownCondition, trigger != null, read)
-			val refused = refusedHole(said, ref.key, WHEN, shownCondition)
-			HoleTextEditor(
+			val shown = conditionSaidOf(shownCondition, trigger != null, read)
+			val refused = refusedPlaceholder(said, ref.key, CONDITION, shownCondition)
+			TextPageEditor(
 				title = "Condition",
 				value = shownCondition,
 				max = Protocol.Wire.STEP_TEXT_MAX,
 				names = here,
 				mode = TextMode.EXPRESSION,
-				issueOf = { text -> conditionSpan(text, preview, refused) },
+				issueOf = { text -> conditionSpan(text, shown, refused) },
 				description = console?.description,
 				ids = console?.ids,
 				shapes = nameShapes(here, fields.fields),
 				enabled = can.edit,
 				onChange = { text -> edit { it.withStep(ref.key) { held -> (held as? StepDraft.If)?.copy(condition = text) ?: held } } },
 				onBack = { edit { it.copy(text = null) } },
-			) { text -> ConditionPreviewBlock(text, preview, refused) }
+			) { text -> ConditionSaidBlock(text, shown, refused) }
 			return
 		}
-		if (shownSubject != null) {
-			val here = names + runNamesHere(cards, ref.key)
-			val refused = refusedHole(said, ref.key, SUBJECT, shownSubject)
-			HoleTextEditor(
-				title = "Subject",
-				value = shownSubject,
+		if (shownExpression != null) {
+			val here = names + variablesHere(cards, ref.key)
+			val refused = refusedPlaceholder(said, ref.key, ref.param, shownExpression.text)
+			TextPageEditor(
+				title = shownExpression.title,
+				value = shownExpression.text,
 				max = Protocol.Wire.STEP_TEXT_MAX,
 				names = here,
 				mode = TextMode.EXPRESSION,
-				issueOf = { text -> subjectSpan(text, refused) },
+				issueOf = { text -> expressionSpan(text, refused) },
 				description = console?.description,
 				ids = console?.ids,
 				shapes = nameShapes(here, fields.fields),
 				enabled = can.edit,
-				onChange = { text -> edit { it.withSwitch(ref.key) { held -> held.copy(subject = text) } } },
+				onChange = { text -> edit { it.withExpression(ref, text) } },
 				onBack = { edit { it.copy(text = null) } },
-			) { text -> IssueLine(refused?.let { holeLine(text, it.line, it.start, it.end) }) }
+			) { text -> IssueLine(refused?.let { placeholderLine(text, it.line, it.start, it.end) }) }
 			return
 		}
 		if (textOf != null && shownText != null) {
-			val read = previewRead(ops, gatewayId, previewAsk(trigger.takeIf { hasHole(shownText) }, previewText(shownText), pageScope))
+			val read = previewRead(ops, gatewayId, previewAsk(trigger.takeIf { hasPlaceholder(shownText) }, previewText(shownText), pageScope))
 			val preview = textPreviewOf(shownText, trigger != null, read)
-			val refused = refusedHole(said, ref.key, ref.param, shownText)
-			HoleTextEditor(
+			val refused = refusedPlaceholder(said, ref.key, ref.param, shownText)
+			TextPageEditor(
 				title = textOf.label,
 				value = shownText,
 				max = textOf.max ?: Int.MAX_VALUE,
 				names = names,
-				mode = TextMode.HOLES,
+				mode = TextMode.TEMPLATE,
 				issueOf = { text -> refusedSpan(text, preview, refused) },
 				description = console?.description,
 				ids = console?.ids,
@@ -239,7 +239,7 @@ internal fun AutomationEditorPage(
 	}
 	val reload: (String) -> Unit = { id -> repo.command { automationOps.reloadFunction(key, open.opening, id) } }
 	draft.inside.lastOrNull()?.let { draft.callees[it] }?.let { callee ->
-			// Calls supply runtime values.
+		// Arguments arrive at run time.
 		val scope = calleePreviewScope(callee)
 		CalleePage(
 			callee,
@@ -254,14 +254,14 @@ internal fun AutomationEditorPage(
 			edit = edit,
 			reload = reload,
 			rows = rows,
-			kept = keptScript(ops, gatewayId, draft, callee.id, offer, edit),
+			scriptOnly = scriptOnlyCards(ops, gatewayId, draft, callee.id, offer, edit),
 			issues = drawn,
 		) { ScriptSection(ops, gatewayId, draft, callee.id, offer, can.edit, null, edit) }
 		return
 	}
 
 	EditorScaffold(
-		title = if (gone) "Deleted elsewhere" else "Automation",
+		title = if (gone) "Deleted elsewhere." else "Automation",
 		saving = busy,
 		canSave = can.save,
 		onSave = { errorsAsk(draft, offer, rows)?.let { askingErrors = it } ?: save(confirmed = false) },
@@ -281,7 +281,7 @@ internal fun AutomationEditorPage(
 		TriggerSection(draft, offer, sources, fields, zone, can.edit, triggerRead, edit)
 
 		HorizontalDivider()
-		Text(if (runs != null) "Runs" else "Do", style = MaterialTheme.typography.labelLarge)
+		Text("Do", style = MaterialTheme.typography.labelLarge)
 		runShown(runState, open.opening)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 		droppedLine(droppedEdits(draft, offer))?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
 		runs?.let {
@@ -290,13 +290,13 @@ internal fun AutomationEditorPage(
 		if (holdsUnserved(draft.steps, offer)) {
 			Text("This Gateway cannot run some of these steps.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		}
-		if (runs?.kept != true) {
-			val lastRun = lastRunShown(draft, session.opened, lookup?.let(::keptRow), offer.functions)
+		if (runs?.unlisted != true) {
+			val lastRun = lastRunShown(draft, session.opened, lookup?.let(::foundRow), offer.functions)
 			ScriptSwitch(draft, null, offer, can.edit, edit)
 			if (showsScript(draft, null, offer)) {
 				ScriptSection(ops, gatewayId, draft, null, offer, can.edit, lastRun, edit)
 			} else {
-				val kept = keptScript(ops, gatewayId, draft, null, offer, edit)
+				val scriptOnly = scriptOnlyCards(ops, gatewayId, draft, null, offer, edit)
 				CardsSection(
 					draft = draft,
 					offer = offer,
@@ -309,18 +309,18 @@ internal fun AutomationEditorPage(
 					lastRun = lastRun,
 					edit = edit,
 					reload = reload,
-					kept = kept.lines,
-					onScriptAt = kept.open,
+					scriptLines = scriptOnly.lines,
+					onScriptAt = scriptOnly.open,
 					issues = drawn,
 				)
 			}
 		}
 		HorizontalDivider()
 		OutlinedTextField(
-			value = draft.keepTryingMin,
-			onValueChange = { typed -> edit { it.copy(keepTryingMin = typed) } },
-			label = { Text("Keep trying") },
-			placeholder = { Text("${Protocol.Wire.KEEP_TRYING_MIN_DEFAULT}") },
+			value = draft.retryForMin,
+			onValueChange = { typed -> edit { it.copy(retryForMin = typed) } },
+			label = { Text("Retry for") },
+			placeholder = { Text("${Protocol.Wire.RETRY_FOR_MIN_DEFAULT}") },
 			suffix = { Text("min") },
 			singleLine = true,
 			enabled = can.edit,
@@ -337,7 +337,7 @@ internal fun AutomationEditorPage(
 	if (confirmingDelete) {
 		ConfirmDialog(
 			title = "Delete this automation?",
-			body = lookup?.let(::keptRow)?.let { automationDeleteTakes(it, functions?.rows) }?.let(::deleteTakesLine),
+			body = lookup?.let(::foundRow)?.let { automationDeleteTakes(it, functions?.rows) }?.let(::deleteTakesLine),
 			confirmText = "Delete",
 			onConfirm = {
 				confirmingDelete = false
@@ -360,9 +360,9 @@ internal fun AutomationEditorPage(
 	}
 	asking?.let { confirm ->
 		ConfirmDialog(
-			title = "Run without asking?",
+			title = "Confirm what it does",
 			body = confirmBody(confirm.labels),
-			confirmText = "Save",
+			confirmText = "Allow",
 			onConfirm = {
 				asking = null
 				save(confirmed = true)

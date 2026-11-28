@@ -70,21 +70,25 @@ const AUTOMATIONS = {
 					name: "Warm up",
 					params: [],
 					steps: [
-						{ kind: "do", action: "ifttt_trigger", args: { event: { kind: "literal", value: "bell" } } },
+						{
+							kind: "action",
+							action: "ifttt_trigger",
+							args: { event: { kind: "literal", value: "bell" } },
+						},
 					],
 				}
 			: null,
 	sentenceOf: () => "Freezer temperature below 21.0 °C",
 	log: () => [
-		{ kind: "trigger", automation: "threshold-low", seq: 1, at: 1_794_694_000_000, outcome: "ran" },
-		{ kind: "lost", automation: "threshold-low", seq: 2, at: 1_794_694_500_000, outcome: "suppressed" },
+		{ kind: "trigger", automation: "threshold-low", seq: 1, at: 1_794_694_000_000, outcome: "done" },
+		{ kind: "lost", automation: "threshold-low", seq: 2, at: 1_794_694_500_000, outcome: "skipped" },
 	],
 	lastRun: (id: string) =>
 		id === "warm"
 			? {
 					at: 1_794_694_500_000,
 					revision: 1,
-					steps: [{ path: "0.0", kind: "ifttt_trigger", outcome: "ran", function: "warm-up" }],
+					steps: [{ path: "0.0", kind: "ifttt_trigger", outcome: "done", function: "warm-up" }],
 					running: false,
 				}
 			: null,
@@ -95,7 +99,7 @@ const AUTOMATIONS = {
 			trigger: {
 				kind: "event",
 				source: "sensors",
-				conditions: [{ field: "automation", test: "contains", value: "Freezer" }],
+				conditions: [{ field: "automation", operator: "contains", value: "Freezer" }],
 			},
 			when: "now",
 		},
@@ -268,7 +272,7 @@ describe("live console stage", () => {
 		try {
 			expect((await gateway.ask("fields.list")).text).toContain("value:\n    unknown: not heard for 31 minutes");
 			const logged = await gateway.ask("automations.log.first()");
-			expect(logged.text).toContain("outcome: suppressed");
+			expect(logged.text).toContain("outcome: skipped");
 			expect(logged.text).toContain("label: Freezer temperature below 21.0 °C");
 			expect((await gateway.ask('automations.last("warm").steps.first().kind')).text).toBe("ifttt_trigger");
 			expect((await gateway.ask('sources.list.where("id", "sensors").first().unread')).text).toBe("2");
@@ -602,7 +606,7 @@ describe("live console read-only fence", () => {
 					member,
 					code: "doing",
 				});
-				expect({ member, refused: stage.holes.issue(`{${expr}}`, []) !== null }).toEqual({
+				expect({ member, refused: stage.placeholders.issue(`{${expr}}`, []) !== null }).toEqual({
 					member,
 					refused: true,
 				});

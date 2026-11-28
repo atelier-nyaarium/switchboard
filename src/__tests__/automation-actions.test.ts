@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { holeTextsOf } from "../gateway/computed/automationText.js";
+import { placeholderTextsOf } from "../gateway/computed/automationText.js";
 import {
 	ACTION_WORD_RE,
 	AUTOMATION_ACTIONS,
@@ -19,9 +19,9 @@ const paramsOf = (kind: AutomationActionKind): readonly AutomationActionParam[] 
 /** The longest value each parameter takes. */
 const filled = (param: AutomationActionParam): unknown => {
 	if (param.kind === "choice") return param.options?.[0]?.value ?? "";
-	if (param.kind === "switch") return "aa:bb:cc:dd:ee:01";
+	if (param.kind === "device") return "aa:bb:cc:dd:ee:01";
 	if (param.kind === "function") return "warm-up";
-	if (param.kind === "values") return { room: "aa:bb:cc:dd:ee:01", degrees: 21 };
+	if (param.kind === "args") return { room: "aa:bb:cc:dd:ee:01", degrees: 21 };
 	return "x".repeat(param.max ?? 1);
 };
 const sample = (kind: AutomationActionKind, over: Record<string, unknown> = {}) => ({
@@ -77,10 +77,10 @@ describe("the action catalogue", () => {
 		];
 		const listed = ConsoleAutomationListResultSchema.parse({
 			automations: [],
-			serves: { ...AUTOMATION_SERVES, numbers: [], switches: [] },
+			serves: { ...AUTOMATION_SERVES, numbers: [], devices: [] },
 		});
 
-		expect(holeTextsOf(actions)).toEqual([
+		expect(placeholderTextsOf(actions)).toEqual([
 			{ action: 1, param: "message", text: "It is {value}" },
 			{ action: 2, param: "value2", text: "two" },
 		]);

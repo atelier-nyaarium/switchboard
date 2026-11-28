@@ -42,11 +42,11 @@ const rowOf = (at: WalkEntry): Row =>
 	visit<WalkEntry, Row>(at, {
 		action: ({ reach, path, index, action }) => ({ reach, path, index, kind: action.kind }),
 		step: {
-			do: ({ reach, path, index, step }) => ({ reach, path, index, kind: step.action }),
-			call: ({ reach, path, index, step }) => ({ reach, path, index, kind: step.kind }),
+			action: ({ reach, path, index, step }) => ({ reach, path, index, kind: step.action }),
+			run_function: ({ reach, path, index, step }) => ({ reach, path, index, kind: step.kind }),
 			...steering(({ reach, path, index, step }) => ({ reach, path, index, kind: step.kind })),
 		},
-		unfollowedCall: ({ reach, path, call, reason }) => ({ reach, path, kind: call.kind, reason }),
+		unfollowedFunction: ({ reach, path, runFunction, reason }) => ({ reach, path, kind: runFunction.kind, reason }),
 	});
 
 const walkOf = (vector: Pick<Case, "automation" | "functions">) => {
@@ -63,9 +63,9 @@ describe("the one walk's vectors", () => {
 	});
 });
 
-describe("the walk through a call", () => {
-	const tell = { kind: "do", action: "tell_assistant", args: { when: { kind: "literal", value: "now" } } };
-	const call = (fn: string) => ({ kind: "call", function: fn });
+describe("the walk through a run_function", () => {
+	const tell = { kind: "action", action: "tell_assistant", args: { when: { kind: "literal", value: "now" } } };
+	const call = (fn: string) => ({ kind: "run_function", function: fn });
 	const fn = (steps: unknown[]) => ({ name: "F", params: [], steps });
 	const pointing = { enabled: true, trigger: { kind: "interval", everyMin: 5 }, actions: [call("a")] };
 	const automation = {
@@ -82,17 +82,17 @@ describe("the walk through a call", () => {
 		const reachedTwice = rows({ a: fn([call("b"), tell, call("b")]), b: fn([tell]) });
 
 		expect(reachedTwice).toEqual([
-			["0.0", "call"],
+			["0.0", "run_function"],
 			["0.0.0", "tell_assistant"],
 			["0.1", "tell_assistant"],
-			["0.2", "call"],
+			["0.2", "run_function"],
 			["0.2.0", "tell_assistant"],
 		]);
 	});
 
 	it("follows no call into a function already above it, one not held, or past its bound", () => {
 		const wide = (callee: string) =>
-			Array.from({ length: 8 }, () => ({ kind: "if", when: "true", steps: [call(callee), tell, tell] }));
+			Array.from({ length: 8 }, () => ({ kind: "if", condition: "true", steps: [call(callee), tell, tell] }));
 		const looping = rows({ a: fn([call("b")]), b: fn([call("a")]) });
 		const missing = rows({ a: fn([call("gone")]) });
 		const bounded = rows({ a: fn(wide("b")), b: fn(wide("c")), c: fn([tell]) }).filter(
@@ -139,10 +139,10 @@ describe("a switch's sides", () => {
 				kind: "switch",
 				subject: "label",
 				cases: [
-					{ values: ["a"], steps: [{ kind: "call", function: "x" }] },
+					{ values: ["a"], steps: [{ kind: "run_function", function: "x" }] },
 					{ values: ["b"], steps: [] },
 				],
-				default: [{ kind: "call", function: "x" }],
+				default: [{ kind: "run_function", function: "x" }],
 			},
 		],
 	});
@@ -164,10 +164,10 @@ describe("a switch's sides", () => {
 				kind: "switch",
 				subject: "label",
 				cases: [
-					{ values: ["a"], steps: [{ kind: "call", function: "x-copy" }] },
+					{ values: ["a"], steps: [{ kind: "run_function", function: "x-copy" }] },
 					{ values: ["b"], steps: [] },
 				],
-				default: [{ kind: "call", function: "x-copy" }],
+				default: [{ kind: "run_function", function: "x-copy" }],
 			},
 		]);
 	});

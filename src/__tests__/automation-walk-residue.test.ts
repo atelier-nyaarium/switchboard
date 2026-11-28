@@ -29,7 +29,7 @@ const UNSEAL =
 
 /** Visitor bypass patterns. */
 const PROBE =
-	/\.reach\s*[!=]==|switch\s*\([^)]*\.reach\s*\)|"(?:action|step|unfollowedCall)"\s+in\s+|\bas\s+(?:WalkAction|WalkStep|UnfollowedCall|FlatEntry|FollowedEntry|WalkEntry)\b/;
+	/\.reach\s*[!=]==|switch\s*\([^)]*\.reach\s*\)|"(?:action|step|unfollowedFunction)"\s+in\s+|\bas\s+(?:WalkAction|WalkStep|UnfollowedFunction|FlatEntry|FollowedEntry|WalkEntry)\b/;
 
 describe("the one walk", () => {
 	it("keeps a sample of every read shape the seal refuses", () => {
@@ -51,7 +51,7 @@ describe("the one walk", () => {
 				"switch (at.reach) {",
 				'"action" in at ? at.action : at.step',
 				"visit(at as WalkAction, { action: () => 1 })",
-				"visit(at, { action: () => 1, unfollowedCall: () => 2 })",
+				"visit(at, { action: () => 1, unfollowedFunction: () => 2 })",
 				'frame.at === "baseline"',
 			].map((sample) => PROBE.test(sample)),
 		).toEqual([true, true, true, true, true, false, false]);

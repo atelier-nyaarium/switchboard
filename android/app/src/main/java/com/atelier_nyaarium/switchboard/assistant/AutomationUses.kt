@@ -10,8 +10,8 @@ import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 internal fun triggeredBy(sourceId: String, rows: List<AutomationRow>): List<AutomationRow> =
 	rows.filter { (it.automation.trigger as? AutomationTrigger.Event)?.source == sourceId }
 
-/** The rows crossing one device's numbers. */
-internal fun watching(deviceId: String, rows: List<AutomationRow>): List<AutomationRow> =
+/** The rows crossing one sensor's numbers. */
+internal fun usedBy(deviceId: String, rows: List<AutomationRow>): List<AutomationRow> =
 	rows.filter { (it.automation.trigger as? AutomationTrigger.Crossing)?.device == deviceId }
 
 /** Rows, or why there are none. */
@@ -21,8 +21,8 @@ internal sealed interface UsedBy {
 	data class Empty(val why: ListEmpty) : UsedBy
 }
 
-/** Answers kept apart. */
-internal fun usedBy(gatewayId: String, list: GatewayList<AutomationRow>, pick: (List<AutomationRow>) -> List<AutomationRow>): UsedBy =
+/** Answers apart. */
+internal fun usesOf(gatewayId: String, list: GatewayList<AutomationRow>, pick: (List<AutomationRow>) -> List<AutomationRow>): UsedBy =
 	when (list) {
 		is GatewayList.Listed -> pick(list.rows).let { if (it.isEmpty()) UsedBy.Empty(ListEmpty.None) else UsedBy.Rows(it) }
 		GatewayList.Unread -> UsedBy.Empty(ListEmpty.Reading)
@@ -33,20 +33,20 @@ internal fun usedBy(gatewayId: String, list: GatewayList<AutomationRow>, pick: (
 /** Names automations left behind; an unread list gives no count. */
 internal fun removeSensorLine(uses: UsedBy): String = when (uses) {
 	is UsedBy.Rows -> when (uses.rows.size) {
-		1 -> "Switchboard stops reading it. 1 automation watches it and will stop working."
-		else -> "Switchboard stops reading it. ${uses.rows.size} automations watch it and will stop working."
+		1 -> "Switchboard stops reading it. 1 automation uses it and will stop working."
+		else -> "Switchboard stops reading it. ${uses.rows.size} automations use it and will stop working."
 	}
 	is UsedBy.Empty -> when (uses.why) {
 		ListEmpty.None -> "Switchboard stops reading it."
 		ListEmpty.NoRoster, ListEmpty.Reading, ListEmpty.Unreachable, is ListEmpty.NotServed, ListEmpty.NoGateway ->
-			"Switchboard stops reading it. Any automation watching it will stop working."
+			"Switchboard stops reading it. Any automation that uses it will stop working."
 	}
 }
 
 /** A sensor's empty list; null while reading. */
-internal fun watchingEmptyLine(why: ListEmpty): String? = when (why) {
+internal fun sensorUsesLine(why: ListEmpty): String? = when (why) {
 	ListEmpty.Reading -> null
-	ListEmpty.None -> "No automation watches this sensor."
+	ListEmpty.None -> "No automation uses this sensor."
 	ListEmpty.NoRoster, ListEmpty.Unreachable, is ListEmpty.NotServed, ListEmpty.NoGateway -> emptyLine(why, "automations")
 }
 

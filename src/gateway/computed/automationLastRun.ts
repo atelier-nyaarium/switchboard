@@ -53,7 +53,7 @@ const stepOf = (fire: Fire, path: string, step: Step, ports: LastRunPorts, stamp
 	const ended = !isEnded(step)
 		? null
 		: step.verdict === "ended" && step.word === undefined
-			? { outcome: "uncertain" as const }
+			? { outcome: "unsure" as const, reason: undefined }
 			: endedOutcome(step.word);
 	const reason = ended ? (step.message ?? ended.reason) : undefined;
 	const fn = ports.functionAt(fire, path);
@@ -104,13 +104,13 @@ export function lastRunOf(
 		);
 	if (steps.length === 0) return null;
 	const active = running ? fire.active[0] : undefined;
-	const beside = running && fire.active.length > 1 ? { beside: fire.active } : {};
+	const inFlight = running && fire.active.length > 1 ? { inFlight: fire.active } : {};
 	return {
 		member: fire.member,
 		incarnation: fire.incarnation,
 		order: ports.orderOf(fire.member),
 		stamp: ports.stampOf(fire),
-		run: { at: fire.at, revision: fire.revision, steps, ...(active ? { active } : {}), ...beside, running },
+		run: { at: fire.at, revision: fire.revision, steps, ...(active ? { active } : {}), ...inFlight, running },
 	};
 }
 
@@ -128,7 +128,7 @@ export const settledRuns = (held: LastRuns, live: ReadonlySet<string>): LastRuns
 	Object.fromEntries(
 		Object.entries(held).map(([id, last]) => {
 			if (!last.run.running || live.has(last.member)) return [id, last];
-			const { active: _active, beside: _beside, ...run } = last.run;
+			const { active: _active, inFlight: _inFlight, ...run } = last.run;
 			return [id, { ...last, run: { ...run, running: false } }];
 		}),
 	);

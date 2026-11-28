@@ -45,7 +45,7 @@
 						"params": [],
 						"steps": [
 							{
-								"kind": "do",
+								"kind": "action",
 								"action": "tell_assistant",
 								"args": { "when": { "kind": "literal", "value": "now" } }
 							}
@@ -59,7 +59,7 @@
 						"params": [],
 						"steps": [
 							{
-								"kind": "do",
+								"kind": "action",
 								"action": "tell_assistant",
 								"args": { "when": { "kind": "literal", "value": "now" } }
 							}
@@ -73,7 +73,7 @@
 						"params": [],
 						"steps": [
 							{
-								"kind": "do",
+								"kind": "action",
 								"action": "tell_assistant",
 								"args": { "when": { "kind": "literal", "value": "now" } }
 							}
@@ -103,7 +103,7 @@
 						"params": [],
 						"steps": [
 							{
-								"kind": "do",
+								"kind": "action",
 								"action": "tell_assistant",
 								"args": { "when": { "kind": "literal", "value": "now" } }
 							}
@@ -133,7 +133,7 @@
 						"params": [],
 						"steps": [
 							{
-								"kind": "do",
+								"kind": "action",
 								"action": "tell_assistant",
 								"args": { "when": { "kind": "literal", "value": "now" } }
 							}
@@ -145,7 +145,7 @@
 					"function": {
 						"name": "Other",
 						"params": [],
-						"steps": [{ "kind": "call", "function": "bell" }]
+						"steps": [{ "kind": "run_function", "function": "bell" }]
 					}
 				},
 				{
@@ -158,12 +158,12 @@
 								"kind": "try",
 								"steps": [
 									{
-										"kind": "do",
+										"kind": "action",
 										"action": "tell_assistant",
 										"args": { "when": { "kind": "literal", "value": "now" } }
 									}
 								],
-								"catch": [{ "kind": "call", "function": "bell" }]
+								"catch": [{ "kind": "run_function", "function": "bell" }]
 							}
 						]
 					}
@@ -176,17 +176,17 @@
 						"steps": [
 							{
 								"kind": "if",
-								"when": "true",
+								"condition": "true",
 								"steps": [
 									{
-										"kind": "do",
+										"kind": "action",
 										"action": "tell_assistant",
 										"args": { "when": { "kind": "literal", "value": "now" } }
 									}
 								],
 								"else": [
-									{ "kind": "call", "function": "chime" },
-									{ "kind": "call", "function": "gone" }
+									{ "kind": "run_function", "function": "chime" },
+									{ "kind": "run_function", "function": "gone" }
 								]
 							}
 						]
@@ -221,7 +221,7 @@
 					"function": {
 						"name": "Chime",
 						"params": [],
-						"steps": [{ "kind": "call", "function": "warm-up" }]
+						"steps": [{ "kind": "run_function", "function": "warm-up" }]
 					}
 				},
 				{
@@ -229,7 +229,7 @@
 					"function": {
 						"name": "Warm up",
 						"params": [],
-						"steps": [{ "kind": "call", "function": "chime" }]
+						"steps": [{ "kind": "run_function", "function": "chime" }]
 					}
 				}
 			],

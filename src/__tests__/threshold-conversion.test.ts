@@ -215,7 +215,7 @@ describe("a sensor's stored thresholds", () => {
 			expect(triggerOf(world, high)).toMatchObject({ kind: "crossing", direction: "above", threshold: 30 });
 			expect(row).toMatchObject({ lastRanAt: 900, sentence: expect.stringContaining("Freezer") });
 			expect(row?.automation.label).toBeUndefined();
-			expect(world.automations.log().map((run) => run.outcome)).toEqual(["suppressed"]);
+			expect(world.automations.log().map((run) => run.outcome)).toEqual(["skipped"]);
 
 			const edited = { ...(row?.automation as Automation), enabled: false };
 			expect(world.automations.ownerPut(low, edited, row?.revision ?? 0)).toMatchObject({ stored: true });

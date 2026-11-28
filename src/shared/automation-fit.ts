@@ -1,8 +1,8 @@
-// Whether a trigger and an automation's values fill what a function takes.
+// Whether a trigger and an automation's arguments fill a function's parameters.
 
 import { stepsOf } from "./automation-walk.js";
 import { type ConsoleNode, parseConsole, parseConsoleText } from "./live-console-grammar.js";
-import type { AutomationTriggerKind, FunctionValue } from "./schemasAutomation.js";
+import type { AutomationTriggerKind, FunctionArg } from "./schemasAutomation.js";
 import type { AutomationFunction, FunctionParam, FunctionParamType, FunctionStep, StepArg } from "./schemasFunction.js";
 
 export const GIVEN_TYPES = ["event", "text", "number", "device", "time"] as const;
@@ -23,8 +23,8 @@ export const AUTOMATION_TRIGGER_GIVES = {
 		{ name: "field", type: "text" },
 	],
 	crossing: [
-		{ name: "value", type: "number" },
-		// The sensor's name, never a switch.
+		{ name: "reading", type: "number" },
+		// The sensor's name, never a device to set.
 		{ name: "device", type: "text" },
 		{ name: "measure", type: "text" },
 		{ name: "threshold", type: "number" },
@@ -82,7 +82,7 @@ const childrenOf = (node: ConsoleNode): (ConsoleNode | null)[] => {
 		case "dict":
 			return node.entries.map((entry) => entry.value);
 		case "template":
-			return node.pieces.map((piece) => (piece.kind === "hole" ? piece.node : null));
+			return node.pieces.map((piece) => (piece.kind === "placeholder" ? piece.node : null));
 		case "ident":
 		case "literal":
 			return [];
@@ -149,19 +149,19 @@ export function functionReads(fn: Pick<AutomationFunction, "steps">): FunctionRe
 	};
 	const none = () => undefined;
 	const reads: { [K in FunctionStep["kind"]]: (step: Extract<FunctionStep, { kind: K }>) => void } = {
-		do: (step) => Object.values(step.args).forEach(arg),
-		if: (step) => read(step.when),
+		action: (step) => Object.values(step.args).forEach(arg),
+		if: (step) => read(step.condition),
 		switch: (step) => read(step.subject),
-		let: (step) => value(step.value),
+		variable: (step) => value(step.value),
 		wait: (step) => value(step.minutes),
 		throw: (step) => (step.text === undefined ? undefined : text(step.text)),
-		call: (step) => Object.values(step.values ?? {}).forEach(value),
+		run_function: (step) => Object.values(step.args ?? {}).forEach(value),
 		await: (step) => read(step.task),
 		try: none,
 		parallel: none,
 		start: none,
-		exit: none,
-		note: none,
+		return: none,
+		comment: none,
 		unparsed: none,
 	};
 	for (const { step } of stepsOf(fn)) (reads[step.kind] as (step: FunctionStep) => void)(step);
@@ -181,7 +181,7 @@ export function triggerGiven(
 		: { names };
 }
 
-const valueType = (value: FunctionValue): GivenType => (typeof value === "number" ? "number" : "text");
+const argType = (value: FunctionArg): GivenType => (typeof value === "number" ? "number" : "text");
 
 /** A text may fill a device. */
 const takes = (wants: FunctionParamType, gets: GivenType): boolean =>
@@ -190,7 +190,7 @@ const takes = (wants: FunctionParamType, gets: GivenType): boolean =>
 export function fitOf(
 	given: TriggerGiven,
 	fn: { params: readonly FunctionParam[]; reads: FunctionReads },
-	values: Readonly<Record<string, FunctionValue>>,
+	args: Readonly<Record<string, FunctionArg>>,
 ): FitAnswer {
 	const gives = new Map(given.names.map(({ name, type }) => [name, type]));
 	const declared = new Set(fn.params.map((param) => param.name));
@@ -201,8 +201,8 @@ export function fitOf(
 	const wrong: FitAnswer["wrong"] = [];
 	for (const { name, type } of fn.params) {
 		const fromTrigger = gives.get(name);
-		const set = Object.hasOwn(values, name) ? values[name] : undefined;
-		const gets = fromTrigger ?? (set === undefined ? undefined : valueType(set));
+		const set = Object.hasOwn(args, name) ? args[name] : undefined;
+		const gets = fromTrigger ?? (set === undefined ? undefined : argType(set));
 		if (gets === undefined) unset.push(name);
 		else if (!(fromTrigger ? fromTrigger === type : takes(type, gets))) wrong.push({ name, wants: type, gets });
 	}

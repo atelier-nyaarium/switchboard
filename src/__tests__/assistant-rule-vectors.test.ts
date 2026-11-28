@@ -25,14 +25,14 @@ type Typed = {
 type Vector = Typed & {
 	name: string;
 	field: string;
-	test: string;
+	operator: string;
 	fits: boolean;
 	parses?: boolean;
 	vanished?: boolean;
 	canonical?: string | string[];
 };
 
-type Match = Typed & { name: string; field: string; test: string; fields: Record<string, string>; holds: boolean };
+type Match = Typed & { name: string; field: string; operator: string; fields: Record<string, string>; holds: boolean };
 
 const corpus = JSON.parse(
 	fs.readFileSync(path.resolve(import.meta.dirname, "../../tests/fixtures/assistant-rules/vectors.json"), "utf8"),
@@ -51,11 +51,11 @@ const typed = (vector: Typed): string | string[] => {
 	return trimRuleValue(`${vector.around ?? ""}${base}${vector.around ?? ""}`);
 };
 
-const triggerOf = (vector: Typed & { field: string; test: string }) =>
+const triggerOf = (vector: Typed & { field: string; operator: string }) =>
 	AutomationTriggerSchema.safeParse({
 		kind: "event",
 		source: "github",
-		conditions: [{ field: vector.field, test: vector.test, value: typed(vector) }],
+		conditions: [{ field: vector.field, operator: vector.operator, value: typed(vector) }],
 	});
 
 describe("condition fit, against the shared corpus", () => {

@@ -2,8 +2,8 @@
 
 import { z } from "zod";
 import { STEP_PATH_RE } from "../../shared/automation-walk.js";
-import { KEEP_TRYING_MIN_DEFAULT } from "../../shared/schemasAutomation.js";
-import { FUNCTION_STEPS_TOTAL_MAX, RUN_STRANDS_MAX, SWITCH_CASES_MAX } from "../../shared/schemasFunction.js";
+import { RETRY_FOR_MIN_DEFAULT } from "../../shared/schemasAutomation.js";
+import { FUNCTION_STEPS_TOTAL_MAX, RUN_BRANCHES_MAX, SWITCH_CASES_MAX } from "../../shared/schemasFunction.js";
 import type { Waited } from "../../shared/task-values.js";
 import { FAILURE_CODES, FAILURE_MESSAGE_MAX, type Failure, type FailureCode } from "./automationFrames.js";
 import type { LogRow } from "./automationLog.js";
@@ -20,7 +20,7 @@ export const NATURES = ["sets", "sends", "nudges"] as const;
 export type Nature = (typeof NATURES)[number];
 
 /** Each step's own, from its turn. */
-export const KEEP_TRYING_MS = KEEP_TRYING_MIN_DEFAULT * 60_000;
+export const RETRY_FOR_MS = RETRY_FOR_MIN_DEFAULT * 60_000;
 export const BACKOFF_MIN_MS = 5_000;
 export const BACKOFF_MAX_MS = 60_000;
 
@@ -69,7 +69,7 @@ export const StepSchema = z.strictObject({
 	/** First failure per branch. */
 	errors: z
 		.array(z.strictObject({ code: z.enum(FAILURE_CODES), message: z.string().max(FAILURE_MESSAGE_MAX) }))
-		.max(RUN_STRANDS_MAX)
+		.max(RUN_BRANCHES_MAX)
 		.optional(),
 	/** The side an `if` took. */
 	side: z.enum(["then", "else"]).optional(),
@@ -97,7 +97,7 @@ export const clamped = (found: Step, now: number): Step => {
 	};
 };
 
-export const outOfTime = (step: Step, now: number, windowMs = KEEP_TRYING_MS): boolean =>
+export const outOfTime = (step: Step, now: number, windowMs = RETRY_FOR_MS): boolean =>
 	step.startedAt !== undefined && now - Math.min(step.startedAt, now) >= windowMs;
 
 export const backoffMs = (attempts: number): number =>
@@ -201,7 +201,7 @@ export const failedAs = (step: Step, code: FailureCode, message: string, errors?
 	...(errors && errors.length > 0
 		? {
 				errors: errors
-					.slice(0, RUN_STRANDS_MAX)
+					.slice(0, RUN_BRANCHES_MAX)
 					.map(({ code: held, message: said }) => ({ code: held, message: said })),
 			}
 		: {}),
@@ -215,7 +215,7 @@ export const steered = (step: Step, taken?: "then" | "else" | number): Step => (
 
 /** How an ended step logs. */
 export function endedOutcome(word: StepWord | undefined): { outcome: LogRow["outcome"]; reason?: string } {
-	if (word === "done") return { outcome: "ran" };
-	if (word === "no_answer") return { outcome: "uncertain", reason: WORD_REASONS.no_answer };
-	return { outcome: "refused", reason: WORD_REASONS[word ?? "unreachable"] };
+	if (word === "done") return { outcome: "done" };
+	if (word === "no_answer") return { outcome: "unsure", reason: WORD_REASONS.no_answer };
+	return { outcome: "failed", reason: WORD_REASONS[word ?? "unreachable"] };
 }

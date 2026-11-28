@@ -6,7 +6,7 @@ import { type FieldRef, refKey } from "../../shared/expressions.js";
 import { toDisplay } from "../../shared/field-types.js";
 import { formatFieldValue } from "../../shared/field-values.js";
 import type { TemperatureUnit } from "../../shared/schemasAssistant.js";
-import type { AutomationNumberOffer, AutomationSwitchOffer } from "../../shared/schemasAutomation.js";
+import type { AutomationDeviceOffer, AutomationNumberOffer } from "../../shared/schemasAutomation.js";
 import { type DeviceWatchEntry, DeviceWatchFrameSchema } from "../../shared/schemasDeviceBluetooth.js";
 import {
 	type DeviceConsoleOp,
@@ -96,7 +96,7 @@ export interface DeviceStage {
 	/** Null unless a sensor reads that number. */
 	watchedReading: (device: string, measure: string) => WatchedReading | null;
 	/** What an automation may watch and set here. */
-	automationOffers: () => { numbers: AutomationNumberOffer[]; switches: AutomationSwitchOffer[] };
+	automationOffers: () => { numbers: AutomationNumberOffer[]; devices: AutomationDeviceOffer[] };
 	sensorRead: (id: string) => SensorAnswer | null;
 	/** Every paired sensor, judged as its page is. */
 	sensorsHeard: () => HeardSensor[];
@@ -210,10 +210,10 @@ export function composeDevices(deps: DeviceStageDeps): DeviceStage {
 						],
 			);
 		});
-		const switches = records.flatMap((record) =>
+		const devices = records.flatMap((record) =>
 			record.kind === "switch" ? [{ device: record.id, name: record.name }] : [],
 		);
-		return { numbers, switches };
+		return { numbers, devices };
 	};
 	const ingestGatewayAdvert = (mac: string, advert: Advert, at: number): string[] => {
 		const record = road.reads.get(mac);

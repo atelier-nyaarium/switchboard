@@ -9,9 +9,9 @@ export const FAILURE_CODES = [
 	"unread",
 	"timeout",
 	"thrown",
-	"call_failed",
+	"function_failed",
 	"loop",
-	"together",
+	"parallel",
 ] as const;
 export type FailureCode = (typeof FAILURE_CODES)[number];
 
@@ -29,18 +29,18 @@ export type { Address, Side, TreeStep } from "../../shared/automation-walk.js";
 const sideOf = (step: TreeStep, side: Side): readonly TreeStep[] | undefined =>
 	sidesOf(step).find((held) => held.side === side)?.steps;
 
-/** Innermost strand index. */
-const strandAt = (address: Address): number => Math.max(address.lastIndexOf("parallel"), address.lastIndexOf("start"));
+/** Innermost branch index. */
+const branchAt = (address: Address): number => Math.max(address.lastIndexOf("parallel"), address.lastIndexOf("start"));
 
-/** Strand owner address. */
+/** Branch owner address. */
 export const ownerOf = (address: Address): Address | null => {
-	const at = strandAt(address);
+	const at = branchAt(address);
 	return at < 0 ? null : address.slice(0, at);
 };
 
-/** Strand memory key. */
-export const strandOf = (address: Address): Address | null => {
-	const at = strandAt(address);
+/** Branch memory key. */
+export const branchOf = (address: Address): Address | null => {
+	const at = branchAt(address);
 	if (at < 0) return null;
 	return address[at] === "parallel" ? address.slice(0, at + 2) : address.slice(0, at);
 };
@@ -52,7 +52,7 @@ export const branchesOf = (body: readonly TreeStep[], at: Address): Address[] =>
 /** Task entry, if present. */
 export const taskOf = (body: readonly TreeStep[], at: Address): Address | null => first(body, [...at, "start"]);
 
-/** A path's numbers below its call, read against the body they address. Null where they name no step. */
+/** A path's numbers below the step that runs it, read against the body they address. Null where they name no step. */
 export const addressIn = (body: readonly TreeStep[], numbers: readonly number[]): Address | null => {
 	const address: (number | Side)[] = [];
 	let list: readonly TreeStep[] | undefined = body;
@@ -90,7 +90,7 @@ export const stepAt = <T extends TreeStep>(body: readonly T[], address: Address)
 const first = (body: readonly TreeStep[], base: Address): Address | null =>
 	(listAt(body, base)?.length ?? 0) > 0 ? [...base, 0] : null;
 
-/** Next or strand end. */
+/** Next or branch end. */
 const after = (body: readonly TreeStep[], address: Address): Address | "ran" | null => {
 	let at = address;
 	for (;;) {
@@ -105,10 +105,10 @@ const after = (body: readonly TreeStep[], address: Address): Address | "ran" | n
 	}
 };
 
-/** Strand-local try guard. */
+/** Branch-local try guard. */
 export const guardOf = (address: Address): Address | null => {
 	const at = address.lastIndexOf("try");
-	return at < 0 || at < strandAt(address) ? null : address.slice(0, at);
+	return at < 0 || at < branchAt(address) ? null : address.slice(0, at);
 };
 
 /** The `try` whose catch holds this step; `e` is its failure. */
@@ -124,7 +124,7 @@ export type Ended =
 	| { how: "took"; side: Side | null }
 	| { how: "failed"; failure: Failure }
 	| { how: "thrown"; failure: Failure }
-	| { how: "exit" };
+	| { how: "return" };
 
 export type Move =
 	/** `caught`: the catch entered, with its `try` and what it holds as `e`. */
@@ -132,17 +132,17 @@ export type Move =
 	| { end: "done" }
 	| { end: "failed"; failure: Failure }
 	/** Branch completion and owner. */
-	| { strand: Address; failure?: Failure };
+	| { branch: Address; failure?: Failure };
 
 /** Uncaught failure. */
 export interface FrameMemory {
 	failed?: Failure;
 }
 
-/** Owner closes strand. */
+/** Owner closes branch. */
 const ended = (at: Address, memory: FrameMemory): Move => {
 	const owner = ownerOf(at);
-	if (owner) return { strand: owner, ...(memory.failed ? { failure: memory.failed } : {}) };
+	if (owner) return { branch: owner, ...(memory.failed ? { failure: memory.failed } : {}) };
 	return memory.failed ? { end: "failed", failure: memory.failed } : { end: "done" };
 };
 
@@ -170,7 +170,7 @@ export function moved(
 			const to = how.side === null ? null : first(body, [...at, how.side]);
 			return { move: to ? { to } : onward(body, at, memory), memory };
 		}
-		case "exit":
+		case "return":
 			return { move: ended(at, memory), memory };
 		case "failed":
 		case "thrown": {
@@ -181,9 +181,9 @@ export function moved(
 				// An empty catch still catches.
 				return { move: to ? { to, caught } : onward(body, guard, memory), memory };
 			}
-			const noted = { failed: memory.failed ?? how.failure };
-			if (how.how === "thrown") return { move: ended(at, noted), memory: noted };
-			return { move: onward(body, at, noted), memory: noted };
+			const remembered = { failed: memory.failed ?? how.failure };
+			if (how.how === "thrown") return { move: ended(at, remembered), memory: remembered };
+			return { move: onward(body, at, remembered), memory: remembered };
 		}
 	}
 }

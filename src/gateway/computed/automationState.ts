@@ -15,7 +15,7 @@ import { NO_SILENCES, type Silences, SilencesSchema } from "./sensorSilence.js";
 export const own = <T>(held: Record<string, T>, id: string): T | undefined =>
 	Object.hasOwn(held, id) ? held[id] : undefined;
 export const FIRED_MAX = 256;
-const STORED_UNREAD = "a run stored in a shape this build cannot read";
+const STORED_UNREAD = "a run stored in a shape this version cannot read";
 
 const SlotSchema = z.object({
 	revision: z.number().int().positive(),
@@ -58,10 +58,10 @@ export interface State {
 	functionVersions: Record<string, AutomationFunction>;
 	/** Unused since. */
 	unusedFunctions: Record<string, number>;
-	/** The newest set landed, per switch. */
-	landedSets: Record<string, LandedSwitch>;
-	/** A call's cool-down clock, set at admission. */
-	firedAt: Record<string, CallFired>;
+	/** The newest set landed, per device. */
+	landedSets: Record<string, DeviceLanded>;
+	/** A run's cool-down clock, set at admission. */
+	firedAt: Record<string, RunFired>;
 	/** Each automation's last run, as its row serves it. */
 	lastRuns: LastRuns;
 	/** Each held fire's place as admitted, and the next place to give. */
@@ -79,15 +79,15 @@ const OrderSchema = z.strictObject({
 });
 
 /** Incarnation separates a revived id. */
-const CallFiredSchema = z.strictObject({ incarnation: z.string(), at: z.number().int() });
-export type CallFired = z.infer<typeof CallFiredSchema>;
+const RunFiredSchema = z.strictObject({ incarnation: z.string(), at: z.number().int() });
+export type RunFired = z.infer<typeof RunFiredSchema>;
 
-const LandedSwitchSchema = z.strictObject({
+const DeviceLandedSchema = z.strictObject({
 	member: z.string(),
 	at: z.number().int(),
 	nature: z.enum(NATURES),
 });
-export type LandedSwitch = z.infer<typeof LandedSwitchSchema>;
+export type DeviceLanded = z.infer<typeof DeviceLandedSchema>;
 
 /** An automation body as one revision of one incarnation. */
 export const versionKey = (fire: { automation: string; incarnation: string; revision: number }): string =>
@@ -155,7 +155,7 @@ function restoreFires(rows: unknown[], now: number): { fires: Fire[]; dropped: L
 		}
 		lost++;
 		const named = DroppedFireSchema.safeParse(row);
-		if (named.success) dropped.push(triggerRow(named.data, "uncertain", STORED_UNREAD));
+		if (named.success) dropped.push(triggerRow(named.data, "unsure", STORED_UNREAD));
 	}
 	if (lost > 0) console.warn(`[automations] ${lost} stored runs of another shape were dropped and will not run`);
 	return { fires: fires.slice(-FIRES_MAX), dropped, lost };
@@ -211,8 +211,8 @@ export function restore(raw: unknown, now: number): Decoded<State> {
 		versions: readable(loose.versions, AutomationSchema),
 		functionVersions: readable(loose.functionVersions, FunctionSchema),
 		unusedFunctions: loose.unusedFunctions,
-		landedSets: readable(loose.landedSets, LandedSwitchSchema),
-		firedAt: readable(loose.firedAt, CallFiredSchema),
+		landedSets: readable(loose.landedSets, DeviceLandedSchema),
+		firedAt: readable(loose.firedAt, RunFiredSchema),
 		// A run whose fire did not come back has ended.
 		lastRuns: settledRuns(readable(loose.lastRuns, HeldLastRunSchema), new Set(fires.map((fire) => fire.member))),
 		order: loose.order,

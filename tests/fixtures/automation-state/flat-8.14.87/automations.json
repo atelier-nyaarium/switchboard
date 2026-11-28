@@ -9,7 +9,7 @@
 			"trigger": {
 				"kind": "event",
 				"source": "github",
-				"conditions": [{ "field": "reason", "test": "is", "value": "mention" }]
+				"conditions": [{ "field": "reason", "operator": "is", "value": "mention" }]
 			},
 			"actions": [{ "kind": "tell_assistant", "when": "now" }]
 		}
@@ -24,7 +24,7 @@
 			"trigger": {
 				"kind": "event",
 				"source": "github",
-				"conditions": [{ "field": "reason", "test": "is", "value": "review_requested" }]
+				"conditions": [{ "field": "reason", "operator": "is", "value": "review_requested" }]
 			},
 			"actions": [{ "kind": "tell_assistant", "when": "now" }]
 		}
@@ -39,7 +39,7 @@
 			"trigger": {
 				"kind": "event",
 				"source": "github",
-				"conditions": [{ "field": "reason", "test": "is", "value": "assign" }]
+				"conditions": [{ "field": "reason", "operator": "is", "value": "assign" }]
 			},
 			"actions": [{ "kind": "tell_assistant", "when": "now" }]
 		}
@@ -55,7 +55,7 @@
 			"trigger": {
 				"kind": "event",
 				"source": "github",
-				"conditions": [{ "field": "reason", "test": "is", "value": "ci_activity" }]
+				"conditions": [{ "field": "reason", "operator": "is", "value": "ci_activity" }]
 			},
 			"actions": [{ "kind": "tell_assistant", "when": "now" }]
 		}

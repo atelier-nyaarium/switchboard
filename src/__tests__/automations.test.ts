@@ -15,13 +15,13 @@ import {
 	BACKOFF_MAX_MS,
 	BACKOFF_MIN_MS,
 	type createAutomations,
-	KEEP_TRYING_MS,
 	NEWER_SET,
+	RETRY_FOR_MS,
 	SWITCHED_OFF,
 	WAITING_EVENTS_MAX,
 } from "../gateway/computed/automations.js";
 import { type ComputedField, createComputedFields } from "../gateway/computed/computedFields.js";
-import { fillHoles, holesOver } from "../gateway/liveConsole/holes.js";
+import { fillPlaceholders, placeholdersOver } from "../gateway/liveConsole/placeholders.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { createRestoreRepairs, openDurable } from "../shared/durable-store.js";
 import { type FieldRef, known, refKey, unknown, type Value } from "../shared/expressions.js";
@@ -32,7 +32,7 @@ import {
 	AutomationSchema,
 	type ValueTrigger,
 } from "../shared/schemasAutomation.js";
-import { unreadText } from "../shared/text-holes.js";
+import { unreadText } from "../shared/text-placeholders.js";
 
 const REGISTRY = createConsoleRegistry([]);
 const roots: string[] = [];
@@ -82,8 +82,8 @@ function world(dir: string, home = true) {
 	const effects: string[] = [];
 	let switches = ["plug"];
 	let readable = true;
-	/** The next hole reader throws. */
-	let holesThrow = false;
+	/** The next placeholder reader throws. */
+	let placeholdersThrow = false;
 	let broken = false;
 	/** Fills wait on it. */
 	let fillGate: Promise<void> = Promise.resolve();
@@ -123,25 +123,25 @@ function world(dir: string, home = true) {
 				eventIssue: (trigger) => (trigger.source === "github" ? null : "no such source"),
 				eventFields: (source) => (source === "github" ? ["reason", "repo"] : null),
 				entropy: (size) => crypto.randomBytes(size),
-				holes: () => {
-					if (holesThrow) {
-						holesThrow = false;
-						throw new Error("holes broke");
+				placeholders: () => {
+					if (placeholdersThrow) {
+						placeholdersThrow = false;
+						throw new Error("placeholders broke");
 					}
 					return readable
 						? {
-								...holesOver(REGISTRY),
+								...placeholdersOver(REGISTRY),
 								fill: async (text, names) => {
 									await fillGate;
 									if (broken) throw new Error("fill broke");
-									return fillHoles(text, names, REGISTRY);
+									return fillPlaceholders(text, names, REGISTRY);
 								},
 							}
 						: undefined;
 				},
 				actions: {
 					ready: (action) => action.kind !== "ifttt_trigger" || iftttReady,
-					switchName: (device) => (switches.includes(device) ? "Heater" : null),
+					deviceName: (device) => (switches.includes(device) ? "Heater" : null),
 					deviceSet: async (device, verb) => {
 						effects.push(`${device}:${verb}`);
 						if (gated === null || gated === `${device}:${verb}`) await gate;
@@ -206,12 +206,12 @@ function world(dir: string, home = true) {
 	const plugIn = (device: string) => {
 		switches = [...switches, device];
 	};
-	/** No hole reader. */
+	/** No placeholder reader. */
 	const unreadable = () => {
 		readable = false;
 	};
-	const breakHolesOnce = () => {
-		holesThrow = true;
+	const breakPlaceholdersOnce = () => {
+		placeholdersThrow = true;
 	};
 	/** Fills throw. */
 	const breakFills = () => {
@@ -257,7 +257,7 @@ function world(dir: string, home = true) {
 		unplug,
 		plugIn,
 		unreadable,
-		breakHolesOnce,
+		breakPlaceholdersOnce,
 		breakFills,
 		holdFills,
 		setHome,
@@ -286,7 +286,7 @@ describe("automations", () => {
 			trigger: {
 				kind: "event",
 				source: "github",
-				conditions: [{ field: "reason", test: "is", value: "mention" }],
+				conditions: [{ field: "reason", operator: "is", value: "mention" }],
 			},
 			actions: [{ kind: "tell_assistant", when: "now" }],
 			...over,
@@ -294,7 +294,7 @@ describe("automations", () => {
 		automations.ownerPut("review", review(), 0);
 		automations.ownerPut("off", review({ enabled: false }), 0);
 		const elsewhere = review({ trigger: { kind: "event", source: "gmail", conditions: [] } });
-		// Saved but unarmed.
+		// Saved but inactive.
 		expect(automations.ownerPut("elsewhere", elsewhere, 0)).toMatchObject({
 			stored: true,
 			row: { invalid: expect.any(String) },
@@ -327,7 +327,7 @@ describe("automations", () => {
 		w.read(fields, -5);
 
 		expect(await queued(automations)).toEqual(["high", "high"]);
-		expect(automations.log().map((run) => run.outcome)).toEqual(["ran", "ran"]);
+		expect(automations.log().map((run) => run.outcome)).toEqual(["done", "done"]);
 		expect(w.pokes()).toBe(2);
 		const first = await createOutboxSource(automations.outbox).poll(null, new AbortController().signal);
 		const cursor = first.kind === "events" ? first.cursor : null;
@@ -370,7 +370,7 @@ describe("automations", () => {
 		a.automations.ownerPut("bucket", iceBucket({ coolDownSec: 60 }), 0);
 		cool.read(a.fields, -15);
 		cool.read(a.fields, -5);
-		expect(a.automations.log().map((run) => run.outcome)).toEqual(["ran", "suppressed"]);
+		expect(a.automations.log().map((run) => run.outcome)).toEqual(["done", "skipped"]);
 
 		const away = world(fresh(), false);
 		const b = away.open();
@@ -380,7 +380,7 @@ describe("automations", () => {
 		away.read(b.fields, -15);
 		away.read(b.fields, -5);
 		expect(b.automations.log()).toMatchObject([
-			{ outcome: "refused", reason: expect.stringContaining("assistant") },
+			{ outcome: "failed", reason: expect.stringContaining("assistant") },
 		]);
 		expect(await queued(b.automations)).toEqual([]);
 	});
@@ -440,11 +440,11 @@ describe("automations", () => {
 		automations.ownerPut("bucket", iceBucket(), 0);
 		w.read(fields, -5);
 		w.read(fields, -15);
-		expect(automations.log().map((run) => run.outcome)).toEqual(["refused"]);
+		expect(automations.log().map((run) => run.outcome)).toEqual(["failed"]);
 
 		automations.clear(old);
 		expect(await queued(automations)).toEqual(["high"]);
-		expect(automations.log().map((run) => run.outcome)).toEqual(["refused", "ran"]);
+		expect(automations.log().map((run) => run.outcome)).toEqual(["failed", "done"]);
 	});
 
 	it("gives up a tell that found no room once its automation's window has passed, though room came first", async () => {
@@ -453,15 +453,15 @@ describe("automations", () => {
 		const w = world(dir);
 		const { fields, automations } = w.open();
 		fields.put("band", hotBand, 0);
-		automations.ownerPut("bucket", { ...iceBucket(), keepTryingMin: 1 }, 0);
+		automations.ownerPut("bucket", { ...iceBucket(), retryForMin: 1 }, 0);
 		w.read(fields, -5);
 		w.advance(61_000);
 		automations.clear(old);
 
 		expect(await queued(automations)).toEqual([]);
 		expect(automations.log().map((run) => [run.action, run.outcome])).toEqual([
-			["tell_assistant", "refused"],
-			["tell_assistant", "refused"],
+			["tell_assistant", "failed"],
+			["tell_assistant", "failed"],
 		]);
 	});
 
@@ -479,7 +479,7 @@ describe("automations", () => {
 		expect(ids).toContain(old.at(-1));
 		expect(automations.outbox.events().at(-1)).toMatchObject({ title: "Throw ice bucket!", when: "now" });
 		expect(w.pokes()).toBe(1);
-		expect(automations.log().map((run) => run.outcome)).toEqual(["ran", "suppressed"]);
+		expect(automations.log().map((run) => run.outcome)).toEqual(["done", "skipped"]);
 	});
 
 	it("drops quiet events from the automation holding the most, and names each automation that lost one", () => {
@@ -514,7 +514,7 @@ describe("automations", () => {
 		expect(
 			automations
 				.log()
-				.filter((run) => run.outcome === "suppressed")
+				.filter((run) => run.outcome === "skipped")
 				.map((run) => run.automation),
 		).toEqual(["alpha", "beta"]);
 	});
@@ -545,7 +545,7 @@ describe("automations", () => {
 		const told = answer.kind === "events" ? answer.events : [];
 
 		expect(w.effects).toEqual(["plug:on"]);
-		expect(waiting.toSorted()).toEqual(["device_set ran", "tell_assistant refused"]);
+		expect(waiting.toSorted()).toEqual(["device_set done", "tell_assistant failed"]);
 		expect(told.map((event) => [event.fields.value, event.fields.message?.length, event.tell])).toEqual([
 			["high", 605, "now"],
 			["high", 600, "quietly"],
@@ -579,8 +579,8 @@ describe("automations", () => {
 
 		expect(w.effects).toEqual(["ifttt:freezer"]);
 		expect(after.log().map((run) => [run.action, run.outcome])).toEqual([
-			["ifttt_trigger", "ran"],
-			["tell_assistant", "ran"],
+			["ifttt_trigger", "done"],
+			["tell_assistant", "done"],
 		]);
 		expect(await queued(after)).toEqual(["high"]);
 	});
@@ -608,7 +608,7 @@ describe("automations", () => {
 		await stopped.open().automations.settled();
 
 		expect(w.effects).toEqual(["plug:on"]);
-		expect(edited).toEqual([["suppressed", SWITCHED_OFF]]);
+		expect(edited).toEqual([["skipped", SWITCHED_OFF]]);
 		expect([idle, stopped.effects]).toEqual([[], ["plug:on"]]);
 	});
 
@@ -640,8 +640,8 @@ describe("automations", () => {
 		const { automations } = w.open();
 
 		const outcomes = automations.log().map((run) => run.outcome);
-		expect(outcomes).toContain("uncertain");
-		expect(outcomes.at(-1)).toBe("ran");
+		expect(outcomes).toContain("unsure");
+		expect(outcomes.at(-1)).toBe("done");
 		expect((await queued(automations)).length).toBeGreaterThan(0);
 	});
 
@@ -779,7 +779,7 @@ describe("automations", () => {
 		automations.ownerRemove("heat", 1);
 		const held = JSON.parse(fs.readFileSync(path.join(dir, "automation-state.json"), "utf8"));
 
-		expect(ran).toEqual([["refused"], true]);
+		expect(ran).toEqual([["failed"], true]);
 		expect([automations.log(), held.log, held.lastRuns, held.queue.events]).toEqual([[], [], {}, []]);
 	});
 
@@ -898,7 +898,7 @@ describe("automations", () => {
 		w.read(fields, -5);
 		await automations.settled();
 
-		expect(automations.log().map((run) => run.outcome)).toEqual(["uncertain"]);
+		expect(automations.log().map((run) => run.outcome)).toEqual(["unsure"]);
 		expect(JSON.stringify(automations.log())).not.toContain("sk-secret");
 	});
 
@@ -924,8 +924,8 @@ describe("automations", () => {
 		expect([saved.stored, toggled.stored]).toEqual([true, true]);
 		expect(w.effects).toEqual(["plug:on", "ifttt:freezer"]);
 		expect(automations.log().map((run) => [run.action, run.outcome])).toEqual([
-			["device_set", "ran"],
-			["ifttt_trigger", "refused"],
+			["device_set", "done"],
+			["ifttt_trigger", "failed"],
 		]);
 		expect(await queued(automations)).toEqual([]);
 	});
@@ -953,7 +953,7 @@ describe("automations", () => {
 		release();
 		await automations.settled();
 
-		expect(replaced).toEqual(["suppressed"]);
+		expect(replaced).toEqual(["skipped"]);
 		expect(w.effects).toEqual(["plug:on", "plug:on"]);
 		expect(await queued(automations)).toHaveLength(80);
 	});
@@ -991,7 +991,7 @@ describe("automations", () => {
 		release();
 		await automations.settled();
 
-		expect(crowded).toEqual([["flash", "suppressed"]]);
+		expect(crowded).toEqual([["flash", "skipped"]]);
 		expect([w.effects.filter((at) => at === "fan:toggle").length, w.effects.includes("plug:on")]).toEqual([
 			WAITING_EVENTS_MAX,
 			true,
@@ -1046,7 +1046,7 @@ describe("automations", () => {
 		w.read(fields, -5);
 		await automations.settled();
 		const held = [[...w.effects], (await queued(automations)).length, ifttt(automations)];
-		w.advance(KEEP_TRYING_MS);
+		w.advance(RETRY_FOR_MS);
 		automations.tick();
 		await automations.settled();
 		const toldAfter = (await queued(automations)).length;
@@ -1061,7 +1061,7 @@ describe("automations", () => {
 			const release = queues.holdEffects();
 			queues.read(b.fields, -5);
 			queues.setIftttReady(true);
-			queues.advance(KEEP_TRYING_MS + 1);
+			queues.advance(RETRY_FOR_MS + 1);
 			b.automations.tick();
 			release();
 			await b.automations.settled();
@@ -1074,11 +1074,11 @@ describe("automations", () => {
 
 		expect(held).toEqual([["plug:on"], 0, []]);
 		expect(w.effects).toEqual(["plug:on"]);
-		expect([ifttt(automations), toldAfter]).toEqual([["refused"], 1]);
-		expect(await afterQueue({ word: "done" })).toEqual([["plug:on", "ifttt:freezer"], ["ran"]]);
+		expect([ifttt(automations), toldAfter]).toEqual([["failed"], 1]);
+		expect(await afterQueue({ word: "done" })).toEqual([["plug:on", "ifttt:freezer"], ["done"]]);
 		expect(await afterQueue({ hold: "not_ready" })).toEqual([
 			["plug:on", "ifttt:freezer", "ifttt:freezer"],
-			["ran"],
+			["done"],
 		]);
 	});
 
@@ -1102,10 +1102,10 @@ describe("automations", () => {
 			return w.effects.length;
 		};
 
-		const attempts = [await flap(1_000), await flap(BACKOFF_MIN_MS), await flap(KEEP_TRYING_MS)];
+		const attempts = [await flap(1_000), await flap(BACKOFF_MIN_MS), await flap(RETRY_FOR_MS)];
 
 		expect(attempts).toEqual([1, 2, 2]);
-		expect(ifttt(automations)).toEqual(["refused"]);
+		expect(ifttt(automations)).toEqual(["failed"]);
 	});
 
 	it("retries an effect that sent nothing after its plug while its tell waits behind, holds no retry for a clock stepped back, and ends it once its time has passed", async () => {
@@ -1132,7 +1132,7 @@ describe("automations", () => {
 		lapses.answerIfttt({ hold: "not_ready" });
 		lapses.read(b.fields, -5);
 		await b.automations.settled();
-		for (const step of [BACKOFF_MIN_MS, KEEP_TRYING_MS]) {
+		for (const step of [BACKOFF_MIN_MS, RETRY_FOR_MS]) {
 			lapses.advance(step);
 			b.automations.tick();
 			await b.automations.settled();
@@ -1140,11 +1140,14 @@ describe("automations", () => {
 
 		expect(first).toEqual([["plug:on", "ifttt:freezer"], 0, []]);
 		expect(resting).toEqual(["plug:on", "ifttt:freezer"]);
-		expect([sends.effects, ifttt(a.automations)]).toEqual([["plug:on", "ifttt:freezer", "ifttt:freezer"], ["ran"]]);
+		expect([sends.effects, ifttt(a.automations)]).toEqual([
+			["plug:on", "ifttt:freezer", "ifttt:freezer"],
+			["done"],
+		]);
 		expect((await queued(a.automations)).length).toBe(1);
 		expect([lapses.effects, ifttt(b.automations)]).toEqual([
 			["plug:on", "ifttt:freezer", "ifttt:freezer"],
-			["refused"],
+			["failed"],
 		]);
 	});
 
@@ -1176,7 +1179,7 @@ describe("automations", () => {
 		await automations.settled();
 
 		expect([batch, w.effects.length]).toEqual([2, 5]);
-		expect(automations.log().filter((run) => run.outcome === "suppressed")).toEqual([]);
+		expect(automations.log().filter((run) => run.outcome === "skipped")).toEqual([]);
 	});
 
 	it("away from the home, switches its plug, refuses unsent an action that needs the home, and logs each standing refusal once", async () => {
@@ -1209,8 +1212,8 @@ describe("automations", () => {
 		}
 
 		expect(first).toEqual([
-			["ifttt_trigger", "refused"],
-			["device_set", "ran"],
+			["ifttt_trigger", "failed"],
+			["device_set", "done"],
 		]);
 		expect(w.effects).toEqual(["plug:on", "plug:on", "plug:on", "plug:on"]);
 		expect(
@@ -1219,8 +1222,8 @@ describe("automations", () => {
 				.filter((run) => run.automation === "alert")
 				.map((run) => [run.action, run.outcome]),
 		).toEqual([
-			["tell_assistant", "refused"],
-			["ifttt_trigger", "refused"],
+			["tell_assistant", "failed"],
+			["ifttt_trigger", "failed"],
 		]);
 	});
 
@@ -1250,9 +1253,9 @@ describe("automations", () => {
 			).toBe(true);
 			expect(w.effects).toEqual(["plug:on", "plug:toggle"]);
 			expect(automations.log().map((run) => [run.action, run.outcome, run.reason])).toEqual([
-				[undefined, "suppressed", "the automation changed"],
-				["device_set", "ran", undefined],
-				["device_set", "ran", undefined],
+				[undefined, "skipped", "the automation changed"],
+				["device_set", "done", undefined],
+				["device_set", "done", undefined],
 			]);
 		});
 	});
@@ -1271,7 +1274,7 @@ describe("automations", () => {
 			return { automations, release };
 		};
 
-		it("ends an On a crash left out as no answer, never resumed, logging what ran", async () => {
+		it("ends an On a crash left out as no answer, never resumed, logging what done", async () => {
 			const dir = fresh();
 			const w = world(dir);
 			offMidAttempt(w);
@@ -1280,7 +1283,7 @@ describe("automations", () => {
 			await after.settled();
 
 			expect(w.effects).toEqual(["plug:on"]);
-			expect(after.log().map((run) => [run.action, run.outcome])).toEqual([["device_set", "uncertain"]]);
+			expect(after.log().map((run) => [run.action, run.outcome])).toEqual([["device_set", "unsure"]]);
 		});
 
 		it("ends an On that answered no answer as uncertain, not retried, once it was switched off", async () => {
@@ -1294,7 +1297,7 @@ describe("automations", () => {
 			await automations.settled();
 
 			expect(w.effects).toEqual(["plug:on"]);
-			expect(automations.log().map((run) => [run.action, run.outcome])).toEqual([["device_set", "uncertain"]]);
+			expect(automations.log().map((run) => [run.action, run.outcome])).toEqual([["device_set", "unsure"]]);
 		});
 
 		describe("an On waiting to retry after no answer", () => {
@@ -1330,10 +1333,10 @@ describe("automations", () => {
 				}
 
 				expect([alone.effects, pair.effects]).toEqual([["plug:on"], ["plug:on"]]);
-				expect(rows(one)).toEqual([["device_set", "uncertain"]]);
+				expect(rows(one)).toEqual([["device_set", "unsure"]]);
 				expect(rows(two)).toEqual([
-					["device_set", "uncertain"],
-					[undefined, "suppressed"],
+					["device_set", "unsure"],
+					[undefined, "skipped"],
 				]);
 			});
 
@@ -1351,7 +1354,7 @@ describe("automations", () => {
 
 				expect(edited.stored).toBe(true);
 				expect(w.effects).toEqual(["plug:on"]);
-				expect(rows(after)).toEqual([["device_set", "uncertain"]]);
+				expect(rows(after)).toEqual([["device_set", "unsure"]]);
 			});
 		});
 
@@ -1368,8 +1371,8 @@ describe("automations", () => {
 
 			expect(w.effects).toEqual(["plug:on"]);
 			expect(automations.log().map((run) => [run.action, run.outcome])).toEqual([
-				["device_set", "ran"],
-				[undefined, "suppressed"],
+				["device_set", "done"],
+				[undefined, "skipped"],
 			]);
 		});
 	});
@@ -1395,7 +1398,7 @@ describe("automations", () => {
 
 		expect(live.fires[0].steps["0"].claimed).toBe(true);
 		expect(w.effects).toEqual(["plug:on", "plug:on"]);
-		expect(after.log().map((run) => [run.action, run.outcome])).toEqual([["device_set", "ran"]]);
+		expect(after.log().map((run) => [run.action, run.outcome])).toEqual([["device_set", "done"]]);
 	});
 
 	it("never reruns a fire a graceful stop let land", async () => {
@@ -1416,8 +1419,8 @@ describe("automations", () => {
 		await kept.settled();
 
 		expect(w.effects).toEqual(["plug:on"]);
-		expect(kept.log().map((run) => run.outcome)).toEqual(["ran"]);
-		expect(kept.lastRun("heat")).toMatchObject({ running: false, steps: [{ path: "0", outcome: "ran" }] });
+		expect(kept.log().map((run) => run.outcome)).toEqual(["done"]);
+		expect(kept.lastRun("heat")).toMatchObject({ running: false, steps: [{ path: "0", outcome: "done" }] });
 	});
 
 	describe("a run's steps", () => {
@@ -1457,8 +1460,8 @@ describe("automations", () => {
 			expect(waiting).toEqual(["plug:toggle"]);
 			expect(w.effects).toEqual(["plug:toggle", "ifttt:bell"]);
 			expect(automations.log().map((run) => `${run.action} ${run.outcome}`)).toEqual([
-				"device_set uncertain",
-				"ifttt_trigger ran",
+				"device_set unsure",
+				"ifttt_trigger done",
 			]);
 		});
 
@@ -1476,10 +1479,10 @@ describe("automations", () => {
 			w.answerIfttt({ word: "done" });
 			await pass(w, automations, 60_000);
 
-			expect(still).toEqual(["device_set ran"]);
+			expect(still).toEqual(["device_set done"]);
 			expect(automations.log().map((run) => `${run.action} ${run.outcome}`)).toEqual([
-				"device_set ran",
-				"ifttt_trigger ran",
+				"device_set done",
+				"ifttt_trigger done",
 			]);
 		});
 
@@ -1498,7 +1501,7 @@ describe("automations", () => {
 
 			expect(behind).toBe(2);
 			expect(w.effects).toEqual(["plug:on", "plug:on", "plug:on", "plug:on"]);
-			expect(automations.log().map((run) => run.outcome)).toEqual(["ran", "ran"]);
+			expect(automations.log().map((run) => run.outcome)).toEqual(["done", "done"]);
 		});
 
 		it("tells every event's message past its automation's waiting cap, dropping only the runs", async () => {
@@ -1528,20 +1531,20 @@ describe("automations", () => {
 			const answer = await polled(automations);
 
 			expect(answer.kind === "events" ? answer.events.length : 0).toBe(count);
-			expect(automations.log().filter((run) => run.outcome === "suppressed")).toHaveLength(1);
+			expect(automations.log().filter((run) => run.outcome === "skipped")).toHaveLength(1);
 		});
 
 		it("hands back a claim whose runner threw before sending, and sends its toggle once the throw clears", async () => {
 			const { w, fields, automations } = setUp([toggle]);
 			w.read(fields, -5);
-			w.breakHolesOnce();
+			w.breakPlaceholdersOnce();
 			await automations.settled();
 			const unsent = [...w.effects];
 			await pass(w, automations, 60_000);
 
 			expect(unsent).toEqual([]);
 			expect(w.effects).toEqual(["plug:toggle"]);
-			expect(automations.log().map((run) => `${run.action} ${run.outcome}`)).toEqual(["device_set ran"]);
+			expect(automations.log().map((run) => `${run.action} ${run.outcome}`)).toEqual(["device_set done"]);
 		});
 
 		describe("two automations setting one switch", () => {
@@ -1576,7 +1579,7 @@ describe("automations", () => {
 				await pass(w, automations, 2 * 60_000);
 
 				expect(w.effects.slice(sent)).toEqual(["plug:off"]);
-				expect(rows(automations)).toEqual(["dark ran", "light refused"]);
+				expect(rows(automations)).toEqual(["dark done", "light failed"]);
 				expect(automations.log().at(-1)?.reason).toBe(NEWER_SET);
 			});
 
@@ -1613,7 +1616,7 @@ describe("automations", () => {
 				await dark();
 
 				expect(w.effects.slice(sent)).toEqual(["plug:on", "plug:off"]);
-				expect(rows(automations)).toEqual(["light ran", "dark ran"]);
+				expect(rows(automations)).toEqual(["light done", "dark done"]);
 			});
 
 			it("runs both when two automations set the switch from one event", async () => {
@@ -1631,7 +1634,7 @@ describe("automations", () => {
 				await automations.settled();
 
 				expect(w.effects).toEqual(["plug:on", "plug:off"]);
-				expect(rows(automations)).toEqual(["light ran", "dark ran"]);
+				expect(rows(automations)).toEqual(["light done", "dark done"]);
 			});
 
 			it("never lets a toggle outdate another automation's toggle that has not had its turn", async () => {
@@ -1652,7 +1655,7 @@ describe("automations", () => {
 				await pass(w, automations, 60_000);
 
 				expect(w.effects.filter((effect) => effect === "lamp:toggle")).toHaveLength(2);
-				expect(automations.log().map((run) => run.outcome)).toEqual(["ran", "ran", "ran"]);
+				expect(automations.log().map((run) => run.outcome)).toEqual(["done", "done", "done"]);
 			});
 		});
 
@@ -1702,8 +1705,8 @@ describe("automations", () => {
 				automations.tick();
 				await automations.settled();
 			}
-			const ended = automations.log().filter((run) => run.outcome === "refused");
-			const replaced = automations.log().filter((run) => run.outcome === "suppressed");
+			const ended = automations.log().filter((run) => run.outcome === "failed");
+			const replaced = automations.log().filter((run) => run.outcome === "skipped");
 			return {
 				ended: ended.map((run) => run.action),
 				replacedIt: replaced.filter((run) => run.at === ended[0]?.at),
@@ -1752,7 +1755,7 @@ describe("automations", () => {
 					.log()
 					.filter((run) => run.automation === "held")
 					.map((run) => run.outcome),
-			).toEqual(["ran"]);
+			).toEqual(["done"]);
 		});
 	});
 
@@ -1776,7 +1779,7 @@ describe("automations", () => {
 					.log()
 					.filter((run) => run.seq === 1)
 					.map((run) => `${run.action} ${run.outcome}`),
-			).toEqual(["tell_assistant ran", "device_set ran", "device_set ran", "ifttt_trigger ran"]);
+			).toEqual(["tell_assistant done", "device_set done", "device_set done", "ifttt_trigger done"]);
 		});
 
 		it("lists today's automations beside a stored function, which counts against no automation, and keeps it as written", () => {
@@ -1793,7 +1796,7 @@ describe("automations", () => {
 					params: [],
 					steps: [
 						{
-							kind: "do",
+							kind: "action",
 							action: "device_set",
 							args: {
 								device: { kind: "literal", value: "plug" },
@@ -1827,7 +1830,7 @@ describe("automations", () => {
 				kind: "function",
 				revision: 1,
 				incarnation: id,
-				body: { name: id, params: [], steps: [{ kind: "do", action, args }] },
+				body: { name: id, params: [], steps: [{ kind: "action", action, args }] },
 			});
 			fs.writeFileSync(
 				path.join(dir, "automations.json"),
@@ -1871,19 +1874,19 @@ describe("automations", () => {
 			expect(
 				automations
 					.log()
-					.filter((run) => run.outcome !== "ran")
+					.filter((run) => run.outcome !== "done")
 					.map((run) => [run.seq, run.outcome]),
 			).toEqual([
-				[1, "uncertain"],
-				[1, "suppressed"],
-				[3, "suppressed"],
+				[1, "unsure"],
+				[1, "skipped"],
+				[3, "skipped"],
 			]);
 		});
 
 		const uncertain = (automations: ReturnType<typeof createAutomations>) =>
 			automations
 				.log()
-				.filter((run) => run.outcome === "uncertain")
+				.filter((run) => run.outcome === "unsure")
 				.map((run) => run.seq);
 
 		it("drops a stored fire of a shape it cannot read, logging it uncertain once across two opens, and one with no automation not at all", async () => {
@@ -1964,11 +1967,11 @@ describe("automations", () => {
 
 			expect([toggled.w.effects, toggled.outcomes]).toEqual([
 				["plug:toggle", "ifttt:bell"],
-				["device_set uncertain", "ifttt_trigger ran"],
+				["device_set unsure", "ifttt_trigger done"],
 			]);
 			expect([posted.w.effects, posted.outcomes]).toEqual([
 				["ifttt:bell", "plug:toggle"],
-				["ifttt_trigger uncertain", "device_set ran"],
+				["ifttt_trigger unsure", "device_set done"],
 			]);
 		});
 
@@ -1976,10 +1979,10 @@ describe("automations", () => {
 			const inside = await crash([on], "plug:on", 1_000);
 			const past = await crash([on, bell], "plug:on", 3 * 60 * 60_000);
 
-			expect([inside.w.effects, inside.outcomes]).toEqual([["plug:on", "plug:on"], ["device_set ran"]]);
+			expect([inside.w.effects, inside.outcomes]).toEqual([["plug:on", "plug:on"], ["device_set done"]]);
 			expect([past.w.effects, past.outcomes]).toEqual([
 				["plug:on", "ifttt:bell"],
-				["device_set refused", "ifttt_trigger ran"],
+				["device_set failed", "ifttt_trigger done"],
 			]);
 		});
 
@@ -1999,8 +2002,8 @@ describe("automations", () => {
 				return [w.effects.length, after.log().map((run) => run.outcome)];
 			};
 
-			expect(await between(BACKOFF_MIN_MS)).toEqual([2, ["ran"]]);
-			expect(await between(KEEP_TRYING_MS)).toEqual([1, ["refused"]]);
+			expect(await between(BACKOFF_MIN_MS)).toEqual([2, ["done"]]);
+			expect(await between(RETRY_FOR_MS)).toEqual([1, ["failed"]]);
 		});
 
 		it("clamps a step started ahead of the clock, so its time restarts from the restart", async () => {
@@ -2014,11 +2017,11 @@ describe("automations", () => {
 			w.advance(-60 * 60_000);
 			const after = w.open().automations;
 			await after.settled();
-			w.advance(KEEP_TRYING_MS);
+			w.advance(RETRY_FOR_MS);
 			after.tick();
 			await after.settled();
 
-			expect(after.log().map((run) => run.outcome)).toEqual(["refused"]);
+			expect(after.log().map((run) => run.outcome)).toEqual(["failed"]);
 		});
 
 		it("gives a step that only held a full time after a long downtime", async () => {
@@ -2043,7 +2046,7 @@ describe("automations", () => {
 			await after.settled();
 
 			expect(waiting).toBe(0);
-			expect(after.log().map((run) => run.outcome)).toEqual(["ran"]);
+			expect(after.log().map((run) => run.outcome)).toEqual(["done"]);
 		});
 	});
 
@@ -2074,7 +2077,7 @@ describe("automations", () => {
 		]);
 	});
 
-	it("reads a text with holes as invalid while no hole reader is composed, and fires nothing", async () => {
+	it("reads a text with placeholders as invalid while no placeholder reader is composed, and fires nothing", async () => {
 		const w = world(fresh());
 		const { automations } = w.open();
 		automations.ownerPut(
@@ -2098,7 +2101,7 @@ describe("automations", () => {
 		expect(automations.log()).toEqual([]);
 	});
 
-	it("gives up a fill that throws: tells the message and sends the effect with their holes marked, logging each uncertain", async () => {
+	it("gives up a fill that throws: tells the message and sends the effect with their placeholders marked, logging each unsure", async () => {
 		const w = world(fresh());
 		const { automations } = w.open();
 		const event: Automation["trigger"] = { kind: "event", source: "github", conditions: [] };
@@ -2137,7 +2140,7 @@ describe("automations", () => {
 				.log()
 				.map((run) => `${run.automation} ${run.outcome}`)
 				.toSorted(),
-		).toEqual(["flash ran", "flash uncertain", "messaged ran", "messaged uncertain"]);
+		).toEqual(["flash done", "flash unsure", "messaged done", "messaged unsure"]);
 	});
 
 	it("fills and tells a message while another automation's effect is in flight", async () => {
@@ -2208,7 +2211,7 @@ describe("automations", () => {
 				.log()
 				.filter((run) => run.action === "tell_assistant")
 				.map((run) => run.outcome),
-		).toEqual(["refused"]);
+		).toEqual(["failed"]);
 	});
 
 	it("tells an event's message through the outbox with the event's names, and leaves only a tell with no message to the source's lane", async () => {

@@ -59,7 +59,7 @@ import com.atelier_nyaarium.switchboard.proto.ConsoleIds
 
 private val TEXT_STYLE = CODE.copy(fontSize = 15.sp, lineHeight = 22.sp)
 
-private class HoleHighlight(
+private class CodeHighlight(
 	private val mode: TextMode,
 	private val entities: Set<String>,
 	private val names: Set<String>,
@@ -72,7 +72,7 @@ private class HoleHighlight(
 /** Writes through, so Back keeps it. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun HoleTextEditor(
+internal fun TextPageEditor(
 	title: String,
 	value: String,
 	max: Int,
@@ -142,7 +142,7 @@ internal fun HoleTextEditor(
 					enabled = enabled,
 					textStyle = TEXT_STYLE,
 					cursorBrush = SolidColor(Color(CodePalette.TEXT)),
-					visualTransformation = remember(entities, named, issue) { HoleHighlight(mode, entities, named, issue) },
+					visualTransformation = remember(entities, named, issue) { CodeHighlight(mode, entities, named, issue) },
 					keyboardOptions = EXACT_TEXT_KEYBOARD,
 					modifier =
 						Modifier.fillMaxWidth()

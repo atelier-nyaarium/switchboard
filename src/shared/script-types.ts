@@ -7,7 +7,7 @@ import type { ConsoleDescription } from "./schemasLiveConsole.js";
 export const SCRIPT_TYPES = [
 	"Text",
 	"Number",
-	"Truth",
+	"Boolean",
 	"Time",
 	"Device",
 	"Event",
@@ -43,8 +43,8 @@ export const ERROR_MEMBERS: Readonly<Record<string, string>> = {
 };
 
 export const TASK_MEMBERS: Readonly<Record<string, string>> = {
-	done: "Truth",
-	failed: "Truth",
+	done: "Boolean",
+	failed: "Boolean",
 	error: "Error",
 };
 
@@ -85,7 +85,7 @@ export function typeOfNode(node: ConsoleNode | null, scope: TypeScope): string {
 		case "literal":
 			if (typeof node.value === "string") return "Text";
 			if (typeof node.value === "number") return "Number";
-			return typeof node.value === "boolean" ? "Truth" : "Unknown";
+			return typeof node.value === "boolean" ? "Boolean" : "Unknown";
 		case "template":
 			return "Text";
 		case "ident":
@@ -117,9 +117,9 @@ export function typeOfNode(node: ConsoleNode | null, scope: TypeScope): string {
 		case "index":
 			return known(elementOf(typeOfNode(node.target, scope)));
 		case "unary":
-			return node.op === "!" ? "Truth" : "Number";
+			return node.op === "!" ? "Boolean" : "Number";
 		case "binary": {
-			if (COMPARES.has(node.op)) return "Truth";
+			if (COMPARES.has(node.op)) return "Boolean";
 			if (node.op !== "+") return "Number";
 			// Two texts join.
 			const sides = [typeOfNode(node.left, scope), typeOfNode(node.right, scope)];

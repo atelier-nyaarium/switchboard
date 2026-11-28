@@ -4,28 +4,63 @@
 	"steps": [
 		{
 			"kind": "if",
-			"when": "ready",
+			"condition": "ready",
 			"steps": [
 				{
 					"kind": "try",
-					"steps": [{ "kind": "do", "action": "tell_assistant", "args": {} }],
+					"steps": [
+						{
+							"kind": "action",
+							"action": "tell_assistant",
+							"args": {}
+						}
+					],
 					"catch": [
 						{
 							"kind": "if",
-							"when": "failed",
+							"condition": "failed",
 							"steps": [
-								{ "kind": "exit" },
-								{ "kind": "throw", "text": "failed" },
-								{ "kind": "let", "name": "result", "value": { "kind": "literal", "value": true } },
-								{ "kind": "wait", "minutes": { "kind": "literal", "value": 5 } },
-								{ "kind": "note", "text": "recovered" }
+								{
+									"kind": "return"
+								},
+								{
+									"kind": "throw",
+									"text": "failed"
+								},
+								{
+									"kind": "variable",
+									"name": "result",
+									"value": {
+										"kind": "literal",
+										"value": true
+									}
+								},
+								{
+									"kind": "wait",
+									"minutes": {
+										"kind": "literal",
+										"value": 5
+									}
+								},
+								{
+									"kind": "comment",
+									"text": "recovered"
+								}
 							],
-							"else": [{ "kind": "repeat", "times": 2 }]
+							"else": [
+								{
+									"kind": "repeat",
+									"times": 2
+								}
+							]
 						}
 					]
 				}
 			]
 		},
-		{ "kind": "repeat", "times": 2 }
+		{
+			"kind": "repeat",
+			"times": 2
+		}
 	]
 }

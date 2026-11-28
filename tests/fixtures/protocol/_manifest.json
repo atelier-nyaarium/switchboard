@@ -140,19 +140,23 @@
 		{ "file": "console-op-automation-put-actions.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "console-op-automation-preview-text.json", "schema": "ConsoleOp", "expect": "pass" },
 		{
-			"file": "console-op-automation-preview-function-values.json",
+			"file": "console-op-automation-preview-function-args.json",
 			"schema": "ConsoleOp",
 			"expect": "pass"
 		},
 		{ "file": "automation-list-result-serves.json", "schema": "ConsoleAutomationListResult", "expect": "pass" },
 		{ "file": "automation-put-result-confirm.json", "schema": "ConsoleAutomationPutResult", "expect": "pass" },
-		{ "file": "automation-put-result-hole.json", "schema": "ConsoleAutomationPutResult", "expect": "pass" },
+		{ "file": "automation-put-result-placeholder.json", "schema": "ConsoleAutomationPutResult", "expect": "pass" },
 		{
 			"file": "automation-preview-result-filled.json",
 			"schema": "ConsoleAutomationPreviewResult",
 			"expect": "pass"
 		},
-		{ "file": "automation-preview-result-hole.json", "schema": "ConsoleAutomationPreviewResult", "expect": "pass" },
+		{
+			"file": "automation-preview-result-placeholder.json",
+			"schema": "ConsoleAutomationPreviewResult",
+			"expect": "pass"
+		},
 		{
 			"file": "automation-preview-result-condition.json",
 			"schema": "ConsoleAutomationPreviewResult",
@@ -161,7 +165,7 @@
 		{ "file": "console-op-automation-preview-condition.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "console-op-automation-run.json", "schema": "ConsoleOp", "expect": "pass" },
 		{ "file": "automation-run-result-refused.json", "schema": "ConsoleAutomationRunResult", "expect": "pass" },
-		{ "file": "function-step-let-string.json", "schema": "FunctionStep", "expect": "pass" },
+		{ "file": "function-step-variable-string.json", "schema": "FunctionStep", "expect": "pass" },
 		{
 			"file": "function-step-future-value.json",
 			"schema": "FunctionStep",

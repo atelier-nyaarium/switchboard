@@ -8,7 +8,7 @@ import {
 	DOING_REFUSED,
 	evaluateConsole,
 } from "../gateway/liveConsole/evaluate.js";
-import { fillHoles, holeIssue } from "../gateway/liveConsole/holes.js";
+import { fillPlaceholders, placeholderIssue } from "../gateway/liveConsole/placeholders.js";
 import { type ConsoleEntity, createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { renderConsoleIssue, renderConsoleValue } from "../gateway/liveConsole/render.js";
 import {
@@ -342,7 +342,7 @@ describe("doing members", () => {
 		expect(written.sort()).toEqual([
 			"assistant.tell(when, message?)",
 			"devices.set(device, verb)",
-			"functions.run(function, values?)",
+			"functions.run(function, args?)",
 			"ifttt.trigger(event, value1?, value2?, value3?)",
 		]);
 		expect([doing.hash("owner"), doing.hash("host")]).toEqual([plain.hash("owner"), plain.hash("host")]);
@@ -350,22 +350,22 @@ describe("doing members", () => {
 		expect(doing.get("devices", "script")?.name).toBe("devices");
 	});
 
-	it("are refused by the evaluator, called or named, and by a hole's save check with the call's span", async () => {
+	it("are refused by the evaluator, called or named, and by a placeholder's save check with the call's span", async () => {
 		const ask = async (source: string) => single(await evaluateConsole(source, doing, "host"));
 
 		expect(await ask('devices.set("Lamp", "on")')).toMatchObject({ ok: false, issue: { code: "doing" } });
 		expect(await ask("devices.set")).toMatchObject({ ok: false, issue: { code: "doing" } });
 		expect(await ask('assistant.tell("now")')).toMatchObject({ ok: false, issue: { code: "unknown_name" } });
-		expect(holeIssue('Now {devices.set("Lamp", "on")}', [], doing)).toEqual({
+		expect(placeholderIssue('Now {devices.set("Lamp", "on")}', [], doing)).toEqual({
 			start: 5,
 			end: 30,
 			message: DOING_REFUSED,
 		});
-		expect(holeIssue("{devices.list.count()}", [], doing)).toBeNull();
+		expect(placeholderIssue("{devices.list.count()}", [], doing)).toBeNull();
 	});
 });
 
-describe("holes in an automation's text", () => {
+describe("placeholders in an automation's text", () => {
 	const slow: ConsoleEntity = {
 		name: "radio",
 		description: "Slow reads.",
@@ -384,24 +384,24 @@ describe("holes in an automation's text", () => {
 	const scope = createConsoleRegistry([sensors, slow]);
 	const names = { value: { value: 1.84, shown: "1.8 C" }, device: { value: "Outside" } };
 
-	it("refuses at save a hole that is open, does not parse, holds two statements, names nothing here, prints no value or reads a slow member, with its span", () => {
+	it("refuses at save a placeholder that is open, does not parse, holds two statements, names nothing here, prints no value or reads a slow member, with its span", () => {
 		const at = (text: string) => {
-			const issue = holeIssue(text, ["value", "device"], scope);
+			const issue = placeholderIssue(text, ["value", "device"], scope);
 			return issue && text.slice(issue.start, issue.end);
 		};
 
 		expect(at("It is {value} at {device}, {round(value, 1)} and {sensors.list.count()}.")).toBeNull();
 		expect(at("a \\{not a hole\\} b")).toBeNull();
 		expect(at("It is {value")).toBe("{value");
-		expect(holeIssue("It is {value +} now", ["value"], scope)).toMatchObject({ start: 14, end: 14 });
+		expect(placeholderIssue("It is {value +} now", ["value"], scope)).toMatchObject({ start: 14, end: 14 });
 		expect(at("It is {a = 1} now")).toBe("{a = 1}");
 		expect(at("It is {value; device} now")).toBe("{value; device}");
 		expect(at("It is {temperature} now")).toBe("temperature");
 		// The first in the text, whichever kind it is.
 		expect(at("It is {temperature} and {value +} now")).toBe("temperature");
 		expect(at("It is {value +} and {temperature} now")).toBe("");
-		// A hole that does not parse is not judged for what it names.
-		expect(holeIssue("It is {temperature +} now", ["value"], scope)).toMatchObject({ start: 20, end: 20 });
+		// An unparsed placeholder is not judged.
+		expect(placeholderIssue("It is {temperature +} now", ["value"], scope)).toMatchObject({ start: 20, end: 20 });
 		expect(at("It is {shout(value)} now")).toBe("shout");
 		expect(at("It is {radio.listen()} now")).toBe("radio.listen()");
 		expect(at("It is {} now")).toBe("{}");
@@ -418,15 +418,15 @@ describe("holes in an automation's text", () => {
 	it("reads a name that is also an entity's as the held name, at the save as at the fire", async () => {
 		const shadowing = { sensors: { value: "mine", shown: "Mine" } };
 
-		expect(holeIssue("It is {sensors} now", ["sensors"], scope)).toBeNull();
-		expect(await fillHoles("{sensors} {sensors.list.count()}", shadowing, scope)).toEqual({
+		expect(placeholderIssue("It is {sensors} now", ["sensors"], scope)).toBeNull();
+		expect(await fillPlaceholders("{sensors} {sensors.list.count()}", shadowing, scope)).toEqual({
 			text: "Mine {?}",
 			failed: 1,
 		});
 	});
 
-	it("fills a name alone with its shown form, any other expression as one line, and a hole that fails with {?}", async () => {
-		const fill = async (text: string) => fillHoles(text, names, scope);
+	it("fills a name alone with its shown form, any other expression as one line, and a placeholder that fails with {?}", async () => {
+		const fill = async (text: string) => fillPlaceholders(text, names, scope);
 
 		expect(await fill("It is {value} at {device}.")).toEqual({ text: "It is 1.8 C at Outside.", failed: 0 });
 		expect(await fill("{ value } is {round(value, 1)}; cold: {value < 2}")).toEqual({
@@ -441,7 +441,7 @@ describe("holes in an automation's text", () => {
 	});
 });
 
-describe("a string with holes", () => {
+describe("a string with placeholders", () => {
 	const value = async (source: string) => {
 		const answer = await run(source);
 		return answer.ok && "value" in answer ? answer.value : answer;
@@ -451,7 +451,7 @@ describe("a string with holes", () => {
 		return answer.ok ? null : [answer.issue.code, source.slice(answer.issue.start, answer.issue.end)];
 	};
 
-	it("reads each hole as an expression where it stands, its own strings unescaped and nested", async () => {
+	it("reads each placeholder as an expression where it stands, its own strings unescaped and nested", async () => {
 		expect(await value('"x{1 + 2}y"')).toBe("x3y");
 		expect(await value('"{sensors.read("Freezer").name} is {if(true, "on", \'off\')}"')).toBe("Freezer is on");
 		expect(await value('"a{"b{1 + 1}c"}d"')).toBe("ab2cd");
@@ -464,13 +464,13 @@ describe("a string with holes", () => {
 		expect(await value("'a } b'")).toBe("a } b");
 	});
 
-	it("fails the whole string where a hole fails, and refuses one it cannot print", async () => {
+	it("fails the whole string where a placeholder fails, and refuses one it cannot print", async () => {
 		expect(await issueOf('"is {nowhere} now"')).toEqual(["unknown_name", "nowhere"]);
 		expect(await issueOf('"is {sensors.list} now"')).toEqual(["wrong_type", "sensors.list"]);
 		expect(await issueOf('"is {sensors} now"')).toEqual(["is_entity", "sensors"]);
 	});
 
-	it("refuses a hole that is empty, open or holds two expressions, and a key that holds one, each with its span", () => {
+	it("refuses a placeholder that is empty, open or holds two expressions, and a key that holds one, each with its span", () => {
 		const at = (source: string) => {
 			const [issue] = parseConsole(source).issues;
 			return issue && source.slice(issue.start, issue.end);

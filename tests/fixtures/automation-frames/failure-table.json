@@ -11,7 +11,7 @@
 		},
 		{
 			"name": "outside a try a failure is noted, the body carries on, and the frame ends failed with the first",
-			"body": [{ "kind": "do" }, { "kind": "do" }, { "kind": "do" }],
+			"body": [{ "kind": "action" }, { "kind": "action" }, { "kind": "action" }],
 			"events": [
 				{ "how": "failed", "failure": { "code": "refused", "message": "a" } },
 				{ "how": "failed", "failure": { "code": "timeout", "message": "b" } },
@@ -24,8 +24,12 @@
 		{
 			"name": "inside a try a failure jumps to the catch, the rest of the try is skipped, and a caught failure is not remembered",
 			"body": [
-				{ "kind": "try", "steps": [{ "kind": "do" }, { "kind": "do" }], "catch": [{ "kind": "do" }] },
-				{ "kind": "do" }
+				{
+					"kind": "try",
+					"steps": [{ "kind": "action" }, { "kind": "action" }],
+					"catch": [{ "kind": "action" }]
+				},
+				{ "kind": "action" }
 			],
 			"events": [
 				{ "how": "took", "side": "try" },
@@ -39,7 +43,10 @@
 		},
 		{
 			"name": "a try that does not fail skips its catch",
-			"body": [{ "kind": "try", "steps": [{ "kind": "do" }], "catch": [{ "kind": "do" }] }, { "kind": "do" }],
+			"body": [
+				{ "kind": "try", "steps": [{ "kind": "action" }], "catch": [{ "kind": "action" }] },
+				{ "kind": "action" }
+			],
 			"events": [{ "how": "took", "side": "try" }, { "how": "done" }, { "how": "done" }],
 			"visits": [[0], [0, "try", 0], [1]],
 			"caught": [null, null, null],
@@ -47,7 +54,10 @@
 		},
 		{
 			"name": "an empty catch still catches",
-			"body": [{ "kind": "try", "steps": [{ "kind": "do" }, { "kind": "do" }], "catch": [] }, { "kind": "do" }],
+			"body": [
+				{ "kind": "try", "steps": [{ "kind": "action" }, { "kind": "action" }], "catch": [] },
+				{ "kind": "action" }
+			],
 			"events": [
 				{ "how": "took", "side": "try" },
 				{ "how": "failed", "failure": { "code": "no_answer", "message": "a" } },
@@ -62,10 +72,13 @@
 			"body": [
 				{
 					"kind": "try",
-					"steps": [{ "kind": "if", "steps": [{ "kind": "throw" }, { "kind": "do" }] }, { "kind": "do" }],
-					"catch": [{ "kind": "do" }]
+					"steps": [
+						{ "kind": "if", "steps": [{ "kind": "throw" }, { "kind": "action" }] },
+						{ "kind": "action" }
+					],
+					"catch": [{ "kind": "action" }]
 				},
-				{ "kind": "do" }
+				{ "kind": "action" }
 			],
 			"events": [
 				{ "how": "took", "side": "try" },
@@ -80,7 +93,7 @@
 		},
 		{
 			"name": "throw with no try ends the frame failed, the steps after it unreached",
-			"body": [{ "kind": "do" }, { "kind": "throw" }, { "kind": "do" }],
+			"body": [{ "kind": "action" }, { "kind": "throw" }, { "kind": "action" }],
 			"events": [{ "how": "done" }, { "how": "thrown", "failure": { "code": "thrown", "message": "stop" } }],
 			"visits": [[0], [1]],
 			"caught": [null, null],
@@ -88,7 +101,7 @@
 		},
 		{
 			"name": "a frame ended by a throw carries the failure noted before it",
-			"body": [{ "kind": "do" }, { "kind": "throw" }],
+			"body": [{ "kind": "action" }, { "kind": "throw" }],
 			"events": [
 				{ "how": "failed", "failure": { "code": "refused", "message": "a" } },
 				{ "how": "thrown", "failure": { "code": "thrown", "message": "stop" } }
@@ -98,17 +111,17 @@
 			"end": { "end": "failed", "code": "refused" }
 		},
 		{
-			"name": "exit ends the frame and adds no failure",
-			"body": [{ "kind": "do" }, { "kind": "exit" }, { "kind": "do" }],
-			"events": [{ "how": "done" }, { "how": "exit" }],
+			"name": "return ends the frame and adds no failure",
+			"body": [{ "kind": "action" }, { "kind": "return" }, { "kind": "action" }],
+			"events": [{ "how": "done" }, { "how": "return" }],
 			"visits": [[0], [1]],
 			"caught": [null, null],
 			"end": { "end": "done" }
 		},
 		{
-			"name": "a failure noted before an exit still counts",
-			"body": [{ "kind": "do" }, { "kind": "exit" }, { "kind": "do" }],
-			"events": [{ "how": "failed", "failure": { "code": "no_answer", "message": "a" } }, { "how": "exit" }],
+			"name": "a failure noted before a return still counts",
+			"body": [{ "kind": "action" }, { "kind": "return" }, { "kind": "action" }],
+			"events": [{ "how": "failed", "failure": { "code": "no_answer", "message": "a" } }, { "how": "return" }],
 			"visits": [[0], [1]],
 			"caught": [null, null],
 			"end": { "end": "failed", "code": "no_answer" }
@@ -118,10 +131,10 @@
 			"body": [
 				{
 					"kind": "try",
-					"steps": [{ "kind": "try", "steps": [{ "kind": "do" }], "catch": [{ "kind": "do" }] }],
-					"catch": [{ "kind": "do" }]
+					"steps": [{ "kind": "try", "steps": [{ "kind": "action" }], "catch": [{ "kind": "action" }] }],
+					"catch": [{ "kind": "action" }]
 				},
-				{ "kind": "do" }
+				{ "kind": "action" }
 			],
 			"events": [
 				{ "how": "took", "side": "try" },
@@ -144,7 +157,13 @@
 		},
 		{
 			"name": "a failure inside a catch that nothing encloses is noted, and the catch carries on",
-			"body": [{ "kind": "try", "steps": [{ "kind": "do" }], "catch": [{ "kind": "do" }, { "kind": "do" }] }],
+			"body": [
+				{
+					"kind": "try",
+					"steps": [{ "kind": "action" }],
+					"catch": [{ "kind": "action" }, { "kind": "action" }]
+				}
+			],
 			"events": [
 				{ "how": "took", "side": "try" },
 				{ "how": "failed", "failure": { "code": "refused", "message": "a" } },
@@ -158,8 +177,12 @@
 		{
 			"name": "an if takes a side, and leaving it at any depth continues after its owner",
 			"body": [
-				{ "kind": "if", "steps": [{ "kind": "if", "steps": [{ "kind": "do" }] }], "else": [{ "kind": "do" }] },
-				{ "kind": "do" }
+				{
+					"kind": "if",
+					"steps": [{ "kind": "if", "steps": [{ "kind": "action" }] }],
+					"else": [{ "kind": "action" }]
+				},
+				{ "kind": "action" }
 			],
 			"events": [
 				{ "how": "took", "side": "then" },
@@ -174,10 +197,10 @@
 		{
 			"name": "an absent side, an empty side and no side all lead on",
 			"body": [
-				{ "kind": "if", "steps": [{ "kind": "do" }] },
+				{ "kind": "if", "steps": [{ "kind": "action" }] },
 				{ "kind": "if", "steps": [] },
 				{ "kind": "if" },
-				{ "kind": "do" }
+				{ "kind": "action" }
 			],
 			"events": [
 				{ "how": "took", "side": "else" },
@@ -194,8 +217,8 @@
 			"body": [
 				{
 					"kind": "try",
-					"steps": [{ "kind": "if", "steps": [{ "kind": "do" }] }, { "kind": "do" }],
-					"catch": [{ "kind": "do" }]
+					"steps": [{ "kind": "if", "steps": [{ "kind": "action" }] }, { "kind": "action" }],
+					"catch": [{ "kind": "action" }]
 				}
 			],
 			"events": [
@@ -209,7 +232,10 @@
 		},
 		{
 			"name": "a condition that cannot be read fails where the if stands: noted outside one, neither side taken",
-			"body": [{ "kind": "if", "steps": [{ "kind": "do" }], "else": [{ "kind": "do" }] }, { "kind": "do" }],
+			"body": [
+				{ "kind": "if", "steps": [{ "kind": "action" }], "else": [{ "kind": "action" }] },
+				{ "kind": "action" }
+			],
 			"events": [{ "how": "failed", "failure": { "code": "unread", "message": "a" } }, { "how": "done" }],
 			"visits": [[0], [1]],
 			"caught": [null, null],
@@ -220,10 +246,13 @@
 			"body": [
 				{
 					"kind": "switch",
-					"cases": [{ "steps": [{ "kind": "do" }] }, { "steps": [{ "kind": "do" }, { "kind": "do" }] }],
-					"default": [{ "kind": "do" }]
+					"cases": [
+						{ "steps": [{ "kind": "action" }] },
+						{ "steps": [{ "kind": "action" }, { "kind": "action" }] }
+					],
+					"default": [{ "kind": "action" }]
 				},
-				{ "kind": "do" }
+				{ "kind": "action" }
 			],
 			"events": [{ "how": "took", "side": "case:1" }, { "how": "done" }, { "how": "done" }, { "how": "done" }],
 			"visits": [[0], [0, "case:1", 0], [0, "case:1", 1], [1]],
@@ -233,9 +262,9 @@
 		{
 			"name": "a switch takes its default past the last case, and an absent default leads on",
 			"body": [
-				{ "kind": "switch", "cases": [{ "steps": [{ "kind": "do" }] }], "default": [{ "kind": "do" }] },
-				{ "kind": "switch", "cases": [{ "steps": [{ "kind": "do" }] }] },
-				{ "kind": "do" }
+				{ "kind": "switch", "cases": [{ "steps": [{ "kind": "action" }] }], "default": [{ "kind": "action" }] },
+				{ "kind": "switch", "cases": [{ "steps": [{ "kind": "action" }] }] },
+				{ "kind": "action" }
 			],
 			"events": [
 				{ "how": "took", "side": "case:1" },
@@ -255,12 +284,12 @@
 					"steps": [
 						{
 							"kind": "switch",
-							"cases": [{ "steps": [{ "kind": "do" }, { "kind": "do" }] }],
-							"default": [{ "kind": "do" }]
+							"cases": [{ "steps": [{ "kind": "action" }, { "kind": "action" }] }],
+							"default": [{ "kind": "action" }]
 						},
-						{ "kind": "do" }
+						{ "kind": "action" }
 					],
-					"catch": [{ "kind": "do" }]
+					"catch": [{ "kind": "action" }]
 				}
 			],
 			"events": [
@@ -275,7 +304,9 @@
 		},
 		{
 			"name": "a subject that cannot be read fails where the switch stands, no case taken",
-			"body": [{ "kind": "switch", "cases": [{ "steps": [{ "kind": "do" }] }], "default": [{ "kind": "do" }] }],
+			"body": [
+				{ "kind": "switch", "cases": [{ "steps": [{ "kind": "action" }] }], "default": [{ "kind": "action" }] }
+			],
 			"events": [{ "how": "failed", "failure": { "code": "unread", "message": "a" } }],
 			"visits": [[0]],
 			"caught": [null],

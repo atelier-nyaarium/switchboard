@@ -222,7 +222,7 @@ export interface AutomationConsoleHandlers {
 	/** A save's answer, nothing written. */
 	check: (op: Omit<Extract<ConsoleOp, { kind: "automation_check" }>, "kind">) => ConsoleAutomationCheckResult;
 	remove: (automationId: string, base: number) => ConsoleAutomationDeleteResult;
-	/** A text's holes filled, a condition read, over the draft's trigger. */
+	/** A text's placeholders filled, a condition checked, over the draft's trigger. */
 	preview: (
 		request: Omit<Extract<ConsoleOp, { kind: "automation_preview" }>, "kind">,
 	) => Promise<ConsoleAutomationPreviewResult>;

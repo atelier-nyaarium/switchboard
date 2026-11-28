@@ -1,6 +1,6 @@
 // Which functions a home move carries with its automations.
 
-import { callsOf, pointerOf } from "./automation-walk.js";
+import { functionsRunBy, pointerOf } from "./automation-walk.js";
 import type { CarriedAutomation, CarriedFunction } from "./schemasAutomation.js";
 
 /** Listing order; unlisted stay behind. */
@@ -14,7 +14,7 @@ export function carriedFunctionsOf(
 		if (runs.has(id)) return;
 		runs.add(id);
 		const fn = byId.get(id);
-		for (const called of fn ? callsOf(fn.function) : []) take(called);
+		for (const run of fn ? functionsRunBy(fn.function) : []) take(run);
 	};
 	for (const { automation } of automations) {
 		const pointer = pointerOf(automation);

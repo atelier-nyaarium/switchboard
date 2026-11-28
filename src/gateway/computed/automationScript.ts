@@ -44,9 +44,10 @@ import {
 import { GIVEN_SCRIPT_TYPES, PARAM_SCRIPT_TYPES, typeOfNode } from "../../shared/script-types.js";
 import { ASSISTANT_RULE_VALUE_MAX } from "../../shared/wire-vocabulary.js";
 import { doingAction } from "../liveConsole/doing.js";
+import { GIVES_NOTHING } from "./automationValidity.js";
 
 export interface ScriptTables {
-	switches: readonly { id: string; name: string }[];
+	devices: readonly { id: string; name: string }[];
 	functions: readonly { id: string; name: string; params: readonly FunctionParam[] }[];
 }
 
@@ -68,11 +69,11 @@ export interface ScriptPlace {
 }
 
 /** A name a statement sets, and where it is offered. */
-export interface ScriptBinding {
+export interface ScriptVariable {
 	name: string;
 	start: number;
 	end: number;
-	/** A kept value; absent for a catch's `e`. */
+	/** A variable's value; absent for a catch's `e`. */
 	value?: StepArg;
 	type?: string;
 }
@@ -84,7 +85,7 @@ export interface ScriptStatement {
 }
 
 interface ScriptRead {
-	bindings: ScriptBinding[];
+	variables: ScriptVariable[];
 	statements: ScriptStatement[];
 }
 
@@ -97,7 +98,7 @@ export type ScriptParse = ScriptRead &
 const ISSUES_MAX = 8;
 /** Case value index. */
 const casePlace = (number: number, chip: number): string => `case:${number}:${chip}`;
-const CALL = AUTOMATION_ACTIONS.run_function.call;
+const RUN_FUNCTION = AUTOMATION_ACTIONS.run_function.call;
 export const SCRIPT_UNWRITABLE = "it holds a step a script cannot write";
 export const SCRIPT_UNREADABLE = "its text would not read back as the same steps";
 export const SCRIPT_TOO_LONG = `it is longer than ${SCRIPT_SOURCE_MAX} characters as text`;
@@ -115,7 +116,7 @@ export function canonicalExpression(source: string): string {
 }
 
 const quoteText = (text: string): string =>
-	quoteConsoleText(text, parseConsoleText(text).issues.length > 0 ? (hole) => hole : oneLine);
+	quoteConsoleText(text, parseConsoleText(text).issues.length > 0 ? (placeholder) => placeholder : oneLine);
 
 /** Each character's own span in the script. */
 type Chars = (readonly [number, number])[];
@@ -140,12 +141,12 @@ function bodyOf(pieces: readonly ConsoleTemplatePiece[], source: string): { text
 	for (const piece of pieces) {
 		if (piece.kind === "escape") put(writeConsoleRun(piece.value), piece.start, piece.end);
 		else {
-			// Holes keep their written form.
-			const hole = piece.kind === "hole";
-			const run = hole ? oneLine(source.slice(piece.start, piece.end)) : piece.value;
+			// Placeholders keep their written form.
+			const placeholder = piece.kind === "placeholder";
+			const run = placeholder ? oneLine(source.slice(piece.start, piece.end)) : piece.value;
 			for (let at = 0; at < run.length; at++) {
 				const c = run[at] as string;
-				put(hole ? c : writeConsoleRun(c), piece.start + at, piece.start + at + 1);
+				put(placeholder ? c : writeConsoleRun(c), piece.start + at, piece.start + at + 1);
 			}
 		}
 	}
@@ -196,10 +197,10 @@ type Position =
 
 const VALUE: Position = { reads: "value" };
 
-const plugs = (tables: ScriptTables): Position => ({ reads: "plain", held: tables.switches, what: "plug" });
+const devices = (tables: ScriptTables): Position => ({ reads: "plain", held: tables.devices, what: "device" });
 
 const positionOf = (param: AutomationActionParam, tables: ScriptTables): Position =>
-	param.kind === "text" ? { reads: "text" } : param.kind === "switch" ? plugs(tables) : { reads: "plain" };
+	param.kind === "text" ? { reads: "text" } : param.kind === "device" ? devices(tables) : { reads: "plain" };
 
 const negative = (node: ConsoleNode): node is ConsoleNode & { kind: "unary" } =>
 	node.kind === "unary" &&
@@ -219,7 +220,7 @@ export interface ScriptPrint extends ScriptRead {
 export function printScript(steps: readonly FunctionStep[], tables: ScriptTables): ScriptPrint {
 	const [only] = steps;
 	// Stored errors stay editable.
-	if (steps.length === 1 && only?.kind === "unparsed") return { text: only.source, bindings: [], statements: [] };
+	if (steps.length === 1 && only?.kind === "unparsed") return { text: only.source, variables: [], statements: [] };
 	let unwritable = false;
 	const lines: string[] = [];
 
@@ -229,7 +230,7 @@ export function printScript(steps: readonly FunctionStep[], tables: ScriptTables
 			const source = canonicalExpression(arg.text);
 			const { node } = parseConsoleExpression(source);
 			const bareNull = node?.kind === "literal" && node.value === null && !node.grouped;
-			// Bare, a string with a hole is a text or refused.
+			// Bare, a template is a text or refused.
 			const template = node?.kind === "template" && !node.grouped && at.reads !== "value";
 			// Parentheses keep it an expression.
 			return node && (template || (constant(node) && (!bareNull || absent))) ? `(${source})` : source;
@@ -240,7 +241,7 @@ export function printScript(steps: readonly FunctionStep[], tables: ScriptTables
 		return quoteConsoleString(at.reads === "plain" && at.held ? nameFor(arg.value, at.held) : arg.value);
 	};
 
-	const doing = (step: Extract<FunctionStep, { kind: "do" }>): string | null => {
+	const actionLine = (step: Extract<FunctionStep, { kind: "action" }>): string | null => {
 		const row = rowOf(step.action);
 		const params = row?.params ?? [];
 		const known = Object.keys(step.args).every((name) => params.some((param) => param.name === name));
@@ -253,54 +254,55 @@ export function printScript(steps: readonly FunctionStep[], tables: ScriptTables
 		return `${row.call.entity}.${row.call.method}(${written.join(", ")})`;
 	};
 
-	const calling = (step: Extract<FunctionStep, { kind: "call" }>): string => {
+	const runFunctionLine = (step: Extract<FunctionStep, { kind: "run_function" }>): string => {
 		const callee = tables.functions.find((entry) => entry.id === step.function);
 		// Parsing refuses a function not held.
 		unwritable ||= callee === undefined;
 		const order = [
 			...(callee?.params ?? []).map((param) => param.name),
-			...Object.keys(step.values ?? {}).sort(),
-		].filter((name, at, all) => all.indexOf(name) === at && Object.hasOwn(step.values ?? {}, name));
+			...Object.keys(step.args ?? {}).sort(),
+		].filter((name, at, all) => all.indexOf(name) === at && Object.hasOwn(step.args ?? {}, name));
 		const entries = order.map((name) => {
 			const device = callee?.params.find((param) => param.name === name)?.type === "device";
 			const key = isConsoleVariableName(name) ? name : quoteConsoleString(name);
-			return `${key}: ${value(step.values?.[name] as StepArg, device ? plugs(tables) : VALUE)}`;
+			return `${key}: ${value(step.args?.[name] as StepArg, device ? devices(tables) : VALUE)}`;
 		});
-		const values = entries.length > 0 ? `, {${entries.join(", ")}}` : "";
-		return `${CALL.entity}.${CALL.method}(${quoteConsoleString(nameFor(step.function, tables.functions))}${values})`;
+		const args = entries.length > 0 ? `, {${entries.join(", ")}}` : "";
+		const named = quoteConsoleString(nameFor(step.function, tables.functions));
+		return `${RUN_FUNCTION.entity}.${RUN_FUNCTION.method}(${named}${args})`;
 	};
 
 	/** Lines a step spans; `skip` past what belongs to the step before. */
 	const spans: { step: string; first: number; last: number; skip: number }[] = [];
-	const bound: { name: string; from: number; to: number | null; value?: StepArg; type?: string }[] = [];
-	const keepable = (name: string | undefined): boolean =>
+	const variables: { name: string; from: number; to: number | null; value?: StepArg; type?: string }[] = [];
+	const nameable = (name: string | undefined): boolean =>
 		name === undefined || (!opensStatement(name) && isConsoleVariableName(name));
-	const keptAs = (name: string | undefined): string => (name === undefined ? "" : `${name} = `);
+	const namedAs = (name: string | undefined): string => (name === undefined ? "" : `${name} = `);
 
 	const block = (list: readonly FunctionStep[], indent: string, prefix: string): void => {
 		let commented = false;
 		for (const [index, step] of list.entries()) {
 			const path = `${prefix}${index}`;
-			const written = step.kind === "do" ? doing(step) : null;
-			const comment = step.kind === "note" || (step.kind === "do" && written === null);
-			// A blank line parts two notes.
+			const written = step.kind === "action" ? actionLine(step) : null;
+			const comment = step.kind === "comment" || (step.kind === "action" && written === null);
+			// A blank line parts two comments.
 			if (comment && commented) lines.push("");
 			commented = comment;
 			const first = lines.length;
 			switch (step.kind) {
-				case "note":
+				case "comment":
 					for (const line of step.text.replace(/\r\n?/g, "\n").split("\n")) {
 						lines.push(`${indent}//${line === "" ? "" : ` ${line}`}`);
 					}
 					break;
-				case "let":
+				case "variable":
 					// A stored name the language took since.
 					unwritable ||= opensStatement(step.name) || !isConsoleVariableName(step.name);
 					lines.push(`${indent}${step.name} = ${value(step.value, VALUE)}`);
-					bound.push({ name: step.name, from: first, to: null, value: step.value });
+					variables.push({ name: step.name, from: first, to: null, value: step.value });
 					break;
-				case "exit":
-					lines.push(`${indent}exit`);
+				case "return":
+					lines.push(`${indent}return`);
 					break;
 				case "unparsed":
 					unwritable = true;
@@ -312,12 +314,12 @@ export function printScript(steps: readonly FunctionStep[], tables: ScriptTables
 				case "wait":
 					lines.push(`${indent}wait(${value(step.minutes, VALUE)})`);
 					break;
-				case "do":
+				case "action":
 					unwritable ||= written === null;
 					lines.push(`${indent}${written ?? `// ${step.action}: ${SCRIPT_UNWRITABLE}`}`);
 					break;
-				case "call":
-					lines.push(`${indent}${calling(step)}`);
+				case "run_function":
+					lines.push(`${indent}${runFunctionLine(step)}`);
 					break;
 				case "parallel":
 					lines.push(`${indent}parallel {`);
@@ -325,16 +327,16 @@ export function printScript(steps: readonly FunctionStep[], tables: ScriptTables
 					lines.push(`${indent}}`);
 					break;
 				case "start":
-					unwritable ||= !keepable(step.as);
-					lines.push(`${indent}${keptAs(step.as)}start {`);
+					unwritable ||= !nameable(step.as);
+					lines.push(`${indent}${namedAs(step.as)}start {`);
 					block(step.steps, `${indent}\t`, `${path}.0.`);
 					lines.push(`${indent}}`);
-					if (step.as) bound.push({ name: step.as, from: lines.length - 1, to: null, type: TASK });
+					if (step.as) variables.push({ name: step.as, from: lines.length - 1, to: null, type: TASK });
 					break;
 				case "await":
-					unwritable ||= !keepable(step.as);
-					lines.push(`${indent}${keptAs(step.as)}await ${canonicalExpression(step.task)}`);
-					if (step.as) bound.push({ name: step.as, from: first, to: null, type: TASK });
+					unwritable ||= !nameable(step.as);
+					lines.push(`${indent}${namedAs(step.as)}await ${canonicalExpression(step.task)}`);
+					if (step.as) variables.push({ name: step.as, from: first, to: null, type: TASK });
 					break;
 				case "try": {
 					lines.push(`${indent}try {`);
@@ -343,7 +345,7 @@ export function printScript(steps: readonly FunctionStep[], tables: ScriptTables
 					lines.push(`${indent}} catch (e) {`);
 					block(step.catch, `${indent}\t`, `${path}.1.`);
 					lines.push(`${indent}}`);
-					bound.push({ name: "e", from: caught, to: lines.length - 1 });
+					variables.push({ name: "e", from: caught, to: lines.length - 1 });
 					break;
 				}
 				case "if": {
@@ -352,7 +354,7 @@ export function printScript(steps: readonly FunctionStep[], tables: ScriptTables
 					let at = path;
 					const chained: { step: string; first: number }[] = [];
 					while (held) {
-						lines.push(`${opening} (${canonicalExpression(held.when)}) {`);
+						lines.push(`${opening} (${canonicalExpression(held.condition)}) {`);
 						block(held.steps ?? [], `${indent}\t`, `${at}.0.`);
 						const rest: readonly FunctionStep[] = held.else ?? [];
 						const [only] = rest;
@@ -395,7 +397,7 @@ export function printScript(steps: readonly FunctionStep[], tables: ScriptTables
 
 	block(steps, "", "");
 	const text = lines.join("\n");
-	if (text.length > SCRIPT_SOURCE_MAX) return { text: "", readOnly: SCRIPT_TOO_LONG, bindings: [], statements: [] };
+	if (text.length > SCRIPT_SOURCE_MAX) return { text: "", readOnly: SCRIPT_TOO_LONG, variables: [], statements: [] };
 	const starts: number[] = [];
 	let offset = 0;
 	for (const line of lines) {
@@ -408,15 +410,15 @@ export function printScript(steps: readonly FunctionStep[], tables: ScriptTables
 	const statements = spans
 		.map(({ step, first, last, skip }) => ({ step, start: startOf(first) + skip, end: endOf(last) }))
 		.sort((left, right) => left.start - right.start);
-	const bindings = bound
+	const offered = variables
 		.map(
-			({ name, from, to, value: kept, type }): ScriptBinding =>
+			({ name, from, to, value: held, type }): ScriptVariable =>
 				to === null
 					? {
 							name,
 							start: endOf(from),
 							end: text.length,
-							...(kept ? { value: kept } : {}),
+							...(held ? { value: held } : {}),
 							...(type ? { type } : {}),
 						}
 					: { name, start: endOf(from) - 1, end: endOf(to) },
@@ -424,7 +426,7 @@ export function printScript(steps: readonly FunctionStep[], tables: ScriptTables
 		.sort((left, right) => left.start - right.start);
 	// What cannot be read back is never offered to edit.
 	const readOnly = unwritable ? SCRIPT_UNWRITABLE : parseScript(text, tables).steps ? undefined : SCRIPT_UNREADABLE;
-	return { text, ...(readOnly ? { readOnly } : {}), bindings, statements };
+	return { text, ...(readOnly ? { readOnly } : {}), variables: offered, statements };
 }
 
 ////////////////////////////////
@@ -456,7 +458,7 @@ function overBounds(steps: readonly FunctionStep[]): { step: string; message: st
 }
 
 export function parseScript(source: string, tables: ScriptTables): ScriptParse {
-	const bindings: ScriptBinding[] = [];
+	const variables: ScriptVariable[] = [];
 	const statements: ScriptStatement[] = [];
 	const tree = parseScriptSource(source);
 	// A span of none still marks a character.
@@ -493,7 +495,7 @@ export function parseScript(source: string, tables: ScriptTables): ScriptParse {
 		const { start, end } = node;
 		if (quoted(node) && at.reads === "text") return { kind: "literal", value: text(node, place) };
 		if (node.kind === "template" && !node.grouped && at.reads === "plain") {
-			fail(start, end, "only a text takes a hole");
+			fail(start, end, "only a text takes a placeholder");
 		}
 		if (!constant(node) || (node.kind === "literal" && node.value === null)) {
 			return { kind: "expression", text: expression(node, place) };
@@ -519,7 +521,7 @@ export function parseScript(source: string, tables: ScriptTables): ScriptParse {
 
 	const absent = (node: ConsoleNode): boolean => node.kind === "literal" && node.value === null && !node.grouped;
 
-	const calling = (args: readonly ConsoleNode[], whole: ScriptNode, path: string): FunctionStep => {
+	const runFunctionStep = (args: readonly ConsoleNode[], whole: ScriptNode, path: string): FunctionStep => {
 		const [target, record] = args;
 		const named = target && quoted(target) && target.kind === "literal";
 		if (!target || !named) return fail(whole.start, whole.end, "name the function to run, in quotes");
@@ -528,36 +530,40 @@ export function parseScript(source: string, tables: ScriptTables): ScriptParse {
 		if (id === null) fail(target.start, target.end, `two functions are named ${written}; write its id`);
 		const callee = tables.functions.find((entry) => entry.id === id);
 		if (!callee) fail(target.start, target.end, `no function is named ${written}`);
-		const values: Record<string, StepArg> = {};
+		const given: Record<string, StepArg> = {};
 		if (record && !absent(record)) {
 			if (record.kind !== "dict" || record.grouped || !record.closed) {
-				return fail(record.start, whole.end, "its values are written {name: value}");
+				return fail(record.start, whole.end, "its arguments are written {name: value}");
 			}
 			for (const entry of record.entries) {
 				const param = entry.key;
-				if (!PARAM_NAME_RE.test(param)) fail(entry.start, entry.value.end, "write a value as name: value");
-				if (Object.hasOwn(values, param)) fail(entry.start, entry.end, `${param} is given twice`);
-				if (Object.keys(values).length >= FUNCTION_PARAMS_MAX) {
-					fail(entry.start, entry.end, `more than ${FUNCTION_PARAMS_MAX} values`);
+				if (!PARAM_NAME_RE.test(param)) fail(entry.start, entry.value.end, "write an argument as name: value");
+				if (Object.hasOwn(given, param)) fail(entry.start, entry.end, `${param} is given twice`);
+				if (Object.keys(given).length >= FUNCTION_PARAMS_MAX) {
+					fail(entry.start, entry.end, `more than ${FUNCTION_PARAMS_MAX} arguments`);
 				}
 				const declared = callee?.params.find((held) => held.name === param);
-				if (callee && !declared) fail(entry.start, entry.end, `it takes no ${param}`);
-				const at = declared?.type === "device" ? plugs(tables) : VALUE;
-				values[param] = lift(entry.value, { step: path, param }, at);
+				if (callee && !declared) fail(entry.start, entry.end, `${param} is not one of its parameters`);
+				const at = declared?.type === "device" ? devices(tables) : VALUE;
+				given[param] = lift(entry.value, { step: path, param }, at);
 			}
 		}
 		// Declared order, then the rest by name.
-		const order = [...(callee?.params ?? []).map((held) => held.name), ...Object.keys(values).sort()];
+		const order = [...(callee?.params ?? []).map((held) => held.name), ...Object.keys(given).sort()];
 		const sorted = Object.fromEntries(
-			order.filter((key) => Object.hasOwn(values, key)).map((key) => [key, values[key] as StepArg]),
+			order.filter((key) => Object.hasOwn(given, key)).map((key) => [key, given[key] as StepArg]),
 		);
-		return { kind: "call", function: id as string, ...(Object.keys(sorted).length > 0 ? { values: sorted } : {}) };
+		return {
+			kind: "run_function",
+			function: id as string,
+			...(Object.keys(sorted).length > 0 ? { args: sorted } : {}),
+		};
 	};
 
-	const doing = (node: ScriptNode & { kind: "run" }, path: string): FunctionStep => {
+	const actionStep = (node: ScriptNode & { kind: "expression" }, path: string): FunctionStep => {
 		const action = called(node.node);
 		if (!action || node.node.kind !== "call") {
-			return fail(node.start, node.end, "it does nothing: keep it under a name, or call an action");
+			return fail(node.start, node.end, "it does nothing: name its result, or run an action");
 		}
 		const row = AUTOMATION_ACTIONS[action];
 		const { args } = node.node;
@@ -565,35 +571,35 @@ export function parseScript(source: string, tables: ScriptTables): ScriptParse {
 			const name = `${row.call.entity}.${row.call.method}`;
 			fail(node.start, node.end, `${name} takes at most ${row.params.length} values`);
 		}
-		if (action === "run_function") return calling(args, node, path);
+		if (action === "run_function") return runFunctionStep(args, node, path);
 		const read: Record<string, StepArg> = {};
 		for (const [index, arg] of args.entries()) {
 			const param = row.params[index] as AutomationActionParam;
 			if (absent(arg)) continue;
 			read[param.name] = lift(arg, { step: path, param: param.name }, positionOf(param, tables));
 		}
-		return { kind: "do", action, args: read };
+		return { kind: "action", action, args: read };
 	};
 
-	const branch = (node: ScriptIf, path: string): FunctionStep => {
-		const when = expression(node.when, { step: path, param: "when" });
+	const ifStep = (node: ScriptIf, path: string): FunctionStep => {
+		const condition = expression(node.condition, { step: path, param: "condition" });
 		const steps = block(node.then.steps, `${path}.0`);
-		let otherwise: FunctionStep[] = [];
-		if (node.otherwise && "kind" in node.otherwise) {
+		let elseSteps: FunctionStep[] = [];
+		if (node.else && "kind" in node.else) {
 			const at = `${path}.1.0`;
-			otherwise = [branch(node.otherwise, at)];
-			statements.push({ step: at, start: node.otherwise.start, end: node.otherwise.end });
-		} else if (node.otherwise) otherwise = block(node.otherwise.steps, `${path}.1`);
+			elseSteps = [ifStep(node.else, at)];
+			statements.push({ step: at, start: node.else.start, end: node.else.end });
+		} else if (node.else) elseSteps = block(node.else.steps, `${path}.1`);
 		return {
 			kind: "if",
-			when,
+			condition,
 			...(steps.length > 0 ? { steps } : {}),
-			...(otherwise.length > 0 ? { else: otherwise } : {}),
+			...(elseSteps.length > 0 ? { else: elseSteps } : {}),
 		};
 	};
 
 	const caseValue = (node: ConsoleNode, place: { step: string; param: string }): string => {
-		if (node.kind === "template" && !node.grouped) fail(node.start, node.end, "a case value takes no hole");
+		if (node.kind === "template" && !node.grouped) fail(node.start, node.end, "a case value takes no placeholder");
 		if (node.kind !== "literal" || node.grouped || typeof node.value !== "string") {
 			return fail(node.start, node.end, "write a case value in quotes");
 		}
@@ -616,7 +622,7 @@ export function parseScript(source: string, tables: ScriptTables): ScriptParse {
 			);
 			return { values, steps: block(held.body.steps, `${path}.${number}`) };
 		});
-		const fallback = node.otherwise ? block(node.otherwise.steps, `${path}.${node.cases.length}`) : [];
+		const fallback = node.default ? block(node.default.steps, `${path}.${node.cases.length}`) : [];
 		return { kind: "switch", subject, cases, ...(fallback.length > 0 ? { default: fallback } : {}) };
 	};
 
@@ -630,47 +636,47 @@ export function parseScript(source: string, tables: ScriptTables): ScriptParse {
 
 	const step = (node: ScriptNode, path: string): FunctionStep => {
 		switch (node.kind) {
-			case "note":
+			case "comment":
 				if (node.text.length > STEP_TEXT_MAX) fail(node.start, node.end, tooLong);
-				return { kind: "note", text: node.text };
-			case "let": {
+				return { kind: "comment", text: node.text };
+			case "variable": {
 				const { name } = node;
 				if (!PARAM_NAME_RE.test(name.text)) {
 					fail(name.start, name.end, "a name is lowercase letters, digits and _");
 				}
-				if (called(node.value)) fail(node.start, node.end, "this action gives nothing to keep");
+				if (called(node.value)) fail(node.start, node.end, GIVES_NOTHING);
 				places.push({ step: path, param: "name", start: name.start, end: name.end });
 				const value = lift(node.value, { step: path, param: "value" }, VALUE);
-				bindings.push({ name: name.text, start: node.end, end: source.length, value });
-				return { kind: "let", name: name.text, value };
+				variables.push({ name: name.text, start: node.end, end: source.length, value });
+				return { kind: "variable", name: name.text, value };
 			}
-			case "run":
-				return doing(node, path);
+			case "expression":
+				return actionStep(node, path);
 			case "if":
-				return branch(node, path);
+				return ifStep(node, path);
 			case "switch":
 				return switched(node, path);
 			case "try": {
 				const steps = block(node.body.steps, `${path}.0`);
-				bindings.push({ name: "e", start: node.handler.start, end: node.handler.end });
-				return { kind: "try", steps, catch: block(node.handler.steps, `${path}.1`) };
+				variables.push({ name: "e", start: node.catch.start, end: node.catch.end });
+				return { kind: "try", steps, catch: block(node.catch.steps, `${path}.1`) };
 			}
 			case "parallel":
 				return { kind: "parallel", steps: block(node.body.steps, `${path}.0`) };
 			case "start": {
 				const as = named(node, path);
 				const steps = block(node.body.steps, `${path}.0`);
-				if (as) bindings.push({ name: as, start: node.end, end: source.length, type: TASK });
+				if (as) variables.push({ name: as, start: node.end, end: source.length, type: TASK });
 				return { kind: "start", ...(as ? { as } : {}), steps };
 			}
 			case "await": {
 				const as = named(node, path);
 				const task = expression(node.task, { step: path, param: "task" });
-				if (as) bindings.push({ name: as, start: node.end, end: source.length, type: TASK });
+				if (as) variables.push({ name: as, start: node.end, end: source.length, type: TASK });
 				return { kind: "await", task, ...(as ? { as } : {}) };
 			}
-			case "exit":
-				return { kind: "exit" };
+			case "return":
+				return { kind: "return" };
 			case "throw": {
 				if (!node.text) return { kind: "throw" };
 				if (!quoted(node.text)) fail(node.text.start, node.text.end, "throw takes a text in quotes");
@@ -700,20 +706,20 @@ export function parseScript(source: string, tables: ScriptTables): ScriptParse {
 	const steps = block(tree.steps, "");
 	if (issues.length > 0) {
 		issues.sort((left, right) => left.start - right.start);
-		return { issues: issues.slice(0, ISSUES_MAX), bindings, statements: [] };
+		return { issues: issues.slice(0, ISSUES_MAX), variables, statements: [] };
 	}
 	const refused = (at: string, message: string): ScriptParse => {
 		const where = statements.find((held) => held.step === at);
 		const issue = { start: where?.start ?? 0, end: where?.end ?? source.length, message };
-		return { issues: [issue], bindings, statements: [] };
+		return { issues: [issue], variables, statements: [] };
 	};
 	const over = overBounds(steps);
 	if (over) return refused(over.step, over.message);
 	const bad = steps.findIndex((held) => !FunctionStepSchema.safeParse(held).success);
-	if (bad >= 0) return refused(String(bad), "a step here cannot be kept");
+	if (bad >= 0) return refused(String(bad), "a step here cannot be stored");
 	statements.sort((left, right) => left.start - right.start);
-	bindings.sort((left, right) => left.start - right.start);
-	return { steps, places, bindings, statements };
+	variables.sort((left, right) => left.start - right.start);
+	return { steps, places, variables, statements };
 }
 
 export function placeIssue(
@@ -748,10 +754,10 @@ export interface ScriptNameRead {
 	end: number;
 }
 
-/** Each name with its type and where it is offered; a name kept again ends its earlier reach. */
+/** Each name with its type and where it is offered; a name set again ends its earlier reach. */
 export function scriptNames(input: {
 	length: number;
-	bindings: readonly ScriptBinding[];
+	variables: readonly ScriptVariable[];
 	given?: TriggerGiven;
 	params?: readonly FunctionParam[];
 	description: ConsoleDescription;
@@ -766,24 +772,24 @@ export function scriptNames(input: {
 		.filter((held) => !declared.some((param) => param.name === held.name))
 		.map((held) => ({ name: held.name, type: GIVEN_SCRIPT_TYPES[held.type], ...whole }));
 	const names: ScriptNameRead[] = [...given, ...declared];
-	const kept = new Map<string, ScriptNameRead>();
-	for (const binding of [...input.bindings].sort((left, right) => left.start - right.start)) {
-		if (binding.type) {
-			const earlier = kept.get(binding.name);
-			if (earlier) earlier.end = binding.start;
-			const read = { name: binding.name, type: binding.type, start: binding.start, end: binding.end };
-			kept.set(binding.name, read);
+	const set = new Map<string, ScriptNameRead>();
+	for (const variable of [...input.variables].sort((left, right) => left.start - right.start)) {
+		if (variable.type) {
+			const earlier = set.get(variable.name);
+			if (earlier) earlier.end = variable.start;
+			const read = { name: variable.name, type: variable.type, start: variable.start, end: variable.end };
+			set.set(variable.name, read);
 			names.push(read);
 			continue;
 		}
-		if (!binding.value) {
-			names.push({ name: binding.name, type: "Error", start: binding.start, end: binding.end });
+		if (!variable.value) {
+			names.push({ name: variable.name, type: "Error", start: variable.start, end: variable.end });
 			continue;
 		}
-		const { value } = binding;
+		const { value } = variable;
 		const seen = new Map(
 			names
-				.filter((held) => held.start <= binding.start && binding.start <= held.end)
+				.filter((held) => held.start <= variable.start && variable.start <= held.end)
 				.map((held) => [held.name, held.type]),
 		);
 		const literal = value.kind === "literal" ? value.value : "";
@@ -798,11 +804,11 @@ export function scriptNames(input: {
 					? "Text"
 					: typeof literal === "number"
 						? "Number"
-						: "Truth";
-		const earlier = kept.get(binding.name);
-		if (earlier) earlier.end = binding.start;
-		const read = { name: binding.name, type, start: binding.start, end: binding.end };
-		kept.set(binding.name, read);
+						: "Boolean";
+		const earlier = set.get(variable.name);
+		if (earlier) earlier.end = variable.start;
+		const read = { name: variable.name, type, start: variable.start, end: variable.end };
+		set.set(variable.name, read);
 		names.push(read);
 	}
 	return names;

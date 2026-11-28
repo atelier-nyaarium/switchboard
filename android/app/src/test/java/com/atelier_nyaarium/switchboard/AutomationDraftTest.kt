@@ -18,7 +18,7 @@ import com.atelier_nyaarium.switchboard.assistant.PreviewRead
 import com.atelier_nyaarium.switchboard.assistant.Served
 import com.atelier_nyaarium.switchboard.assistant.SourceFields
 import com.atelier_nyaarium.switchboard.assistant.StepDraft
-import com.atelier_nyaarium.switchboard.assistant.SwitchOffer
+import com.atelier_nyaarium.switchboard.assistant.DeviceOffer
 import com.atelier_nyaarium.switchboard.assistant.TextPreview
 import com.atelier_nyaarium.switchboard.assistant.TriggerChoice
 import com.atelier_nyaarium.switchboard.assistant.TriggerDraft
@@ -53,7 +53,7 @@ import com.atelier_nyaarium.switchboard.assistant.fittingAutomation
 import com.atelier_nyaarium.switchboard.assistant.freshAction
 import com.atelier_nyaarium.switchboard.assistant.freshTrigger
 import com.atelier_nyaarium.switchboard.assistant.generalLine
-import com.atelier_nyaarium.switchboard.assistant.holeLine
+import com.atelier_nyaarium.switchboard.assistant.placeholderLine
 import com.atelier_nyaarium.switchboard.assistant.minted
 import com.atelier_nyaarium.switchboard.assistant.newAutomationDraft
 import com.atelier_nyaarium.switchboard.assistant.newAutomationGateways
@@ -61,7 +61,7 @@ import com.atelier_nyaarium.switchboard.assistant.numberSuffix
 import com.atelier_nyaarium.switchboard.assistant.picked
 import com.atelier_nyaarium.switchboard.assistant.offerOf
 import com.atelier_nyaarium.switchboard.assistant.offersChoice
-import com.atelier_nyaarium.switchboard.assistant.offersWatch
+import com.atelier_nyaarium.switchboard.assistant.offersSensor
 import com.atelier_nyaarium.switchboard.assistant.openedDraft
 import com.atelier_nyaarium.switchboard.assistant.opensIn
 import com.atelier_nyaarium.switchboard.assistant.over
@@ -69,10 +69,10 @@ import com.atelier_nyaarium.switchboard.assistant.outcomeOf
 import com.atelier_nyaarium.switchboard.assistant.previewHead
 import com.atelier_nyaarium.switchboard.assistant.producesText
 import com.atelier_nyaarium.switchboard.assistant.ranText
-import com.atelier_nyaarium.switchboard.assistant.refusedHole
-import com.atelier_nyaarium.switchboard.assistant.refusedHoleOf
+import com.atelier_nyaarium.switchboard.assistant.refusedPlaceholder
+import com.atelier_nyaarium.switchboard.assistant.refusedPlaceholderOf
 import com.atelier_nyaarium.switchboard.assistant.sourceChoices
-import com.atelier_nyaarium.switchboard.assistant.testsOf
+import com.atelier_nyaarium.switchboard.assistant.operatorsOf
 import com.atelier_nyaarium.switchboard.assistant.textPreviewOf
 import com.atelier_nyaarium.switchboard.assistant.unkeyed
 import com.atelier_nyaarium.switchboard.assistant.triggerDraftOf
@@ -85,7 +85,7 @@ import com.atelier_nyaarium.switchboard.assistant.withValue
 import com.atelier_nyaarium.switchboard.assistant.ValueAdd
 import com.atelier_nyaarium.switchboard.assistant.conditionOf
 import com.atelier_nyaarium.switchboard.assistant.conditionsServed
-import com.atelier_nyaarium.switchboard.assistant.testLabel
+import com.atelier_nyaarium.switchboard.assistant.operatorLabel
 import com.atelier_nyaarium.switchboard.assistant.valueAddOf
 import com.atelier_nyaarium.switchboard.assistant.valueRefusal
 import com.atelier_nyaarium.switchboard.assistant.valuesOf
@@ -99,8 +99,8 @@ import com.atelier_nyaarium.switchboard.proto.AutomationCondition
 import com.atelier_nyaarium.switchboard.proto.AutomationConditionServes
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationIssueLevel
-import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
-import com.atelier_nyaarium.switchboard.proto.AutomationPreviewHole
+import com.atelier_nyaarium.switchboard.proto.AutomationPlaceholderSpan
+import com.atelier_nyaarium.switchboard.proto.AutomationPreviewPlaceholder
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationServes
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
@@ -137,7 +137,7 @@ private val FULL = AutomationOffer(
 		NumberOffer(SENSOR, "temperature", "Outside temperature", "C", 1),
 		NumberOffer(SENSOR, "humidity", "Outside humidity", "%", 0),
 	),
-	switches = listOf(SwitchOffer(PLUG, "Desk lamp")),
+	devices = listOf(DeviceOffer(PLUG, "Desk lamp")),
 	away = false,
 )
 
@@ -162,7 +162,7 @@ private fun source(id: String, triggers: Boolean = true) = AssistantSource(
 	triggers = triggers,
 )
 
-private fun reason(vararg values: String, test: String = "is") = conditionOf("reason", test, values.toList())
+private fun reason(vararg values: String, operator: String = "is") = conditionOf("reason", operator, values.toList())
 
 private fun event(vararg conditions: AutomationCondition, tell: String = "now", enabled: Boolean = true) = Automation(
 	enabled = enabled,
@@ -171,7 +171,7 @@ private fun event(vararg conditions: AutomationCondition, tell: String = "now", 
 )
 
 private fun eventDraft(vararg conditions: AutomationCondition) =
-	AutomationDraft("a", TriggerDraft.Event("github", conditionDraftsOf(conditions.toList())), listOf(StepDraft.Do(EVENT_ACTION_KEY, toldDraft("now"))), true, 0L, HERE)
+	AutomationDraft("a", TriggerDraft.Event("github", conditionDraftsOf(conditions.toList())), listOf(StepDraft.Action(EVENT_ACTION_KEY, toldDraft("now"))), true, 0L, HERE)
 
 private val quietly: (ActionDraft) -> ActionDraft = { toldDraft("quietly") }
 
@@ -245,9 +245,9 @@ class AutomationDraftTest {
 		val text = conditionOf("repository", "contains", listOf("atelier"))
 		val choice = reason("mention")
 
-		assertEquals(listOf("is", "is_not", "contains"), fields.testsFor(text, null))
-		assertEquals(listOf("is", "is_not", "contains", "contains_not"), fields.testsFor(text, served))
-		assertEquals(listOf("is", "is_not"), fields.testsFor(choice, served))
+		assertEquals(listOf("is", "is_not", "contains"), fields.operatorsFor(text, null))
+		assertEquals(listOf("is", "is_not", "contains", "contains_not"), fields.operatorsFor(text, served))
+		assertEquals(listOf("is", "is_not"), fields.operatorsFor(choice, served))
 		assertEquals(listOf(ValueAdd.Full, ValueAdd.Type), listOf(null, served).map { valueAddOf(text, fields, it) })
 		assertEquals(ValueAdd.Pick(listOf("review_requested")), valueAddOf(choice, fields, served))
 		assertEquals(ValueAdd.Full, valueAddOf(reason("mention", "review_requested"), fields, served))
@@ -255,20 +255,20 @@ class AutomationDraftTest {
 		assertEquals(true, conditionsServed(listOf(text, choice), null))
 		assertEquals(listOf(true, false), listOf(served, null).map { conditionsServed(listOf(reason("mention", "review_requested")), it) })
 		assertEquals(false, conditionsServed(listOf(conditionOf("repository", "contains_not", listOf("fork"))), null))
-		assertEquals(listOf("contains any of", "contains"), listOf(2, 1).map { testLabel("contains", it) })
+		assertEquals(listOf("contains any of", "contains"), listOf(2, 1).map { operatorLabel("contains", it) })
 	}
 
 	@Test
 	fun aKindChangeClearsTheValueAndKeepsOnlyATestTheNewKindTakes() {
 		val onText = eventDraft(conditionOf("repository", "contains", listOf("atelier", "nyaa")))
-		val onChoice = eventDraft(reason("mention", test = "is_not"))
+		val onChoice = eventDraft(reason("mention", operator = "is_not"))
 
 		assertEquals(reason(), onText.withField(onText.conditionDrafts.single().key, "reason", fields).conditions.single())
 		assertEquals(
 			conditionOf("repository", "is_not", emptyList()),
 			onChoice.withField(onChoice.conditionDrafts.single().key, "repository", fields).conditions.single(),
 		)
-		assertEquals(listOf("is", "is_not"), testsOf(fields.specOf("reason")))
+		assertEquals(listOf("is", "is_not"), operatorsOf(fields.specOf("reason")))
 		assertEquals(listOf("review_requested"), fields.choicesFor(reason("mention", "subscribed")))
 		assertEquals(emptyList<AutomationCondition>(), onText.withSource("other").conditions)
 	}
@@ -334,12 +334,12 @@ class AutomationDraftTest {
 		val draft = opened.withAction(opened.steps[0].key, quietly)
 		val newer = row("a", event(reason("review_requested")), revision = 5L)
 		val refused = AutomationSaved.Refused("revision 5 is stored", newer)
-		val span = AutomationHoleSpan(0L, "message", 3L, 6L)
+		val span = AutomationPlaceholderSpan(0L, "message", 3L, 6L)
 
 		val save = outcomeOf(refused, draft, false, HERE) as AutomationOutcome.Offer
 		val delete = outcomeOf(refused, draft, deleting = true, HERE) as AutomationOutcome.Offer
 		val asks = outcomeOf(AutomationSaved.Refused("confirm", confirm = listOf("Send to IFTTT")), draft, false, HERE)
-		val hole = outcomeOf(AutomationSaved.Refused("no name x here", hole = refusedHoleOf(span)), draft, false, HERE)
+		val hole = outcomeOf(AutomationSaved.Refused("no name x here", placeholder =refusedPlaceholderOf(span)), draft, false, HERE)
 
 		assertEquals(5L, save.draft.revision)
 		assertEquals(listOf(reason("mention")), save.draft.conditions)
@@ -355,7 +355,7 @@ class AutomationDraftTest {
 			outcomeOf(AutomationSaved.Refused("same", row("a", event(), revision = 2L)), draft, false, HERE),
 		)
 		assertEquals(AutomationOutcome.Said(AutomationSaid.Confirm(listOf("Send to IFTTT"))), asks)
-		assertEquals(AutomationOutcome.Said(AutomationSaid.Hole(draft.steps[0].key, "message", 3, 6, "no name x here", "")), hole)
+		assertEquals(AutomationOutcome.Said(AutomationSaid.Placeholder(draft.steps[0].key, "message", 3, 6, "no name x here", "")), hole)
 	}
 
 	@Test
@@ -381,14 +381,14 @@ class AutomationDraftTest {
 		val tellOnly = Served.Known(TELL_ONLY)
 		assertEquals("Tell the assistant: Now", doesText(event(), tellOnly))
 		assertEquals("switch_plug · Tell the assistant: Quietly", doesText(event().copy(actions = listOf(future, AutomationAction.TellAssistant("quietly"))), tellOnly))
-		assertEquals("Switch a plug: Desk lamp, On · Send to IFTTT: door", doesText(lamp, Served.Known(FULL)))
+		assertEquals("Set device: Desk lamp, On · Send to IFTTT: door", doesText(lamp, Served.Known(FULL)))
 		assertEquals("device_set · ifttt_trigger", doesText(lamp, tellOnly))
 		assertEquals("tell_assistant", doesText(event(), Served.Unknown(ListEmpty.Reading)))
 		assertEquals(
 			listOf("Never ran", "Ran 9 ago", "Never ran", "Next at 20"),
 			rows.map { ranText(it, { at -> "$at ago" }, { at -> "at $at" }) },
 		)
-		assertEquals(listOf("1 uses this source", "2 use this source"), listOf(1, 2).map(::usesText))
+		assertEquals(listOf("1 automation uses this source", "2 automations use this source"), listOf(1, 2).map(::usesText))
 		assertEquals("reason, repository", producesText(SPECS))
 	}
 
@@ -514,7 +514,7 @@ class AutomationPartsTest {
 		val watched = event().copy(trigger = crossing)
 		val draft = automationDraftOf(row("a", watched, revision = 2L), FULL_HERE, "F")!!
 		val colder = crossing.copy(threshold = 1.0)
-		val fresh = newAutomationDraft(FULL_HERE, ZONE, watch = SENSOR, display = "F")!!.onCrossing { it.copy(threshold = "35.6") }
+		val fresh = newAutomationDraft(FULL_HERE, ZONE, sensor = SENSOR, display = "F")!!.onCrossing { it.copy(threshold = "35.6") }
 		val newer = row("a", watched.copy(trigger = colder), revision = 5L)
 		val rebased = (outcomeOf(AutomationSaved.Refused("moved", newer), draft, deleting = true, FULL_HERE) as AutomationOutcome.Offer).draft
 
@@ -564,10 +564,10 @@ class AutomationPartsTest {
 		val opened = eventDraft(reason("mention"))
 		val fresh = { choice: TriggerChoice -> { freshTrigger(choice, FULL, "github", ZONE) } }
 
-		val timed = opened.swapped(TriggerChoice.TIME.kinds, fresh(TriggerChoice.TIME)).onTime { it.copy(time = "21:15") }
+		val timed = opened.swapped(TriggerChoice.SCHEDULE.kinds, fresh(TriggerChoice.SCHEDULE)).onTime { it.copy(time = "21:15") }
 		val every = timed.swapped(setOf("interval")) { TriggerDraft.Interval("3", IntervalUnit.HOURS) }
 		val back = every.swapped(TriggerChoice.EVENT.kinds, fresh(TriggerChoice.EVENT))
-		val again = back.swapped(TriggerChoice.TIME.kinds, fresh(TriggerChoice.TIME))
+		val again = back.swapped(TriggerChoice.SCHEDULE.kinds, fresh(TriggerChoice.SCHEDULE))
 
 		assertEquals(TriggerDraft.Time("21:15", (1..7).toSet(), ZONE), timed.trigger)
 		assertEquals(opened.trigger, back.trigger)
@@ -583,26 +583,26 @@ class AutomationPartsTest {
 		val kinds = { offer: AutomationOffer -> addableActions(offer, emptyList()).map { it.kind } }
 
 		assertEquals(TriggerChoice.entries, offered(FULL, true))
-		assertEquals(listOf(TriggerChoice.CROSSING, TriggerChoice.TIME), offered(FULL, false))
-		assertEquals(listOf(TriggerChoice.CROSSING, TriggerChoice.TIME), offered(away, true))
-		assertEquals(listOf(TriggerChoice.EVENT, TriggerChoice.TIME), offered(FULL.copy(numbers = emptyList()), true))
+		assertEquals(listOf(TriggerChoice.CROSSING, TriggerChoice.SCHEDULE), offered(FULL, false))
+		assertEquals(listOf(TriggerChoice.CROSSING, TriggerChoice.SCHEDULE), offered(away, true))
+		assertEquals(listOf(TriggerChoice.EVENT, TriggerChoice.SCHEDULE), offered(FULL.copy(numbers = emptyList()), true))
 		assertEquals(listOf(TriggerChoice.EVENT), offered(TELL_ONLY, true))
 		assertEquals(listOf("tell_assistant", "device_set", "ifttt_trigger"), kinds(FULL))
 		assertEquals(listOf("device_set"), kinds(away))
-		assertEquals(listOf("tell_assistant", "ifttt_trigger"), kinds(FULL.copy(switches = emptyList())))
-		val held = listOf(toldDraft("now"), iftttDraft("door", "open"), ActionDraft.Kept(AutomationAction.TellAssistant("now")), plugDraft(PLUG, "on"))
+		assertEquals(listOf("tell_assistant", "ifttt_trigger"), kinds(FULL.copy(devices = emptyList())))
+		val held = listOf(toldDraft("now"), iftttDraft("door", "open"), ActionDraft.Unsupported(AutomationAction.TellAssistant("now")), plugDraft(PLUG, "on"))
 		assertEquals(listOf(true, true, true, false), held.map { actionWarning(it, away) != null })
 		assertEquals(listOf(false, false, false, false), held.map { actionWarning(it, FULL) != null || actionIssue(it, away) != null })
 		val leftBehind = Automation(enabled = true, trigger = crossing, actions = listOf(AutomationAction.DeviceSet(PLUG, "on"), AutomationAction.TellAssistant("now")))
 		assertEquals(leftBehind, automationDraftOf(row("a", leftBehind), EditContext(away, emptyList()))!!.toAutomation(away))
 		assertEquals(
-			listOf("Switch a plug: Desk lamp, On", "Tell the assistant: Now (only where the assistant lives)"),
+			listOf("Set device: Desk lamp, On", "Tell the assistant: Now (only where the assistant lives)"),
 			doesText(leftBehind, Served.Known(away)).split(" · "),
 		)
-		assertEquals("Switch a plug: Desk lamp, On · Tell the assistant: Now", doesText(leftBehind, Served.Known(FULL)))
+		assertEquals("Set device: Desk lamp, On · Tell the assistant: Now", doesText(leftBehind, Served.Known(FULL)))
 		assertEquals(
 			emptyList<ActionOffer>(),
-			addableActions(FULL, List(Protocol.Wire.AUTOMATION_ACTIONS_MAX) { index -> StepDraft.Do("action-$index", toldDraft("now")) }),
+			addableActions(FULL, List(Protocol.Wire.AUTOMATION_ACTIONS_MAX) { index -> StepDraft.Action("action-$index", toldDraft("now")) }),
 		)
 	}
 
@@ -636,22 +636,22 @@ class AutomationPartsTest {
 		assertEquals(emptyList<String>(), newAutomationGateways(registry, all, AssistantHome.Unread))
 		val unlisted = registry.withEntry("events") { it.copy(automations = GatewayList.Unread) }
 		assertEquals(all, newAutomationGateways(unlisted, all, placed("sakura")))
-		assertEquals("crossing" to listOf("device_set"), there.trigger.kind to there.steps.map { (it as StepDraft.Do).action.kind })
+		assertEquals("crossing" to listOf("device_set"), there.trigger.kind to there.steps.map { (it as StepDraft.Action).action.kind })
 	}
 
 	@Test
 	fun aNewAutomationWatchingASensorStartsOnACrossingOfItsFirstNumberOrNotAtAll() {
-		val watched = newAutomationDraft(FULL_HERE, ZONE, watch = SENSOR)!!
+		val watched = newAutomationDraft(FULL_HERE, ZONE, sensor = SENSOR)!!
 		val noCrossing = FULL.copy(triggers = FULL.triggers.filter { it.kind in setOf("event", "time") })
 		val otherSensor = FULL.copy(numbers = FULL.numbers.map { it.copy(device = "aa:00") })
 
 		assertEquals(freshTrigger(TriggerChoice.CROSSING, FULL, null, ZONE), watched.trigger)
 		assertEquals(SENSOR to "temperature", (watched.trigger as TriggerDraft.Crossing).let { it.device to it.measure })
-		assertEquals(watched.trigger, openedDraft(AutomationSlot.New(watch = SENSOR), null, FULL_HERE, zone = ZONE)?.trigger)
-		assertNull(newAutomationDraft(EditContext(noCrossing, emptyList()), ZONE, watch = SENSOR))
-		assertNull(newAutomationDraft(EditContext(otherSensor, emptyList()), ZONE, watch = SENSOR))
-		assertEquals(listOf(true, false, false), listOf(FULL, noCrossing, otherSensor).map { offersWatch(SENSOR, known(it)) })
-		assertEquals(false, offersWatch(SENSOR, AutomationContext(Served.Unknown(ListEmpty.Reading), HomeSources.Known(emptyList()))))
+		assertEquals(watched.trigger, openedDraft(AutomationSlot.New(sensor = SENSOR), null, FULL_HERE, zone = ZONE)?.trigger)
+		assertNull(newAutomationDraft(EditContext(noCrossing, emptyList()), ZONE, sensor = SENSOR))
+		assertNull(newAutomationDraft(EditContext(otherSensor, emptyList()), ZONE, sensor = SENSOR))
+		assertEquals(listOf(true, false, false), listOf(FULL, noCrossing, otherSensor).map { offersSensor(SENSOR, known(it)) })
+		assertEquals(false, offersSensor(SENSOR, AutomationContext(Served.Unknown(ListEmpty.Reading), HomeSources.Known(emptyList()))))
 	}
 
 	@Test
@@ -696,7 +696,7 @@ class AutomationPartsTest {
 		val restarted = context(GatewayList.Unread, null, AssistantRead.Reading, placed("sakura"))
 		assertEquals(null, restarted.minted())
 		assertEquals(minted, restarted.over(minted))
-		val fewer = SANDBOX_SERVES.copy(switches = emptyList())
+		val fewer = SANDBOX_SERVES.copy(devices = emptyList())
 		val reread = context(listed, fewer, answered, placed("sakura"))
 		assertEquals(EditContext(offerOf(fewer, away = false), github), reread.over(minted))
 	}
@@ -750,8 +750,8 @@ class AutomationPartsTest {
 		assertEquals(AutomationAction.TellAssistant("now"), built(toldDraft("now", " ")))
 		assertEquals(AutomationAction.TellAssistant("quietly", "It is {value}"), built(told))
 		assertEquals(AutomationAction.IftttTrigger("door", value1 = "open"), built(door))
-		assertEquals(listOf(told, door, ActionDraft.Kept(future)), listOf(built(told)!!, built(door)!!, future).map { actionDraftOf(it, FULL) })
-		assertEquals(future, built(ActionDraft.Kept(future)))
+		assertEquals(listOf(told, door, ActionDraft.Unsupported(future)), listOf(built(told)!!, built(door)!!, future).map { actionDraftOf(it, FULL) })
+		assertEquals(future, built(ActionDraft.Unsupported(future)))
 		assertEquals(listOf(true, false), issues(withValue(door, "event", "")))
 		assertEquals(listOf(true, true), issues(withValue(door, "event", "front door")))
 		assertEquals(listOf(true, true), issues(plugDraft("gone", "on")))
@@ -759,9 +759,9 @@ class AutomationPartsTest {
 		assertEquals(listOf(true, true), issues(withValue(told, "message", "x".repeat(1_001))))
 		assertEquals(listOf(true, true), issues(withValue(told, "when", "later")))
 		val toggle = AutomationAction.DeviceSet(PLUG, "toggle")
-		assertEquals("Switch a plug: Desk lamp, Toggle", doesLine(actionDraftOf(toggle, FULL), kindOf(toggle), FULL))
+		assertEquals("Set device: Desk lamp, Toggle", doesLine(actionDraftOf(toggle, FULL), kindOf(toggle), FULL))
 		assertEquals(iftttDraft("door", "open", "now"), withValue(door, "value2", "now"))
-		assertEquals("Each time it runs it will send to IFTTT, without asking you.", confirmBody(listOf("Send to IFTTT")))
+		assertEquals("Each time it runs, it will send to IFTTT.", confirmBody(listOf("Send to IFTTT")))
 	}
 
 	@Test
@@ -771,7 +771,7 @@ class AutomationPartsTest {
 		val offer = offerOf(served, away = false)
 		val called = AutomationAction.RunFunction(
 			"warm-up",
-			values = buildJsonObject { put("room", "aa:bb:cc:dd:ee:01") },
+			args = buildJsonObject { put("room", "aa:bb:cc:dd:ee:01") },
 		)
 		val stored = listOf(
 			AutomationAction.TellAssistant("quietly", "It is {value}"),
@@ -783,8 +783,8 @@ class AutomationPartsTest {
 
 		assertEquals(listOf(true, true, true, false), offer.actions.map { it.drawable })
 		assertEquals(listOf(true, true, true, false), drafts.map { it is ActionDraft.Filled })
-		assertEquals(ActionDraft.Kept(called), drafts.last())
-		assertEquals("Run a function", doesLine(drafts.last(), kindOf(called), offer))
+		assertEquals(ActionDraft.Unsupported(called), drafts.last())
+		assertEquals("Run function", doesLine(drafts.last(), kindOf(called), offer))
 		assertEquals(listOf("tell_assistant", "device_set", "ifttt_trigger"), addableActions(offer, emptyList()).map { it.kind })
 		assertEquals(stored, drafts.map { actionOf(it, offer) })
 		assertEquals(SANDBOX_SERVES.actions, served.actions)
@@ -799,7 +799,7 @@ class AutomationPartsTest {
 			actions = FULL.actions.map { row -> if (row.kind == "device_set") row.copy(params = row.params + ParamOffer("level", "Level", "dial")) else row },
 		)
 		val retired = FULL.copy(actions = FULL.actions.filter { it.kind != "device_set" })
-		val kept = { action: AutomationAction, offer: AutomationOffer -> actionDraftOf(action, offer) is ActionDraft.Kept }
+		val kept = { action: AutomationAction, offer: AutomationOffer -> actionDraftOf(action, offer) is ActionDraft.Unsupported }
 
 		assertEquals(listOf(false, true, true, true), listOf(kept(lamp, FULL), kept(lamp, dialled), kept(lamp, retired), kept(messaged, TELL_ONLY)))
 		assertEquals(messaged, actionOf(actionDraftOf(messaged, TELL_ONLY), TELL_ONLY))
@@ -807,7 +807,7 @@ class AutomationPartsTest {
 		val voiced = FULL.copy(
 			actions = FULL.actions.map { row -> if (row.kind == "tell_assistant") row.copy(params = row.params + ParamOffer("voice", "Voice", "word")) else row },
 		)
-		val chime = ActionOffer("chime", "Ring a chime", danger = false, params = listOf(ParamOffer("tone", "Tone", "word")))
+		val chime = ActionOffer("chime", "Ring a chime", confirm = false, params = listOf(ParamOffer("tone", "Tone", "word")))
 		val ringing = FULL.copy(actions = FULL.actions + chime)
 		val sent = { action: AutomationAction? -> wireJson.encodeToJsonElement(AutomationAction.serializer(), action!!).toString() }
 		assertEquals(
@@ -838,7 +838,7 @@ class AutomationPartsTest {
 
 		assertEquals(listOf("when" to true, "message" to false), actionFields(told, TELL_ONLY).map { it.name to (it.param != null) })
 		assertEquals(null, draft.toAutomation(TELL_ONLY))
-		assertEquals(null, actionIssue((cleared.steps.single() as StepDraft.Do).action, TELL_ONLY))
+		assertEquals(null, actionIssue((cleared.steps.single() as StepDraft.Action).action, TELL_ONLY))
 		assertEquals(AutomationAction.TellAssistant("now"), cleared.toAutomation(TELL_ONLY)?.let(::written)?.single())
 		assertEquals(true, actionFields(told, FULL).all { it.param != null })
 		assertEquals(told, withoutValue(told, "voice"))
@@ -847,8 +847,8 @@ class AutomationPartsTest {
 
 	@Test
 	fun aTextWithAHoleShowsWhatTheGatewayMadeOfItAndAPlainOneAsksNothing() {
-		val answered = { filled: String?, hole: AutomationPreviewHole? ->
-			PreviewRead(ConsoleAutomationPreviewResult(0L, 0L, emptyList(), filled = filled, hole = hole))
+		val answered = { filled: String?, hole: AutomationPreviewPlaceholder? ->
+			PreviewRead(ConsoleAutomationPreviewResult(0L, 0L, emptyList(), filled = filled, placeholder = hole))
 		}
 		val text = "It is {valu} out"
 
@@ -860,20 +860,20 @@ class AutomationPartsTest {
 		assertEquals(TextPreview.Filled("It is 1.8 °C out"), textPreviewOf(text, asked = true, answered("It is 1.8 °C out", null)))
 		assertEquals(
 			TextPreview.Refused("no name valu here", 6, 12),
-			textPreviewOf(text, asked = true, answered(null, AutomationPreviewHole(6L, 12L, "no name valu here"))),
+			textPreviewOf(text, asked = true, answered(null, AutomationPreviewPlaceholder(6L, 12L, "no name valu here"))),
 		)
-		assertEquals("{valu}: no name valu here", holeLine(text, "no name valu here", 6, 12))
-		assertEquals("Missing }", holeLine(text, "missing }", 40, 50))
-		val refused = AutomationSaid.Hole("key-1", "value2", 0, 4, "no", "{x} here")
+		assertEquals("{valu}: no name valu here", placeholderLine(text, "no name valu here", 6, 12))
+		assertEquals("Missing }", placeholderLine(text, "missing }", 40, 50))
+		val refused = AutomationSaid.Placeholder("key-1", "value2", 0, 4, "no", "{x} here")
 		assertEquals(
 			listOf(refused, null, null, null),
 			listOf(Triple("key-1", "value2", "{x} here"), Triple("key-0", "value2", "{x} here"), Triple("key-1", "value1", "{x} here"), Triple("key-1", "value2", "{y} here"))
-				.map { (at, param, text) -> refusedHole(refused, at, param, text) },
+				.map { (at, param, text) -> refusedPlaceholder(refused, at, param, text) },
 		)
-		val kept = eventDraft().copy(steps = listOf(StepDraft.Do(EVENT_ACTION_KEY, ActionDraft.Kept(future))))
-		val messaged = eventDraft().copy(steps = listOf(StepDraft.Do(EVENT_ACTION_KEY, toldDraft("now", "{x} here"))))
-		val onKept = AutomationSaid.Hole(EVENT_ACTION_KEY, "message", 0, 3, "no name x", "")
-		val onField = AutomationSaid.Hole(EVENT_ACTION_KEY, "message", 0, 3, "no name x", "{x} here")
+		val kept = eventDraft().copy(steps = listOf(StepDraft.Action(EVENT_ACTION_KEY, ActionDraft.Unsupported(future))))
+		val messaged = eventDraft().copy(steps = listOf(StepDraft.Action(EVENT_ACTION_KEY, toldDraft("now", "{x} here"))))
+		val onKept = AutomationSaid.Placeholder(EVENT_ACTION_KEY, "message", 0, 3, "no name x", "")
+		val onField = AutomationSaid.Placeholder(EVENT_ACTION_KEY, "message", 0, 3, "no name x", "{x} here")
 		val shown = { said: AutomationSaid?, draft: AutomationDraft, offer: AutomationOffer -> generalLine(said, draft, offer) != null }
 		assertEquals(
 			listOf(true, false, true, true, false),
@@ -894,7 +894,7 @@ class AutomationPartsTest {
 
 		assertEquals(event(reason("mention")).trigger, askedTrigger(eventDraft(reason("mention")), fields, sources, FULL))
 		assertNull(askedTrigger(eventDraft(reason()), fields, sources, FULL))
-		assertNull(askedTrigger(eventDraft(reason("mention", test = "contains")), fields, sources, FULL))
+		assertNull(askedTrigger(eventDraft(reason("mention", operator = "contains")), fields, sources, FULL))
 		assertEquals(event(reason("retired")).trigger, askedTrigger(eventDraft(reason("retired")), fields, sources, FULL))
 		assertNull(askedTrigger(eventDraft(), fields, emptyList(), FULL))
 		assertNotNull(askedTrigger(timed, fields, emptyList(), FULL))

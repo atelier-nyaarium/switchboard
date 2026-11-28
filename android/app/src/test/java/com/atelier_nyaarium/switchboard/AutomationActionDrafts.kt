@@ -32,7 +32,7 @@ internal fun tellOnlyOffer(away: Boolean = false): AutomationOffer = AutomationO
 		ActionOffer(
 			kind = ACTION_TELL,
 			label = "Tell the assistant",
-			danger = false,
+			confirm = false,
 			home = true,
 			params = listOf(ParamOffer("when", "When", PARAM_CHOICE, options = listOf(ParamOption("now", "Now"), ParamOption("quietly", "Quietly")))),
 		),

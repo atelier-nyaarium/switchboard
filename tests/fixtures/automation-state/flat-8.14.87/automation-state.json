@@ -9,7 +9,7 @@
 		}
 	},
 	"queue": { "lastAt": 0, "events": [] },
-	"log": [{ "automation": "freezer-cold", "seq": 2, "at": 900000, "outcome": "ran", "action": "tell_assistant" }],
+	"log": [{ "automation": "freezer-cold", "seq": 2, "at": 900000, "outcome": "done", "action": "tell_assistant" }],
 	"ran": { "freezer-cold": 900000, "gh-mentions": 950000 },
 	"fires": [
 		{
@@ -20,7 +20,7 @@
 			"seq": 3,
 			"at": 1000000,
 			"names": {
-				"value": { "value": -12, "shown": "-12 C" },
+				"reading": { "value": -12, "shown": "-12 C" },
 				"device": { "value": "Freezer" },
 				"measure": { "value": "Temperature" },
 				"threshold": { "value": -10, "shown": "-10 C" }

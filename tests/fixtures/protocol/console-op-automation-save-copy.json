@@ -3,8 +3,19 @@
 	"automationId": "warm",
 	"automation": {
 		"enabled": true,
-		"trigger": { "kind": "interval", "everyMin": 60 },
-		"actions": [{ "kind": "run_function", "function": "warm-up", "values": { "room": "aa:bb:cc:dd:ee:ff" } }]
+		"trigger": {
+			"kind": "interval",
+			"everyMin": 60
+		},
+		"actions": [
+			{
+				"kind": "run_function",
+				"function": "warm-up",
+				"args": {
+					"room": "aa:bb:cc:dd:ee:ff"
+				}
+			}
+		]
 	},
 	"automationBase": 2,
 	"function": {
@@ -13,12 +24,22 @@
 		"fromBase": 1,
 		"body": {
 			"name": "Warm up, the study",
-			"params": [{ "name": "room", "type": "device" }],
+			"params": [
+				{
+					"name": "room",
+					"type": "device"
+				}
+			],
 			"steps": [
 				{
-					"kind": "do",
+					"kind": "action",
 					"action": "ifttt_trigger",
-					"args": { "event": { "kind": "literal", "value": "warm" } }
+					"args": {
+						"event": {
+							"kind": "literal",
+							"value": "warm"
+						}
+					}
 				}
 			]
 		}

@@ -10,9 +10,9 @@ const LOOKUP = /\bregistry\.get\(/;
 /** A scope spread together by hand. */
 const MERGE = /\.\.\.\s*functionScopeOf\(|\.\.\.\s*\(?fire\.names\b/;
 
-/** Files a hole's name passes through. */
+/** Files a placeholder's name passes through. */
 const READERS = [
-	"src/gateway/liveConsole/holes.ts",
+	"src/gateway/liveConsole/placeholders.ts",
 	"src/gateway/liveConsole/evaluate.ts",
 	"src/gateway/computed/automationPreview.ts",
 	"src/gateway/computed/automationValidity.ts",
@@ -20,13 +20,13 @@ const READERS = [
 	"src/gateway/computed/automations.ts",
 ];
 
-describe("a hole's name has one resolver and one scope", () => {
+describe("a placeholder's name has one resolver and one scope", () => {
 	it("refuses a lookup and a hand merge, and takes the resolver", () => {
 		expect(LOOKUP.test("if (registry.get(node.name, AUDIENCE)) return x;")).toBe(true);
 		expect(LOOKUP.test("resolveName(registry, AUDIENCE, node.name, held)")).toBe(false);
-		expect(MERGE.test("return { ...functionScopeOf(params, values), ...names };")).toBe(true);
+		expect(MERGE.test("return { ...functionScopeOf(params, args), ...names };")).toBe(true);
 		expect(MERGE.test("return { ...scope, ...(fire.names ?? {}) };")).toBe(true);
-		expect(MERGE.test("return holeScope(fire.names, params, values, switchName);")).toBe(false);
+		expect(MERGE.test("return placeholderScope(fire.names, params, args, deviceName);")).toBe(false);
 	});
 
 	it("resolves a name in the registry's resolver alone", () => {

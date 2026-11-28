@@ -49,11 +49,11 @@ private const val UNPARSED = "unparsed"
 
 /** Single-card unparsed errors. */
 internal fun holdsErrors(cards: List<StepDraft>): Boolean =
-	(cards.singleOrNull() as? StepDraft.Kept)?.step is FunctionStep.Unparsed
+	(cards.singleOrNull() as? StepDraft.ScriptOnly)?.step is FunctionStep.Unparsed
 
 /** Stored errors open as text. */
 internal fun scriptOfCards(cards: List<StepDraft>): ScriptEdit? {
-	val source = ((cards.singleOrNull() as? StepDraft.Kept)?.step as? FunctionStep.Unparsed)?.source ?: return null
+	val source = ((cards.singleOrNull() as? StepDraft.ScriptOnly)?.step as? FunctionStep.Unparsed)?.source ?: return null
 	return ScriptEdit(source, source, cards)
 }
 
@@ -62,7 +62,7 @@ internal fun AutomationDraft.scriptOf(tree: String?): ScriptEdit? = if (tree == 
 internal fun AutomationDraft.scriptedOf(tree: String?): Boolean =
 	if (tree == null) scripted else callees[tree]?.scripted == true
 
-private fun AutomationDraft.paramsOf(tree: String?): List<FunctionValueDraft> =
+private fun AutomationDraft.paramsOf(tree: String?): List<FunctionParamDraft> =
 	if (tree == null) (runs as? RunsHead.Points)?.pointing?.params.orEmpty() else callees[tree]?.params.orEmpty()
 
 private fun AutomationDraft.withScriptOf(tree: String?, edit: ScriptEdit?, scripted: Boolean, cards: List<StepDraft>? = null): AutomationDraft {
@@ -136,11 +136,11 @@ internal fun AutomationDraft.parsedInto(
 	val edit = scriptOf(tree) ?: return this
 	if (asked != scriptParseOp(this, tree, offer)) return this
 	val params = paramsOf(tree)
-	val cards = answer.steps?.map { treeOf(it, offer, params) } ?: listOf(StepDraft.Kept(freshKey(), FunctionStep.Unparsed(edit.text)))
+	val cards = answer.steps?.map { treeOf(it, offer, params) } ?: listOf(StepDraft.ScriptOnly(freshKey(), FunctionStep.Unparsed(edit.text)))
 	val read = edit.copy(parsed = asked, answer = answer, names = answer.names, types = answer.types)
 	val landed = withScriptOf(tree, read, scripted = true, cards = cards)
 	// Non-flat script needs function.
-	return if (tree == null && runs == RunsHead.Own && flatActions(cards, offer) == null) {
+	return if (tree == null && runs == RunsHead.Unnamed && flatActions(cards, offer) == null) {
 		landed.copy(newFunctionId = newFunctionId ?: freshFunctionId())
 	} else landed
 }
@@ -213,7 +213,7 @@ internal fun errorsAsk(draft: AutomationDraft, offer: AutomationOffer, rows: Lis
 	val pointing = (draft.runs as? RunsHead.Points)?.pointing
 	val storedRoot = pointing?.original?.let { holdsErrorSteps(written(it)) } ?: false
 	if (holdsErrors(draft.steps) && !storedRoot) {
-		asked += pointing?.name?.takeIf { it.isNotBlank() } ?: "This automation's steps"
+		asked += pointing?.name?.takeIf { it.isNotBlank() } ?: UNNAMED_FUNCTION
 		// Copies retain original users.
 		pointing?.takeIf { it.mode == PointMode.SHARED }?.let { others += alsoRunBy(draft, offer, rows, it.functionId) }
 	}
@@ -229,13 +229,15 @@ internal fun errorsAsk(draft: AutomationDraft, offer: AutomationOffer, rows: Lis
 
 private fun holdsErrorSteps(steps: List<FunctionStep>): Boolean = steps.singleOrNull() is FunctionStep.Unparsed
 
-/** Gateway cannot keep errors. */
-internal fun errorsUnkept(draft: AutomationDraft, offer: AutomationOffer): Boolean {
+/** This Gateway cannot hold a script with errors. */
+internal fun errorsRefused(draft: AutomationDraft, offer: AutomationOffer): Boolean {
 	if (unparsedServed(offer)) return false
 	return holdsErrors(draft.steps) || sentCallees(draft, offer).any { holdsErrors(it.steps) }
 }
 
-internal enum class LineMark { UNREACHED, RAN, NOT_CLEAN, FAILED, RUNNING }
+internal const val UNNAMED_FUNCTION = "Unnamed function"
+
+internal enum class LineMark { UNREACHED, DONE, UNSURE, FAILED, RUNNING }
 
 internal data class ScriptLine(
 	val start: Int,
@@ -274,7 +276,7 @@ private fun caseHeads(text: String, bounds: List<Pair<Int, Int>>, statements: Li
 
 internal fun scriptLines(text: String, statements: List<ScriptStatement>, lastRun: AutomationLastRun?, pointing: Boolean): List<ScriptLine> {
 	val last = lastRun?.steps.orEmpty().associateBy { it.path }
-	val now = if (lastRun?.running == true) listOfNotNull(lastRun.active).toSet() + lastRun.beside.orEmpty() else emptySet()
+	val now = if (lastRun?.running == true) listOfNotNull(lastRun.active).toSet() + lastRun.inFlight.orEmpty() else emptySet()
 	val bounds = lineBounds(text)
 	val heads = caseHeads(text, bounds, statements)
 	return bounds.mapIndexed { at, (start, end) ->
@@ -282,7 +284,7 @@ internal fun scriptLines(text: String, statements: List<ScriptStatement>, lastRu
 		val head = heads[at]?.takeIf { opened == null }
 		val taken = head?.let { (owner, _) -> last[runPathOf(owner.step, pointing)]?.case }
 		if (lastRun != null && head != null && taken != null) {
-			return@mapIndexed ScriptLine(start, end, if (taken.toInt() == head.second) LineMark.RAN else LineMark.UNREACHED, null)
+			return@mapIndexed ScriptLine(start, end, if (taken.toInt() == head.second) LineMark.DONE else LineMark.UNREACHED, null)
 		}
 		val run = opened?.let { runPathOf(it.step, pointing) }
 		val step = run?.let { last[it] }
@@ -292,9 +294,9 @@ internal fun scriptLines(text: String, statements: List<ScriptStatement>, lastRu
 			step == null -> LineMark.UNREACHED
 			else -> when (Protocol.Wire.RunOutcome.entries.find { it.wire == step.outcome }) {
 				null -> LineMark.RUNNING
-				Protocol.Wire.RunOutcome.RAN -> LineMark.RAN
-				Protocol.Wire.RunOutcome.REFUSED -> LineMark.FAILED
-				Protocol.Wire.RunOutcome.UNCERTAIN, Protocol.Wire.RunOutcome.SUPPRESSED -> LineMark.NOT_CLEAN
+				Protocol.Wire.RunOutcome.DONE -> LineMark.DONE
+				Protocol.Wire.RunOutcome.FAILED -> LineMark.FAILED
+				Protocol.Wire.RunOutcome.UNSURE, Protocol.Wire.RunOutcome.SKIPPED -> LineMark.UNSURE
 			}
 		}
 		ScriptLine(start, end, mark, step?.reason?.takeIf { mark == LineMark.FAILED })
@@ -309,21 +311,21 @@ internal fun scriptNamesHere(given: List<NameHere>, names: List<ScriptName>): Li
 internal fun namesAt(names: List<ScriptName>, cursor: Int): List<ScriptName> =
 	names.filter { cursor.toLong() in it.start..it.end }
 
-internal fun scriptValuesOf(draft: AutomationDraft, tree: String?): List<FunctionParam> = draft.wireParamsOf(tree)
+internal fun scriptParamsOf(draft: AutomationDraft, tree: String?): List<FunctionParam> = draft.wireParamsOf(tree)
 
-/** Nearest binding wins. */
+/** Nearest name wins. */
 internal fun scriptShapes(names: List<ScriptName>, types: List<ScriptType>, cursor: Int): Map<String, VariableShape?> {
 	val members = types.associate { type -> type.name to type.members.map { it.name } }
 	return namesAt(names, cursor).sortedBy { it.start }.associate { name -> name.name to members[name.type]?.let { VariableShape(it, list = false) } }
 }
 
-internal data class ScriptSignature(val name: String?, val values: List<String>, val given: List<String>)
+internal data class ScriptSignature(val name: String?, val params: List<String>, val given: List<String>)
 
 internal fun scriptSignature(draft: AutomationDraft, tree: String?, offer: AutomationOffer): ScriptSignature {
 	val name = if (tree == null) (draft.runs as? RunsHead.Points)?.pointing?.name else draft.callees[tree]?.name
-	val values = draft.wireParamsOf(tree).map { "${it.name}: ${it.type.replaceFirstChar { first -> first.uppercase() }}" }
+	val params = draft.wireParamsOf(tree).map { "${it.name}: ${it.type.replaceFirstChar { first -> first.uppercase() }}" }
 	val given = offer.names(draft.trigger.kind).map { it.name }
-	return ScriptSignature(name?.takeIf { it.isNotBlank() }, values, given)
+	return ScriptSignature(name?.takeIf { it.isNotBlank() }, params, given)
 }
 
 internal fun errorsLine(ask: ErrorsAsk): String {
@@ -331,17 +333,17 @@ internal fun errorsLine(ask: ErrorsAsk): String {
 	return "${ask.functions.joinToString(", ")} will not run until its errors are fixed.$also"
 }
 
-internal data class KeptLine(val text: String, val at: Int)
+internal data class ScriptOnlyLine(val text: String, val at: Int)
 
-internal fun keptLines(cards: List<StepDraft>, print: ConsoleScriptPrintResult?): Map<String, KeptLine> {
+internal fun scriptOnlyLines(cards: List<StepDraft>, print: ConsoleScriptPrintResult?): Map<String, ScriptOnlyLine> {
 	val answer = print?.takeIf { it.text.isNotEmpty() } ?: return emptyMap()
 	val spans = answer.statements.associateBy { it.step }
 	return pathsOf(cards).mapNotNull { (key, path) ->
-		if (findStep(cards, key) !is StepDraft.Kept) return@mapNotNull null
+		if (findStep(cards, key) !is StepDraft.ScriptOnly) return@mapNotNull null
 		val span = spans[path] ?: return@mapNotNull null
 		val start = span.start.toInt().coerceIn(0, answer.text.length)
 		val end = span.end.toInt().coerceIn(start, answer.text.length)
-		key to KeptLine(answer.text.substring(start, end).lineSequence().first().trim(), start)
+		key to ScriptOnlyLine(answer.text.substring(start, end).lineSequence().first().trim(), start)
 	}.toMap()
 }
 

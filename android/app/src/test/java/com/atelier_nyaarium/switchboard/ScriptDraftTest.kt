@@ -10,7 +10,7 @@ import com.atelier_nyaarium.switchboard.assistant.AutomationSlot
 import com.atelier_nyaarium.switchboard.assistant.cardsAllowed
 import com.atelier_nyaarium.switchboard.assistant.discardedScript
 import com.atelier_nyaarium.switchboard.assistant.errorsAsk
-import com.atelier_nyaarium.switchboard.assistant.errorsUnkept
+import com.atelier_nyaarium.switchboard.assistant.errorsRefused
 import com.atelier_nyaarium.switchboard.assistant.functionSaveOf
 import com.atelier_nyaarium.switchboard.assistant.holdsErrors
 import com.atelier_nyaarium.switchboard.assistant.parsedInto
@@ -24,9 +24,9 @@ import com.atelier_nyaarium.switchboard.assistant.startedScript
 import com.atelier_nyaarium.switchboard.assistant.typedScript
 import com.atelier_nyaarium.switchboard.assistant.unkeyed
 import com.atelier_nyaarium.switchboard.assistant.LineMark
-import com.atelier_nyaarium.switchboard.assistant.KeptLine
+import com.atelier_nyaarium.switchboard.assistant.ScriptOnlyLine
 import com.atelier_nyaarium.switchboard.assistant.StepDraft
-import com.atelier_nyaarium.switchboard.assistant.keptLines
+import com.atelier_nyaarium.switchboard.assistant.scriptOnlyLines
 import com.atelier_nyaarium.switchboard.assistant.Served
 import com.atelier_nyaarium.switchboard.assistant.rowScriptErrors
 import com.atelier_nyaarium.switchboard.assistant.rowErrorsLine
@@ -60,8 +60,6 @@ import com.atelier_nyaarium.switchboard.assistant.scriptLines
 import com.atelier_nyaarium.switchboard.proto.AutomationLastRun
 import com.atelier_nyaarium.switchboard.proto.AutomationLastStep
 import com.atelier_nyaarium.switchboard.proto.ScriptStatement
-import com.atelier_nyaarium.switchboard.proto.StepArg
-import kotlinx.serialization.json.JsonPrimitive
 import com.atelier_nyaarium.switchboard.assistant.written
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
@@ -198,7 +196,7 @@ class ScriptDraftTest {
 		val held = opened(listOf(plugStep("on")))
 		val typed = held.startedScript(null, "a").typedScript(null, "devices.set(\"Desk lamp\", \"off\")")
 		val landed = typed.answered(steps(plugStep("off")))
-		val olderOffer = offer.copy(functions = offer.functions!!.copy(served = offer.functions!!.served.copy(statements = listOf("do", "if"))))
+		val olderOffer = offer.copy(functions = offer.functions!!.copy(served = offer.functions!!.served.copy(statements = listOf("action", "if"))))
 		val older = opened(listOf(plugStep("on")), olderOffer).startedScript(null, "a").typedScript(null, "x(")
 		val olderBroken = older.answered(issues)
 
@@ -207,16 +205,16 @@ class ScriptDraftTest {
 
 		assertFalse(canSave(typed))
 		assertTrue(canSave(landed))
-		assertTrue(errorsUnkept(olderBroken, olderBroken.offered()))
+		assertTrue(errorsRefused(olderBroken, olderBroken.offered()))
 		assertFalse(canSave(olderBroken))
 	}
 
 	@Test
-	fun aParseIsAskedAgainWhenTheValuesItReadsAgainstChange() {
+	fun aParseIsAskedAgainWhenTheParamsItReadsAgainstChange() {
 		val draft = opened(listOf(plugStep("on"))).startedScript(null, "a").answered(steps(plugStep("on")))
 		val renamed = draft.copy(
 			runs = (draft.runs as com.atelier_nyaarium.switchboard.assistant.RunsHead.Points).let {
-				it.copy(pointing = it.pointing.copy(params = listOf(com.atelier_nyaarium.switchboard.assistant.FunctionValueDraft("k", com.atelier_nyaarium.switchboard.proto.FunctionParam("room", "device")))))
+				it.copy(pointing = it.pointing.copy(params = listOf(com.atelier_nyaarium.switchboard.assistant.FunctionParamDraft("k", com.atelier_nyaarium.switchboard.proto.FunctionParam("room", "device")))))
 			},
 		)
 
@@ -227,26 +225,26 @@ class ScriptDraftTest {
 
 	@Test
 	fun eachLineShowsHowTheStatementItOpensEndedInTheLastRun() {
-		val text = "a = 1\nif (x) {\n\tdevices.set(lamp, \"on\")\n}\nexit"
+		val text = "a = 1\nif (x) {\n\tdevices.set(lamp, \"on\")\n}\nreturn"
 		val statements = listOf(ScriptStatement("0", 0, 5), ScriptStatement("1", 6, 41), ScriptStatement("1.0.0", 16, 39), ScriptStatement("2", 42, 46))
 		val run = AutomationLastRun(
 			at = 1L,
 			revision = 2L,
 			steps = listOf(
-				AutomationLastStep("0.0", "let", "ran"),
-				AutomationLastStep("0.1", "if", "ran", side = "then"),
-				AutomationLastStep("0.1.0.0", "device_set", "refused", reason = "unreachable"),
+				AutomationLastStep("0.0", "variable", "done"),
+				AutomationLastStep("0.1", "if", "done", side = "then"),
+				AutomationLastStep("0.1.0.0", "device_set", "failed", reason = "unreachable"),
 			),
 			running = false,
 		)
 		val lines = scriptLines(text, statements, run, pointing = true)
 
 		assertEquals(
-			listOf(LineMark.RAN, LineMark.RAN, LineMark.FAILED, null, LineMark.UNREACHED),
+			listOf(LineMark.DONE, LineMark.DONE, LineMark.FAILED, null, LineMark.UNREACHED),
 			lines.map { it.mark },
 		)
 		assertEquals("unreachable", lines[2].said)
-		assertEquals(listOf("a = 1", "if (x) {", "\tdevices.set(lamp, \"on\")", "}", "exit"), lines.map { text.substring(it.start, it.end) })
+		assertEquals(listOf("a = 1", "if (x) {", "\tdevices.set(lamp, \"on\")", "}", "return"), lines.map { text.substring(it.start, it.end) })
 		assertTrue(scriptLines(text, statements, null, pointing = true).all { it.mark == null })
 	}
 
@@ -262,23 +260,23 @@ class ScriptDraftTest {
 		fun marks(case: Long) = scriptLines(
 			text,
 			statements,
-			AutomationLastRun(0L, 2L, listOf(AutomationLastStep("0.0", "switch", outcome = "ran", case = case)), running = false),
+			AutomationLastRun(0L, 2L, listOf(AutomationLastStep("0.0", "switch", outcome = "done", case = case)), running = false),
 			pointing = true,
 		).map { it.mark }
 
 		assertEquals(
-			listOf(LineMark.RAN, LineMark.UNREACHED, LineMark.UNREACHED, null, LineMark.RAN, null, LineMark.UNREACHED, LineMark.UNREACHED, null, null),
+			listOf(LineMark.DONE, LineMark.UNREACHED, LineMark.UNREACHED, null, LineMark.DONE, null, LineMark.UNREACHED, LineMark.UNREACHED, null, null),
 			marks(1L),
 		)
-		assertEquals(LineMark.RAN, marks(2L)[6])
+		assertEquals(LineMark.DONE, marks(2L)[6])
 	}
 
 	@Test
-	fun aKeptCardShowsItsFirstLineOfScriptAndWhereItStarts() {
+	fun aScriptOnlyCardShowsItsFirstLineOfScriptAndWhereItStarts() {
 		val cards = listOf(
-			StepDraft.Kept("kept", FunctionStep.Let("humid", StepArg.Literal(JsonPrimitive("1")))),
-			StepDraft.Do("plain", plugDraft(SANDBOX_SWITCH, "on")),
-			StepDraft.Kept("block", FunctionStep.Parallel(listOf(plugStep("on")))),
+			StepDraft.ScriptOnly("kept", FunctionStep.Unparsed("humid = \"1\"")),
+			StepDraft.Action("plain", plugDraft(SANDBOX_DEVICE, "on")),
+			StepDraft.ScriptOnly("block", FunctionStep.Unparsed("parallel {")),
 		)
 		val text = "humid = \"1\"\ndevices.set(\"Desk lamp\", \"on\")\nparallel {\n\tdevices.set(\"Desk lamp\", \"on\")\n}"
 		val print = ConsoleScriptPrintResult(
@@ -288,13 +286,13 @@ class ScriptDraftTest {
 			statements = listOf(ScriptStatement("0", 0, 11), ScriptStatement("1", 12, 42), ScriptStatement("2", 43, text.length.toLong())),
 		)
 
-		assertEquals(mapOf("kept" to KeptLine("humid = \"1\"", 0), "block" to KeptLine("parallel {", 43)), keptLines(cards, print))
-		assertEquals(emptyMap<String, KeptLine>(), keptLines(cards, null))
+		assertEquals(mapOf("kept" to ScriptOnlyLine("humid = \"1\"", 0), "block" to ScriptOnlyLine("parallel {", 43)), scriptOnlyLines(cards, print))
+		assertEquals(emptyMap<String, ScriptOnlyLine>(), scriptOnlyLines(cards, null))
 	}
 
 	@Test
 	fun aRowSaysItsScriptHasErrorsWhenAFunctionItReachesHoldsThem() {
-		val call = FunctionStep.Call(function = "inner")
+		val call = FunctionStep.RunFunction(function = "inner")
 		val rows = listOf(
 			functionRow("outer", "Outer", listOf("mine"), steps = listOf(call)),
 			functionRow("inner", "Inner", emptyList(), steps = listOf(FunctionStep.Unparsed("x("))),
@@ -355,7 +353,7 @@ class ScriptDraftTest {
 
 	@Test
 	fun theErrorsAskNamesWhoRunsACalleeAndNoOneForACopy() {
-		val call = FunctionStep.Call(function = "inner")
+		val call = FunctionStep.RunFunction(function = "inner")
 		val rows = listOf(
 			functionRow("warm", "Warm", listOf("mine"), steps = listOf(call)),
 			functionRow("inner", "Inner", listOf("other"), steps = listOf(plugStep("on"))).copy(callers = listOf("warm")),

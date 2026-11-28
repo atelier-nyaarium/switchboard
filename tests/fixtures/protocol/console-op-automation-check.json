@@ -3,8 +3,19 @@
 	"automationId": "warm",
 	"automation": {
 		"enabled": true,
-		"trigger": { "kind": "interval", "everyMin": 30 },
-		"actions": [{ "kind": "run_function", "function": "warm-up", "values": { "room": "aa:bb:cc:dd:ee:ff" } }]
+		"trigger": {
+			"kind": "interval",
+			"everyMin": 30
+		},
+		"actions": [
+			{
+				"kind": "run_function",
+				"function": "warm-up",
+				"args": {
+					"room": "aa:bb:cc:dd:ee:ff"
+				}
+			}
+		]
 	},
 	"automationBase": 2,
 	"functionBase": 3

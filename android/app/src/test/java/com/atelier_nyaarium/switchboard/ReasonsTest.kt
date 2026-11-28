@@ -130,7 +130,7 @@ class ReasonsTest {
 			AutomationSaveRefusal(code = "invalid", record = record, path = path, id = id, line = line),
 		)
 		val generic = invalid(path = "revision")
-		val each = listOf(invalid(path = "values.lamp"), invalid(path = "steps.1"), invalid(record = "automation", id = "mine"), invalid(path = "name", record = "function"), generic)
+		val each = listOf(invalid(path = "args.lamp"), invalid(path = "steps.1"), invalid(record = "automation", id = "mine"), invalid(path = "name", record = "function"), generic)
 		assertEquals(each.size, each.toSet().size)
 		assertEquals(listOf(generic, generic), listOf(invalid(path = "id"), invalid(path = "label")))
 		assertEquals("no rule fits", invalid(path = "steps.0.device", record = "function", line = "no rule fits"))

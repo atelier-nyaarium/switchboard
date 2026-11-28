@@ -10,19 +10,19 @@ import com.atelier_nyaarium.switchboard.proto.ContentEnvelope
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.FunctionStep
 
-/** Called function id. */
+/** Run function id. */
 private fun calledBy(entry: WalkEntry): String? = when (entry) {
-	is UnfollowedCall -> entry.call.function
+	is UnfollowedFunction -> entry.runFunction.function
 	is WalkAction, is WalkStep -> null
 }
 
-/** Each function a carried automation runs or reaches through calls, once, in listing order; one not listed stays behind. */
+/** Each function a carried automation runs or reaches through the functions it runs, once, in listing order; one not listed stays behind. */
 internal fun carriedFunctionsOf(automations: List<CarriedAutomation>, listed: List<CarriedFunction>): List<CarriedFunction> {
 	val byId = listed.associateBy { it.id }
 	val runs = mutableSetOf<String>()
 	fun take(id: String) {
 		if (!runs.add(id)) return
-		byId[id]?.let { callsOf(it.function) }.orEmpty().forEach(::take)
+		byId[id]?.let { functionsRunBy(it.function) }.orEmpty().forEach(::take)
 	}
 	automations.flatMap { carried -> reached(carried.automation).mapNotNull(::calledBy) }.forEach(::take)
 	return listed.filter { it.id in runs }
@@ -37,7 +37,7 @@ internal sealed interface CarryRefusal {
 
 	data object UnnamedNotServed : CarryRefusal
 
-	/** Missing values or tests. */
+	/** Missing values or operators. */
 	data object ConditionsNotServed : CarryRefusal
 
 	/** Its list has not arrived. */
@@ -94,23 +94,7 @@ private fun stepRefusal(carried: AssistantHomeCarried?, held: AutomationFunction
 	if (held.unnamed != true && functions.any { it.function.name.isBlank() }) return CarryRefusal.UnnamedNotServed
 	val statements = held.statements.orEmpty()
 	val missing = functions.flatMap { stepsOf(it.function) }.firstNotNullOfOrNull { step ->
-		when (step) {
-			is FunctionStep.Do -> step.action.takeIf { it !in held.steps }
-			is FunctionStep.If -> "if".takeIf { it !in statements }
-			is FunctionStep.Switch -> "switch".takeIf { it !in statements }
-			is FunctionStep.Try -> "try".takeIf { it !in statements }
-			is FunctionStep.Parallel -> "parallel".takeIf { it !in statements }
-			is FunctionStep.Start -> "start".takeIf { it !in statements }
-			is FunctionStep.Await -> "await".takeIf { it !in statements }
-			is FunctionStep.Exit -> "exit".takeIf { it !in statements }
-			is FunctionStep.Throw -> "throw".takeIf { it !in statements }
-			is FunctionStep.Let -> "let".takeIf { it !in statements }
-			is FunctionStep.Wait -> "wait".takeIf { it !in statements }
-			is FunctionStep.Note -> "note".takeIf { it !in statements }
-			is FunctionStep.Unparsed -> "unparsed".takeIf { it !in statements }
-			is FunctionStep.Call -> "call".takeIf { it !in statements }
-			is FunctionStep.Unknown -> step.kind.takeIf { it !in statements }
-		}
+		if (step is FunctionStep.Action) step.action.takeIf { it !in held.steps } else stepKindOf(step).takeIf { it !in statements }
 	}
 	return missing?.let { CarryRefusal.StepNotServed(it, labelOf(it)) }
 }

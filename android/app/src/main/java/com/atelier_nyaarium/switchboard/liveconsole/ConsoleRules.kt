@@ -57,7 +57,7 @@ private fun paintParts(
 		when (part) {
 			is ConsoleStringPart.Text -> listOfNotNull(run?.let { PaintSpan(part.start, part.end, it) })
 			is ConsoleStringPart.Escape -> listOf(PaintSpan(part.start, part.end, CodeToken.ESCAPE))
-			is ConsoleStringPart.Hole ->
+			is ConsoleStringPart.Placeholder ->
 				buildList {
 					add(PaintSpan(part.start, part.start + 1, CodeToken.PUNCTUATION))
 					addAll(paintTokens(part.tokens, entities, variables))

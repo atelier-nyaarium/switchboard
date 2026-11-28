@@ -11,7 +11,7 @@ const VALIDITY = "src/gateway/computed/automationValidity.ts";
 const PREVIEW = "src/gateway/computed/automationPreview.ts";
 
 /** Hand-written value checks. */
-const JUDGES = /AutomationActionSchema\s*\.\s*(?:safeParse|parse)\s*\(|\bholes\??\s*\.\s*issue\s*\(/;
+const JUDGES = /AutomationActionSchema\s*\.\s*(?:safeParse|parse)\s*\(|\bplaceholders\??\s*\.\s*issue\s*\(/;
 
 const files = DIRS.flatMap((dir) =>
 	fs
@@ -30,8 +30,8 @@ describe("the one body check", () => {
 			[
 				"AutomationActionSchema.safeParse(raw)",
 				"AutomationActionSchema.parse(literal)",
-				"holes.issue(text, names)",
-				"holes?.issue(text, names)",
+				"placeholders.issue(text, names)",
+				"placeholders?.issue(text, names)",
 				"resolved(kind, raw)",
 				"this.issue(node)",
 			].map((sample) => JUDGES.test(sample)),

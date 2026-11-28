@@ -51,8 +51,8 @@ class ConsoleTokensVectorsTest {
 						put("kind", JsonPrimitive("escape"))
 						put("value", JsonPrimitive(part.value))
 					}
-					is ConsoleStringPart.Hole -> {
-						put("kind", JsonPrimitive("hole"))
+					is ConsoleStringPart.Placeholder -> {
+						put("kind", JsonPrimitive("placeholder"))
 						put("tokens", JsonArray(part.tokens.map(::wire)))
 						put("closed", JsonPrimitive(part.closed))
 					}

@@ -1,4 +1,4 @@
-// An automation's texts with holes, and how its tells are told.
+// An automation's texts with placeholders, and how its tells are told.
 
 import {
 	type FollowedEntry,
@@ -17,9 +17,11 @@ export type Tell = Extract<AutomationAction, { kind: "tell_assistant" }>;
 export const isTell = (action: AutomationAction): action is Tell => action.kind === "tell_assistant";
 
 /** Indexed as written. */
-export const holeTexts = (body: Pick<Automation, "actions">) => holeTextsOf(written(body));
+export const placeholderTexts = (body: Pick<Automation, "actions">) => placeholderTextsOf(written(body));
 
-export function holeTextsOf(actions: readonly AutomationAction[]): { action: number; param: string; text: string }[] {
+export function placeholderTextsOf(
+	actions: readonly AutomationAction[],
+): { action: number; param: string; text: string }[] {
 	return actions.flatMap((action, at) => actionTexts(action).map((held) => ({ action: at, ...held })));
 }
 
@@ -27,7 +29,7 @@ export function holeTextsOf(actions: readonly AutomationAction[]): { action: num
 export const ownTellPaths = (body: Pick<Automation, "actions">): Set<string> =>
 	new Set(
 		reached(body).flatMap((at) =>
-			visit(at, { action: ({ path, action }) => (isTell(action) ? [path] : []), unfollowedCall: () => [] }),
+			visit(at, { action: ({ path, action }) => (isTell(action) ? [path] : []), unfollowedFunction: () => [] }),
 		),
 	);
 
@@ -48,16 +50,16 @@ export function laneTells(body: Automation, functionOf: FunctionOf): LaneTell[] 
 			action: ({ path, action }) =>
 				isTell(action) && action.message === undefined ? { path, when: action.when } : null,
 			step: {
-				do: ({ path, address, step }) => {
+				action: ({ path, address, step }) => {
 					const { when, message } = step.args;
 					if (address.length !== 1 || step.action !== "tell_assistant" || message !== undefined) return null;
 					const told = when?.kind === "literal" ? whenOf(when.value) : null;
 					return told && { path, when: told };
 				},
-				call: () => null,
+				run_function: () => null,
 				...steering((): LaneTell | null => null),
 			},
-			unfollowedCall: () => null,
+			unfollowedFunction: () => null,
 		});
 		if (!tell) break;
 		found.push(tell);

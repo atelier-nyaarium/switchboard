@@ -3,11 +3,12 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.assistant.AutomationOffer
 import com.atelier_nyaarium.switchboard.assistant.AutomationOutcome
 import com.atelier_nyaarium.switchboard.assistant.AutomationSaid
-import com.atelier_nyaarium.switchboard.assistant.CallChoice
-import com.atelier_nyaarium.switchboard.assistant.CallLine
-import com.atelier_nyaarium.switchboard.assistant.CallValue
 import com.atelier_nyaarium.switchboard.assistant.EditContext
+import com.atelier_nyaarium.switchboard.assistant.FunctionArg
+import com.atelier_nyaarium.switchboard.assistant.FunctionChoice
+import com.atelier_nyaarium.switchboard.assistant.IssueCount
 import com.atelier_nyaarium.switchboard.assistant.RefusedAt
+import com.atelier_nyaarium.switchboard.assistant.RunFunctionLine
 import com.atelier_nyaarium.switchboard.assistant.RunsIssue
 import com.atelier_nyaarium.switchboard.assistant.SaidAt
 import com.atelier_nyaarium.switchboard.assistant.Slot
@@ -15,8 +16,8 @@ import com.atelier_nyaarium.switchboard.assistant.SourceFields
 import com.atelier_nyaarium.switchboard.assistant.StepDraft
 import com.atelier_nyaarium.switchboard.assistant.ValueSource
 import com.atelier_nyaarium.switchboard.assistant.automationDraftOf
-import com.atelier_nyaarium.switchboard.assistant.callChoices
-import com.atelier_nyaarium.switchboard.assistant.callLine
+import com.atelier_nyaarium.switchboard.assistant.functionChoices
+import com.atelier_nyaarium.switchboard.assistant.runFunctionLine
 import com.atelier_nyaarium.switchboard.assistant.canRemove
 import com.atelier_nyaarium.switchboard.assistant.draftRunsIssue
 import com.atelier_nyaarium.switchboard.assistant.drawnIssuesOf
@@ -44,13 +45,13 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class CallCardsTest {
+class RunFunctionCardsTest {
 	private val none = SourceFields(emptyList())
 
 	private fun arg(value: StepArg) = wireJson.encodeToJsonElement(StepArg.serializer(), value)
 
-	private fun call(function: String, vararg values: Pair<String, StepArg>) =
-		FunctionStep.Call(function, JsonObject(values.associate { (name, value) -> name to arg(value) }).takeIf { values.isNotEmpty() })
+	private fun call(function: String, vararg args: Pair<String, StepArg>) =
+		FunctionStep.RunFunction(function, JsonObject(args.associate { (name, value) -> name to arg(value) }).takeIf { args.isNotEmpty() })
 
 	private val chime = functionRow(
 		"chime",
@@ -67,36 +68,36 @@ class CallCardsTest {
 		automationDraftOf(AutomationRow("mine", 2L, pointer, "Thermometer above 26 °C"), EditContext(using, emptyList()))!!
 
 	private fun callKey(draft: com.atelier_nyaarium.switchboard.assistant.AutomationDraft) =
-		draft.steps.single { it is StepDraft.Call }.key
+		draft.steps.single { it is StepDraft.RunFunction }.key
 
 	@Test
-	fun aCallReadsItsValuesAsTypedOrReadAndWritesThemBackByTheCalleesTypes() {
+	fun aRunFunctionReadsItsArgsAsTypedOrReadAndWritesThemBackByTheCalleesTypes() {
 		val stored = call(
 			"chime",
 			"count" to StepArg.Literal(JsonPrimitive(3)),
 			"label" to StepArg.Literal(JsonPrimitive("hall")),
 			"room" to StepArg.Expression("device"),
 		)
-		val card = treeOf(stored, offer) as StepDraft.Call
+		val card = treeOf(stored, offer) as StepDraft.RunFunction
 
 		assertEquals(
-			mapOf("count" to CallValue.Typed("3"), "label" to CallValue.Typed("hall"), "room" to CallValue.Read("device")),
-			card.values,
+			mapOf("count" to FunctionArg.Typed("3"), "label" to FunctionArg.Typed("hall"), "room" to FunctionArg.Read("device")),
+			card.args,
 		)
 		assertEquals(stored, stepOfDraft(card, offer, calleeParams = listed(offer)))
-		assertTrue(treeOf(call("chime", "count" to StepArg.Literal(JsonPrimitive(true))), offer) is StepDraft.Kept)
-		// A blank typed value is left to the trigger.
-		assertEquals(call("chime"), stepOfDraft(card.copy(values = mapOf("count" to CallValue.Typed(" "))), offer, calleeParams = listed(offer)))
+		assertTrue(treeOf(call("chime", "count" to StepArg.Literal(JsonPrimitive(true))), offer) is StepDraft.ScriptOnly)
+		// A blank typed arg is left to the trigger.
+		assertEquals(call("chime"), stepOfDraft(card.copy(args = mapOf("count" to FunctionArg.Typed(" "))), offer, calleeParams = listed(offer)))
 	}
 
 	@Test
 	fun aSaveSendsTheCalleesItStillReachesAndChangedEachWithTheBaseItRead() {
 		val draft = opened()
 		val callee = draft.openedCallee("chime", offer)
-		val edited = callee.plusStep(Slot(null, null, 1), StepDraft.Exit("stop"), tree = "chime")
+		val edited = callee.plusStep(Slot(null, null, 1), StepDraft.Return("stop"), tree = "chime")
 		val made = edited.withNewCallee(callKey(edited), "Bell")
 		val bell = made.callees.values.single { it.name == "Bell" }.id
-		val ringing = made.plusStep(Slot(null, null, 0), StepDraft.Do("ring", plugDraft(SANDBOX_SWITCH, "toggle")), tree = bell)
+		val ringing = made.plusStep(Slot(null, null, 0), StepDraft.Action("ring", plugDraft(SANDBOX_DEVICE, "toggle")), tree = bell)
 
 		assertNull(functionSaveOf(callee, none, offer, false)!!.called)
 		assertEquals(listOf("chime" to 3L), functionSaveOf(edited, none, offer, false)!!.called!!.map { it.id to it.base })
@@ -115,15 +116,15 @@ class CallCardsTest {
 	}
 
 	@Test
-	fun theCallPickerLeavesOutItsOwnFunctionWhatCallsBackAndUnnamedOnes() {
+	fun theFunctionPickerLeavesOutItsOwnFunctionWhatRunsBackAndUnnamedOnes() {
 		val unnamed = functionRow("own", "", listOf("other"))
 		val calledBack = functionRow("back", "Back", listOf("other"), steps = listOf(call("warm-up")))
 		val wide = offerOf(SANDBOX_SERVES, away = false, functions = listOf(warmUp, chime, unnamed, calledBack))
 		val draft = opened(wide)
 
 		assertEquals(
-			listOf(CallChoice.Existing("chime", "Chime"), CallChoice.New),
-			callChoices(draft, wide, tree = null),
+			listOf(FunctionChoice.Existing("chime", "Chime"), FunctionChoice.New),
+			functionChoices(draft, wide, tree = null),
 		)
 	}
 
@@ -131,12 +132,12 @@ class CallCardsTest {
 	fun aCalleesCardsAreEditedMovedAndRemovedInItsOwnTreeAndSavedThatWay() {
 		val draft = opened().openedCallee("chime", offer)
 		val top = draft.stepsOf("chime").single().key
-		val added = draft.plusStep(Slot(null, null, 1), StepDraft.Note("n", "hello"), tree = "chime")
-		val renamed = added.movedTo("n", Slot(null, null, 0)).withStep("n") { (it as StepDraft.Note).copy(text = "bye") }
+		val added = draft.plusStep(Slot(null, null, 1), StepDraft.Comment("n", "hello"), tree = "chime")
+		val renamed = added.movedTo("n", Slot(null, null, 0)).withStep("n") { (it as StepDraft.Comment).copy(text = "bye") }
 		fun saved(of: com.atelier_nyaarium.switchboard.assistant.AutomationDraft) =
 			functionSaveOf(of, none, offer, false)!!.called?.single()?.body?.let { com.atelier_nyaarium.switchboard.assistant.written(it) }
 
-		assertEquals(listOf(FunctionStep.Note("bye"), plugStep("on")), saved(renamed))
+		assertEquals(listOf(FunctionStep.Comment("bye"), plugStep("on")), saved(renamed))
 		assertEquals(functionSaveOf(draft, none, offer, false)!!.function, functionSaveOf(renamed, none, offer, false)!!.function)
 		assertEquals(listOf(true, false), listOf(canRemove(added, top, offer), canRemove(draft, top, offer)))
 		assertNull(saved(renamed.minusStep("n")))
@@ -166,7 +167,7 @@ class CallCardsTest {
 	}
 
 	@Test
-	fun aCalleesCardReadsTheCalleesValuesAndTheAutomationsReadItsOwn() {
+	fun aCalleesCardReadsTheCalleesParamsAndTheAutomationsReadItsOwn() {
 		val draft = opened().openedCallee("chime", offer)
 		val calleeCard = draft.stepsOf("chime").single().key
 
@@ -177,47 +178,47 @@ class CallCardsTest {
 	}
 
 	@Test
-	fun aMovedRefusalNamingACalleeOffersThatCalleesReloadAndBlocksSave() {
+	fun aChangedRefusalNamingACalleeOffersThatCalleesReloadAndBlocksSave() {
 		val draft = opened().openedCallee("chime", offer)
 		fun said(id: String?) = outcomeOf(
-			AutomationSaved.Refused("moved", functionMoved = MovedFunction(id)),
+			AutomationSaved.Refused("changed", functionChanged = ChangedFunction(id)),
 			draft,
 			deleting = false,
 			draft.context,
 		)
 
-		assertEquals(AutomationOutcome.Said(AutomationSaid.FunctionMoved("chime")), said("chime"))
-		assertEquals(AutomationOutcome.Said(AutomationSaid.FunctionMoved("warm-up")), said(null))
-		assertEquals(AutomationOutcome.Said("moved"), said("elsewhere"))
-		val moved = AutomationSaid.FunctionMoved("chime")
-		assertEquals(false, com.atelier_nyaarium.switchboard.assistant.saveAllowedAfterCheck(null, moved, draft, offer))
-		assertEquals(CallLine.Moved("chime"), callLine(draft, offer, moved, "chime"))
+		assertEquals(AutomationOutcome.Said(AutomationSaid.FunctionChanged("chime")), said("chime"))
+		assertEquals(AutomationOutcome.Said(AutomationSaid.FunctionChanged("warm-up")), said(null))
+		assertEquals(AutomationOutcome.Said("changed"), said("elsewhere"))
+		val changed = AutomationSaid.FunctionChanged("chime")
+		assertEquals(false, com.atelier_nyaarium.switchboard.assistant.saveAllowedAfterCheck(null, changed, draft, offer))
+		assertEquals(RunFunctionLine.Changed("chime"), runFunctionLine(draft, offer, changed, "chime"))
 	}
 
 	@Test
-	fun aCallCardSaysWhenItsCalleeHoldsARefusalOrAProblem() {
+	fun aRunFunctionCardSaysWhenItsCalleeHoldsARefusalOrAProblem() {
 		val draft = opened().openedCallee("chime", offer)
 		val calleeCard = draft.stepsOf("chime").single().key
 		val inCallee = AutomationSaid.Field(SaidAt.Card(calleeCard, "device"), "invalid", "")
 		val atCall = AutomationSaid.Field(SaidAt.Card(callKey(draft), "count"), "invalid", "")
-		val broken = draft.plusStep(Slot(null, null, 1), StepDraft.Call("c2", "", emptyMap()), tree = "chime")
+		val broken = draft.plusStep(Slot(null, null, 1), StepDraft.RunFunction("c2", "", emptyMap()), tree = "chime")
 
-		assertEquals(CallLine.Attention, callLine(draft, offer, inCallee, "chime"))
-		assertEquals(null, callLine(draft, offer, atCall, "chime"))
-		assertEquals(CallLine.Attention, callLine(broken, offer, null, "chime"))
-		assertEquals(null, callLine(draft, offer, null, "chime"))
+		assertEquals(RunFunctionLine.CannotSave, runFunctionLine(draft, offer, inCallee, "chime"))
+		assertEquals(null, runFunctionLine(draft, offer, atCall, "chime"))
+		assertEquals(RunFunctionLine.CannotSave, runFunctionLine(broken, offer, null, "chime"))
+		assertEquals(null, runFunctionLine(draft, offer, null, "chime"))
 	}
 
 	@Test
-	fun aCalleesIssueLandsOnItsOwnCardAndMarksTheCallCard() {
+	fun aCalleesIssueLandsOnItsOwnCardAndMarksTheRunFunctionCard() {
 		val draft = opened().openedCallee("chime", offer)
 		val issue = AutomationIssue(level = "error", record = "function", id = "chime", step = "0", param = "device", line = "no such plug")
 		val drawn = drawnIssuesOf(listOf(issue), draft, flat = false, offer)
 		val unopened = drawnIssuesOf(listOf(issue), opened(), flat = false, offer)
 
 		assertEquals(listOf(draft.stepsOf("chime").single().key), drawn.cards.keys.toList())
-		assertEquals(CallLine.Attention, callLine(draft, offer, null, "chime", drawn.functions))
-		assertEquals(null, callLine(draft, offer, null, "chime"))
+		assertEquals(RunFunctionLine.Issues(IssueCount(1, 0)), runFunctionLine(draft, offer, null, "chime", drawn.functions))
+		assertEquals(null, runFunctionLine(draft, offer, null, "chime"))
 		// Unopened: named, no card.
 		assertEquals(listOf("Chime: no such plug"), unopened.rest.map { it.text })
 	}
@@ -225,7 +226,7 @@ class CallCardsTest {
 	@Test
 	fun aCalleeTheAutomationNoLongerCallsNeitherBlocksSaveNorCountsAsAChange() {
 		val draft = opened()
-		val orphaned = draft.plusStep(Slot(null, null, 1), StepDraft.Call("c2", "", emptyMap()))
+		val orphaned = draft.plusStep(Slot(null, null, 1), StepDraft.RunFunction("c2", "", emptyMap()))
 			.let { it.withNewCallee("c2", "Bell") }
 			.minusStep("c2")
 
@@ -240,28 +241,28 @@ class CallCardsTest {
 		val bell = functionRow("bell", "Bell", emptyList(), steps = listOf(plugStep("off")))
 		val edited = offerOf(SANDBOX_SERVES, away = false, functions = listOf(plain, chime, bell))
 		val draft = opened(edited)
-			.plusStep(Slot(null, null, 1), StepDraft.Call("c", "chime", emptyMap()))
+			.plusStep(Slot(null, null, 1), StepDraft.RunFunction("c", "chime", emptyMap()))
 			.openedCallee("chime", edited)
-			.plusStep(Slot(null, null, 1), StepDraft.Call("c3", "bell", emptyMap()), tree = "chime")
+			.plusStep(Slot(null, null, 1), StepDraft.RunFunction("c3", "bell", emptyMap()), tree = "chime")
 			.openedCallee("bell", edited)
 
-		assertEquals(false, callChoices(draft, edited, tree = "chime").contains(CallChoice.Existing("warm-up", "Warm up")))
-		assertEquals(CallLine.Moved("bell"), callLine(draft, edited, AutomationSaid.FunctionMoved("bell"), "chime"))
+		assertEquals(false, functionChoices(draft, edited, tree = "chime").contains(FunctionChoice.Existing("warm-up", "Warm up")))
+		assertEquals(RunFunctionLine.Changed("bell"), runFunctionLine(draft, edited, AutomationSaid.FunctionChanged("bell"), "chime"))
 	}
 
 	@Test
-	fun aValueTheTriggerGivesIsShownAsGivenAndOthersAreTyped() {
+	fun anArgTheTriggerGivesIsShownAsGivenAndOthersAreTyped() {
 		val given = functionRow(
 			"chime",
 			"Chime",
 			emptyList(),
-			params = listOf(FunctionParam("value", "number"), FunctionParam("label", "text")),
+			params = listOf(FunctionParam("reading", "number"), FunctionParam("label", "text")),
 		)
 		val draft = opened(offerOf(SANDBOX_SERVES, away = false, functions = listOf(warmUp, given)))
 
 		assertEquals(
 			listOf(ValueSource.FromTrigger, ValueSource.Unset),
-			com.atelier_nyaarium.switchboard.assistant.callRows(draft, draft.context.offer, none, "chime")!!.map { it.source },
+			com.atelier_nyaarium.switchboard.assistant.argRows(draft, draft.context.offer, none, "chime")!!.map { it.source },
 		)
 	}
 
@@ -276,13 +277,13 @@ class CallCardsTest {
 	}
 
 	@Test
-	fun aMovedCalleeTheAutomationNoLongerCallsLeavesSaveAlone() {
+	fun aChangedCalleeTheAutomationNoLongerRunsLeavesSaveAlone() {
 		val draft = opened().openedCallee("chime", offer)
-		val unhooked = draft.withStep(callKey(draft)) { (it as StepDraft.Call).copy(function = "") }
-		val moved = AutomationSaid.FunctionMoved("chime")
+		val unhooked = draft.withStep(callKey(draft)) { (it as StepDraft.RunFunction).copy(function = "") }
+		val changed = AutomationSaid.FunctionChanged("chime")
 
-		assertEquals(false, com.atelier_nyaarium.switchboard.assistant.saveAllowedAfterCheck(null, moved, draft, offer))
-		assertEquals(true, com.atelier_nyaarium.switchboard.assistant.saveAllowedAfterCheck(null, moved, unhooked, offer))
+		assertEquals(false, com.atelier_nyaarium.switchboard.assistant.saveAllowedAfterCheck(null, changed, draft, offer))
+		assertEquals(true, com.atelier_nyaarium.switchboard.assistant.saveAllowedAfterCheck(null, changed, unhooked, offer))
 	}
 
 	@Test
@@ -292,15 +293,15 @@ class CallCardsTest {
 		val callsBack = offerOf(SANDBOX_SERVES, away = false, functions = listOf(warmUp, chime, bell.copy(function = bell.function.copy(steps = listOf(call("warm-up"))))))
 		val broken = offerOf(SANDBOX_SERVES, away = false, functions = listOf(warmUp, chime.copy(invalid = "broken"), bell))
 
-		assertEquals(false, callChoices(draft, callsBack, tree = null).contains(CallChoice.Existing("bell", "Bell")))
-		assertEquals(CallLine.Attention, callLine(draft, broken, null, "chime"))
-		assertEquals(null, callLine(draft, offer, null, "chime"))
+		assertEquals(false, functionChoices(draft, callsBack, tree = null).contains(FunctionChoice.Existing("bell", "Bell")))
+		assertEquals(RunFunctionLine.Issues(IssueCount(1, 0)), runFunctionLine(draft, broken, null, "chime"))
+		assertEquals(null, runFunctionLine(draft, offer, null, "chime"))
 	}
 
 	@Test
 	fun anAnswerThatReplacesACalleeRebuildsTheEditorsCopyAndTypingDoesNot() {
 		val draft = opened().openedCallee("chime", offer)
-		val typed = draft.plusStep(Slot(null, null, 1), StepDraft.Exit("x"), tree = "chime")
+		val typed = draft.plusStep(Slot(null, null, 1), StepDraft.Return("x"), tree = "chime")
 		val reloaded = typed.reloadedCallee(chime.copy(revision = 9L), offer).first
 
 		assertEquals(mirrorKey(draft), mirrorKey(typed))
@@ -308,16 +309,16 @@ class CallCardsTest {
 	}
 
 	@Test
-	fun aFunctionPointedAtKeepsTheCallsItsEditsAddedSoThePickerSeesTheLoop() {
+	fun aFunctionPointedAtKeepsTheRunsItsEditsAddedSoThePickerSeesTheLoop() {
 		val bell = functionRow("bell", "Bell", emptyList(), steps = listOf(plugStep("off")))
 		val wide = offerOf(SANDBOX_SERVES, away = false, functions = listOf(warmUp, chime, bell))
 		val draft = opened(wide)
 			.openedCallee("chime", wide)
-			.plusStep(Slot(null, null, 1), StepDraft.Call("cb", "bell", emptyMap()), tree = "chime")
+			.plusStep(Slot(null, null, 1), StepDraft.RunFunction("cb", "bell", emptyMap()), tree = "chime")
 			.openedCallee("bell", wide)
 			.pointedTo(chime, wide)
 
-		assertEquals(false, callChoices(draft, wide, tree = "bell").contains(CallChoice.Existing("chime", "Chime")))
+		assertEquals(false, functionChoices(draft, wide, tree = "bell").contains(FunctionChoice.Existing("chime", "Chime")))
 	}
 
 	@Test
@@ -331,30 +332,30 @@ class CallCardsTest {
 	}
 
 	@Test
-	fun aValueTypedThenErasedLeavesTheCallAsItWas() {
-		val held = mapOf("count" to CallValue.Typed("2"))
+	fun anArgTypedThenErasedLeavesTheRunFunctionAsItWas() {
+		val held = mapOf("count" to FunctionArg.Typed("2"))
 
-		assertEquals(emptyMap<String, CallValue>(), com.atelier_nyaarium.switchboard.assistant.withCallValue(held, "count", CallValue.Typed(" ")))
-		assertEquals(held, com.atelier_nyaarium.switchboard.assistant.withCallValue(emptyMap(), "count", CallValue.Typed("2")))
+		assertEquals(emptyMap<String, FunctionArg>(), com.atelier_nyaarium.switchboard.assistant.withArg(held, "count", FunctionArg.Typed(" ")))
+		assertEquals(held, com.atelier_nyaarium.switchboard.assistant.withArg(emptyMap(), "count", FunctionArg.Typed("2")))
 	}
 
 	@Test
-	fun aValueItsFunctionNoLongerDeclaresIsDrawnAndSavedForTheGatewayToJudge() {
+	fun anArgItsFunctionNoLongerDeclaresIsDrawnAndSavedForTheGatewayToJudge() {
 		val draft = opened()
-		val stray = draft.withStep(callKey(draft)) { (it as StepDraft.Call).copy(values = mapOf("room" to CallValue.Typed("hall"))) }
-		val unpicked = draft.withStep(callKey(draft)) { (it as StepDraft.Call).copy(function = "") }
+		val stray = draft.withStep(callKey(draft)) { (it as StepDraft.RunFunction).copy(args = mapOf("room" to FunctionArg.Typed("hall"))) }
+		val unpicked = draft.withStep(callKey(draft)) { (it as StepDraft.RunFunction).copy(function = "") }
 
-		assertEquals(listOf("room"), com.atelier_nyaarium.switchboard.assistant.strayCallValues(stray.steps.single() as StepDraft.Call, chime.function.params))
+		assertEquals(listOf("room"), com.atelier_nyaarium.switchboard.assistant.strayArgs(stray.steps.single() as StepDraft.RunFunction, chime.function.params))
 		assertNull(draftRunsIssue(stray, none, offer))
 		val sent = functionSaveOf(stray, none, offer, false)!!.function as com.atelier_nyaarium.switchboard.proto.AutomationSaveFunction.Edit
-		assertEquals(listOf("room"), (com.atelier_nyaarium.switchboard.assistant.written(sent.body).single() as FunctionStep.Call).values!!.keys.toList())
+		assertEquals(listOf("room"), (com.atelier_nyaarium.switchboard.assistant.written(sent.body).single() as FunctionStep.RunFunction).args!!.keys.toList())
 		// No function: unwritable.
 		assertEquals(RunsIssue.NotAStep(callKey(draft)), draftRunsIssue(unpicked, none, offer))
 		assertNull(functionSaveOf(unpicked, none, offer, false))
 	}
 
 	@Test
-	fun aRefusalByPathNamesItsFunctionAndACallCardsFieldIsNotSaidTwice() {
+	fun aRefusalByPathNamesItsFunctionAndARunFunctionCardsFieldIsNotSaidTwice() {
 		val refusal = AutomationSaveRefusal(code = "invalid", record = "function", id = "chime", path = "steps.0.device")
 		val draft = opened()
 		val said = AutomationSaid.Field(SaidAt.Card(callKey(draft), "count"), "invalid", "")
@@ -371,10 +372,10 @@ class CallCardsTest {
 		val callsBack = offerOf(SANDBOX_SERVES, away = false, functions = listOf(warmUp, chime, bell.copy(function = bell.function.copy(steps = listOf(call("warm-up"))))))
 		val narrowed = chime.copy(revision = 4L, function = chime.function.copy(params = listOf(FunctionParam("count", "number"))))
 		val fewer = offerOf(SANDBOX_SERVES, away = false, functions = listOf(warmUp, narrowed, bell))
-		val labelled = opened.withStep(callKey(opened)) { (it as StepDraft.Call).copy(values = mapOf("label" to CallValue.Typed("hall"))) }
+		val labelled = opened.withStep(callKey(opened)) { (it as StepDraft.RunFunction).copy(args = mapOf("label" to FunctionArg.Typed("hall"))) }
 		val gone = offerOf(SANDBOX_SERVES, away = false, functions = listOf(warmUp, bell))
 
-		assertEquals(false, callChoices(opened, callsBack, tree = null).contains(CallChoice.Existing("bell", "Bell")))
+		assertEquals(false, functionChoices(opened, callsBack, tree = null).contains(FunctionChoice.Existing("bell", "Bell")))
 		assertEquals(listOf("count"), com.atelier_nyaarium.switchboard.assistant.calleeParams(opened, fewer, "chime")!!.map { it.name })
 		assertNull(draftRunsIssue(labelled, none, fewer))
 		assertNull(com.atelier_nyaarium.switchboard.assistant.calleeParams(opened, gone, "chime"))
@@ -389,19 +390,19 @@ class CallCardsTest {
 		val now = offerOf(SANDBOX_SERVES, away = false, functions = listOf(warmUp, ringing, bell))
 		val draft = opened(first).openedCallee("chime", first).copy(inside = emptyList())
 			.openedCallee("bell", first)
-			.plusStep(Slot(null, null, 1), StepDraft.Exit("stop"), tree = "bell")
+			.plusStep(Slot(null, null, 1), StepDraft.Return("stop"), tree = "bell")
 
 		assertEquals(listOf("bell"), functionSaveOf(draft, none, now, false)!!.called!!.map { it.id })
 		assertNull(functionSaveOf(draft, none, first, false)!!.called)
 	}
 
 	@Test
-	fun aListThatMovedReReadsUntouchedCopiesAndEditsNothingCallsAreSaidToBeLeft() {
+	fun aListThatChangedReReadsUntouchedCopiesAndEditsNothingRunsAreSaidToBeLeft() {
 		val bell = functionRow("bell", "Bell", emptyList(), steps = listOf(plugStep("off")))
 		val ringing = chime.copy(function = chime.function.copy(steps = listOf(call("bell"))))
 		val first = offerOf(SANDBOX_SERVES, away = false, functions = listOf(warmUp, ringing, bell))
 		val draft = opened(first).openedCallee("chime", first).openedCallee("bell", first)
-			.plusStep(Slot(null, null, 1), StepDraft.Exit("stop"), tree = "bell")
+			.plusStep(Slot(null, null, 1), StepDraft.Return("stop"), tree = "bell")
 		val quiet = offerOf(SANDBOX_SERVES, away = false, functions = listOf(warmUp, chime.copy(revision = 4L), bell))
 		val fresh = draft.freshened(quiet)
 
@@ -413,20 +414,20 @@ class CallCardsTest {
 	}
 
 	@Test
-	fun aCallCardSaysWhenATypedValueCannotBeRead() {
-		val step = StepDraft.Call("c", "chime", mapOf("count" to CallValue.Typed("2,5")))
+	fun aRunFunctionCardSaysWhenATypedArgCannotBeRead() {
+		val step = StepDraft.RunFunction("c", "chime", mapOf("count" to FunctionArg.Typed("2,5")))
 
 		assertEquals("count is a number", com.atelier_nyaarium.switchboard.assistant.cardHint(step, offer, emptySet(), listed(offer)))
-		assertNull(com.atelier_nyaarium.switchboard.assistant.cardHint(step.copy(values = mapOf("count" to CallValue.Typed("2"))), offer, emptySet(), listed(offer)))
+		assertNull(com.atelier_nyaarium.switchboard.assistant.cardHint(step.copy(args = mapOf("count" to FunctionArg.Typed("2"))), offer, emptySet(), listed(offer)))
 	}
 
 	@Test
 	fun pointingAtAnEditedCalleeCarriesItsEditsAndTheBaseItRead() {
-		val draft = opened().openedCallee("chime", offer).plusStep(Slot(null, null, 1), StepDraft.Exit("stop"), tree = "chime")
+		val draft = opened().openedCallee("chime", offer).plusStep(Slot(null, null, 1), StepDraft.Return("stop"), tree = "chime")
 		val pointing = draft.pointedTo(chime, offer).runsDraft() as RunsDraft.Pointing
 
 		assertEquals(chime.revision, pointing.base)
-		assertEquals(listOf(plugStep("on"), FunctionStep.Exit), pointing.steps.map { stepOfDraft(it, offer, pointing.params, listed(offer)) })
+		assertEquals(listOf(plugStep("on"), FunctionStep.Return), pointing.steps.map { stepOfDraft(it, offer, pointing.params, listed(offer)) })
 	}
 
 	@Test
@@ -435,6 +436,6 @@ class CallCardsTest {
 		val callee = draft.openedCallee("chime", offer)
 
 		assertEquals(false, callee.changedFrom(draft))
-		assertEquals(true, callee.plusStep(Slot(null, null, 0), StepDraft.Exit("x"), tree = "chime").changedFrom(draft))
+		assertEquals(true, callee.plusStep(Slot(null, null, 0), StepDraft.Return("x"), tree = "chime").changedFrom(draft))
 	}
 }

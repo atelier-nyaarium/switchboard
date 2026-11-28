@@ -14,9 +14,9 @@ import com.atelier_nyaarium.switchboard.assistant.fittingAutomation
 import com.atelier_nyaarium.switchboard.assistant.refusedAtOf
 import com.atelier_nyaarium.switchboard.assistant.functionSaveOf
 import com.atelier_nyaarium.switchboard.assistant.RefusedAt
-import com.atelier_nyaarium.switchboard.assistant.RefusedHole
-import com.atelier_nyaarium.switchboard.assistant.refusedHoleOf
-import com.atelier_nyaarium.switchboard.assistant.movedAutomation
+import com.atelier_nyaarium.switchboard.assistant.RefusedPlaceholder
+import com.atelier_nyaarium.switchboard.assistant.refusedPlaceholderOf
+import com.atelier_nyaarium.switchboard.assistant.changedAutomation
 import com.atelier_nyaarium.switchboard.assistant.movesWithHome
 import com.atelier_nyaarium.switchboard.assistant.pointerOf
 import com.atelier_nyaarium.switchboard.assistant.RunsDraft
@@ -56,7 +56,7 @@ internal data class AutomationListing(
 internal interface AutomationGateway {
 	suspend fun list(gatewayId: String): AutomationListing
 
-	/** `confirmed` once the owner agreed to its dangerous actions. */
+	/** `confirmed` once the owner confirmed its actions. */
 	suspend fun put(
 		gatewayId: String,
 		automationId: String,
@@ -139,21 +139,21 @@ internal sealed interface AutomationSaved {
 	/** Null after a delete. */
 	data class Stored(val row: AutomationRow?, val issues: List<AutomationIssue> = emptyList()) : AutomationSaved
 
-	/** The held row names what it lost to; `confirm` and `hole` say what to ask or mark. */
+	/** The held row names what it lost to; `confirm` and `placeholder` say what to ask or mark. */
 	data class Refused(
 		val reason: String,
 		val heldRow: AutomationRow? = null,
 		val confirm: List<String> = emptyList(),
-		val hole: RefusedHole? = null,
+		val placeholder: RefusedPlaceholder? = null,
 		val at: RefusedAt? = null,
-		val functionMoved: MovedFunction? = null,
+		val functionChanged: ChangedFunction? = null,
 	) : AutomationSaved
 
 	data object Unreachable : AutomationSaved
 }
 
 /** Rebases only onto a held row. */
-internal fun keptRow(held: Lookup<AutomationRow>): AutomationRow? = when (held) {
+internal fun foundRow(held: Lookup<AutomationRow>): AutomationRow? = when (held) {
 	is Lookup.Found -> held.row
 	Lookup.Gone, Lookup.Reading, Lookup.Unreachable, Lookup.NotServed -> null
 }
@@ -169,23 +169,23 @@ internal fun automationSavedOf(
 			automationSaveLine(Protocol.Wire.AutomationSaveRefusalCode.CONFIRM, answer.refusal),
 			confirm = read.labels,
 		)
-		is SaveAnswer.Hole -> AutomationSaved.Refused(
-			automationSaveLine(Protocol.Wire.AutomationSaveRefusalCode.HOLE, answer.refusal),
-			hole = refusedHoleOf(read),
+		is SaveAnswer.Placeholder -> AutomationSaved.Refused(
+			automationSaveLine(Protocol.Wire.AutomationSaveRefusalCode.PLACEHOLDER, answer.refusal),
+			placeholder = refusedPlaceholderOf(read),
 		)
 		is SaveAnswer.Refused -> AutomationSaved.Refused(
 			automationSaveLine(read.code, read.refusal, id),
-			heldRow = heldRow.takeIf { movedAutomation(read) },
+			heldRow = heldRow.takeIf { changedAutomation(read) },
 			at = refusedAtOf(read.refusal),
-			functionMoved = MovedFunction(read.refusal.id).takeIf {
-				read.code == Protocol.Wire.AutomationSaveRefusalCode.MOVED &&
+			functionChanged = ChangedFunction(read.refusal.id).takeIf {
+				read.code == Protocol.Wire.AutomationSaveRefusalCode.CHANGED &&
 					read.refusal.record == Protocol.Wire.AutomationSaveRecord.FUNCTION.wire
 			},
 		)
 	}
 
 /** `null` means pointed function. */
-internal data class MovedFunction(val id: String?)
+internal data class ChangedFunction(val id: String?)
 
 internal data class AutomationDraftKey(val gatewayId: String, val slot: AutomationSlot)
 
@@ -294,7 +294,7 @@ internal class AutomationOps(
 				automationSavedOf(
 					written.answer,
 					op.automationId,
-					keptRow(state.value.gateways.automationOn(gatewayId, op.automationId)),
+					foundRow(state.value.gateways.automationOn(gatewayId, op.automationId)),
 				)
 			}
 		}
@@ -418,7 +418,7 @@ internal class AutomationOps(
 				refresh(gatewayId)
 				val deleted = written.answer
 				if (deleted.deleted) AutomationSaved.Stored(null)
-				else AutomationSaved.Refused(deleted.reason ?: "This Gateway kept it", keptRow(state.value.gateways.automationOn(gatewayId, id)))
+				else AutomationSaved.Refused(deleted.reason ?: "This Gateway did not delete it.", foundRow(state.value.gateways.automationOn(gatewayId, id)))
 			}
 		}
 
@@ -491,7 +491,7 @@ internal class AutomationOps(
 				// Nothing newer was read.
 				row.revision == base -> {
 					tell(leftLine("", "Automation", GATEWAY_UNREACHABLE))
-					EditOutcome.Stays(AutomationSaid.FunctionMoved(id))
+					EditOutcome.Stays(AutomationSaid.FunctionChanged(id))
 				}
 				else -> {
 					val (draft, dropped) = if (callee != null) sent.reloadedCallee(row, context.offer) else sent.reloadedFunction(row, context.offer)
@@ -507,7 +507,7 @@ internal class AutomationOps(
 			answer.reason ?: "This Gateway holds a different copy",
 			answer.row,
 			answer.confirm.orEmpty(),
-			answer.hole?.let(::refusedHoleOf),
+			answer.placeholder?.let(::refusedPlaceholderOf),
 		)
 	}
 

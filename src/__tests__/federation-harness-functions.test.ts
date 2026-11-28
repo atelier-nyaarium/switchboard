@@ -73,7 +73,7 @@ describe("automations beside a stored function", () => {
 	});
 
 	it("still wakes for the four event automations, tells the crossing, and asks IFTTT for a step inside a function", async () => {
-		const mention = { field: "kind", test: "is", value: "mention" } as const;
+		const mention = { field: "kind", operator: "is", value: "mention" } as const;
 		const reading = (advert: typeof WARM) =>
 			h.phone.value({ kind: "device_reading_post", id: SENSOR, advert, at: h.now() });
 		await h.phone.send({
@@ -154,7 +154,7 @@ describe("automations beside a stored function", () => {
 						params: [],
 						steps: [
 							{
-								kind: "do",
+								kind: "action",
 								action: "ifttt_trigger",
 								args: {
 									event: { kind: "literal", value: "bell" },
@@ -213,7 +213,7 @@ describe("automations beside a stored function", () => {
 							params: [],
 							steps: [
 								{
-									kind: "do",
+									kind: "action",
 									action: "tell_assistant",
 									args: { when: { kind: "literal", value: "now" } },
 								},

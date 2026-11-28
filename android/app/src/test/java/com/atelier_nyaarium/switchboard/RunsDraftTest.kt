@@ -3,15 +3,15 @@ package com.atelier_nyaarium.switchboard
 import com.atelier_nyaarium.switchboard.assistant.ActionDraft
 import com.atelier_nyaarium.switchboard.assistant.StepDraft
 import com.atelier_nyaarium.switchboard.assistant.EditContext
-import com.atelier_nyaarium.switchboard.assistant.FunctionValueDraft
-import com.atelier_nyaarium.switchboard.assistant.FunctionValueReference
+import com.atelier_nyaarium.switchboard.assistant.FunctionParamDraft
+import com.atelier_nyaarium.switchboard.assistant.FunctionParamReference
 import com.atelier_nyaarium.switchboard.assistant.PointMode
 import com.atelier_nyaarium.switchboard.assistant.SourceFields
 import com.atelier_nyaarium.switchboard.assistant.automationDraftOf
 import com.atelier_nyaarium.switchboard.assistant.functionSaveOf
 import com.atelier_nyaarium.switchboard.assistant.offerOf
 import com.atelier_nyaarium.switchboard.assistant.pointedAt
-import com.atelier_nyaarium.switchboard.proto.AutomationSwitchOffer
+import com.atelier_nyaarium.switchboard.proto.AutomationDeviceOffer
 import com.atelier_nyaarium.switchboard.proto.ConsoleAutomationListResult
 import kotlinx.serialization.json.jsonPrimitive
 import com.atelier_nyaarium.switchboard.assistant.RunsDraft
@@ -38,7 +38,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RunsDraftTest {
-	private val expression = FunctionStep.Do(
+	private val expression = FunctionStep.Action(
 		action = "device_set",
 		args = JsonObject(
 			mapOf(
@@ -59,7 +59,7 @@ class RunsDraftTest {
 	)
 	private val pointer = AutomationAction.RunFunction(
 		function = "blink",
-		values = buildJsonObject { put("lamp", SANDBOX_SWITCH) },
+		args = buildJsonObject { put("lamp", SANDBOX_DEVICE) },
 	)
 	private fun open(actions: List<AutomationAction>) =
 		runsDraftOf("mine", Automation(enabled = true, trigger = CROSSING, actions = actions), listOf(blink), FN_OFFER)
@@ -74,29 +74,29 @@ class RunsDraftTest {
 		}
 
 	@Test
-	fun anUnchangedPointerSavesItsOwnValuesAndLeavesTheFunctionAlone() {
+	fun anUnchangedPointerSavesItsOwnArgsAndLeavesTheFunctionAlone() {
 		val runs = open(listOf(pointer)) as RunsDraft.Pointing
 
-		assertTrue((runs.steps[0] as StepDraft.Do).action is ActionDraft.Filled)
+		assertTrue((runs.steps[0] as StepDraft.Action).action is ActionDraft.Filled)
 		val lamp = runs.params.single { it.param.name == "lamp" }
-		assertEquals(mapOf("device" to FunctionValueReference(lamp.key, "lamp")), ((runs.steps[1] as StepDraft.Do).action as ActionDraft.Filled).references)
+		assertEquals(mapOf("device" to FunctionParamReference(lamp.key, "lamp")), ((runs.steps[1] as StepDraft.Action).action as ActionDraft.Filled).references)
 		val timesKey = runs.params.single { it.param.name == "times" }.key
-		val op = save(runs.copy(values = runs.values + (timesKey to "3")))!!
+		val op = save(runs.copy(args = runs.args + (timesKey to "3")))!!
 
 		assertNull(op.function)
 		assertEquals(3L, op.functionBase)
 		val sent = written(op.automation).single() as AutomationAction.RunFunction
 		assertEquals("blink", sent.function)
 		assertEquals(buildJsonObject {
-			put("lamp", SANDBOX_SWITCH)
+			put("lamp", SANDBOX_DEVICE)
 			put("times", 3)
-		}, sent.values)
+		}, sent.args)
 	}
 
 	@Test
-	fun anEditedBodyIsAnEditAndAKeptStepGoesBackAsItCame() {
+	fun anEditedBodyIsAnEditAndAScriptOnlyStepGoesBackAsItCame() {
 		val runs = open(listOf(pointer)) as RunsDraft.Pointing
-		val first = runs.steps[0] as StepDraft.Do
+		val first = runs.steps[0] as StepDraft.Action
 		val edited = runs.copy(steps = listOf(first.copy(action = withValue(first.action, "verb", "off")), runs.steps[1]))
 
 		val function = save(edited)!!.function as AutomationSaveFunction.Edit
@@ -114,15 +114,15 @@ class RunsDraftTest {
 	}
 
 	@Test
-	fun aNameMakesOwnStepsAFunctionAndClearingItMakesThemOwnAgain() {
-		val own = open(listOf(AutomationAction.DeviceSet(SANDBOX_SWITCH, "on"))) as RunsDraft.Flat
+	fun aNameMakesFlatStepsAFunctionAndClearingItMakesThemFlatAgain() {
+		val own = open(listOf(AutomationAction.DeviceSet(SANDBOX_DEVICE, "on"))) as RunsDraft.Flat
 		assertNull(save(own)!!.function)
-		assertEquals(listOf<AutomationAction>(AutomationAction.DeviceSet(SANDBOX_SWITCH, "on")), written(save(own)!!.automation))
+		assertEquals(listOf<AutomationAction>(AutomationAction.DeviceSet(SANDBOX_DEVICE, "on")), written(save(own)!!.automation))
 
 		// Sole user: the steps come back as its own.
 		val soleRow = functionRow("solo", "Solo", listOf("mine"), steps = listOf(plugStep("on")))
 		val sole = pointedAt(RunsDraft.Flat(emptyList()), "mine", soleRow, FN_OFFER).copy(name = "")
-		assertEquals(listOf<AutomationAction>(AutomationAction.DeviceSet(SANDBOX_SWITCH, "on")), written(save(sole)!!.automation))
+		assertEquals(listOf<AutomationAction>(AutomationAction.DeviceSet(SANDBOX_DEVICE, "on")), written(save(sole)!!.automation))
 		// Shared: nothing is built.
 		val sharedRow = functionRow("shared", "Shared", listOf("mine", "other"), steps = listOf(plugStep("on")))
 		val sharedOffer = offerOf(SANDBOX_SERVES, away = false, functions = listOf(sharedRow))
@@ -130,17 +130,17 @@ class RunsDraftTest {
 	}
 
 	@Test
-	fun aPlugValueExpressionDrawsAndWritesBackButOtherExpressionsAndAsStayKept() {
-		val params = listOf(FunctionValueDraft("lamp-row", FunctionParam("lamp", "device")))
+	fun aDeviceParamExpressionDrawsAndWritesBackButOtherExpressionsAndAsStayUnsupported() {
+		val params = listOf(FunctionParamDraft("lamp-row", FunctionParam("lamp", "device")))
 		val drawn = stepDraftOf(expression, FN_OFFER, params) as ActionDraft.Filled
-		assertEquals(mapOf("device" to FunctionValueReference("lamp-row", "lamp")), drawn.references)
+		assertEquals(mapOf("device" to FunctionParamReference("lamp-row", "lamp")), drawn.references)
 		assertEquals(expression, stepOf(drawn, FN_OFFER, params))
 		val unknown = expression.copy(args = JsonObject(mapOf(
 			"device" to buildJsonObject { put("kind", "expression"); put("text", "missing") },
 			"verb" to literal("toggle"),
 		)))
-		assertTrue(stepDraftOf(unknown, FN_OFFER, params) is ActionDraft.Kept)
-		assertTrue(stepDraftOf(expression.copy(`as` = "result"), FN_OFFER, params) is ActionDraft.Kept)
+		assertTrue(stepDraftOf(unknown, FN_OFFER, params) is ActionDraft.Unsupported)
+		assertTrue(stepDraftOf(expression.copy(`as` = "result"), FN_OFFER, params) is ActionDraft.Unsupported)
 		// The name is read as a token: spacing around it is nothing, anything more is another expression.
 		val written = { text: String ->
 			expression.copy(args = JsonObject(mapOf(
@@ -149,17 +149,17 @@ class RunsDraftTest {
 			)))
 		}
 		assertEquals(drawn.references, (stepDraftOf(written(" lamp\n"), FN_OFFER, params) as ActionDraft.Filled).references)
-		assertTrue(stepDraftOf(written("lamp + lamp"), FN_OFFER, params) is ActionDraft.Kept)
-		val edited = withReference(ActionDraft.Filled("device_set", mapOf("device" to SANDBOX_SWITCH, "verb" to "toggle")), "device", FunctionValueReference("lamp-row", "lamp"))
+		assertTrue(stepDraftOf(written("lamp + lamp"), FN_OFFER, params) is ActionDraft.Unsupported)
+		val edited = withReference(ActionDraft.Filled("device_set", mapOf("device" to SANDBOX_DEVICE, "verb" to "toggle")), "device", FunctionParamReference("lamp-row", "lamp"))
 		assertEquals(expression, stepOf(edited, FN_OFFER, params))
 	}
 
 	@Test
 	fun aPointerWhoseFunctionIsNotListedIsSavedAsSent() {
-		val lost = AutomationAction.RunFunction(function = "unread", values = buildJsonObject { put("x", JsonPrimitive(1)) })
+		val lost = AutomationAction.RunFunction(function = "unread", args = buildJsonObject { put("x", JsonPrimitive(1)) })
 		val runs = open(listOf(lost))
 
-		assertEquals(RunsDraft.Kept(lost), runs)
+		assertEquals(RunsDraft.Unlisted(lost), runs)
 		val op = save(runs)!!
 		assertNull(op.function)
 		assertEquals(listOf<AutomationAction>(lost), written(op.automation))
@@ -170,8 +170,8 @@ class RunsDraftTest {
 		val text = javaClass.classLoader!!.getResourceAsStream("protocol/automation-list-result-functions.json")!!.bufferedReader().use { it.readText() }
 		val listed = wireJson.decodeFromString(ConsoleAutomationListResult.serializer(), text)
 		val row = listed.automations.single()
-		val room = (written(row.automation).single() as AutomationAction.RunFunction).values!!.getValue("room").jsonPrimitive.content
-		val offer = offerOf(SANDBOX_SERVES.copy(switches = listOf(AutomationSwitchOffer(room, "Room"))), away = false, functions = listed.functions)
+		val room = (written(row.automation).single() as AutomationAction.RunFunction).args!!.getValue("room").jsonPrimitive.content
+		val offer = offerOf(SANDBOX_SERVES.copy(devices = listOf(AutomationDeviceOffer(room, "Room"))), away = false, functions = listed.functions)
 		val draft = automationDraftOf(row, EditContext(offer, emptyList()))!!
 
 		assertNull(functionSaveOf(draft, SourceFields(emptyList()), offer, confirmed = false)!!.function)

@@ -89,7 +89,7 @@ class GatewayScopedStateTest {
 		assertEquals(null, com.atelier_nyaarium.switchboard.runbooks.fireable(unread.runbookOn("sakura", "shared")))
 		assertEquals("Here", com.atelier_nyaarium.switchboard.vault.policyLabel(state.policyOn("sakura", "apt"), "apt"))
 		assertEquals("apt", com.atelier_nyaarium.switchboard.vault.policyLabel(unread.policyOn("sakura", "apt"), "apt"))
-		assertEquals(null, keptRow(unread.automationOn("sakura", "a")))
+		assertEquals(null, foundRow(unread.automationOn("sakura", "a")))
 	}
 
 	@Test
@@ -100,7 +100,7 @@ class GatewayScopedStateTest {
 
 		assertEquals(listOf(null, null, null, null), lookups.map { com.atelier_nyaarium.switchboard.runbooks.fireable(it) })
 		assertEquals(listOf("apt", "apt", "apt", "apt"), lookups.map { com.atelier_nyaarium.switchboard.vault.policyLabel(it, "apt") })
-		assertEquals(listOf(null, null, null, null), lookups.map { keptRow(it) })
+		assertEquals(listOf(null, null, null, null), lookups.map { foundRow(it) })
 		val shelves = lists.map { com.atelier_nyaarium.switchboard.routines.runbookShelf(it) }
 		assertEquals(listOf(true, true, true, false), shelves.map { it.line != null })
 		assertEquals(4, shelves.map { it.line }.distinct().size)

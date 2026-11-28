@@ -1,5 +1,11 @@
 {
 	"kind": "event",
 	"source": "github",
-	"conditions": [{ "field": "reason", "test": "is", "value": "mention" }]
+	"conditions": [
+		{
+			"field": "reason",
+			"operator": "is",
+			"value": "mention"
+		}
+	]
 }

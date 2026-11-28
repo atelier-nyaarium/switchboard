@@ -917,7 +917,7 @@
 			]
 		},
 		{
-			"name": "a hole in a string is lexed where it stands",
+			"name": "a placeholder in a string is lexed where it stands",
 			"input": "\"Room {device} is {value + 1} C\"",
 			"tokens": [
 				{
@@ -934,7 +934,7 @@
 							"end": 6
 						},
 						{
-							"kind": "hole",
+							"kind": "placeholder",
 							"tokens": [
 								{
 									"kind": "ident",
@@ -954,7 +954,7 @@
 							"end": 18
 						},
 						{
-							"kind": "hole",
+							"kind": "placeholder",
 							"tokens": [
 								{
 									"kind": "ident",
@@ -990,7 +990,7 @@
 			]
 		},
 		{
-			"name": "a quote inside a hole opens a string of its own",
+			"name": "a quote inside a placeholder opens a string of its own",
 			"input": "\"{sensors.value(\"Hall\", \"t\")} C\"",
 			"tokens": [
 				{
@@ -1001,7 +1001,7 @@
 					"closed": true,
 					"parts": [
 						{
-							"kind": "hole",
+							"kind": "placeholder",
 							"tokens": [
 								{
 									"kind": "ident",
@@ -1087,7 +1087,7 @@
 			]
 		},
 		{
-			"name": "a string inside a hole holds a hole",
+			"name": "a string inside a placeholder holds a placeholder",
 			"input": "\"{a + 'b{c}d'}\"",
 			"tokens": [
 				{
@@ -1098,7 +1098,7 @@
 					"closed": true,
 					"parts": [
 						{
-							"kind": "hole",
+							"kind": "placeholder",
 							"tokens": [
 								{
 									"kind": "ident",
@@ -1126,7 +1126,7 @@
 											"end": 8
 										},
 										{
-											"kind": "hole",
+											"kind": "placeholder",
 											"tokens": [
 												{
 													"kind": "ident",
@@ -1157,7 +1157,7 @@
 			]
 		},
 		{
-			"name": "a hole's own braces nest",
+			"name": "a placeholder's own braces nest",
 			"input": "\"{ {k: 1}.k }\"",
 			"tokens": [
 				{
@@ -1168,7 +1168,7 @@
 					"closed": true,
 					"parts": [
 						{
-							"kind": "hole",
+							"kind": "placeholder",
 							"tokens": [
 								{
 									"kind": "punct",
@@ -1222,7 +1222,7 @@
 			]
 		},
 		{
-			"name": "an escaped brace is no hole, and a lone closing brace is text",
+			"name": "an escaped brace is no placeholder, and a lone closing brace is text",
 			"input": "\"a \\{b\\} } c\"",
 			"tokens": [
 				{
@@ -1268,7 +1268,7 @@
 			]
 		},
 		{
-			"name": "an open hole runs to the end and leaves its string open",
+			"name": "an open placeholder runs to the end and leaves its string open",
 			"input": "\"a {b + 1",
 			"tokens": [
 				{
@@ -1285,7 +1285,7 @@
 							"end": 3
 						},
 						{
-							"kind": "hole",
+							"kind": "placeholder",
 							"tokens": [
 								{
 									"kind": "ident",
@@ -1315,7 +1315,7 @@
 			]
 		},
 		{
-			"name": "a hole in a quoted string ends with its line, as its string does",
+			"name": "a placeholder in a quoted string ends with its line, as its string does",
 			"input": "\"a {b +\n1} c\" d",
 			"tokens": [
 				{
@@ -1332,7 +1332,7 @@
 							"end": 3
 						},
 						{
-							"kind": "hole",
+							"kind": "placeholder",
 							"tokens": [
 								{
 									"kind": "ident",
@@ -1427,7 +1427,7 @@
 			]
 		},
 		{
-			"name": "an empty hole",
+			"name": "an empty placeholder",
 			"input": "\"a {} b\"",
 			"tokens": [
 				{
@@ -1444,7 +1444,7 @@
 							"end": 3
 						},
 						{
-							"kind": "hole",
+							"kind": "placeholder",
 							"tokens": [],
 							"closed": true,
 							"start": 3,
@@ -1502,7 +1502,7 @@
 					"closed": false,
 					"parts": [
 						{
-							"kind": "hole",
+							"kind": "placeholder",
 							"tokens": [
 								{
 									"kind": "string",
@@ -1512,7 +1512,7 @@
 									"closed": false,
 									"parts": [
 										{
-											"kind": "hole",
+											"kind": "placeholder",
 											"tokens": [
 												{
 													"kind": "string",
@@ -1522,7 +1522,7 @@
 													"closed": false,
 													"parts": [
 														{
-															"kind": "hole",
+															"kind": "placeholder",
 															"tokens": [
 																{
 																	"kind": "string",
@@ -1532,7 +1532,7 @@
 																	"closed": false,
 																	"parts": [
 																		{
-																			"kind": "hole",
+																			"kind": "placeholder",
 																			"tokens": [
 																				{
 																					"kind": "string",
@@ -1542,7 +1542,7 @@
 																					"closed": false,
 																					"parts": [
 																						{
-																							"kind": "hole",
+																							"kind": "placeholder",
 																							"tokens": [
 																								{
 																									"kind": "string",
@@ -1552,7 +1552,7 @@
 																									"closed": false,
 																									"parts": [
 																										{
-																											"kind": "hole",
+																											"kind": "placeholder",
 																											"tokens": [
 																												{
 																													"kind": "string",
@@ -1562,7 +1562,7 @@
 																													"closed": false,
 																													"parts": [
 																														{
-																															"kind": "hole",
+																															"kind": "placeholder",
 																															"tokens": [
 																																{
 																																	"kind": "string",
@@ -1572,7 +1572,7 @@
 																																	"closed": false,
 																																	"parts": [
 																																		{
-																																			"kind": "hole",
+																																			"kind": "placeholder",
 																																			"tokens": [
 																																				{
 																																					"kind": "string",
@@ -1582,7 +1582,7 @@
 																																					"closed": false,
 																																					"parts": [
 																																						{
-																																							"kind": "hole",
+																																							"kind": "placeholder",
 																																							"tokens": [
 																																								{
 																																									"kind": "error",
@@ -1670,7 +1670,7 @@
 			]
 		},
 		{
-			"name": "a hole between two runs",
+			"name": "a placeholder between two runs",
 			"input": "It is {value} outside.",
 			"parts": [
 				{
@@ -1680,7 +1680,7 @@
 					"end": 6
 				},
 				{
-					"kind": "hole",
+					"kind": "placeholder",
 					"tokens": [
 						{
 							"kind": "ident",
@@ -1702,11 +1702,11 @@
 			]
 		},
 		{
-			"name": "a hole at each end",
+			"name": "a placeholder at each end",
 			"input": "{device}: {value}",
 			"parts": [
 				{
-					"kind": "hole",
+					"kind": "placeholder",
 					"tokens": [
 						{
 							"kind": "ident",
@@ -1726,7 +1726,7 @@
 					"end": 10
 				},
 				{
-					"kind": "hole",
+					"kind": "placeholder",
 					"tokens": [
 						{
 							"kind": "ident",
@@ -1752,7 +1752,7 @@
 					"end": 8
 				},
 				{
-					"kind": "hole",
+					"kind": "placeholder",
 					"tokens": [
 						{
 							"kind": "ident",
@@ -1778,7 +1778,7 @@
 					"end": 7
 				},
 				{
-					"kind": "hole",
+					"kind": "placeholder",
 					"tokens": [
 						{
 							"kind": "ident",
@@ -1794,11 +1794,11 @@
 			]
 		},
 		{
-			"name": "a dict inside a hole nests",
+			"name": "a dict inside a placeholder nests",
 			"input": "{ {k: 1}.k } after",
 			"parts": [
 				{
-					"kind": "hole",
+					"kind": "placeholder",
 					"tokens": [
 						{
 							"kind": "punct",
@@ -1856,7 +1856,7 @@
 			]
 		},
 		{
-			"name": "a closing brace in a hole's string does not close the hole",
+			"name": "a closing brace in a placeholder's string does not close the placeholder",
 			"input": "say {if(a, \"}\", '\\{')} done",
 			"parts": [
 				{
@@ -1866,7 +1866,7 @@
 					"end": 4
 				},
 				{
-					"kind": "hole",
+					"kind": "placeholder",
 					"tokens": [
 						{
 							"kind": "ident",
@@ -1950,7 +1950,7 @@
 			]
 		},
 		{
-			"name": "an opening brace in a hole's string opens a hole of its own",
+			"name": "an opening brace in a placeholder's string opens a placeholder of its own",
 			"input": "say {a + '{b}'} done",
 			"parts": [
 				{
@@ -1960,7 +1960,7 @@
 					"end": 4
 				},
 				{
-					"kind": "hole",
+					"kind": "placeholder",
 					"tokens": [
 						{
 							"kind": "ident",
@@ -1982,7 +1982,7 @@
 							"closed": true,
 							"parts": [
 								{
-									"kind": "hole",
+									"kind": "placeholder",
 									"tokens": [
 										{
 											"kind": "ident",
@@ -2011,11 +2011,11 @@
 			]
 		},
 		{
-			"name": "a quote in a hole opens a string, which a line break ends",
+			"name": "a quote in a placeholder opens a string, which a line break ends",
 			"input": "{a + 'b\nc} d",
 			"parts": [
 				{
-					"kind": "hole",
+					"kind": "placeholder",
 					"tokens": [
 						{
 							"kind": "ident",
@@ -2069,7 +2069,7 @@
 			"input": "{\"a\\\"}\"} tail",
 			"parts": [
 				{
-					"kind": "hole",
+					"kind": "placeholder",
 					"tokens": [
 						{
 							"kind": "string",
@@ -2113,7 +2113,7 @@
 			]
 		},
 		{
-			"name": "an empty hole",
+			"name": "an empty placeholder",
 			"input": "a {} b",
 			"parts": [
 				{
@@ -2123,7 +2123,7 @@
 					"end": 2
 				},
 				{
-					"kind": "hole",
+					"kind": "placeholder",
 					"tokens": [],
 					"closed": true,
 					"start": 2,
@@ -2198,7 +2198,7 @@
 			]
 		},
 		{
-			"name": "a quote in a hole opens a string",
+			"name": "a quote in a placeholder opens a string",
 			"input": "It is {if(cold, \"brr\", \"ok\")} now",
 			"parts": [
 				{
@@ -2208,7 +2208,7 @@
 					"end": 6
 				},
 				{
-					"kind": "hole",
+					"kind": "placeholder",
 					"tokens": [
 						{
 							"kind": "ident",
@@ -2292,11 +2292,11 @@
 			]
 		},
 		{
-			"name": "a string in a hole reads the quoted escapes",
+			"name": "a string in a placeholder reads the quoted escapes",
 			"input": "{\"a\\n\\\"b\\\"\"}",
 			"parts": [
 				{
-					"kind": "hole",
+					"kind": "placeholder",
 					"tokens": [
 						{
 							"kind": "string",
@@ -2346,7 +2346,7 @@
 			]
 		},
 		{
-			"name": "an open hole runs to the end",
+			"name": "an open placeholder runs to the end",
 			"input": "It is {value outside",
 			"parts": [
 				{
@@ -2356,7 +2356,7 @@
 					"end": 6
 				},
 				{
-					"kind": "hole",
+					"kind": "placeholder",
 					"tokens": [
 						{
 							"kind": "ident",
@@ -2378,7 +2378,7 @@
 			]
 		},
 		{
-			"name": "a hole in a text may pass its line, a string inside it may not",
+			"name": "a placeholder in a text may pass its line, a string inside it may not",
 			"input": "It is {if(x,\n 1, \"a\nb\")} now",
 			"parts": [
 				{
@@ -2388,7 +2388,7 @@
 					"end": 6
 				},
 				{
-					"kind": "hole",
+					"kind": "placeholder",
 					"tokens": [
 						{
 							"kind": "ident",
@@ -2472,7 +2472,7 @@
 			]
 		},
 		{
-			"name": "a surrogate pair before a hole",
+			"name": "a surrogate pair before a placeholder",
 			"input": "\ud83d\ude00 {x}",
 			"parts": [
 				{
@@ -2482,7 +2482,7 @@
 					"end": 3
 				},
 				{
-					"kind": "hole",
+					"kind": "placeholder",
 					"tokens": [
 						{
 							"kind": "ident",
@@ -2501,7 +2501,7 @@
 	"scripts": [
 		{
 			"name": "a statement to a line",
-			"input": "devices.set(\"Desk lamp\", \"on\")\nexit",
+			"input": "devices.set(\"Desk lamp\", \"on\")\nreturn",
 			"tokens": [
 				{
 					"kind": "ident",
@@ -2579,15 +2579,15 @@
 				},
 				{
 					"kind": "ident",
-					"text": "exit",
+					"text": "return",
 					"start": 31,
-					"end": 35
+					"end": 37
 				}
 			]
 		},
 		{
 			"name": "an if with an else if and an else",
-			"input": "if (value > 1) {\n\twait(5)\n} else if (cold) {\n\texit\n} else {\n\tthrow \"no\"\n}",
+			"input": "if (reading > 1) {\n\twait(5)\n} else if (cold) {\n\treturn\n} else {\n\tthrow \"no\"\n}",
 			"tokens": [
 				{
 					"kind": "ident",
@@ -2603,187 +2603,187 @@
 				},
 				{
 					"kind": "ident",
-					"text": "value",
+					"text": "reading",
 					"start": 4,
-					"end": 9
+					"end": 11
 				},
 				{
 					"kind": "op",
 					"text": ">",
-					"start": 10,
-					"end": 11
-				},
-				{
-					"kind": "number",
-					"text": "1",
 					"start": 12,
 					"end": 13
 				},
 				{
-					"kind": "punct",
-					"text": ")",
-					"start": 13,
-					"end": 14
+					"kind": "number",
+					"text": "1",
+					"start": 14,
+					"end": 15
 				},
 				{
 					"kind": "punct",
-					"text": "{",
+					"text": ")",
 					"start": 15,
 					"end": 16
 				},
 				{
+					"kind": "punct",
+					"text": "{",
+					"start": 17,
+					"end": 18
+				},
+				{
 					"kind": "newline",
 					"text": "\n",
-					"start": 16,
-					"end": 17
+					"start": 18,
+					"end": 19
 				},
 				{
 					"kind": "ident",
 					"text": "wait",
-					"start": 18,
-					"end": 22
-				},
-				{
-					"kind": "punct",
-					"text": "(",
-					"start": 22,
-					"end": 23
-				},
-				{
-					"kind": "number",
-					"text": "5",
-					"start": 23,
+					"start": 20,
 					"end": 24
 				},
 				{
 					"kind": "punct",
-					"text": ")",
+					"text": "(",
 					"start": 24,
 					"end": 25
 				},
 				{
-					"kind": "newline",
-					"text": "\n",
+					"kind": "number",
+					"text": "5",
 					"start": 25,
 					"end": 26
 				},
 				{
 					"kind": "punct",
-					"text": "}",
+					"text": ")",
 					"start": 26,
 					"end": 27
 				},
 				{
-					"kind": "ident",
-					"text": "else",
-					"start": 28,
-					"end": 32
-				},
-				{
-					"kind": "ident",
-					"text": "if",
-					"start": 33,
-					"end": 35
-				},
-				{
-					"kind": "punct",
-					"text": "(",
-					"start": 36,
-					"end": 37
-				},
-				{
-					"kind": "ident",
-					"text": "cold",
-					"start": 37,
-					"end": 41
-				},
-				{
-					"kind": "punct",
-					"text": ")",
-					"start": 41,
-					"end": 42
-				},
-				{
-					"kind": "punct",
-					"text": "{",
-					"start": 43,
-					"end": 44
-				},
-				{
 					"kind": "newline",
 					"text": "\n",
-					"start": 44,
-					"end": 45
-				},
-				{
-					"kind": "ident",
-					"text": "exit",
-					"start": 46,
-					"end": 50
-				},
-				{
-					"kind": "newline",
-					"text": "\n",
-					"start": 50,
-					"end": 51
+					"start": 27,
+					"end": 28
 				},
 				{
 					"kind": "punct",
 					"text": "}",
-					"start": 51,
-					"end": 52
+					"start": 28,
+					"end": 29
 				},
 				{
 					"kind": "ident",
 					"text": "else",
-					"start": 53,
-					"end": 57
+					"start": 30,
+					"end": 34
+				},
+				{
+					"kind": "ident",
+					"text": "if",
+					"start": 35,
+					"end": 37
+				},
+				{
+					"kind": "punct",
+					"text": "(",
+					"start": 38,
+					"end": 39
+				},
+				{
+					"kind": "ident",
+					"text": "cold",
+					"start": 39,
+					"end": 43
+				},
+				{
+					"kind": "punct",
+					"text": ")",
+					"start": 43,
+					"end": 44
 				},
 				{
 					"kind": "punct",
 					"text": "{",
-					"start": 58,
-					"end": 59
+					"start": 45,
+					"end": 46
 				},
 				{
 					"kind": "newline",
 					"text": "\n",
-					"start": 59,
-					"end": 60
+					"start": 46,
+					"end": 47
+				},
+				{
+					"kind": "ident",
+					"text": "return",
+					"start": 48,
+					"end": 54
+				},
+				{
+					"kind": "newline",
+					"text": "\n",
+					"start": 54,
+					"end": 55
+				},
+				{
+					"kind": "punct",
+					"text": "}",
+					"start": 55,
+					"end": 56
+				},
+				{
+					"kind": "ident",
+					"text": "else",
+					"start": 57,
+					"end": 61
+				},
+				{
+					"kind": "punct",
+					"text": "{",
+					"start": 62,
+					"end": 63
+				},
+				{
+					"kind": "newline",
+					"text": "\n",
+					"start": 63,
+					"end": 64
 				},
 				{
 					"kind": "ident",
 					"text": "throw",
-					"start": 61,
-					"end": 66
+					"start": 65,
+					"end": 70
 				},
 				{
 					"kind": "string",
 					"text": "\"no\"",
-					"start": 67,
-					"end": 71,
+					"start": 71,
+					"end": 75,
 					"closed": true,
 					"value": "no",
 					"parts": [
 						{
 							"kind": "text",
 							"value": "no",
-							"start": 68,
-							"end": 70
+							"start": 72,
+							"end": 74
 						}
 					]
 				},
 				{
 					"kind": "newline",
 					"text": "\n",
-					"start": 71,
-					"end": 72
+					"start": 75,
+					"end": 76
 				},
 				{
 					"kind": "punct",
 					"text": "}",
-					"start": 72,
-					"end": 73
+					"start": 76,
+					"end": 77
 				}
 			]
 		},
@@ -2957,7 +2957,7 @@
 					"closed": true,
 					"parts": [
 						{
-							"kind": "hole",
+							"kind": "placeholder",
 							"tokens": [
 								{
 									"kind": "ident",
@@ -3052,7 +3052,7 @@
 		},
 		{
 			"name": "a line break inside a bracket is a token too",
-			"input": "functions.run(\"Blink\", {\n\tlamp: \"Desk lamp\",\n})\nexit",
+			"input": "functions.run(\"Blink\", {\n\tlamp: \"Desk lamp\",\n})\nreturn",
 			"tokens": [
 				{
 					"kind": "ident",
@@ -3172,15 +3172,15 @@
 				},
 				{
 					"kind": "ident",
-					"text": "exit",
+					"text": "return",
 					"start": 48,
-					"end": 52
+					"end": 54
 				}
 			]
 		},
 		{
 			"name": "a comment inside an open bracket",
-			"input": "f(a, // one\n b)\nexit",
+			"input": "f(a, // one\n b)\nreturn",
 			"tokens": [
 				{
 					"kind": "ident",
@@ -3238,9 +3238,9 @@
 				},
 				{
 					"kind": "ident",
-					"text": "exit",
+					"text": "return",
 					"start": 16,
-					"end": 20
+					"end": 22
 				}
 			]
 		},
@@ -3303,7 +3303,7 @@
 			]
 		},
 		{
-			"name": "an open hole in a string ends with its line",
+			"name": "an open placeholder in a string ends with its line",
 			"input": "x = \"{a\ny = 1",
 			"tokens": [
 				{
@@ -3326,7 +3326,7 @@
 					"closed": false,
 					"parts": [
 						{
-							"kind": "hole",
+							"kind": "placeholder",
 							"tokens": [
 								{
 									"kind": "ident",
@@ -3368,7 +3368,7 @@
 			]
 		},
 		{
-			"name": "a hole in a string is lexed as an expression, never as script",
+			"name": "a placeholder in a string is lexed as an expression, never as script",
 			"input": "x = \"{a // b\n}\"",
 			"tokens": [
 				{
@@ -3391,7 +3391,7 @@
 					"closed": false,
 					"parts": [
 						{
-							"kind": "hole",
+							"kind": "placeholder",
 							"tokens": [
 								{
 									"kind": "ident",
@@ -3449,7 +3449,7 @@
 		},
 		{
 			"name": "blank lines, and a stray close",
-			"input": "}\n\n\nexit\n",
+			"input": "}\n\n\nreturn\n",
 			"tokens": [
 				{
 					"kind": "punct",
@@ -3477,21 +3477,21 @@
 				},
 				{
 					"kind": "ident",
-					"text": "exit",
+					"text": "return",
 					"start": 4,
-					"end": 8
+					"end": 10
 				},
 				{
 					"kind": "newline",
 					"text": "\n",
-					"start": 8,
-					"end": 9
+					"start": 10,
+					"end": 11
 				}
 			]
 		},
 		{
 			"name": "tabs, returns and no closing newline",
-			"input": "\tif(a){\r\n\t\texit\r\n\t}",
+			"input": "\tif(a){\r\n\t\treturn\r\n\t}",
 			"tokens": [
 				{
 					"kind": "ident",
@@ -3531,21 +3531,21 @@
 				},
 				{
 					"kind": "ident",
-					"text": "exit",
+					"text": "return",
 					"start": 11,
-					"end": 15
+					"end": 17
 				},
 				{
 					"kind": "newline",
 					"text": "\n",
-					"start": 16,
-					"end": 17
+					"start": 18,
+					"end": 19
 				},
 				{
 					"kind": "punct",
 					"text": "}",
-					"start": 18,
-					"end": 19
+					"start": 20,
+					"end": 21
 				}
 			]
 		},

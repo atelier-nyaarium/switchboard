@@ -110,9 +110,9 @@ internal fun opensIn(row: AutomationRow, context: AutomationContext): Boolean = 
 	is Served.Unknown -> false
 }
 
-/** Whether New can start watching that device. */
-internal fun offersWatch(deviceId: String, context: AutomationContext): Boolean = when (val served = context.served) {
-	is Served.Known -> newAutomationDraft(EditContext(served.offer, emptyList()), watch = deviceId) != null
+/** Whether New can start an automation on that sensor. */
+internal fun offersSensor(deviceId: String, context: AutomationContext): Boolean = when (val served = context.served) {
+	is Served.Known -> newAutomationDraft(EditContext(served.offer, emptyList()), sensor = deviceId) != null
 	is Served.Unknown -> false
 }
 

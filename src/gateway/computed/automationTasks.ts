@@ -1,10 +1,10 @@
 // A task is a `start` step's record: what reads it, what waits on it, what cannot.
 
-import { JOIN_KEYS, keptOf, type Waited, waitedOf } from "../../shared/task-values.js";
+import { JOIN_KEYS, storedOf, type Waited, waitedOf } from "../../shared/task-values.js";
 import type { Failure } from "./automationFrames.js";
 import { failureOf, isEnded, type Step } from "./automationSteps.js";
 
-export { kept, TASK_KEY, waitedOf } from "../../shared/task-values.js";
+export { stored, TASK_KEY, waitedOf } from "../../shared/task-values.js";
 
 export const NO_TASK = "it names no task of this run";
 export const WAITS_FOREVER = "it would wait on itself";
@@ -41,17 +41,17 @@ export function factsOf(waited: Waited, steps: Steps): TaskFacts {
 	return {
 		done: true,
 		failed: true,
-		error: { code: "together", message: `${errors.length} of ${each.length} failed`, errors },
+		error: { code: "parallel", message: `${errors.length} of ${each.length} failed`, errors },
 	};
 }
 
 const shownOf = (facts: TaskFacts): string => (facts.failed ? "failed" : facts.done ? "done" : "running");
 
-/** A kept value as a step reads it: every task in it with how it stands now. */
+/** A variable's value as a step reads it: every task in it with how it stands now. */
 export function dressed(value: unknown, steps: Steps): unknown {
 	const waited = waitedOf(value);
 	if (waited !== null) {
-		const inner = typeof waited === "string" ? keptOf(waited) : dressedJoin(waited, steps);
+		const inner = typeof waited === "string" ? storedOf(waited) : dressedJoin(waited, steps);
 		return { ...inner, ...factsOf(waited, steps) };
 	}
 	if (Array.isArray(value)) return value.map((item) => dressed(item, steps));
@@ -62,8 +62,8 @@ export function dressed(value: unknown, steps: Steps): unknown {
 
 const dressedJoin = (waited: Exclude<Waited, string>, steps: Steps): Record<string, unknown> =>
 	"all" in waited
-		? { [JOIN_KEYS.all]: waited.all.map((item) => dressed(keptOf(item), steps)) }
-		: { [JOIN_KEYS.any]: waited.any.map((item) => dressed(keptOf(item), steps)) };
+		? { [JOIN_KEYS.all]: waited.all.map((item) => dressed(storedOf(item), steps)) }
+		: { [JOIN_KEYS.any]: waited.any.map((item) => dressed(storedOf(item), steps)) };
 
 /** A frame variable as a scope holds it; a task prints how it stands. */
 export function taskName(value: unknown, steps: Steps): { value: unknown; shown?: string } {
@@ -100,11 +100,11 @@ function endedAt(waited: Waited, steps: Steps): number | null {
 export function awaited(
 	waited: Waited,
 	steps: Steps,
-): { failure: Failure | null; kept: Record<string, unknown>; seen: string[] } | null {
+): { failure: Failure | null; value: Record<string, unknown>; seen: string[] } | null {
 	const facts = factsOf(waited, steps);
 	if (!facts.done) return null;
 	if (typeof waited === "string" || "all" in waited) {
-		return { failure: facts.error, kept: keptOf(waited), seen: seenIn(waited) };
+		return { failure: facts.error, value: storedOf(waited), seen: seenIn(waited) };
 	}
 	// The first to end, though several ended before it asked.
 	const first = waited.any.reduce((best, item) => {
@@ -112,7 +112,7 @@ export function awaited(
 		const held = endedAt(best, steps);
 		return at !== null && (held === null || at < held) ? item : best;
 	});
-	return { failure: null, kept: keptOf(first), seen: [] };
+	return { failure: null, value: storedOf(first), seen: [] };
 }
 
 /**

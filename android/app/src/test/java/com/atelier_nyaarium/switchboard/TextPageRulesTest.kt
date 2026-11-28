@@ -7,13 +7,13 @@ import com.atelier_nyaarium.switchboard.assistant.TextPreview
 import com.atelier_nyaarium.switchboard.assistant.TextRef
 import com.atelier_nyaarium.switchboard.assistant.StepDraft
 import com.atelier_nyaarium.switchboard.assistant.TriggerDraft
-import com.atelier_nyaarium.switchboard.assistant.holeAssist
-import com.atelier_nyaarium.switchboard.assistant.holeAt
-import com.atelier_nyaarium.switchboard.assistant.holePaint
 import com.atelier_nyaarium.switchboard.assistant.nameShapes
 import com.atelier_nyaarium.switchboard.assistant.namesHere
 import com.atelier_nyaarium.switchboard.assistant.offerOf
 import com.atelier_nyaarium.switchboard.assistant.pickCompletion
+import com.atelier_nyaarium.switchboard.assistant.placeholderAssist
+import com.atelier_nyaarium.switchboard.assistant.placeholderAt
+import com.atelier_nyaarium.switchboard.assistant.placeholderPaint
 import com.atelier_nyaarium.switchboard.assistant.refusedSpan
 import com.atelier_nyaarium.switchboard.assistant.textAt
 import com.atelier_nyaarium.switchboard.assistant.textParam
@@ -33,8 +33,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-class HoleTextRulesTest {
-	private val text = "It is {value} at {device"
+class TextPageRulesTest {
+	private val text = "It is {reading} at {device"
 
 	private val console = ConsoleDescription(
 		builtins = emptyList(),
@@ -58,10 +58,10 @@ class HoleTextRulesTest {
 	)
 
 	@Test
-	fun aPickThatFinishesAnOpenHoleClosesItAndOneStillBeingTypedLeavesItOpen() {
+	fun aPickThatFinishesAnOpenPlaceholderClosesItAndOneStillBeingTypedLeavesItOpen() {
 		val entities = setOf("sensors")
 		val pick = { typed: String, insert: String, start: Int, end: Int -> pickCompletion(typed, ConsoleCompletion(insert, insert, start, end), entities) }
-		val offered = holeAssist("On {sou", 7, console, null, nameShapes(names, emptyList())).completions.single()
+		val offered = placeholderAssist("On {sou", 7, console, null, nameShapes(names, emptyList())).completions.single()
 
 		assertEquals("On {source}" to 11, pickCompletion("On {sou", offered, entities))
 		assertEquals("On {source}" to 10, pick("On {sou}", "source", 4, 7))
@@ -71,7 +71,7 @@ class HoleTextRulesTest {
 		assertEquals("{sensors" to 8, pick("{sens", "sensors", 1, 5))
 		assertEquals("{source and more" to 7, pick("{sou and more", "source", 1, 4))
 		assertEquals("{round(value) + source}" to 23, pick("{round(value) + sou", "source", 16, 19))
-		// Any bracket still open keeps the hole open.
+		// Open bracket keeps it open.
 		assertEquals("{readings[source" to 16, pick("{readings[sou", "source", 10, 13))
 		assertEquals("{readings[source]}" to 18, pick("{readings[source", "]", 16, 16))
 	}
@@ -79,9 +79,9 @@ class HoleTextRulesTest {
 	@Test
 	fun aTextMayUseTheServedRowsNamesBeforeItsTriggerIsCompleteAndTheirValuesOnceAnswered() {
 		val offer = offerOf(SANDBOX_SERVES, away = false)
-		val crossing = listOf("value", "device", "measure", "threshold")
+		val crossing = listOf("reading", "device", "measure", "threshold")
 		val untyped = namesHere(offer, "crossing", null)
-		val answered = namesHere(offer, "crossing", listOf(AutomationPreviewName("value", "1.8 °C"), AutomationPreviewName("wind", "calm")))
+		val answered = namesHere(offer, "crossing", listOf(AutomationPreviewName("reading", "1.8 °C"), AutomationPreviewName("wind", "calm")))
 
 		assertEquals(crossing, untyped.map { it.name })
 		assertEquals(listOf(true, true, true, true), untyped.map { it.description.isNotEmpty() && it.shown == null })
@@ -92,51 +92,51 @@ class HoleTextRulesTest {
 	}
 
 	@Test
-	fun functionValuesFollowTriggerNamesWithTheirTypeAndThisAutomationsValue() {
+	fun functionParamsFollowTriggerNamesWithTheirTypeAndThisAutomationsArg() {
 		val offer = offerOf(SANDBOX_SERVES, away = false)
 		val names = namesHere(
 			offer,
 			"crossing",
 			null,
 			listOf(FunctionParam("lamp", "device"), FunctionParam("message", "text"), FunctionParam("target", "number")),
-			mapOf("lamp" to SANDBOX_SWITCH, "message" to "Good night", "target" to "26"),
+			mapOf("lamp" to SANDBOX_DEVICE, "message" to "Good night", "target" to "26"),
 		)
 
-		assertEquals(listOf("value", "device", "measure", "threshold", "lamp", "message", "target"), names.map { it.name })
+		assertEquals(listOf("reading", "device", "measure", "threshold", "lamp", "message", "target"), names.map { it.name })
 		assertEquals(listOf("Device", "Text", "Number"), names.takeLast(3).map { it.description })
 		assertEquals(listOf("Desk lamp", "Good night", "26"), names.takeLast(3).map { it.shown })
 	}
 
 	@Test
-	fun theCursorIsInAHoleOnlyBetweenItsBracesAndAnOpenOneRunsToTheEnd() {
+	fun theCursorIsInAPlaceholderOnlyBetweenItsBracesAndAnOpenOneRunsToTheEnd() {
 		val inside = { cursor: Int ->
-			holeAt(text, cursor)?.let { text.substring(it.start + 1, if (it.closed) it.end - 1 else it.end) }
+			placeholderAt(text, cursor)?.let { text.substring(it.start + 1, if (it.closed) it.end - 1 else it.end) }
 		}
 
-		assertEquals(listOf(null, "value", "value", null), listOf(6, 7, 12, 13).map(inside))
-		assertEquals(listOf(null, "device", "device"), listOf(17, 18, text.length).map(inside))
+		assertEquals(listOf(null, "reading", "reading", null), listOf(6, 7, 14, 15).map(inside))
+		assertEquals(listOf(null, "device", "device"), listOf(19, 20, text.length).map(inside))
 	}
 
 	@Test
-	fun aNameGoesInBareInsideAHoleAndAsItsOwnHoleOutsideAndAnEntityLeavesTheCursorAfterItsDot() {
+	fun aNameGoesInBareInsideAPlaceholderAndAsItsOwnOutsideAndAnEntityLeavesTheCursorAfterItsDot() {
 		assertEquals("It {time}is" to 9, withName("It is", 3, "time"))
 		assertEquals("{a + time}" to 9, withName("{a + }", 5, "time"))
 		assertEquals("Now {sensors.}" to 13, withEntity("Now ", 4, "sensors"))
 		assertEquals("{sensors.}" to 9, withEntity("{}", 1, "sensors"))
 		// Odd backslash escapes the brace.
-		val holes = { text: String -> lexConsoleText(text).count { it is ConsoleStringPart.Hole && it.closed } }
+		val placeholders = { text: String -> lexConsoleText(text).count { it is ConsoleStringPart.Placeholder && it.closed } }
 		val inserted = listOf(withName("C:\\", 3, "time"), withEntity("C:\\", 3, "sensors"), withName("a\\\\", 3, "time"))
-		assertEquals(listOf(1, 1, 1), inserted.map { holes(it.first) })
+		assertEquals(listOf(1, 1, 1), inserted.map { placeholders(it.first) })
 		assertEquals("a\\\\{time}" to 9, inserted[2])
 		// Between an escape's two characters, it goes after the escape and leaves it whole.
 		assertEquals("a \\{{x}b" to 7, withName("a \\{b", 3, "x"))
-		assertEquals(listOf(1, 1), listOf(withName("a \\{b", 3, "x"), withName("a \\\\b", 3, "x")).map { holes(it.first) })
+		assertEquals(listOf(1, 1), listOf(withName("a \\{b", 3, "x"), withName("a \\\\b", 3, "x")).map { placeholders(it.first) })
 	}
 
 	@Test
-	fun paintCoversEachHolesBracesAndExpressionAndEachEscapeAndNothingElse() {
+	fun paintCoversEachPlaceholdersBracesAndExpressionAndEachEscapeAndNothingElse() {
 		val painted = { source: String ->
-			holePaint(source, entities = setOf("sensors"), names = setOf("value")).map { source.substring(it.start, it.end) to it.token }
+			placeholderPaint(source, entities = setOf("sensors"), names = setOf("value")).map { source.substring(it.start, it.end) to it.token }
 		}
 
 		assertEquals(
@@ -156,25 +156,25 @@ class HoleTextRulesTest {
 		// A held name shadows an entity.
 		assertEquals(
 			listOf("sensors" to CodeToken.VARIABLE),
-			holePaint("{sensors}", entities = setOf("sensors"), names = setOf("sensors"))
+			placeholderPaint("{sensors}", entities = setOf("sensors"), names = setOf("sensors"))
 				.filter { it.token != CodeToken.PUNCTUATION }
 				.map { "sensors" to it.token },
 		)
 	}
 
 	@Test
-	fun completionsAreOfferedForTheHoleUnderTheCursorAndLandInTheWholeText() {
+	fun completionsAreOfferedForThePlaceholderUnderTheCursorAndLandInTheWholeText() {
 		val shapes = nameShapes(names, eventFields = listOf("reason", "title"))
 		val typed = "On {source}: {ev"
 
-		val offered = holeAssist(typed, typed.length, console, null, shapes).completions
-		val member = holeAssist("{event.re}", 9, console, null, shapes).completions
+		val offered = placeholderAssist(typed, typed.length, console, null, shapes).completions
+		val member = placeholderAssist("{event.re}", 9, console, null, shapes).completions
 
 		assertEquals(listOf("event"), offered.map { it.label })
 		assertEquals("On {source}: {event" to 19, offered.single().applyTo(typed))
 		assertEquals(listOf("reason"), member.map { it.label })
-		assertEquals(emptyList<Any>(), holeAssist(typed, 2, console, null, shapes).completions)
-		assertEquals(listOf("list"), holeAssist("{sensors.}", 9, console, null, shapes).completions.map { it.label })
+		assertEquals(emptyList<Any>(), placeholderAssist(typed, 2, console, null, shapes).completions)
+		assertEquals(listOf("list"), placeholderAssist("{sensors.}", 9, console, null, shapes).completions.map { it.label })
 		assertEquals(listOf("list", "listen"), consoleAssist("sensors.", 8, console, null, shapes).completions.map { it.label })
 		assertEquals(listOf("reason", "title", "id", "url"), shapes.getValue("event")?.fields)
 		assertNull(shapes.getValue("source"))
@@ -187,9 +187,9 @@ class HoleTextRulesTest {
 			"a",
 			TriggerDraft.Interval("1", com.atelier_nyaarium.switchboard.assistant.IntervalUnit.HOURS),
 			listOf(
-				StepDraft.Do("tell", toldDraft("now", "Hi")),
-				StepDraft.Do("ifttt", iftttDraft("door", value2 = "two")),
-				StepDraft.Do("plug", plugDraft("aa", "on")),
+				StepDraft.Action("tell", toldDraft("now", "Hi")),
+				StepDraft.Action("ifttt", iftttDraft("door", value2 = "two")),
+				StepDraft.Action("plug", plugDraft("aa", "on")),
 			),
 			enabled = true,
 			revision = 0L,
@@ -208,10 +208,10 @@ class HoleTextRulesTest {
 
 	@Test
 	fun theMarkedSpanIsThePreviewsElseTheSavesAndStaysInsideTheText() {
-		val saved = AutomationSaid.Hole("tell", "message", 6, 13, "no", text)
+		val saved = AutomationSaid.Placeholder("tell", "message", 6, 13, "no", text)
 
 		assertEquals(6 until 13, refusedSpan(text, TextPreview.Plain, saved))
-		assertEquals(17 until 24, refusedSpan(text, TextPreview.Refused("missing }", 17, 90), saved))
+		assertEquals(17 until text.length,refusedSpan(text, TextPreview.Refused("missing }", 17, 90), saved))
 		assertNull(refusedSpan(text, TextPreview.Filled("x"), null))
 		assertEquals(true, refusedSpan("", TextPreview.Refused("needs an expression", 0, 0), null)?.isEmpty())
 	}

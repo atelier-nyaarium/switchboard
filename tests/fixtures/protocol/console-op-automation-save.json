@@ -3,13 +3,18 @@
 	"automationId": "warm",
 	"automation": {
 		"enabled": true,
-		"trigger": { "kind": "interval", "everyMin": 60 },
-		"keepTryingMin": 5,
+		"trigger": {
+			"kind": "interval",
+			"everyMin": 60
+		},
+		"retryForMin": 5,
 		"actions": [
 			{
 				"kind": "run_function",
 				"function": "warm-up",
-				"values": { "room": "aa:bb:cc:dd:ee:ff" }
+				"args": {
+					"room": "aa:bb:cc:dd:ee:ff"
+				}
 			}
 		]
 	},
@@ -19,14 +24,25 @@
 		"id": "warm-up",
 		"body": {
 			"name": "Warm up",
-			"params": [{ "name": "room", "type": "device" }],
+			"params": [
+				{
+					"name": "room",
+					"type": "device"
+				}
+			],
 			"steps": [
 				{
-					"kind": "do",
+					"kind": "action",
 					"action": "device_set",
 					"args": {
-						"device": { "kind": "expression", "text": "room" },
-						"verb": { "kind": "literal", "value": "on" }
+						"device": {
+							"kind": "expression",
+							"text": "room"
+						},
+						"verb": {
+							"kind": "literal",
+							"value": "on"
+						}
 					}
 				}
 			]

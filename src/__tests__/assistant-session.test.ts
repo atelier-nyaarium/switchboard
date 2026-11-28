@@ -96,7 +96,7 @@ function counting(options: { repeat?: boolean; onPoll?: () => void } = {}): Sour
 	return watcher;
 }
 
-const MENTION: AutomationCondition[] = [{ field: "reason", test: "is", value: "mention" }];
+const MENTION: AutomationCondition[] = [{ field: "reason", operator: "is", value: "mention" }];
 
 function carriedSettings(
 	options: { approveEverySend?: boolean; automations?: string[]; grant?: string | null; enabled?: boolean } = {},

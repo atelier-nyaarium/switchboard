@@ -11,7 +11,7 @@ import {
 	AUTOMATION_MESSAGE_MAX,
 	AutomationSchema,
 	AutomationTriggerSchema,
-	FunctionValuesSchema,
+	FunctionArgsSchema,
 } from "./schemasAutomation.js";
 import { AutomationCheckOpShape, AutomationSaveOpShape } from "./schemasAutomationSave.js";
 import { ContentEnvelopeSchema } from "./schemasContentKey.js";
@@ -21,7 +21,7 @@ import {
 	FunctionParamSchema,
 	FunctionStepsSchema,
 	PARAM_NAME_RE,
-	RUN_NAMES_MAX,
+	RUN_VARIABLES_MAX,
 	STEP_TEXT_MAX,
 } from "./schemasFunction.js";
 import { CONSOLE_LIMIT_MAX, ConsoleVariablesSchema } from "./schemasLiveConsole.js";
@@ -395,14 +395,14 @@ export const ConsoleOpSchema = z
 		z.object({
 			kind: z.literal("automation_preview"),
 			trigger: AutomationTriggerSchema,
-			/** A text whose holes to fill. */
+			/** A text whose placeholders to fill. */
 			text: z.string().max(AUTOMATION_MESSAGE_MAX).optional(),
 			params: z.array(FunctionParamSchema).max(FUNCTION_PARAMS_MAX).optional(),
-			values: FunctionValuesSchema.optional(),
-			/** An expression to read as true or false right now. */
+			args: FunctionArgsSchema.optional(),
+			/** An expression to check as a save would. */
 			condition: z.string().min(1).max(STEP_TEXT_MAX).optional(),
 			/** Names a run sets before the step: its variables, and `e` in a catch. */
-			runNames: z.array(z.string().regex(PARAM_NAME_RE)).max(RUN_NAMES_MAX).optional(),
+			variables: z.array(z.string().regex(PARAM_NAME_RE)).max(RUN_VARIABLES_MAX).optional(),
 		}),
 		/** Once by hand; a repeated call id runs nothing again. */
 		z.object({

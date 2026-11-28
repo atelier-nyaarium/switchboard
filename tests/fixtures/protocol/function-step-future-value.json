@@ -1,1 +1,8 @@
-{ "kind": "let", "name": "level", "value": { "kind": "future_value", "of": 1 } }
+{
+	"kind": "variable",
+	"name": "level",
+	"value": {
+		"kind": "future_value",
+		"of": 1
+	}
+}

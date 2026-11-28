@@ -10,6 +10,18 @@
 		"coolDownSec": 90
 	},
 	"text": "Warm {degrees} in {room}.",
-	"params": [{ "name": "degrees", "type": "number" }, { "name": "room", "type": "device" }],
-	"values": { "degrees": 21, "room": "aa:bb:cc:dd:ee:01" }
+	"params": [
+		{
+			"name": "degrees",
+			"type": "number"
+		},
+		{
+			"name": "room",
+			"type": "device"
+		}
+	],
+	"args": {
+		"degrees": 21,
+		"room": "aa:bb:cc:dd:ee:01"
+	}
 }

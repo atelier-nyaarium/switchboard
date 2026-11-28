@@ -1,8 +1,8 @@
 {
-	"text": "// Warm the room, then say so.\nhumid = sensors.value(\"Hall\", \"humidity\")\nif (value < threshold and humid > 60) {\n\tdevices.set(\"Desk lamp\", \"on\")\n\twait(5)\n} else {\n\texit\n}\ntry {\n\tfunctions.run(\"Blink\", {lamp: \"Desk lamp\"})\n} catch (e) {\n\tassistant.tell(\"now\", \"It failed: {e}\")\n}",
+	"text": "// Warm the room, then say so.\nhumid = sensors.value(\"Hall\", \"humidity\")\nif (reading < threshold and humid > 60) {\n\tdevices.set(\"Desk lamp\", \"on\")\n\twait(5)\n} else {\n\treturn\n}\ntry {\n\tfunctions.run(\"Blink\", {lamp: \"Desk lamp\"})\n} catch (e) {\n\tassistant.tell(\"now\", \"It failed: {e}\")\n}",
 	"names": [
 		{
-			"name": "value",
+			"name": "reading",
 			"type": "Number",
 			"start": 0,
 			"end": 278
@@ -67,11 +67,11 @@
 			"members": [
 				{
 					"name": "done",
-					"type": "Truth"
+					"type": "Boolean"
 				},
 				{
 					"name": "failed",
-					"type": "Truth"
+					"type": "Boolean"
 				},
 				{
 					"name": "error",

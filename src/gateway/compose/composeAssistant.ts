@@ -13,7 +13,7 @@ import { EVENT_GIVEN_FIELDS, type EventGivenField } from "../../shared/automatio
 import { SEND_BOUND_MS } from "../../shared/console-protocol.js";
 import { openDurable, type RestoreRepairs } from "../../shared/durable-store.js";
 import { errorName } from "../../shared/error-name.js";
-import { LIST_TEST_LABELS, TEST_LABELS } from "../../shared/field-types.js";
+import { LIST_OPERATOR_LABELS, OPERATOR_LABELS } from "../../shared/field-types.js";
 import { isSpawnWorkdirPath } from "../../shared/host-op.js";
 import { createFifo } from "../../shared/keyed-fifo.js";
 import { MIGRATING } from "../../shared/migration-fence.js";
@@ -191,7 +191,7 @@ export interface AssistantStage {
 	eventSentence: (trigger: EventTrigger) => string;
 	/** Over the live first page. */
 	previewTrigger: (trigger: AutomationTrigger) => Promise<ConsoleAutomationPreviewResult>;
-	/** The matches, and the newest one's names for a text's holes. */
+	/** The matches, and the newest one's names for a text's placeholders. */
 	previewEvent: (trigger: EventTrigger) => Promise<{
 		preview: ConsoleAutomationPreviewResult;
 		names: Record<string, { value: unknown; shown?: string }> | null;
@@ -277,7 +277,7 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 	/** Every match fires; one waking match wakes. */
 	const decide = (sourceId: string, event: SourceEvent): RuleAction =>
 		told(event) ?? (wakers(sourceId, event).length > 0 ? "wake" : "inbox");
-	/** What a text's holes read of an event. */
+	/** What a text's placeholders read of an event. */
 	const eventNames = (sourceId: string, { id, title, url, fields }: SourceEvent) => {
 		const given: Record<EventGivenField, string | undefined> = { id, title, url };
 		const named = EVENT_GIVEN_FIELDS.flatMap((name) => (given[name] ? [[name, given[name]]] : []));
@@ -323,8 +323,8 @@ export function composeAssistant(deps: AssistantStageDeps): AssistantStage {
 					spec?.kind === "enumeration" ? spec.options.find((candidate) => candidate.value === value) : null;
 				return option ? inSentence(option.label) : value;
 			});
-			const labels = values.length > 1 ? LIST_TEST_LABELS : TEST_LABELS;
-			return `${inSentence(spec?.label ?? condition.field)} ${labels[condition.test]} ${values.join(", ")}`;
+			const labels = values.length > 1 ? LIST_OPERATOR_LABELS : OPERATOR_LABELS;
+			return `${inSentence(spec?.label ?? condition.field)} ${labels[condition.operator]} ${values.join(", ")}`;
 		});
 		return `${source?.brief ?? source?.label ?? trigger.source}: ${said.length > 0 ? said.join(" and ") : "every event"}`;
 	};

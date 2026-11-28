@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
 	type Address,
 	branchesOf,
+	branchOf,
 	catchOf,
 	type Ended,
 	entered,
@@ -13,7 +14,6 @@ import {
 	type Move,
 	moved,
 	ownerOf,
-	strandOf,
 	type TreeStep,
 } from "../gateway/computed/automationFrames.js";
 
@@ -85,8 +85,8 @@ describe("what encloses a step", () => {
 	});
 });
 
-describe("a strand of a block", () => {
-	const act = { kind: "do" };
+describe("a branch of a block", () => {
+	const act = { kind: "action" };
 	/** A try holding a block of two branches, the second a try of its own; then a step. */
 	const body: TreeStep[] = [
 		{
@@ -105,13 +105,13 @@ describe("a strand of a block", () => {
 	it("names its block and its own root, and a block names each branch", () => {
 		const inner: Address = [...second, "try", 1];
 
-		expect([ownerOf(inner), strandOf(inner), ownerOf([1]), strandOf(block)]).toEqual([block, second, null, null]);
+		expect([ownerOf(inner), branchOf(inner), ownerOf([1]), branchOf(block)]).toEqual([block, second, null, null]);
 		expect(branchesOf(body, block)).toEqual([first, second]);
 	});
 
 	it("ends at its root: a branch that is done runs out to its block, never on to the next branch", () => {
-		expect(moved(body, first, { how: "done" }, {}).move).toEqual({ strand: block });
-		expect(moved(body, [...second, "try", 1], { how: "done" }, {}).move).toEqual({ strand: block });
+		expect(moved(body, first, { how: "done" }, {}).move).toEqual({ branch: block });
+		expect(moved(body, [...second, "try", 1], { how: "done" }, {}).move).toEqual({ branch: block });
 	});
 
 	it("is guarded by a try inside it, and never by one around its block", () => {
@@ -119,16 +119,16 @@ describe("a strand of a block", () => {
 		const outside = moved(body, first, failed, {});
 
 		expect(inside.move).toEqual({ to: [...second, "catch", 0], caught: { by: second, failure } });
-		expect(outside).toEqual({ move: { strand: block, failure }, memory: { failed: failure } });
+		expect(outside).toEqual({ move: { branch: block, failure }, memory: { failed: failure } });
 		expect(guardOf(first)).toBeNull();
 	});
 
-	it("ends alone at a throw or an exit, with what it remembers", () => {
+	it("ends alone at a throw or a return, with what it remembers", () => {
 		const thrown = moved(body, [...second, "catch", 0], { how: "thrown", failure }, {});
-		const left = moved(body, [...second, "catch", 0], { how: "exit" }, { failed: failure });
+		const left = moved(body, [...second, "catch", 0], { how: "return" }, { failed: failure });
 
-		expect(thrown.move).toEqual({ strand: block, failure });
-		expect(left.move).toEqual({ strand: block, failure });
+		expect(thrown.move).toEqual({ branch: block, failure });
+		expect(left.move).toEqual({ branch: block, failure });
 	});
 
 	it("hands its block's failure to the try around the block, as any step's", () => {

@@ -25,7 +25,7 @@ internal sealed interface FlowKey {
 
 	data class Field(val field: String) : FlowKey
 
-	data object Clock : FlowKey
+	data object Schedule : FlowKey
 
 	/** Unknown trigger kind. */
 	data class Trigger(val kind: String) : FlowKey
@@ -48,7 +48,7 @@ internal sealed interface FlowKey {
 }
 
 internal fun roleOf(key: FlowKey): FlowRole = when (key) {
-	is FlowKey.Source, is FlowKey.Sensor, is FlowKey.Field, FlowKey.Clock, is FlowKey.Trigger -> FlowRole.START
+	is FlowKey.Source, is FlowKey.Sensor, is FlowKey.Field, FlowKey.Schedule, is FlowKey.Trigger -> FlowRole.START
 	is FlowKey.Automation -> FlowRole.AUTOMATION
 	is FlowKey.Function -> FlowRole.FUNCTION
 	is FlowKey.Plug, is FlowKey.Named, FlowKey.Assistant, FlowKey.Ifttt, is FlowKey.Other -> FlowRole.ACTED
@@ -101,7 +101,7 @@ internal data class FlowGraph(
 	val enabled: Map<String, Boolean>,
 	/** Unrunnable automation ids. */
 	val invalid: Set<String>,
-	/** Last run times; lane-told runs keep no steps. */
+	/** Last run times; lane-told runs record no steps. */
 	val ranAt: Map<String, Long>,
 	val sources: Map<String, AssistantSource>,
 ) {
@@ -113,7 +113,7 @@ internal data class FlowInput(
 	val rows: List<AutomationRow>,
 	val functions: List<AutomationFunctionRow>,
 	val sources: List<AssistantSource>,
-	val switches: List<SwitchOffer>,
+	val devices: List<DeviceOffer>,
 	val numbers: List<NumberOffer>,
 )
 
@@ -125,7 +125,7 @@ internal fun flowInputOf(rows: List<AutomationRow>, offer: AutomationOffer, sour
 		is HomeSources.Known -> sources.sources
 		HomeSources.Reading, HomeSources.Refused -> emptyList()
 	},
-	switches = offer.switches,
+	devices = offer.devices,
 	numbers = offer.numbers,
 )
 
@@ -185,18 +185,18 @@ private class Builder(val input: FlowInput) {
 			FlowKey.Source(trigger.source) to (input.sources.firstOrNull { it.id == trigger.source }?.label ?: trigger.source)
 		is AutomationTrigger.Crossing -> FlowKey.Sensor(trigger.device) to sensorLabel(trigger.device)
 		is AutomationTrigger.Value -> FlowKey.Field(trigger.field) to trigger.field
-		is AutomationTrigger.Time, is AutomationTrigger.Interval -> FlowKey.Clock to CLOCK_LABEL
+		is AutomationTrigger.Time, is AutomationTrigger.Interval -> FlowKey.Schedule to SCHEDULE_LABEL
 		is AutomationTrigger.Unknown -> FlowKey.Trigger(trigger.kind) to trigger.kind
 	}
 
 	private fun sensorLabel(device: String): String =
-		input.switches.firstOrNull { it.device == device }?.name
+		input.devices.firstOrNull { it.device == device }?.name
 			?: input.numbers.firstOrNull { it.device == device }?.label
 			?: device
 
 	fun plugKey(device: String): FlowKey {
 		val key = FlowKey.Plug(device)
-		node(key, input.switches.firstOrNull { it.device == device }?.name ?: device)
+		node(key, input.devices.firstOrNull { it.device == device }?.name ?: device)
 		return key
 	}
 
@@ -209,7 +209,7 @@ private class Builder(val input: FlowInput) {
 	}
 }
 
-private const val CLOCK_LABEL = "Clock"
+private const val SCHEDULE_LABEL = "Schedule"
 private const val ASSISTANT_LABEL = "Assistant"
 private const val IFTTT_LABEL = "IFTTT"
 
@@ -264,14 +264,14 @@ internal fun flowGraph(input: FlowInput): FlowGraph {
 		val unfollowed = mutableSetOf<String>()
 		for (entry in entries) {
 			when (entry) {
-				is UnfollowedCall -> unfollowed += entry.path
+				is UnfollowedFunction -> unfollowed += entry.path
 				is WalkAction, is WalkStep -> Unit
 			}
 		}
 		written(row.automation).forEachIndexed { index, action ->
 			if (action !is AutomationAction.RunFunction) return@forEachIndexed
 			val path = index.toString()
-			sites[path] = Site(action.values.orEmpty().mapNotNull { (k, v) -> pointerGivenOf(v)?.let { k to it } }.toMap(), null)
+			sites[path] = Site(action.args.orEmpty().mapNotNull { (k, v) -> pointerGivenOf(v)?.let { k to it } }.toMap(), null)
 			reached[path] = FlowStep(self, guarded = false, enters = action.function)
 			if (path !in unfollowed && b.named(action.function)) {
 				b.node(FlowKey.Function(action.function), b.functionOf(action.function)!!.name)
@@ -285,9 +285,9 @@ internal fun flowGraph(input: FlowInput): FlowGraph {
 					reached[entry.path] = FlowStep(self, guarded = false)
 					b.actedOf(entry.action)?.let { b.line(self, it, FlowAct.ACTS, false, row.id, entry.path) }
 				}
-				is UnfollowedCall -> {
+				is UnfollowedFunction -> {
 					val owner = reached[entry.path]?.owner ?: self
-					b.note(owner, FlowNote.Unfollowed(entry.call.function, entry.reason))
+					b.note(owner, FlowNote.Unfollowed(entry.runFunction.function, entry.reason))
 				}
 				is WalkStep -> {
 					held[entry.path] = entry
@@ -296,7 +296,7 @@ internal fun flowGraph(input: FlowInput): FlowGraph {
 					val site = siteAbove(sites, entry.path)
 					val case = caseOf(entry, held, site)
 					when (val step = entry.step) {
-						is FunctionStep.Do -> {
+						is FunctionStep.Action -> {
 							reached[entry.path] = FlowStep(owner, guarded)
 							val target = when (step.action) {
 								ACTION_DEVICE_SET -> deviceOf(step.args[DEVICE], site, sites, owner, b)
@@ -306,9 +306,9 @@ internal fun flowGraph(input: FlowInput): FlowGraph {
 							}
 							target?.let { b.line(owner, it, FlowAct.ACTS, caught, row.id, entry.path, case) }
 						}
-						is FunctionStep.Call -> {
+						is FunctionStep.RunFunction -> {
 							reached[entry.path] = FlowStep(owner, guarded, enters = step.function)
-							sites[entry.path] = Site(step.values.orEmpty().mapNotNull { (k, v) -> givenOf(v)?.let { k to it } }.toMap(), site)
+							sites[entry.path] = Site(step.args.orEmpty().mapNotNull { (k, v) -> givenOf(v)?.let { k to it } }.toMap(), site)
 							if (entry.path !in unfollowed && b.named(step.function)) {
 								b.node(FlowKey.Function(step.function), b.functionOf(step.function)!!.name)
 								b.line(owner, FlowKey.Function(step.function), FlowAct.CALLS, caught, row.id, entry.path, case)
@@ -319,8 +319,8 @@ internal fun flowGraph(input: FlowInput): FlowGraph {
 							b.note(owner, FlowNote.ScriptErrors)
 						}
 						is FunctionStep.If, is FunctionStep.Switch, is FunctionStep.Try, is FunctionStep.Parallel,
-						is FunctionStep.Start, is FunctionStep.Await, is FunctionStep.Exit, is FunctionStep.Throw,
-						is FunctionStep.Let, is FunctionStep.Wait, is FunctionStep.Note,
+						is FunctionStep.Start, is FunctionStep.Await, is FunctionStep.Return, is FunctionStep.Throw,
+						is FunctionStep.Variable, is FunctionStep.Wait, is FunctionStep.Comment,
 						is FunctionStep.Unknown -> reached[entry.path] = FlowStep(owner, guarded)
 					}
 				}
@@ -357,7 +357,7 @@ private fun guardOf(entry: WalkStep, held: Map<String, WalkStep>): Pair<Boolean,
 	return guarded to caught
 }
 
-private const val DEFAULT_LABEL = "default"
+private const val DEFAULT_LABEL = "Default"
 
 /** Nearest same-body case. */
 private fun caseOf(entry: WalkStep, held: Map<String, WalkStep>, site: String?): FlowCase? {
@@ -375,7 +375,7 @@ private fun caseOf(entry: WalkStep, held: Map<String, WalkStep>, site: String?):
 }
 
 /** How its newest part ended. */
-internal enum class FlowEnded { DONE, NOT_CLEAN, NOT_DONE, NOTHING }
+internal enum class FlowEnded { DONE, WITH_FAILURES, FAILED, NOT_RUN }
 
 internal enum class FlowHappened { RAN, NOW, NOT }
 
@@ -406,40 +406,40 @@ internal data class FlowFactsMap(
 private fun actAt(run: AutomationLastRun, held: List<AutomationLastStep>): ActAt =
 	held.maxOf { step -> ActAt(run.at + (step.endMs ?: step.startMs ?: 0), run.steps.indexOf(step)) }
 
-private val NOTHING = FlowFacts(FlowEnded.NOTHING, FlowHappened.NOT)
+private val NONE = FlowFacts(FlowEnded.NOT_RUN, FlowHappened.NOT)
 
 private fun FlowEnded.rank(): Int = when (this) {
-	FlowEnded.NOTHING -> 0
+	FlowEnded.NOT_RUN -> 0
 	FlowEnded.DONE -> 1
-	FlowEnded.NOT_CLEAN -> 2
-	FlowEnded.NOT_DONE -> 3
+	FlowEnded.WITH_FAILURES -> 2
+	FlowEnded.FAILED -> 3
 }
 
-private fun worst(states: List<FlowEnded>): FlowEnded = states.maxByOrNull { it.rank() } ?: FlowEnded.NOTHING
+private fun worst(states: List<FlowEnded>): FlowEnded = states.maxByOrNull { it.rank() } ?: FlowEnded.NOT_RUN
 
 /** Null while open; a word this build lacks reads unclean. */
 internal fun outcomeOf(step: AutomationLastStep): RunOutcome? =
-	step.outcome?.let { said -> RunOutcome.entries.find { it.wire == said } ?: RunOutcome.UNCERTAIN }
+	step.outcome?.let { said -> RunOutcome.entries.find { it.wire == said } ?: RunOutcome.UNSURE }
 
 /** An open step of an ended run never said how. */
 internal fun stateOf(step: AutomationLastStep, running: Boolean): FlowEnded = when (outcomeOf(step)) {
-	null -> if (step.retrying == true || !running) FlowEnded.NOT_CLEAN else FlowEnded.DONE
-	RunOutcome.RAN -> FlowEnded.DONE
-	RunOutcome.REFUSED -> FlowEnded.NOT_DONE
-	RunOutcome.UNCERTAIN, RunOutcome.SUPPRESSED -> FlowEnded.NOT_CLEAN
+	null -> if (step.retrying == true || !running) FlowEnded.WITH_FAILURES else FlowEnded.DONE
+	RunOutcome.DONE -> FlowEnded.DONE
+	RunOutcome.FAILED -> FlowEnded.FAILED
+	RunOutcome.UNSURE, RunOutcome.SKIPPED -> FlowEnded.WITH_FAILURES
 }
 
 private fun AutomationLastStep.open(): Boolean = outcome == null
 
 /** Deepest unguarded failures. */
 internal fun failureStarts(run: AutomationLastRun, steps: Map<String, FlowStep>?): Set<String> {
-	val loose = run.steps.filter { outcomeOf(it) == RunOutcome.REFUSED && steps?.get(it.path)?.guarded != true }.map { it.path }
+	val loose = run.steps.filter { outcomeOf(it) == RunOutcome.FAILED && steps?.get(it.path)?.guarded != true }.map { it.path }
 	return loose.filter { path -> loose.none { it.startsWith("$path.") } }.toSet()
 }
 
 /** Facts across selected steps. */
 private fun factsOver(run: AutomationLastRun, held: List<AutomationLastStep>, starts: Set<String>, onFailure: Boolean): FlowFacts {
-	val said = held.filter { outcomeOf(it) == RunOutcome.REFUSED && it.reason != null }
+	val said = held.filter { outcomeOf(it) == RunOutcome.FAILED && it.reason != null }
 		.maxByOrNull { it.startMs ?: 0 }
 		?.let { FlowSaid(it.reason!!, run.at + (it.endMs ?: it.startMs ?: 0)) }
 	return FlowFacts(
@@ -484,11 +484,11 @@ internal fun flowFacts(graph: FlowGraph, runs: Map<String, AutomationLastRun>, p
 		val facts = when (line.act) {
 			FlowAct.STARTS -> {
 				val id = (line.to as FlowKey.Automation).id
-				if (runs[id] == null && toldAt(listOf(id)) == null) NOTHING else told
+				if (runs[id] == null && toldAt(listOf(id)) == null) NONE else told
 			}
 			FlowAct.POINTS, FlowAct.CALLS, FlowAct.ACTS ->
 				newest(line.steps)?.let { (id, run, held) -> factsOver(run, held, starts.getValue(id), line.onFailure) }
-					?: (if (toldAt(line.steps.keys) != null) told else NOTHING).copy(onFailure = line.onFailure)
+					?: (if (toldAt(line.steps.keys) != null) told else NONE).copy(onFailure = line.onFailure)
 		}
 		if (off(line.steps.keys)) facts.copy(happened = FlowHappened.NOT) else facts
 	}
@@ -498,9 +498,9 @@ internal fun flowFacts(graph: FlowGraph, runs: Map<String, AutomationLastRun>, p
 		val ownStarts = starts.getValue(id).filter { graph.steps[id]?.get(it)?.owner == owner && (id to it) !in onLines }
 		val inside = if (whole) run.steps else run.steps.filter { step -> entry.any { step.path == it.path || step.path.startsWith("${it.path}.") } }
 		val retrying = inside.any { it.open() && it.retrying == true }
-		val ended = worst(entry.map { stateOf(it, run.running) } + listOfNotNull(FlowEnded.NOT_CLEAN.takeIf { retrying }))
+		val ended = worst(entry.map { stateOf(it, run.running) } + listOfNotNull(FlowEnded.WITH_FAILURES.takeIf { retrying }))
 		return FlowFacts(
-			ended = if (ended == FlowEnded.NOTHING) FlowEnded.DONE else ended,
+			ended = if (ended == FlowEnded.NOT_RUN) FlowEnded.DONE else ended,
 			happened = if (run.running && (entry.isEmpty() || entry.any { it.open() })) FlowHappened.NOW else FlowHappened.RAN,
 			failureStart = ownStarts.isNotEmpty(),
 		)
@@ -510,25 +510,25 @@ internal fun flowFacts(graph: FlowGraph, runs: Map<String, AutomationLastRun>, p
 	for (node in graph.nodes) {
 		val key = node.key
 		val facts = when (key) {
-			is FlowKey.Automation -> if (key.id in graph.invalid) NOTHING else (
+			is FlowKey.Automation -> if (key.id in graph.invalid) NONE else (
 				runs[key.id]?.let { run -> bodyFacts(key, key.id, run, run.steps.filter { '.' !in it.path }, whole = true) }
 					?: told.takeIf { toldAt(listOf(key.id)) != null }
-			)?.let { if (stopped(key.id)) it.copy(happened = FlowHappened.NOT) else it } ?: NOTHING
+			)?.let { if (stopped(key.id)) it.copy(happened = FlowHappened.NOT) else it } ?: NONE
 			is FlowKey.Function -> {
 				val entries = graph.steps.mapValues { (_, steps) -> steps.filterValues { it.enters == key.id }.keys }.filterValues { it.isNotEmpty() }
 				newest(entries)?.let { (id, run, held) -> bodyFacts(key, id, run, held, whole = false) }
-					?.let { if (off(entries.keys)) it.copy(happened = FlowHappened.NOT) else it } ?: NOTHING
+					?.let { if (off(entries.keys)) it.copy(happened = FlowHappened.NOT) else it } ?: NONE
 			}
 			is FlowKey.Source -> sourceFacts(graph.sources[key.id])
-			is FlowKey.Sensor, is FlowKey.Field, FlowKey.Clock, is FlowKey.Trigger -> {
+			is FlowKey.Sensor, is FlowKey.Field, FlowKey.Schedule, is FlowKey.Trigger -> {
 				val started = graph.lines.filter { it.from == key }.map { (it.to as FlowKey.Automation).id }
-				if (started.any { runs[it] != null || graph.ranAt[it] != null }) told else NOTHING
+				if (started.any { runs[it] != null || graph.ranAt[it] != null }) told else NONE
 			}
 			is FlowKey.Plug, is FlowKey.Named, FlowKey.Assistant, FlowKey.Ifttt, is FlowKey.Other -> {
 				val into = graph.lines.withIndex().filter { it.value.to == key }
 					.let { all -> all.filter { prefer != null && prefer in it.value.steps }.ifEmpty { all } }
 				into.mapNotNull { (index, _) -> lineAt[index]?.let { it to lineFacts[index] } }
-					.maxByOrNull { it.first }?.second?.copy(failureStart = false, onFailure = false, said = null) ?: NOTHING
+					.maxByOrNull { it.first }?.second?.copy(failureStart = false, onFailure = false, said = null) ?: NONE
 			}
 		}
 		nodeFacts[key] = facts
@@ -544,11 +544,11 @@ internal fun flowRuns(rows: List<AutomationRow>): Map<String, AutomationLastRun>
 
 /** Latest source poll state. */
 private fun sourceFacts(source: AssistantSource?): FlowFacts = when {
-	source == null -> NOTHING
-	source.stopped != null -> FlowFacts(FlowEnded.NOT_DONE, FlowHappened.RAN)
-	source.backoff != null -> FlowFacts(FlowEnded.NOT_CLEAN, FlowHappened.RAN)
+	source == null -> NONE
+	source.stopped != null -> FlowFacts(FlowEnded.FAILED, FlowHappened.RAN)
+	source.backoff != null -> FlowFacts(FlowEnded.WITH_FAILURES, FlowHappened.RAN)
 	source.lastSuccessAt != null -> FlowFacts(FlowEnded.DONE, FlowHappened.RAN)
-	else -> NOTHING
+	else -> NONE
 }
 
 /** Reach around tapped node. */
@@ -589,9 +589,9 @@ internal enum class FlowWeight { THIN, THICK }
 
 internal fun colourOf(facts: FlowFacts): FlowColour = when (facts.ended) {
 	FlowEnded.DONE -> FlowColour.OK
-	FlowEnded.NOT_CLEAN -> FlowColour.AMBER
-	FlowEnded.NOT_DONE -> FlowColour.RED
-	FlowEnded.NOTHING -> FlowColour.FAINT
+	FlowEnded.WITH_FAILURES -> FlowColour.AMBER
+	FlowEnded.FAILED -> FlowColour.RED
+	FlowEnded.NOT_RUN -> FlowColour.FAINT
 }
 
 internal fun patternOf(facts: FlowFacts): FlowPattern = when (facts.happened) {

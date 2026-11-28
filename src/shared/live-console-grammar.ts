@@ -43,8 +43,8 @@ export type ConsoleStringPart = Span &
 	(
 		| { kind: "text"; value: string }
 		| { kind: "escape"; value: string }
-		/** An open hole runs to the end. */
-		| { kind: "hole"; tokens: ConsoleToken[]; closed: boolean }
+		/** An open placeholder runs to the end. */
+		| { kind: "placeholder"; tokens: ConsoleToken[]; closed: boolean }
 	);
 
 export interface ConsoleToken {
@@ -125,7 +125,7 @@ class Lexer {
 			if (c === '"' || c === "'") {
 				this.at++;
 				const { parts, closed } = this.body(c, nest);
-				const constant = parts.every((part) => part.kind !== "hole");
+				const constant = parts.every((part) => part.kind !== "placeholder");
 				tokens.push({
 					kind: "string",
 					text: source.slice(start, this.at),
@@ -195,12 +195,12 @@ class Lexer {
 			this.at++;
 			if (nest >= CONSOLE_STRING_NEST_MAX) {
 				const brace: ConsoleToken = { kind: "error", text: c, start, end: start + 1 };
-				parts.push({ kind: "hole", tokens: [brace], closed: false, start, end: source.length });
+				parts.push({ kind: "placeholder", tokens: [brace], closed: false, start, end: source.length });
 				this.at = source.length;
 				return { parts, closed: false };
 			}
 			const { tokens, closed } = this.code(nest + 1, quote !== null);
-			parts.push({ kind: "hole", tokens, closed, start, end: this.at });
+			parts.push({ kind: "placeholder", tokens, closed, start, end: this.at });
 		}
 		flush();
 		return { parts, closed: quote === null };
@@ -225,7 +225,7 @@ export type ConsoleStringPiece = Span & ({ kind: "text"; value: string } | { kin
 
 export type ConsoleTemplatePiece =
 	| ConsoleStringPiece
-	| (Span & { kind: "hole"; node: ConsoleNode | null; closed: boolean; broken: boolean });
+	| (Span & { kind: "placeholder"; node: ConsoleNode | null; closed: boolean; broken: boolean });
 
 export type ConsoleNode = Span & {
 	grouped?: true;
@@ -524,7 +524,7 @@ export class ConsoleParser {
 		return items;
 	}
 
-	private hole(part: ConsoleStringPart & { kind: "hole" }): ConsoleTemplatePiece {
+	private placeholder(part: ConsoleStringPart & { kind: "placeholder" }): ConsoleTemplatePiece {
 		const { start, end, closed } = part;
 		const outer = { tokens: this.tokens, at: this.at, length: this.length, nest: this.nest, nodes: this.nodes };
 		const faults = this.faults;
@@ -539,22 +539,24 @@ export class ConsoleParser {
 		if (end - start > CONSOLE_SOURCE_MAX) {
 			this.issue("too_big", start, end, `longer than ${CONSOLE_SOURCE_MAX} characters`);
 		} else if (part.tokens.length === 0) {
-			if (closed) this.issue("empty", start, end, "a hole needs an expression");
+			if (closed) this.issue("empty", start, end, "a placeholder needs an expression");
 		} else {
 			node = this.expression();
 			const rest = this.peek();
 			if (rest && (rest.text === ";" || rest.text === "=")) {
-				this.issue("unexpected", start, end, "a hole holds one expression");
+				this.issue("unexpected", start, end, "a placeholder holds one expression");
 			} else if (rest) this.issue("unexpected", rest.start, rest.end, `unexpected ${rest.text}`);
 		}
 		if (!closed) this.muted--;
 		Object.assign(this, outer);
-		return { kind: "hole", node, closed, broken: this.faults !== faults, start, end };
+		return { kind: "placeholder", node, closed, broken: this.faults !== faults, start, end };
 	}
 
 	private string(parts: readonly ConsoleStringPart[], start: number, end: number, closed: boolean): ConsoleNode {
-		const pieces: ConsoleTemplatePiece[] = parts.map((part) => (part.kind === "hole" ? this.hole(part) : part));
-		const constant = pieces.filter((piece) => piece.kind !== "hole");
+		const pieces: ConsoleTemplatePiece[] = parts.map((part) =>
+			part.kind === "placeholder" ? this.placeholder(part) : part,
+		);
+		const constant = pieces.filter((piece) => piece.kind !== "placeholder");
 		if (constant.length < pieces.length) return this.node({ kind: "template", pieces, closed, start, end });
 		const value = constant.map((piece) => piece.value).join("");
 		return this.node({ kind: "literal", value, pieces: constant, start, end });
@@ -698,9 +700,11 @@ export const writeConsoleRun = (run: string): string => escapedBy(run, BODY_WRIT
 
 export const quoteConsoleString = (value: string): string => `"${escapedBy(value, QUOTED_WRITTEN)}"`;
 
-export function quoteConsoleText(text: string, hole: (source: string) => string = (source) => source): string {
+export function quoteConsoleText(text: string, placeholder: (source: string) => string = (source) => source): string {
 	const body = lexConsoleText(text).map((part) =>
-		part.kind === "hole" ? hole(text.slice(part.start, part.end)) : escapedBy(part.value, QUOTED_WRITTEN),
+		part.kind === "placeholder"
+			? placeholder(text.slice(part.start, part.end))
+			: escapedBy(part.value, QUOTED_WRITTEN),
 	);
 	return `"${body.join("")}"`;
 }

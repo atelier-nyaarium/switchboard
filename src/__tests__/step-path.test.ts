@@ -44,9 +44,9 @@ describe("a step's path", () => {
 
 	it("reads its numbers against the body they address, which names each side", () => {
 		const body = [
-			{ kind: "do" },
-			{ kind: "if", steps: [{ kind: "do" }], else: [{ kind: "do" }] },
-			{ kind: "try", steps: [{ kind: "do" }], catch: [{ kind: "if", steps: [{ kind: "do" }] }] },
+			{ kind: "action" },
+			{ kind: "if", steps: [{ kind: "action" }], else: [{ kind: "action" }] },
+			{ kind: "try", steps: [{ kind: "action" }], catch: [{ kind: "if", steps: [{ kind: "action" }] }] },
 		];
 
 		expect(

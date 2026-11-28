@@ -69,7 +69,7 @@ internal fun SensorBody(repo: ChatRepository, state: ChatState, gatewayId: Strin
 		}
 	}
 	HorizontalDivider()
-	WatchingSection(repo, state, gatewayId, record.id)
+	UsesSection(repo, state, gatewayId, record.id)
 	if (read != null && record.definition == null) {
 		HorizontalDivider()
 		RawSection(read, gatewayId)
@@ -79,22 +79,22 @@ internal fun SensorBody(repo: ChatRepository, state: ChatState, gatewayId: Strin
 }
 
 @Composable
-private fun WatchingSection(repo: ChatRepository, state: ChatState, gatewayId: String, deviceId: String) {
+private fun UsesSection(repo: ChatRepository, state: ChatState, gatewayId: String, deviceId: String) {
 	LaunchedEffect(gatewayId, state.gateways.entry(gatewayId)?.incarnation) { repo.automationOps.refresh(gatewayId) }
 	val context = automationContext(state.gateways, state.assistantHome, gatewayId)
-	val uses = usedBy(gatewayId, state.gateways.listOn(gatewayId) { it.automations }) { watching(deviceId, it) }
+	val uses = usesOf(gatewayId, state.gateways.listOn(gatewayId) { it.automations }) { usedBy(deviceId, it) }
 	val dim = MaterialTheme.colorScheme.onSurfaceVariant
 	val open = { slot: AutomationSlot -> repo.editors.show(ShownEditor.Automation(AutomationDraftKey(gatewayId, slot))) }
 
 	Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
 		Text("Automations", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-		if (offersWatch(deviceId, context)) {
-			TextButton(onClick = hapticClick { open(AutomationSlot.New(watch = deviceId)) }) { Text("New") }
+		if (offersSensor(deviceId, context)) {
+			TextButton(onClick = hapticClick { open(AutomationSlot.New(sensor = deviceId)) }) { Text("New automation") }
 		}
 	}
 	when (uses) {
 		is UsedBy.Empty -> {
-			val line = watchingEmptyLine(uses.why)
+			val line = sensorUsesLine(uses.why)
 			if (line == null) CircularProgressIndicator() else Text(line, style = MaterialTheme.typography.bodySmall, color = dim)
 		}
 		is UsedBy.Rows -> for (row in uses.rows) {

@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createOutboxSource } from "../gateway/assistant/outboxSource.js";
 import { openAutomationPair } from "../gateway/compose/composeAutomations.js";
 import { previewAutomation } from "../gateway/computed/automationPreview.js";
-import type { AutomationHoles } from "../gateway/computed/automations.js";
-import { holesOver } from "../gateway/liveConsole/holes.js";
+import type { AutomationPlaceholders } from "../gateway/computed/automations.js";
+import { placeholdersOver } from "../gateway/liveConsole/placeholders.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { createRestoreRepairs } from "../shared/durable-store.js";
 import { known, refKey, type Value } from "../shared/expressions.js";
@@ -27,7 +27,7 @@ afterEach(() => {
 
 const FREEZER = "ce:1c:44:06:3c:5d";
 const REGISTRY = createConsoleRegistry([]);
-const HOLES: AutomationHoles = holesOver(REGISTRY);
+const PLACEHOLDERS: AutomationPlaceholders = placeholdersOver(REGISTRY);
 const TEMP = refKey({ source: "device", device: FREEZER, key: "temperature" });
 const noEvent = async () => {
 	throw new Error("no source here");
@@ -50,7 +50,7 @@ function world() {
 				: null,
 		automations: {
 			isHome: () => true,
-			holes: () => HOLES,
+			placeholders: () => PLACEHOLDERS,
 			reading: (device, measure) =>
 				device === FREEZER && measure === "temperature"
 					? {
@@ -126,9 +126,9 @@ describe("a crossing", () => {
 		expect(await told()).toEqual([]);
 	});
 
-	it("tells its message with each hole filled from what fired, and a message with no hole in the firing's own write", async () => {
+	it("tells its message with each placeholder filled from what fired, and a message with no placeholder in the firing's own write", async () => {
 		const { automations, read, messages } = world();
-		const filled = "It is {value} on {device}, past {threshold}: {round(value) < 0}";
+		const filled = "It is {reading} on {device}, past {threshold}: {round(reading) < 0}";
 		automations.ownerPut(
 			"holes",
 			above({ actions: [{ kind: "tell_assistant", when: "now", message: filled }] }),
@@ -151,7 +151,7 @@ describe("a crossing", () => {
 		]);
 	});
 
-	it("saves a message whose hole names nothing here as its error, with the span to mark", () => {
+	it("saves a message whose placeholder names nothing here as its error, with the span to mark", () => {
 		const { automations } = world();
 		const message = "It is {temperature} now";
 
@@ -170,16 +170,16 @@ describe("a crossing", () => {
 		expect(message.slice(7, 18)).toBe("temperature");
 	});
 
-	it("previews a text over the number as it stands, lists the names a hole may read, and marks a hole it cannot keep", async () => {
+	it("previews a text over the number as it stands, lists the names a placeholder may read, and marks a placeholder it cannot keep", async () => {
 		const { automations } = world();
 		const { trigger } = above();
 		const deps = {
 			event: noEvent,
 			namesNow: automations.namesNow,
-			holes: () => HOLES,
+			placeholders: () => PLACEHOLDERS,
 		};
 
-		const shown = await previewAutomation(deps, { trigger, text: "It is {value}, past {threshold}" });
+		const shown = await previewAutomation(deps, { trigger, text: "It is {reading}, past {threshold}" });
 		const marked = await previewAutomation(deps, { trigger, text: "It is {temp}" });
 		const elsewhere = previewAutomation(deps, {
 			trigger: { ...trigger, kind: "crossing", device: "nowhere" } as typeof trigger,
@@ -190,14 +190,14 @@ describe("a crossing", () => {
 			of: 0,
 			matches: [],
 			names: [
-				{ name: "value", shown: "-18 C" },
+				{ name: "reading", shown: "-18 C" },
 				{ name: "device", shown: "Freezer" },
 				{ name: "measure", shown: "Temperature" },
 				{ name: "threshold", shown: "-10 C" },
 			],
 			filled: "It is -18 C, past -10 C",
 		});
-		expect(marked).toMatchObject({ hole: { start: 7, end: 11 } });
+		expect(marked).toMatchObject({ placeholder: { start: 7, end: 11 } });
 		expect(marked.filled).toBeUndefined();
 		await expect(elsewhere).rejects.toThrow();
 	});
@@ -205,12 +205,12 @@ describe("a crossing", () => {
 	it("fills declared text values", async () => {
 		const { automations } = world();
 		const { trigger } = above();
-		const deps = { event: noEvent, namesNow: automations.namesNow, holes: () => HOLES };
+		const deps = { event: noEvent, namesNow: automations.namesNow, placeholders: () => PLACEHOLDERS };
 		const preview = await previewAutomation(deps, {
 			trigger,
 			text: "Set {degrees} degrees",
 			params: [{ name: "degrees", type: "text" }],
-			values: { degrees: "21" },
+			args: { degrees: "21" },
 		});
 
 		expect(preview.names?.at(-1)).toEqual({ name: "degrees", shown: "21" });
@@ -221,7 +221,7 @@ describe("a crossing", () => {
 			params: [{ name: "degrees", type: "text" }],
 		});
 		expect(unset.names?.at(-1)).toEqual({ name: "degrees", shown: "not set" });
-		expect(unset.filled).toBe((await HOLES.fill("Set {degrees}", {})).text);
+		expect(unset.filled).toBe((await PLACEHOLDERS.fill("Set {degrees}", {})).text);
 	});
 
 	it("fills device values with switch names", async () => {
@@ -230,14 +230,14 @@ describe("a crossing", () => {
 		const deps = {
 			event: noEvent,
 			namesNow: automations.namesNow,
-			holes: () => HOLES,
-			switchName: (device: string) => (device === FREEZER ? "Freezer" : null),
+			placeholders: () => PLACEHOLDERS,
+			deviceName: (device: string) => (device === FREEZER ? "Freezer" : null),
 		};
 		const preview = await previewAutomation(deps, {
 			trigger,
 			text: "Warm {room}",
 			params: [{ name: "room", type: "device" }],
-			values: { room: FREEZER },
+			args: { room: FREEZER },
 		});
 
 		expect(preview.names?.at(-1)).toEqual({ name: "room", shown: "Freezer" });
@@ -248,11 +248,11 @@ describe("a crossing", () => {
 		const { automations } = world();
 		const { trigger } = above();
 		const preview = await previewAutomation(
-			{ event: noEvent, namesNow: automations.namesNow, holes: () => HOLES },
-			{ trigger, text: "Use {unknown}", params: [{ name: "degrees", type: "number" }], values: { degrees: 21 } },
+			{ event: noEvent, namesNow: automations.namesNow, placeholders: () => PLACEHOLDERS },
+			{ trigger, text: "Use {unknown}", params: [{ name: "degrees", type: "number" }], args: { degrees: 21 } },
 		);
 
-		expect(preview.hole).toMatchObject({ start: 5, end: 12 });
+		expect(preview.placeholder).toMatchObject({ start: 5, end: 12 });
 		expect(preview.filled).toBeUndefined();
 	});
 
@@ -260,67 +260,65 @@ describe("a crossing", () => {
 		const { automations } = world();
 		const { trigger } = above();
 		const preview = await previewAutomation(
-			{ event: noEvent, namesNow: automations.namesNow, holes: () => HOLES },
+			{ event: noEvent, namesNow: automations.namesNow, placeholders: () => PLACEHOLDERS },
 			{
 				trigger,
-				text: "At {value}",
-				params: [{ name: "value", type: "text" }],
-				values: { value: "function value" },
+				text: "At {reading}",
+				params: [{ name: "reading", type: "text" }],
+				args: { reading: "function value" },
 			},
 		);
 
-		expect(preview.names?.[0]).toEqual({ name: "value", shown: "-18 C" });
-		expect(preview.names?.at(-1)).toEqual({ name: "value", shown: "function value" });
+		expect(preview.names?.[0]).toEqual({ name: "reading", shown: "-18 C" });
+		expect(preview.names?.at(-1)).toEqual({ name: "reading", shown: "function value" });
 		expect(preview.filled).toBe("At -18 C");
 	});
 
-	it("reads a condition as true or false right now, and says why it cannot when a run's value or a refusal stands in the way", async () => {
+	it("answers a condition with its issue alone, and nothing for a readable one", async () => {
 		const { automations } = world();
 		const { trigger } = above();
-		const deps = { event: noEvent, namesNow: automations.namesNow, holes: () => HOLES };
-		const read = async (condition: string, runNames: string[] = []) =>
+		const deps = { event: noEvent, namesNow: automations.namesNow, placeholders: () => PLACEHOLDERS };
+		const read = async (condition: string, variables: string[] = []) =>
 			(
 				await previewAutomation(deps, {
 					trigger,
 					condition,
-					runNames,
+					variables,
 					params: [{ name: "level", type: "number" }],
-					values: { level: 3 },
+					args: { level: 3 },
 				})
 			).condition;
 
-		expect(await read("value < threshold")).toEqual({ holds: true });
-		expect(await read("level > 5")).toEqual({ holds: false });
-		expect(await read("count > 1", ["count"])).toEqual({ unread: "it reads a value an earlier step keeps" });
-		expect(await read("level > 1", ["level"])).toEqual({ unread: "it reads a value an earlier step keeps" });
-		expect(await read("level + 1")).toEqual({ unread: "it is not true or false" });
+		expect(await read("reading < threshold")).toEqual({});
+		expect(await read("level + 1")).toEqual({});
+		expect(await read("count > 1", ["count"])).toEqual({});
 		expect(await read("nobody > 1")).toMatchObject({ issue: { start: 0, end: 6 } });
 		expect(await read("level = 1")).toMatchObject({ issue: { start: 0 } });
 	});
 
-	it("says no event has come in when an event condition has nothing to read", async () => {
+	it("answers no warning for an event condition with nothing to read", async () => {
 		const { automations } = world();
 		const preview = await previewAutomation(
 			{
 				event: async () => ({ names: null, preview: { matched: 0, of: 0, matches: [] } }),
 				namesNow: automations.namesNow,
-				holes: () => HOLES,
+				placeholders: () => PLACEHOLDERS,
 			},
 			{ trigger: { kind: "event", source: "github", conditions: [] }, condition: 'event.reason == "mention"' },
 		);
 
-		expect(preview.condition).toEqual({ unread: "no event has come in yet" });
+		expect(preview.condition).toEqual({});
 	});
 
 	it("keeps the names and the fill beside a condition", async () => {
 		const { automations } = world();
 		const { trigger } = above();
 		const preview = await previewAutomation(
-			{ event: noEvent, namesNow: automations.namesNow, holes: () => HOLES },
-			{ trigger, text: "At {value}", condition: "true" },
+			{ event: noEvent, namesNow: automations.namesNow, placeholders: () => PLACEHOLDERS },
+			{ trigger, text: "At {reading}", condition: "true" },
 		);
 
-		expect(preview.condition).toEqual({ holds: true });
+		expect(preview.condition).toEqual({});
 		expect(preview.filled).toBe("At -18 C");
 	});
 
@@ -345,7 +343,7 @@ describe("the trigger catalogue", () => {
 		const kinds = AutomationTriggerSchema.options.map((option) => option.shape.kind.value);
 		const listed = ConsoleAutomationListResultSchema.parse({
 			automations: [],
-			serves: { ...AUTOMATION_SERVES, numbers: [], switches: [] },
+			serves: { ...AUTOMATION_SERVES, numbers: [], devices: [] },
 		});
 
 		expect(Object.keys(AUTOMATION_TRIGGERS)).toEqual(kinds);

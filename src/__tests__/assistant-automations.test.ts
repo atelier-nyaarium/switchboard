@@ -58,8 +58,8 @@ const freshDir = () => {
 	return dir;
 };
 
-const reason = (value: string, test: AutomationCondition["test"] = "is"): AutomationCondition[] => [
-	{ field: "reason", test, value },
+const reason = (value: string, operator: AutomationCondition["operator"] = "is"): AutomationCondition[] => [
+	{ field: "reason", operator, value },
 ];
 
 const event = (id: string, kind: string, at = 1): SourceEvent => ({
@@ -216,7 +216,7 @@ describe("an event automation", () => {
 			"a",
 			eventAutomation("github", [
 				...reason(" review_requested "),
-				{ field: "repository", test: "contains", value: "atelier" },
+				{ field: "repository", operator: "contains", value: "atelier" },
 			]),
 			0,
 		);
@@ -238,12 +238,12 @@ describe("an event automation", () => {
 	it("stays held when its source drops a field it tests, listed invalid, and runs on with a warning when a choice leaves the list", async () => {
 		const dir = freshDir();
 		const first = await placed([listing()], dir);
-		const listed: AutomationCondition[] = [{ field: "reason", test: "is", value: ["mention", "assign"] }];
+		const listed: AutomationCondition[] = [{ field: "reason", operator: "is", value: ["mention", "assign"] }];
 		const choice = eventAutomation("github", listed);
 		first.automations.ownerPut("a", choice, 0);
 		first.automations.ownerPut(
 			"b",
-			eventAutomation("github", [{ field: "repository", test: "is", value: "x" }]),
+			eventAutomation("github", [{ field: "repository", operator: "is", value: "x" }]),
 			0,
 		);
 		const check = first.automations.checkOp({ automationId: "c", automation: choice, automationBase: 0 });
@@ -347,7 +347,7 @@ describe("an event automation", () => {
 
 		const preview = await assistant.previewTrigger(eventAutomation("github", reason("MENTION")).trigger);
 		const unknown = assistant.previewTrigger(
-			eventAutomation("github", [{ field: "label", test: "is", value: "x" }]).trigger,
+			eventAutomation("github", [{ field: "label", operator: "is", value: "x" }]).trigger,
 		);
 
 		expect(preview).toEqual({

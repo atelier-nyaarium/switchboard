@@ -178,11 +178,11 @@ private fun ConditionRow(
 		}
 		Box(Modifier.weight(0.8f)) {
 			PickMenu(
-				label = "Test",
-				choices = fields.testsFor(condition, served),
-				picked = condition.test,
-				labelOf = { testLabel(it, values.size) },
-				onPick = { test -> edit { it.changed(key, test = { test }) } },
+				label = "Operator",
+				choices = fields.operatorsFor(condition, served),
+				picked = condition.operator,
+				labelOf = { operatorLabel(it, values.size) },
+				onPick = { operator -> edit { it.changed(key, operator = { operator }) } },
 				enabled = enabled,
 			)
 		}
@@ -285,7 +285,7 @@ private fun CrossingForm(
 	val number = offer.number(trigger.device, trigger.measure)
 	val suffix = crossingSuffix(trigger.unit, number?.unit, display).trim()
 	PickMenu(
-		label = "Value",
+		label = "Reading",
 		choices = offer.numbers,
 		picked = number,
 		labelOf = { it.label },

@@ -2,8 +2,9 @@ package com.atelier_nyaarium.switchboard.assistant
 
 import com.atelier_nyaarium.switchboard.AssistantHome
 import com.atelier_nyaarium.switchboard.AutomationSaved
-import com.atelier_nyaarium.switchboard.MovedFunction
+import com.atelier_nyaarium.switchboard.ChangedFunction
 import com.atelier_nyaarium.switchboard.EditStanding
+import com.atelier_nyaarium.switchboard.GATEWAY_UNREACHABLE
 import com.atelier_nyaarium.switchboard.waitingLine
 import com.atelier_nyaarium.switchboard.Lookup
 import com.atelier_nyaarium.switchboard.GatewayList
@@ -12,7 +13,7 @@ import com.atelier_nyaarium.switchboard.ListEmpty
 import com.atelier_nyaarium.switchboard.groupedView
 import com.atelier_nyaarium.switchboard.listedGroups
 import com.atelier_nyaarium.switchboard.openingDraft
-import com.atelier_nyaarium.switchboard.FUNCTION_MOVED_LINE
+import com.atelier_nyaarium.switchboard.FUNCTION_CHANGED_LINE
 import com.atelier_nyaarium.switchboard.automationSavedOf
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldSpec
 import com.atelier_nyaarium.switchboard.proto.AssistantSource
@@ -46,8 +47,8 @@ private val MAX_VALUES = Protocol.Wire.CONDITION_VALUES_MAX
 private val ASCII_EDGES = setOf(0x20, 0x09, 0x0A, 0x0B, 0x0C, 0x0D)
 
 // skew:condition-lists
-/** Fallback tests without listing. */
-private val UNLISTED_TESTS = listOf("is", "is_not", "contains")
+/** Fallback operators without listing. */
+private val UNLISTED_OPERATORS = listOf("is", "is_not", "contains")
 
 internal fun trimRuleValue(value: String): String = value.trim { it.code in ASCII_EDGES }
 
@@ -59,25 +60,25 @@ internal fun valuesOf(condition: AutomationCondition): List<String> = when (val 
 	is JsonObject -> emptyList()
 }.filter { trimRuleValue(it).isNotEmpty() }
 
-internal fun conditionOf(field: String, test: String, values: List<String>): AutomationCondition {
-	val kept = values.map(::trimRuleValue).filter { it.isNotEmpty() }.distinct()
-	val value = when (kept.size) {
+internal fun conditionOf(field: String, operator: String, values: List<String>): AutomationCondition {
+	val trimmed = values.map(::trimRuleValue).filter { it.isNotEmpty() }.distinct()
+	val value = when (trimmed.size) {
 		0 -> JsonPrimitive("")
-		1 -> JsonPrimitive(kept.single())
-		else -> JsonArray(kept.map(::JsonPrimitive))
+		1 -> JsonPrimitive(trimmed.single())
+		else -> JsonArray(trimmed.map(::JsonPrimitive))
 	}
-	return AutomationCondition(field, test, value)
+	return AutomationCondition(field, operator, value)
 }
 
-internal fun testLabel(test: String, values: Int = 1): String =
-	(if (values > 1) FieldTypes.LIST_TEST_LABELS else FieldTypes.TEST_LABELS)[test] ?: test
+internal fun operatorLabel(operator: String, values: Int = 1): String =
+	(if (values > 1) FieldTypes.LIST_OPERATOR_LABELS else FieldTypes.OPERATOR_LABELS)[operator] ?: operator
 
-internal fun servedTests(served: AutomationConditionServes?): List<String> = served?.tests ?: UNLISTED_TESTS
+internal fun servedOperators(served: AutomationConditionServes?): List<String> = served?.operators ?: UNLISTED_OPERATORS
 
 internal fun valuesMax(served: AutomationConditionServes?): Int = served?.values?.toInt()?.coerceIn(1, MAX_VALUES) ?: 1
 
 internal fun conditionsServed(conditions: List<AutomationCondition>, served: AutomationConditionServes?): Boolean =
-	conditions.all { valuesOf(it).size <= valuesMax(served) && it.test in servedTests(served) }
+	conditions.all { valuesOf(it).size <= valuesMax(served) && it.operator in servedOperators(served) }
 
 internal fun addsValue(condition: AutomationCondition, served: AutomationConditionServes?): Boolean =
 	valuesOf(condition).size < valuesMax(served)
@@ -131,18 +132,18 @@ internal val AssistantFieldSpec.label: String
 		is AssistantFieldSpec.Unknown -> (raw["label"] as? JsonPrimitive)?.contentOrNull ?: fieldLabel(field)
 	}
 
-internal fun testsOf(spec: AssistantFieldSpec?): List<String> =
+internal fun operatorsOf(spec: AssistantFieldSpec?): List<String> =
 	when (spec) {
-		is AssistantFieldSpec.Enumeration -> FieldTypes.ROWS.getValue("enumeration").tests
-		is AssistantFieldSpec.Text, null -> FieldTypes.ROWS.getValue("text").tests
-		is AssistantFieldSpec.Number -> FieldTypes.ROWS.getValue("number").tests
-		is AssistantFieldSpec.Bytes -> FieldTypes.ROWS.getValue("bytes").tests
+		is AssistantFieldSpec.Enumeration -> FieldTypes.ROWS.getValue("enumeration").operators
+		is AssistantFieldSpec.Text, null -> FieldTypes.ROWS.getValue("text").operators
+		is AssistantFieldSpec.Number -> FieldTypes.ROWS.getValue("number").operators
+		is AssistantFieldSpec.Bytes -> FieldTypes.ROWS.getValue("bytes").operators
 		is AssistantFieldSpec.Unknown -> emptyList()
 	}
 
 internal data class SourceFields(val specs: List<AssistantFieldSpec>) {
 	val fields: List<String> get() = specs.map { it.field }
-	val ruleFields: List<String> get() = specs.filter { testsOf(it).isNotEmpty() }.map { it.field }
+	val ruleFields: List<String> get() = specs.filter { operatorsOf(it).isNotEmpty() }.map { it.field }
 
 	fun specOf(field: String): AssistantFieldSpec? = specs.find { it.field == field }
 
@@ -157,9 +158,9 @@ internal data class SourceFields(val specs: List<AssistantFieldSpec>) {
 		return offered.filter { it !in held }
 	}
 
-	fun testsFor(condition: AutomationCondition, served: AutomationConditionServes?): List<String> {
-		val offered = testsOf(specOf(condition.field)).filter { it in servedTests(served) }
-		return if (condition.test in offered) offered else listOf(condition.test) + offered
+	fun operatorsFor(condition: AutomationCondition, served: AutomationConditionServes?): List<String> {
+		val offered = operatorsOf(specOf(condition.field)).filter { it in servedOperators(served) }
+		return if (condition.operator in offered) offered else listOf(condition.operator) + offered
 	}
 
 	fun issueOf(condition: AutomationCondition): CardIssue? {
@@ -169,8 +170,8 @@ internal data class SourceFields(val specs: List<AssistantFieldSpec>) {
 		if (values.isEmpty()) return null
 		if (values.any { it.length > MAX_VALUE_LEN }) return CardIssue(IssueCause.TOO_LONG.level, "At most $MAX_VALUE_LEN characters")
 		if (values.size > MAX_VALUES) return CardIssue(IssueCause.TOO_MANY.level, "At most $MAX_VALUES values")
-		if (condition.test !in testsOf(spec)) {
-			return CardIssue(IssueCause.UNTAKEN_TEST.level, "${spec.label} takes no \"${testLabel(condition.test, values.size)}\"")
+		if (condition.operator !in operatorsOf(spec)) {
+			return CardIssue(IssueCause.UNTAKEN_OPERATOR.level, "${spec.label} takes no \"${operatorLabel(condition.operator, values.size)}\" operator")
 		}
 		val gone = (spec as? AssistantFieldSpec.Enumeration)?.let { held -> values.firstOrNull { value -> held.options.none { it.value == value } } }
 		return gone?.let { CardIssue(IssueCause.VANISHED.level, "no longer offered; it matches nothing", it) }
@@ -186,7 +187,7 @@ internal data class CalleeDraft(
 	/** `0` means new. */
 	val base: Long,
 	val name: String,
-	val params: List<FunctionValueDraft>,
+	val params: List<FunctionParamDraft>,
 	val steps: List<StepDraft>,
 	val original: AutomationFunction?,
 	/** Opened cards without keys. */
@@ -207,8 +208,8 @@ internal data class CalleeDraft(
 internal sealed interface AutomationSlot {
 	data class Held(val id: String) : AutomationSlot
 
-	/** Device to cross. */
-	data class New(val watch: String? = null) : AutomationSlot
+	/** Sensor to cross. */
+	data class New(val sensor: String? = null) : AutomationSlot
 }
 
 internal data class AutomationDraft(
@@ -228,13 +229,13 @@ internal data class AutomationDraft(
 	/** Unit its numbers are typed in. */
 	val display: String? = null,
 	/** Its own, or a function's head; `steps` are the cards. */
-	val runs: RunsHead = RunsHead.Own,
+	val runs: RunsHead = RunsHead.Unnamed,
 	/** Function ID survives edits. */
 	val newFunctionId: String? = null,
 	/** The function picker is open. */
 	val picking: Boolean = false,
 	/** Blank uses Gateway default. */
-	val keepTryingMin: String = "",
+	val retryForMin: String = "",
 	val callees: Map<String, CalleeDraft> = emptyMap(),
 	/** Innermost page last. */
 	val inside: List<String> = emptyList(),
@@ -287,9 +288,9 @@ internal data class AutomationDraft(
 
 	fun withCondition(fields: SourceFields): AutomationDraft {
 		if (conditions.size >= MAX_CONDITIONS) return this
-		val spec = fields.specs.firstOrNull { testsOf(it).isNotEmpty() } ?: return this
-		val test = testsOf(spec).first()
-		return onEvent { it.copy(conditions = it.conditions + ConditionDraft(freshKey(), conditionOf(spec.field, test, emptyList()))) }
+		val spec = fields.specs.firstOrNull { operatorsOf(it).isNotEmpty() } ?: return this
+		val operator = operatorsOf(spec).first()
+		return onEvent { it.copy(conditions = it.conditions + ConditionDraft(freshKey(), conditionOf(spec.field, operator, emptyList()))) }
 	}
 
 	fun withField(key: String, field: String, fields: SourceFields): AutomationDraft {
@@ -297,9 +298,9 @@ internal data class AutomationDraft(
 		if (field == held.field) return this
 		val was = fields.specOf(held.field)
 		val now = fields.specOf(field)
-		val keepsValues = was is AssistantFieldSpec.Text && now is AssistantFieldSpec.Text
-		val test = held.test.takeIf { it in testsOf(now) } ?: testsOf(now).firstOrNull() ?: held.test
-		return changed(key, field = field, test = { test }, values = { if (keepsValues) it else emptyList() })
+		val textToText = was is AssistantFieldSpec.Text && now is AssistantFieldSpec.Text
+		val operator = held.operator.takeIf { it in operatorsOf(now) } ?: operatorsOf(now).firstOrNull() ?: held.operator
+		return changed(key, field = field, operator = { operator }, values = { if (textToText) it else emptyList() })
 	}
 
 	fun withoutCondition(key: String): AutomationDraft =
@@ -308,13 +309,13 @@ internal data class AutomationDraft(
 	fun changed(
 		key: String,
 		field: String? = null,
-		test: (String) -> String = { it },
+		operator: (String) -> String = { it },
 		values: (List<String>) -> List<String> = { it },
 	): AutomationDraft = onEvent { event ->
 		event.copy(
 			conditions = event.conditions.map { draft ->
 				val held = draft.condition
-				if (draft.key == key) draft.copy(condition = conditionOf(field ?: held.field, test(held.test), values(valuesOf(held)))) else draft
+				if (draft.key == key) draft.copy(condition = conditionOf(field ?: held.field, operator(held.operator), values(valuesOf(held)))) else draft
 			},
 		)
 	}
@@ -365,7 +366,7 @@ internal data class AutomationDraft(
 
 	/** The action of the card at `key` changed. */
 	fun withAction(key: String, change: (ActionDraft) -> ActionDraft): AutomationDraft =
-		withStep(key) { step -> if (step is StepDraft.Do) step.copy(action = change(step.action)) else step }
+		withStep(key) { step -> if (step is StepDraft.Action) step.copy(action = change(step.action)) else step }
 
 	fun withSwitch(key: String, change: (StepDraft.Switch) -> StepDraft.Switch?): AutomationDraft =
 		withStep(key) { step -> (step as? StepDraft.Switch)?.let(change) ?: step }
@@ -375,11 +376,11 @@ internal data class AutomationDraft(
 		val into = if (slot.parent != null) treeHolding(slot.parent) else tree
 		val placed = insertedStep(stepsOf(into), slot, step) ?: return this
 		if (into != null) return withTree(into, placed)
-		val minted = if (step is StepDraft.Do) newFunctionId else newFunctionId ?: freshFunctionId()
+		val minted = if (step is StepDraft.Action) newFunctionId else newFunctionId ?: freshFunctionId()
 		return copy(steps = placed, newFunctionId = minted)
 	}
 
-	fun plusAction(action: ActionDraft): AutomationDraft = plusStep(Slot(null, null, steps.size), StepDraft.Do(freshKey(), action))
+	fun plusAction(action: ActionDraft): AutomationDraft = plusStep(Slot(null, null, steps.size), StepDraft.Action(freshKey(), action))
 
 	fun minusStep(key: String): AutomationDraft = copy(
 		steps = removedStep(steps, key),
@@ -429,7 +430,7 @@ internal data class AutomationDraft(
 		val id = freshFunctionId()
 		val callee = CalleeDraft(id, 0L, name.trim(), emptyList(), emptyList(), null, emptyList())
 		return copy(callees = callees + (id to callee)).withStep(key) { step ->
-			(step as? StepDraft.Call)?.copy(function = id, values = emptyMap()) ?: step
+			(step as? StepDraft.RunFunction)?.copy(function = id, args = emptyMap()) ?: step
 		}
 	}
 
@@ -444,7 +445,7 @@ internal data class AutomationDraft(
 	/** Null while the trigger or an action cannot be saved. */
 	fun toAutomation(offer: AutomationOffer): Automation? {
 		val built = builtTrigger(offer) ?: return null
-		val actions = steps.map { (it as? StepDraft.Do)?.action ?: return null }
+		val actions = steps.map { (it as? StepDraft.Action)?.action ?: return null }
 		if (actions.isEmpty() || actions.any { actionIssue(it, offer) != null }) return null
 		val written = actions.map { actionOf(it, offer) ?: return null }
 		return automationOf(built, written)
@@ -458,7 +459,7 @@ internal data class AutomationDraft(
 			enabled = enabled,
 			trigger = trigger,
 			actions = actions,
-			keepTryingMin = keepTryingMin.takeIf { it.isNotBlank() }?.trim()?.toLong(),
+			retryForMin = retryForMin.takeIf { it.isNotBlank() }?.trim()?.toLong(),
 		)
 	}
 
@@ -467,7 +468,7 @@ internal data class AutomationDraft(
 			unkeyed(steps) != unkeyed(opened.steps) ||
 			enabled != opened.enabled ||
 			runs != opened.runs ||
-			keepTryingMin != opened.keepTryingMin ||
+			retryForMin != opened.retryForMin ||
 			script?.unread() == true ||
 			callees.values.any { it.holdsWork() }
 }
@@ -476,29 +477,30 @@ internal data class AutomationDraft(
 internal fun mirrorKey(draft: AutomationDraft): Any =
 	Triple(draft.revision, (draft.runsDraft() as? RunsDraft.Pointing)?.base, draft.callees.mapValues { it.value.base })
 
-/** Calls include kept cards. */
-internal fun callTargets(steps: List<StepDraft>): List<String> = everyStep(steps).flatMap { step ->
+/** Functions the cards run, script-only cards included. */
+internal fun runTargets(steps: List<StepDraft>): List<String> = everyStep(steps).flatMap { step ->
 	when (step) {
-		is StepDraft.Call -> listOf(step.function)
-		is StepDraft.Kept -> callsIn(listOf(step.step))
-		is StepDraft.Do, is StepDraft.If, is StepDraft.Try, is StepDraft.Switch, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note -> emptyList()
+		is StepDraft.RunFunction -> listOf(step.function)
+		is StepDraft.ScriptOnly -> functionsRunIn(listOf(step.step))
+		is StepDraft.Action, is StepDraft.If, is StepDraft.Try, is StepDraft.Switch, is StepDraft.Wait, is StepDraft.Return,
+		is StepDraft.Comment, is StepDraft.Variable, is StepDraft.Parallel, is StepDraft.Start, is StepDraft.Await, is StepDraft.Throw -> emptyList()
 	}
 }.filter { it.isNotBlank() }
 
 /** The one callee reader. */
 internal sealed interface FunctionSource {
 	val params: List<FunctionParam>
-	val calls: List<String>
+	val runs: List<String>
 
 	/** Own cards, or an edited callee's. */
 	data class Cards(override val params: List<FunctionParam>, val steps: List<StepDraft>, val callee: CalleeDraft?) : FunctionSource {
-		override val calls get() = callTargets(steps)
+		override val runs get() = runTargets(steps)
 	}
 
 	/** Else the listed row; never an untouched copy. */
 	data class Listed(val row: AutomationFunctionRow) : FunctionSource {
 		override val params get() = row.function.params
-		override val calls get() = callsOf(row.function)
+		override val runs get() = functionsRunBy(row.function)
 	}
 }
 
@@ -513,7 +515,7 @@ internal fun functionSource(draft: AutomationDraft, offer: AutomationOffer, id: 
 
 /** Starts included. */
 internal fun AutomationDraft.reached(starts: Collection<String>, offer: AutomationOffer): Set<String> =
-	reachOver(starts) { id -> functionSource(this, offer, id)?.calls.orEmpty() }
+	reachOver(starts) { id -> functionSource(this, offer, id)?.runs.orEmpty() }
 
 /** Edited callees the automation still reaches. */
 internal fun sentCallees(draft: AutomationDraft, offer: AutomationOffer): List<CalleeDraft> {
@@ -530,31 +532,31 @@ internal fun droppedEdits(draft: AutomationDraft, offer: AutomationOffer): List<
 }
 
 internal fun droppedLine(dropped: List<CalleeDraft>): String? =
-	dropped.takeIf { it.isNotEmpty() }?.let { list -> "Edits to ${list.joinToString(", ") { it.name }} are not saved: nothing calls it now." }
+	dropped.takeIf { it.isNotEmpty() }?.let { list -> "Edits to ${list.joinToString(", ") { it.name }} are not saved: nothing runs it now." }
 
 /** Automation's reached callees. */
 internal fun AutomationDraft.reachedCallees(offer: AutomationOffer): Set<String> =
-	reached(callTargets(steps), offer).filterTo(mutableSetOf()) { it in callees }
+	reached(runTargets(steps), offer).filterTo(mutableSetOf()) { it in callees }
 
-/** A crossing of that device's first number; null when not offered. */
-private fun watchTrigger(device: String, offer: AutomationOffer, zone: String): TriggerDraft? {
-	val watched = offer.copy(numbers = offer.numbers.filter { it.device == device })
-	if (!offersChoice(watched, TriggerChoice.CROSSING, sources = false)) return null
-	return freshTrigger(TriggerChoice.CROSSING, watched, null, zone)
+/** A crossing of that sensor's first number; null when not offered. */
+private fun sensorTrigger(device: String, offer: AutomationOffer, zone: String): TriggerDraft? {
+	val read = offer.copy(numbers = offer.numbers.filter { it.device == device })
+	if (!offersChoice(read, TriggerChoice.CROSSING, sources = false)) return null
+	return freshTrigger(TriggerChoice.CROSSING, read, null, zone)
 }
 
 /** First offered trigger and action, or a crossing; null if none. */
 internal fun newAutomationDraft(
 	context: EditContext,
 	zone: String = "",
-	watch: String? = null,
+	sensor: String? = null,
 	display: String? = null,
 ): AutomationDraft? {
 	val offer = context.offer
 	val sources = context.sources
 	val firstSource = sources.firstOrNull { it.triggers }?.id
-	val trigger = if (watch != null) {
-		watchTrigger(watch, offer, zone)
+	val trigger = if (sensor != null) {
+		sensorTrigger(sensor, offer, zone)
 	} else {
 		TriggerChoice.entries
 			.filter { offersChoice(offer, it, firstSource != null) }
@@ -564,7 +566,7 @@ internal fun newAutomationDraft(
 	return AutomationDraft(
 		id = "auto-${java.util.UUID.randomUUID()}",
 		trigger = trigger,
-		steps = listOf(StepDraft.Do(freshKey(), action)),
+		steps = listOf(StepDraft.Action(freshKey(), action)),
 		enabled = true,
 		revision = 0L,
 		context = context,
@@ -586,13 +588,13 @@ internal fun automationDraftOf(row: AutomationRow, context: EditContext, display
 	val draft = AutomationDraft(
 		id = row.id,
 		trigger = trigger,
-		steps = written(row.automation).map { action -> StepDraft.Do(freshKey(), actionDraftOf(action, offer)) },
+		steps = written(row.automation).map { action -> StepDraft.Action(freshKey(), actionDraftOf(action, offer)) },
 		enabled = row.automation.enabled,
 		revision = row.revision,
 		context = context,
 		original = row.automation,
 		display = display,
-		keepTryingMin = row.automation.keepTryingMin?.toString().orEmpty(),
+		retryForMin = row.automation.retryForMin?.toString().orEmpty(),
 	)
 	// Functions only where served.
 	val functions = offer.functions ?: return draft
@@ -634,12 +636,12 @@ internal fun functionSaveOf(
 	}
 }
 
-private val KEEP_TRYING = Protocol.Wire.KEEP_TRYING_MIN_MIN..Protocol.Wire.KEEP_TRYING_MIN_MAX
+private val RETRY_FOR = Protocol.Wire.RETRY_FOR_MIN_MIN..Protocol.Wire.RETRY_FOR_MIN_MAX
 
 internal fun settingsIssue(draft: AutomationDraft): String? {
-	val typed = draft.keepTryingMin.trim()
+	val typed = draft.retryForMin.trim()
 	if (typed.isEmpty()) return null
-	return "Keep trying is ${KEEP_TRYING.first} to ${KEEP_TRYING.last} minutes".takeIf { typed.toIntOrNull() !in KEEP_TRYING }
+	return "Retry for is ${RETRY_FOR.first} to ${RETRY_FOR.last} minutes".takeIf { typed.toIntOrNull() !in RETRY_FOR }
 }
 
 /** A function id as the editor mints one. */
@@ -665,7 +667,7 @@ internal fun openedDraft(
 ): AutomationDraft? = when (slot) {
 	is AutomationSlot.Held ->
 		openingDraft(held, { null }) { row -> row.takeIf { editable(it, context.offer) }?.let { automationDraftOf(it, context, display) } }
-	is AutomationSlot.New -> newAutomationDraft(context, zone, slot.watch, display)
+	is AutomationSlot.New -> newAutomationDraft(context, zone, slot.sensor, display)
 }
 
 /** Held source stays first. */
@@ -692,7 +694,7 @@ internal fun automationEditing(
 	val edit = standing && !holdsUnserved(draft.steps, offer)
 	return AutomationEditing(
 		edit = edit,
-		save = edit && offered && !scriptPending(draft, offer) && !errorsUnkept(draft, offer) &&
+		save = edit && offered && !scriptPending(draft, offer) && !errorsRefused(draft, offer) &&
 			saveAllowedAfterCheck(checkSaid, said, draft, offer) && if (offer.functions != null) {
 			functionSaveOf(draft, fields, offer, confirmed = false) != null
 		} else {
@@ -712,25 +714,25 @@ internal fun runShown(state: RunState?, opening: Long): String? = when (state) {
 }
 
 internal fun calleeOf(row: AutomationFunctionRow, offer: AutomationOffer): CalleeDraft {
-	val params = row.function.params.map { FunctionValueDraft(java.util.UUID.randomUUID().toString(), it) }
+	val params = row.function.params.map { FunctionParamDraft(java.util.UUID.randomUUID().toString(), it) }
 	val cards = written(row.function).map { treeOf(it, offer, params) }
 	val script = scriptOfCards(cards)
 	return CalleeDraft(row.id, row.revision, row.function.name, params, cards, row.function, unkeyed(cards), script, script != null)
 }
 
-/** Refusal blocks; movement too. */
+/** A refusal blocks; a change elsewhere too. */
 internal fun saveAllowedAfterCheck(checkSaid: AutomationSaid?, said: AutomationSaid?, draft: AutomationDraft, offer: AutomationOffer): Boolean =
-	checkSaid == null && !movedFor(said, draft.runsDraft()) && movedCallee(said, draft, offer) == null
+	checkSaid == null && !changedFor(said, draft.runsDraft()) && changedCallee(said, draft, offer) == null
 
-internal fun movedCallee(said: AutomationSaid?, draft: AutomationDraft, offer: AutomationOffer): String? =
-	(said as? AutomationSaid.FunctionMoved)?.functionId?.takeIf { it in draft.reachedCallees(offer) }
+internal fun changedCallee(said: AutomationSaid?, draft: AutomationDraft, offer: AutomationOffer): String? =
+	(said as? AutomationSaid.FunctionChanged)?.functionId?.takeIf { it in draft.reachedCallees(offer) }
 
 /** Pointer or callee ID. */
-internal fun movedIdOf(moved: MovedFunction, draft: AutomationDraft): String? {
+internal fun changedIdOf(changed: ChangedFunction, draft: AutomationDraft): String? {
 	val pointed = reloadable(draft.runsDraft())
 	return when {
-		moved.id == null || moved.id == pointed -> pointed
-		moved.id in draft.callees -> moved.id
+		changed.id == null || changed.id == pointed -> pointed
+		changed.id in draft.callees -> changed.id
 		else -> null
 	}
 }
@@ -742,9 +744,9 @@ internal fun saidRefuses(said: AutomationSaid?): Boolean = said != null && said 
 internal fun reloadable(runs: RunsDraft): String? =
 	(runs as? RunsDraft.Pointing)?.takeIf { it.mode == PointMode.SHARED || it.mode == PointMode.UNIQUE }?.functionId
 
-/** Moved function remains selected. */
-internal fun movedFor(said: AutomationSaid?, runs: RunsDraft): Boolean =
-	said is AutomationSaid.FunctionMoved && said.functionId == reloadable(runs)
+/** A changed function stays selected. */
+internal fun changedFor(said: AutomationSaid?, runs: RunsDraft): Boolean =
+	said is AutomationSaid.FunctionChanged && said.functionId == reloadable(runs)
 
 /** Null retains held check. */
 internal fun checkAfter(held: CheckRead, asked: ConsoleOp.AutomationSave, answer: ConsoleAutomationCheckResult?): CheckRead =
@@ -786,7 +788,7 @@ internal fun automationsEmpty(registry: GatewayRegistry, home: String?): ListEmp
 	return if (registry.loaded && notServed) ListEmpty.NotServed(listOf(home!!)) else empty
 }
 
-/** Needs a trigger the Gateway holds; undrawable actions are kept. */
+/** Needs a trigger the Gateway holds; undrawable actions stay. */
 internal fun editable(row: AutomationRow, offer: AutomationOffer): Boolean {
 	val trigger = triggerDraftOf(row.automation.trigger, offer, null) ?: return false
 	return offer.holds(trigger.kind)
@@ -800,13 +802,13 @@ internal sealed interface AutomationSaid {
 	/** Told, not refused. */
 	data class Note(override val line: String) : AutomationSaid
 
-	/** Dangerous actions to confirm. */
+	/** Actions to confirm. */
 	data class Confirm(val labels: List<String>) : AutomationSaid {
-		override val line get() = "It needs your go-ahead: ${labels.joinToString(", ")}"
+		override val line get() = "Needs your confirmation: ${labels.joinToString(", ")}"
 	}
 
-	/** A text's hole the Gateway cannot keep. */
-	data class Hole(
+	/** A template's placeholder the Gateway refused. */
+	data class Placeholder(
 		/** The card's key. */
 		val key: String,
 		val param: String,
@@ -825,8 +827,8 @@ internal sealed interface AutomationSaid {
 		val text: String,
 	) : AutomationSaid
 
-	data class FunctionMoved(val functionId: String) : AutomationSaid {
-		override val line get() = FUNCTION_MOVED_LINE
+	data class FunctionChanged(val functionId: String) : AutomationSaid {
+		override val line get() = FUNCTION_CHANGED_LINE
 	}
 }
 
@@ -856,7 +858,7 @@ internal fun checkSaidOf(check: ConsoleAutomationCheckResult?, draft: Automation
 	val refusal = check.refusal ?: return null
 	if (refusal.code == Protocol.Wire.AutomationSaveRefusalCode.CONFIRM.wire) return null
 	if (
-		refusal.code == Protocol.Wire.AutomationSaveRefusalCode.MOVED.wire &&
+		refusal.code == Protocol.Wire.AutomationSaveRefusalCode.CHANGED.wire &&
 		refusal.record == Protocol.Wire.AutomationSaveRecord.AUTOMATION.wire
 	) return null
 	val saved = automationSavedOf(
@@ -900,34 +902,34 @@ internal fun outcomeOf(
 ): AutomationOutcome =
 	when (saved) {
 		is AutomationSaved.Stored -> AutomationOutcome.Done
-		AutomationSaved.Unreachable -> AutomationOutcome.Said("That Gateway could not be reached")
+		AutomationSaved.Unreachable -> AutomationOutcome.Said(GATEWAY_UNREACHABLE)
 		is AutomationSaved.Refused -> {
 			val held = saved.heldRow?.takeIf { it.id == draft.id && it.revision != draft.revision && editable(it, context.offer) }
-			val hole = saved.hole?.let { refused -> draft.cardsOf(refused.function)?.let { keyAt(it, refused.path) }?.let { key -> key to refused } }
+			val placeholder = saved.placeholder?.let { refused -> draft.cardsOf(refused.function)?.let { keyAt(it, refused.path) }?.let { key -> key to refused } }
 			val at = saved.at?.let { saidAtOf(it, draft) }
-			val moved = saved.functionMoved?.let { movedIdOf(it, draft) }
+			val changed = saved.functionChanged?.let { changedIdOf(it, draft) }
 			when {
-				moved != null -> AutomationOutcome.Said(AutomationSaid.FunctionMoved(moved))
+				changed != null -> AutomationOutcome.Said(AutomationSaid.FunctionChanged(changed))
 				saved.confirm.isNotEmpty() -> AutomationOutcome.Said(AutomationSaid.Confirm(saved.confirm))
 				at != null -> AutomationOutcome.Said(AutomationSaid.Field(at, saved.reason, saidText(draft, at)))
-				hole != null -> AutomationOutcome.Said(
-					AutomationSaid.Hole(
-						hole.first,
-						hole.second.param,
-						hole.second.start,
-						hole.second.end,
+				placeholder != null -> AutomationOutcome.Said(
+					AutomationSaid.Placeholder(
+						placeholder.first,
+						placeholder.second.param,
+						placeholder.second.start,
+						placeholder.second.end,
 						saved.reason,
-						saidText(draft, SaidAt.Card(hole.first, hole.second.param)),
+						saidText(draft, SaidAt.Card(placeholder.first, placeholder.second.param)),
 					),
 				)
 				held == null -> AutomationOutcome.Said(saved.reason)
 				deleting -> AutomationOutcome.Offer(
 					automationDraftOf(held, context, draft.display) ?: draft,
-					"It changed elsewhere; this is it now. Delete again to delete it.",
+					"Changed elsewhere. This is it now; delete again to delete it.",
 				)
 				else -> AutomationOutcome.Offer(
 					draft.copy(revision = held.revision, original = held.automation, enabled = held.automation.enabled),
-					"It changed elsewhere. Save again to go over it.",
+					"Changed elsewhere. Save again to replace it.",
 				)
 			}
 		}
@@ -937,8 +939,12 @@ internal fun outcomeOf(
 internal fun ranText(row: AutomationRow, ago: (Long) -> String, until: (Long) -> String = { "soon" }): String =
 	row.nextRunAt?.let { "Next ${until(it)}" } ?: row.lastRanAt?.let { "Ran ${ago(it)}" } ?: "Never ran"
 
-/** "4 use this source". */
-internal fun usesText(count: Int): String = if (count == 1) "1 uses this source" else "$count use this source"
+/** "4 automations use this source". */
+internal fun usesText(count: Int): String = when (count) {
+	0 -> "No automation uses this source"
+	1 -> "1 automation uses this source"
+	else -> "$count automations use this source"
+}
 
 /** "reason, type, repository". */
 internal fun producesText(specs: List<AssistantFieldSpec>): String =

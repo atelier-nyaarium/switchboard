@@ -14,7 +14,7 @@ import { FUNCTIONS_MAX, FunctionSchema } from "./schemasFunction.js";
 
 export const AUTOMATION_SAVE_REFUSALS = [
 	/** `record`, `revision` held now. */
-	"moved",
+	"changed",
 	/** `record`. */
 	"gone",
 	/** `max`; `kind` for a kind's cap, absent for the total. */
@@ -22,7 +22,7 @@ export const AUTOMATION_SAVE_REFUSALS = [
 	/** `record`, `path`. */
 	"invalid",
 	/** `record`, `path`, `param`, `start`, `end`. */
-	"hole", // skew:step-refusals
+	"placeholder", // skew:step-refusals
 	/** `automations` that stop fitting. */
 	"unfit", // skew:step-refusals
 	/** `id`. */
@@ -44,8 +44,8 @@ export const AUTOMATION_SAVE_REFUSALS = [
 	"no_free_id",
 	/** `id`: a function its calls reach again. */
 	"loop",
-	/** `id`: an unnamed function another automation runs, or a function calls. */
-	"private",
+	/** `id`: an unnamed function another automation runs, or a function runs. */
+	"unnamed",
 ] as const;
 export type AutomationSaveRefusalCode = (typeof AUTOMATION_SAVE_REFUSALS)[number];
 
@@ -77,7 +77,7 @@ export type AutomationSaveRefusal = z.infer<typeof AutomationSaveRefusalSchema>;
 /** Saved issue severity. */
 export const AUTOMATION_ISSUE_LEVELS = [
 	/** It never fires. */
-	"unarmed",
+	"inactive",
 	/** Run fails here. */
 	"error",
 	/** It runs on. */
@@ -92,20 +92,20 @@ const CAUSE_LEVELS = {
 	/** Choice value unavailable. */
 	vanished: "warning",
 	/** Condition field undeclared. */
-	unknown_field: "unarmed",
-	/** Unsupported condition test. */
-	untaken_test: "unarmed",
+	unknown_field: "inactive",
+	/** Unsupported condition operator. */
+	untaken_operator: "inactive",
 	too_long: "error",
 	too_many: "error",
-	trigger: "unarmed",
-	/** Holes cannot be read. */
-	unready: "unarmed",
+	trigger: "inactive",
+	/** Placeholders cannot be read. */
+	unready: "inactive",
 	/** Name shadows entity. */
 	shadows: "warning",
 	unfit: "error",
 	/** Function absent from carry. */
-	left: "unarmed",
-	unread: "unarmed",
+	left: "inactive",
+	unread: "inactive",
 	unparsed: "error",
 } as const satisfies Record<string, AutomationIssueLevel>;
 
@@ -171,7 +171,7 @@ export const AutomationSaveOpShape = {
 	automationBase: z.number().int().nonnegative(),
 	/** Absent: flat or unchanged. */
 	function: AutomationSaveFunctionSchema.optional(),
-	/** Functions its calls reach, written with it; base 0 adds. */
+	/** Functions it runs, written with it; base 0 adds. */
 	called: z.array(AutomationSaveCalledSchema).max(FUNCTIONS_MAX).optional(),
 	/** Its function's revision as shown. */
 	functionBase: z.number().int().positive().optional(),

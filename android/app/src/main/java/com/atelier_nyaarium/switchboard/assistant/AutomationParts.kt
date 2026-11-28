@@ -35,7 +35,7 @@ private val CLOCK = Regex("^([01][0-9]|2[0-3]):[0-5][0-9]$")
 
 internal data class NumberOffer(val device: String, val measure: String, val label: String, val unit: String?, val decimals: Int)
 
-internal data class SwitchOffer(val device: String, val name: String)
+internal data class DeviceOffer(val device: String, val name: String)
 
 /** A trigger kind and the names its texts may use. */
 internal data class TriggerOffer(val kind: String, val names: List<AutomationTriggerName>)
@@ -44,7 +44,7 @@ internal data class AutomationOffer(
 	val triggers: List<TriggerOffer>,
 	val actions: List<ActionOffer>,
 	val numbers: List<NumberOffer> = emptyList(),
-	val switches: List<SwitchOffer> = emptyList(),
+	val devices: List<DeviceOffer> = emptyList(),
 	/** Not the assistant's home: no event arrives, and an action that needs the home does nothing. */
 	val away: Boolean,
 	/** Null: this Gateway holds no functions. */
@@ -60,7 +60,7 @@ internal data class AutomationOffer(
 
 	fun number(device: String, measure: String): NumberOffer? = numbers.find { it.device == device && it.measure == measure }
 
-	fun dangerous(kind: String): Boolean = actions.any { it.kind == kind && it.danger }
+	fun confirms(kind: String): Boolean = actions.any { it.kind == kind && it.confirm }
 
 	fun labelOf(kind: String): String = actions.find { it.kind == kind }?.label ?: kind
 }
@@ -71,7 +71,7 @@ internal fun offerOf(serves: AutomationServes, away: Boolean, functions: List<Au
 		triggers = serves.triggers.map { TriggerOffer(it.kind, it.names) },
 		actions = serves.actions.map(::actionOfferOf),
 		numbers = serves.numbers.map { NumberOffer(it.device, it.measure, it.label, it.unit, it.decimals.toInt()) },
-		switches = serves.switches.map { SwitchOffer(it.device, it.name) },
+		devices = serves.devices.map { DeviceOffer(it.device, it.name) },
 		away = away,
 		functions = serves.functions?.let { FunctionOffer(it, functions.orEmpty()) },
 		conditions = serves.conditions,
@@ -144,9 +144,9 @@ internal sealed interface TriggerDraft {
 }
 
 internal enum class TriggerChoice(val label: String, val kinds: Set<String>) {
-	EVENT("Event arrives", setOf(TRIGGER_EVENT)),
-	CROSSING("Value crosses", setOf(TRIGGER_CROSSING)),
-	TIME("Time comes", setOf(TRIGGER_TIME, TRIGGER_INTERVAL)),
+	EVENT("Event", setOf(TRIGGER_EVENT)),
+	CROSSING("Crossing", setOf(TRIGGER_CROSSING)),
+	SCHEDULE("Schedule", setOf(TRIGGER_TIME, TRIGGER_INTERVAL)),
 }
 
 internal fun choiceOf(trigger: TriggerDraft): TriggerChoice = TriggerChoice.entries.first { trigger.kind in it.kinds }
@@ -154,7 +154,7 @@ internal fun choiceOf(trigger: TriggerDraft): TriggerChoice = TriggerChoice.entr
 internal fun offersChoice(offer: AutomationOffer, choice: TriggerChoice, sources: Boolean): Boolean = when (choice) {
 	TriggerChoice.EVENT -> offer.holds(TRIGGER_EVENT) && sources && !offer.away
 	TriggerChoice.CROSSING -> offer.holds(TRIGGER_CROSSING) && offer.numbers.isNotEmpty()
-	TriggerChoice.TIME -> choice.kinds.any(offer::holds)
+	TriggerChoice.SCHEDULE -> choice.kinds.any(offer::holds)
 }
 
 /** The clock kinds a Gateway holds, a time first. */
@@ -235,7 +235,7 @@ internal fun triggerIssue(trigger: TriggerDraft, offer: AutomationOffer): String
 		else -> null
 	}
 	is TriggerDraft.Crossing -> when {
-		offer.number(trigger.device, trigger.measure) == null -> "Pick a value"
+		offer.number(trigger.device, trigger.measure) == null -> "Pick a reading"
 		parseDecimal(trigger.threshold.trim()) == null -> "The threshold is not a number"
 		(parseDecimal(trigger.deadZone.trim()) ?: -1.0) < 0 -> "The dead zone is zero or more"
 		coolDownSecOf(trigger.coolDownMin) == null -> "The cool-down is 0 to $MAX_COOL_DOWN_MIN minutes"
@@ -266,7 +266,7 @@ internal fun triggerOf(trigger: TriggerDraft, offer: AutomationOffer, display: S
 	return when (trigger) {
 		is TriggerDraft.Event -> AutomationTrigger.Event(
 			source = trigger.source,
-			conditions = trigger.conditions.map { (_, held) -> conditionOf(held.field, held.test, valuesOf(held)) },
+			conditions = trigger.conditions.map { (_, held) -> conditionOf(held.field, held.operator, valuesOf(held)) },
 			coolDownSec = trigger.coolDownMin.takeIf { it.isNotBlank() }?.let { coolDownSecOf(it) ?: return null },
 		)
 		is TriggerDraft.Crossing -> {
@@ -293,7 +293,7 @@ internal fun freshTrigger(choice: TriggerChoice, offer: AutomationOffer, firstSo
 	TriggerChoice.CROSSING -> offer.numbers.firstOrNull()?.let {
 		TriggerDraft.Crossing(it.device, it.measure, "below", "", FRESH_DEAD_ZONE, "10", it.unit)
 	}
-	TriggerChoice.TIME -> clockKinds(offer).firstNotNullOfOrNull { freshClock(it, zone) }
+	TriggerChoice.SCHEDULE -> clockKinds(offer).firstNotNullOfOrNull { freshClock(it, zone) }
 }
 
 internal val WEEKDAY_LABELS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -319,10 +319,10 @@ internal sealed interface TextPreview {
 	data class Refused(val line: String, val start: Int, val end: Int) : TextPreview
 }
 
-internal fun hasHole(text: String): Boolean = lexConsoleText(text).any { it is ConsoleStringPart.Hole }
+internal fun hasPlaceholder(text: String): Boolean = lexConsoleText(text).any { it is ConsoleStringPart.Placeholder }
 
-/** The text a preview asks about; null when it holds no hole. */
-internal fun previewText(text: String): String? = text.takeIf(::hasHole)
+/** The template a preview asks about; null when it holds no placeholder. */
+internal fun previewText(text: String): String? = text.takeIf(::hasPlaceholder)
 
 internal data class PreviewRead(val answer: ConsoleAutomationPreviewResult? = null, val failed: Boolean = false)
 
@@ -331,34 +331,34 @@ internal fun previewAsk(
 	text: String?,
 	scope: FunctionPreviewScope?,
 	condition: String? = null,
-	runNames: List<String>? = null,
+	variables: List<String>? = null,
 ): ConsoleOp.AutomationPreview? = trigger?.let {
 	ConsoleOp.AutomationPreview(
 		trigger = it,
 		text = text,
 		params = scope?.params,
-		values = scope?.values,
+		args = scope?.args,
 		condition = condition,
-		runNames = runNames?.takeIf { names -> names.isNotEmpty() },
+		variables = variables?.takeIf { names -> names.isNotEmpty() },
 	)
 }
 
 internal fun textPreviewOf(text: String, asked: Boolean, read: PreviewRead): TextPreview {
 	val answer = read.answer
-	val hole = answer?.hole
+	val placeholder = answer?.placeholder
 	val filled = answer?.filled
 	return when {
-		!asked || !hasHole(text) -> TextPreview.Plain
+		!asked || !hasPlaceholder(text) -> TextPreview.Plain
 		read.failed -> TextPreview.Unread
 		answer == null -> TextPreview.Asking
-		hole != null -> TextPreview.Refused(hole.message, hole.start.toInt(), hole.end.toInt())
+		placeholder != null -> TextPreview.Refused(placeholder.message, placeholder.start.toInt(), placeholder.end.toInt())
 		filled != null -> TextPreview.Filled(filled)
 		else -> TextPreview.Unread
 	}
 }
 
 /** A refused span quoted before its reason. */
-internal fun holeLine(text: String, line: String, start: Int, end: Int): String {
+internal fun placeholderLine(text: String, line: String, start: Int, end: Int): String {
 	val from = start.coerceIn(0, text.length)
 	val quoted = text.substring(from, end.coerceIn(from, text.length))
 	return if (quoted.isBlank()) issueText(line) else "$quoted: $line"
@@ -374,29 +374,41 @@ internal fun toggled(weekdays: Set<Int>, day: Int): Set<Int> = if (day in weekda
 
 internal fun confirmBody(labels: List<String>): String {
 	val does = labels.joinToString(" and ") { it.replaceFirstChar(Char::lowercase) }
-	return "Each time it runs it will $does, without asking you."
+	return "Each time it runs, it will $does."
 }
 
-/** The refused hole, while its text stands. */
-internal fun refusedHole(said: AutomationSaid?, key: String, param: String, text: String): AutomationSaid.Hole? =
-	(said as? AutomationSaid.Hole)?.takeIf { it.key == key && it.param == param && it.text == text }
+/** The refused placeholder, while its text stands. */
+internal fun refusedPlaceholder(said: AutomationSaid?, key: String, param: String, text: String): AutomationSaid.Placeholder? =
+	(said as? AutomationSaid.Placeholder)?.takeIf { it.key == key && it.param == param && it.text == text }
 
 /** Refused text. */
 internal fun saidText(draft: AutomationDraft, at: SaidAt): String = when (at) {
 	is SaidAt.Value -> (draft.runs as? RunsHead.Points)?.pointing?.let { pointing ->
-		pointing.params.firstOrNull { it.param.name == at.param }?.let { pointing.values[it.key] }
+		pointing.params.firstOrNull { it.param.name == at.param }?.let { pointing.args[it.key] }
 	}.orEmpty()
 	is SaidAt.Card -> when (val step = draft.stepAt(at.key)) {
-		is StepDraft.Do -> (step.action as? ActionDraft.Filled)?.values?.get(at.param).orEmpty()
-		is StepDraft.If -> step.condition.takeIf { at.param == WHEN }.orEmpty()
+		is StepDraft.Action -> (step.action as? ActionDraft.Filled)?.values?.get(at.param).orEmpty()
+		is StepDraft.If -> step.condition.takeIf { at.param == CONDITION }.orEmpty()
 		is StepDraft.Switch -> step.subject.takeIf { at.param == SUBJECT }.orEmpty()
 		is StepDraft.Wait -> step.minutes.takeIf { at.param == MINUTES }.orEmpty()
-		is StepDraft.Call -> when (val value = step.values[at.param]) {
-			is CallValue.Typed -> value.text
-			is CallValue.Read -> value.expression
+		is StepDraft.RunFunction -> when (val arg = step.args[at.param]) {
+			is FunctionArg.Typed -> arg.text
+			is FunctionArg.Read -> arg.expression
 			null -> ""
 		}
-		is StepDraft.Try, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept, null -> ""
+		is StepDraft.Variable -> when (at.param) {
+			NAME -> step.name
+			VALUE -> step.value
+			else -> ""
+		}
+		is StepDraft.Start -> step.name.takeIf { at.param == AS }.orEmpty()
+		is StepDraft.Await -> when (at.param) {
+			TASK -> step.task
+			AS -> step.name
+			else -> ""
+		}
+		is StepDraft.Throw -> step.text.takeIf { at.param == TEXT }.orEmpty()
+		is StepDraft.Try, is StepDraft.Return, is StepDraft.Comment, is StepDraft.Parallel, is StepDraft.ScriptOnly, null -> ""
 	}
 }
 
@@ -407,19 +419,23 @@ internal fun refusedField(said: AutomationSaid?, at: SaidAt, text: String): Stri
 private fun drawsField(draft: AutomationDraft, at: SaidAt, offer: AutomationOffer): Boolean = when (at) {
 	is SaidAt.Value -> offer.functions != null &&
 		(draft.runs as? RunsHead.Points)?.pointing?.params?.any { it.param.name == at.param } == true
-	is SaidAt.Card -> draft.runs !is RunsHead.Kept && when (val step = draft.stepAt(at.key)) {
-		is StepDraft.Do -> (step.action as? ActionDraft.Filled)?.let { card -> actionFields(card, offer).any { it.param?.name == at.param } } == true
-		is StepDraft.Call -> calleeParams(draft, offer, step.function).orEmpty().any { it.name == at.param }
-		is StepDraft.If, is StepDraft.Try, is StepDraft.Switch, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept,
-		null -> false
+	is SaidAt.Card -> draft.runs !is RunsHead.Unlisted && when (val step = draft.stepAt(at.key)) {
+		is StepDraft.Action -> (step.action as? ActionDraft.Filled)?.let { card -> actionFields(card, offer).any { it.param?.name == at.param } } == true
+		is StepDraft.RunFunction -> calleeParams(draft, offer, step.function).orEmpty().any { it.name == at.param }
+		is StepDraft.Variable -> at.param == NAME || at.param == VALUE
+		is StepDraft.Start -> at.param == AS
+		is StepDraft.Await -> at.param == TASK || at.param == AS
+		is StepDraft.Throw -> at.param == TEXT
+		is StepDraft.If, is StepDraft.Try, is StepDraft.Switch, is StepDraft.Wait, is StepDraft.Return, is StepDraft.Comment,
+		is StepDraft.Parallel, is StepDraft.ScriptOnly, null -> false
 	}
 }
 
 /** A refusal held by a card no draft holds now. */
 internal fun keyGone(said: AutomationSaid, draft: AutomationDraft): Boolean = when (said) {
-	is AutomationSaid.Hole -> draft.stepAt(said.key) == null
+	is AutomationSaid.Placeholder -> draft.stepAt(said.key) == null
 	is AutomationSaid.Field -> (said.at as? SaidAt.Card)?.let { draft.stepAt(it.key) == null } == true
-	is AutomationSaid.Line, is AutomationSaid.Note, is AutomationSaid.Confirm, is AutomationSaid.FunctionMoved -> false
+	is AutomationSaid.Line, is AutomationSaid.Note, is AutomationSaid.Confirm, is AutomationSaid.FunctionChanged -> false
 }
 
 /** Its card's tree is shown as script. */
@@ -429,8 +445,8 @@ private fun scriptedAt(draft: AutomationDraft, key: String, offer: AutomationOff
 internal fun generalLine(said: AutomationSaid?, draft: AutomationDraft, offer: AutomationOffer): String? = when (said) {
 	null -> null
 	// Its block draws it.
-	is AutomationSaid.FunctionMoved -> null
-	is AutomationSaid.Hole -> holeLine(said.text, said.line, said.start, said.end)
+	is AutomationSaid.FunctionChanged -> null
+	is AutomationSaid.Placeholder -> placeholderLine(said.text, said.line, said.start, said.end)
 		.takeIf { textParam(draft, TextRef(said.key, said.param), offer) == null || scriptedAt(draft, said.key, offer) }
 	is AutomationSaid.Field -> said.line.takeUnless {
 		drawsField(draft, said.at, offer) && (said.at as? SaidAt.Card)?.let { at -> scriptedAt(draft, at.key, offer) } != true

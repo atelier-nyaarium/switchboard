@@ -39,7 +39,7 @@ class FunctionFitVectorsTest {
 				FunctionParam(it.jsonObject["name"]!!.jsonPrimitive.content, it.jsonObject["type"]!!.jsonPrimitive.content)
 			}
 			val reads = o["reads"]!!.jsonObject.let { FunctionReads(strings(it["names"]), strings(it["eventFields"])) }
-			val values = o["values"]!!.jsonObject.mapValues { it.value.jsonPrimitive }
+			val values = o["args"]!!.jsonObject.mapValues { it.value.jsonPrimitive }
 			val expect = o["expect"]!!.jsonObject
 			val expected = FitAnswer(
 				fits = expect["fits"]!!.jsonPrimitive.boolean,

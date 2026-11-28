@@ -5,9 +5,18 @@
 		"revision": 1,
 		"automation": {
 			"enabled": true,
-			"trigger": { "kind": "interval", "everyMin": 60 },
+			"trigger": {
+				"kind": "interval",
+				"everyMin": 60
+			},
 			"actions": [
-				{ "kind": "run_function", "function": "fn-0a1b2c3d4e5f6a7b", "values": { "room": "aa:bb:cc:dd:ee:ff" } }
+				{
+					"kind": "run_function",
+					"function": "fn-0a1b2c3d4e5f6a7b",
+					"args": {
+						"room": "aa:bb:cc:dd:ee:ff"
+					}
+				}
 			]
 		},
 		"sentence": "Every hour"
@@ -17,17 +26,30 @@
 		"revision": 1,
 		"function": {
 			"name": "Warm up, the study",
-			"params": [{ "name": "room", "type": "device" }],
+			"params": [
+				{
+					"name": "room",
+					"type": "device"
+				}
+			],
 			"steps": [
 				{
-					"kind": "do",
+					"kind": "action",
 					"action": "ifttt_trigger",
-					"args": { "event": { "kind": "literal", "value": "warm" } }
+					"args": {
+						"event": {
+							"kind": "literal",
+							"value": "warm"
+						}
+					}
 				}
 			]
 		},
 		"users": ["warm"],
 		"moves": false,
-		"reads": { "names": [], "eventFields": [] }
+		"reads": {
+			"names": [],
+			"eventFields": []
+		}
 	}
 }

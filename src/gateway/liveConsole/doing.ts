@@ -15,11 +15,11 @@ const DESCRIPTIONS: Readonly<Record<string, string>> = {
 
 const typeOf = (param: AutomationActionParam): string => {
 	switch (param.kind) {
-		case "switch":
+		case "device":
 			return "Device";
 		case "choice":
 			return (param.options ?? []).map((option) => `"${option.value}"`).join(" or ");
-		case "values":
+		case "args":
 			return "Record";
 		case "text":
 		case "word":
@@ -35,7 +35,7 @@ const paramOf = (param: AutomationActionParam): ConsoleParam => ({
 	type: typeOf(param),
 	description: param.label,
 	...(param.optional ? { optional: true } : {}),
-	...(param.kind === "switch" ? { completes: "devices" as const } : {}),
+	...(param.kind === "device" ? { completes: "devices" as const } : {}),
 });
 
 export function doingAction(entity: string, method: string): AutomationActionKind | null {

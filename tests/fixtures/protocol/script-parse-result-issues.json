@@ -37,11 +37,11 @@
 			"members": [
 				{
 					"name": "done",
-					"type": "Truth"
+					"type": "Boolean"
 				},
 				{
 					"name": "failed",
-					"type": "Truth"
+					"type": "Boolean"
 				},
 				{
 					"name": "error",

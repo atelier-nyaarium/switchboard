@@ -111,7 +111,7 @@ describe("the assistant's guarded sends", () => {
 		h.host.handlers.onCreateSession = (op) =>
 			void attach(composeSessionName(op.target.name, op.target.sessionName), op.sessionToken);
 		h.host.handlers.onWake = (frame) => void attach(String(frame.team), frame.sessionToken as string | undefined);
-		const mentions = eventAutomation("fake", [{ field: "kind", test: "is", value: "mention" }]);
+		const mentions = eventAutomation("fake", [{ field: "kind", operator: "is", value: "mention" }]);
 		const current = await h.phone.homeRead();
 		const placement = await h.phone.homePut({
 			gatewayId: h.set.gateway.id,

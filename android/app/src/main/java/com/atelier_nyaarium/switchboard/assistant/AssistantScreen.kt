@@ -163,7 +163,7 @@ internal fun AssistantPageHost(
 					repo,
 					page.gatewayId,
 					source,
-					uses = usedBy(page.gatewayId, state.gateways.listOn(page.gatewayId) { it.automations }) { triggeredBy(source.id, it) },
+					uses = usesOf(page.gatewayId, state.gateways.listOn(page.gatewayId) { it.automations }) { triggeredBy(source.id, it) },
 					onAutomations = { onPage(ShellPage.SourceAutomations(page.gatewayId, page.sourceId)) },
 					onBack,
 				)
@@ -177,7 +177,7 @@ internal fun AssistantPageHost(
 				LaunchedEffect(page.gatewayId) { repo.automationOps.refresh(page.gatewayId) }
 				SourceAutomationsPage(
 					source.label,
-					usedBy(page.gatewayId, state.gateways.listOn(page.gatewayId) { it.automations }) { triggeredBy(source.id, it) },
+					usesOf(page.gatewayId, state.gateways.listOn(page.gatewayId) { it.automations }) { triggeredBy(source.id, it) },
 					onBack,
 				)
 			}

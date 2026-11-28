@@ -10,7 +10,7 @@ import {
 	type GivenType,
 	triggerGiven,
 } from "../shared/automation-fit.js";
-import { AUTOMATION_TRIGGERS, type AutomationTriggerKind, type FunctionValue } from "../shared/schemasAutomation.js";
+import { AUTOMATION_TRIGGERS, type AutomationTriggerKind, type FunctionArg } from "../shared/schemasAutomation.js";
 import { type FunctionParam, FunctionSchema } from "../shared/schemasFunction.js";
 
 const VECTORS = path.join(import.meta.dirname, "..", "..", "tests", "fixtures", "automation-fit", "vectors.json");
@@ -20,7 +20,7 @@ interface Case {
 	given: { kind: AutomationTriggerKind; fieldType?: GivenType; eventFields?: string[] };
 	params: FunctionParam[];
 	reads: FunctionReads;
-	values: Record<string, FunctionValue>;
+	args: Record<string, FunctionArg>;
 	expect: FitAnswer;
 }
 
@@ -30,16 +30,16 @@ describe("fit", () => {
 	it.each(cases)("$name", (vector) => {
 		const { kind, ...context } = vector.given;
 
-		expect(fitOf(triggerGiven(kind, context), vector, vector.values)).toEqual(vector.expect);
+		expect(fitOf(triggerGiven(kind, context), vector, vector.args)).toEqual(vector.expect);
 	});
 
-	it("reads the trigger names a function's expressions and text holes use, and the event's fields by name", () => {
+	it("reads the trigger names a function's expressions and text placeholders use, and the event's fields by name", () => {
 		const fn = FunctionSchema.parse({
 			name: "Tell",
 			params: [{ name: "room", type: "device" }],
 			steps: [
 				{
-					kind: "do",
+					kind: "action",
 					action: "tell_assistant",
 					args: {
 						when: { kind: "literal", value: "now" },
@@ -50,7 +50,7 @@ describe("fit", () => {
 					},
 				},
 				{
-					kind: "do",
+					kind: "action",
 					action: "device_set",
 					args: {
 						device: { kind: "expression", text: "room" },
@@ -66,7 +66,7 @@ describe("fit", () => {
 		});
 	});
 
-	it("gives a type for every name each trigger offers a hole", () => {
+	it("gives a type for every name each trigger offers a placeholder", () => {
 		const names = (kind: AutomationTriggerKind) => AUTOMATION_TRIGGERS[kind].names.map((held) => held.name);
 
 		for (const kind of Object.keys(AUTOMATION_TRIGGERS) as AutomationTriggerKind[]) {

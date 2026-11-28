@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard.assistant
 
+import com.atelier_nyaarium.switchboard.paramIssueLine
 import com.atelier_nyaarium.switchboard.parseDecimal
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldOption
 import com.atelier_nyaarium.switchboard.proto.AutomationIssue
@@ -10,7 +11,6 @@ import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.AutomationTrigger
 import com.atelier_nyaarium.switchboard.proto.ConsoleOp
 import com.atelier_nyaarium.switchboard.proto.FunctionParam
-import com.atelier_nyaarium.switchboard.proto.FunctionStep
 import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationIssueLevel
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationSaveRecord
@@ -24,7 +24,7 @@ internal data class CardIssue(val level: AutomationIssueLevel?, val line: String
 internal fun issueText(line: String): String = line.replaceFirstChar { it.uppercaseChar() }
 
 internal fun drawsAsError(level: AutomationIssueLevel?): Boolean = when (level) {
-	AutomationIssueLevel.UNARMED, AutomationIssueLevel.ERROR -> true
+	AutomationIssueLevel.INACTIVE, AutomationIssueLevel.ERROR -> true
 	AutomationIssueLevel.WARNING, null -> false
 }
 
@@ -33,10 +33,19 @@ internal fun drawsAsError(level: AutomationIssueLevel?): Boolean = when (level) 
 internal fun issueLevelOf(word: String?): AutomationIssueLevel =
 	AutomationIssueLevel.entries.find { it.wire == word } ?: AutomationIssueLevel.ERROR
 
+internal data class IssueCount(val errors: Int, val warnings: Int) {
+	operator fun plus(other: IssueCount) = IssueCount(errors + other.errors, warnings + other.warnings)
+
+	val any: Boolean get() = errors + warnings > 0
+}
+
+internal fun issueCountOf(level: AutomationIssueLevel?): IssueCount = if (drawsAsError(level)) IssueCount(1, 0) else IssueCount(0, 1)
+
 internal data class DrawnIssues(
 	val cards: Map<String, CardIssue>,
 	val rest: List<CardIssue>,
-	val functions: Set<String>,
+	/** Other functions' counts. */
+	val functions: Map<String, IssueCount>,
 )
 
 private fun ownIssue(issue: AutomationIssue, draft: AutomationDraft): Boolean =
@@ -51,11 +60,11 @@ private fun issueTree(issue: AutomationIssue, draft: AutomationDraft, flat: Bool
 internal fun drawnIssuesOf(issues: List<AutomationIssue>, draft: AutomationDraft, flat: Boolean, offer: AutomationOffer): DrawnIssues {
 	val cards = mutableMapOf<String, CardIssue>()
 	val rest = mutableListOf<CardIssue>()
-	val functions = mutableSetOf<String>()
+	val functions = mutableMapOf<String, IssueCount>()
 	for (issue in issues) {
 		val level = issueLevelOf(issue.level)
 		val other = issue.id?.takeUnless { ownIssue(issue, draft) }
-		if (other != null && drawsAsError(level)) functions += other
+		if (other != null) functions[other] = (functions[other] ?: IssueCount(0, 0)) + issueCountOf(level)
 		val tree = issueTree(issue, draft, flat)
 		val key = issue.step?.let { path -> tree?.let { keyAt(it, path) } }
 		// Case chips render issues.
@@ -93,8 +102,8 @@ internal sealed interface CardRow {
 		override val rowKey: String get() = "$parent/${side.number}"
 	}
 
-	/** Full when insertion fails. */
-	data class AddSlot(val slot: Slot, override val depth: Int, val full: Boolean) : CardRow {
+	/** Full when insertion fails; `branch` adds a parallel branch. */
+	data class AddSlot(val slot: Slot, override val depth: Int, val full: Boolean, val branch: Boolean = false) : CardRow {
 		override val rowKey: String get() = "${slot.parent ?: "top"}/${slot.side?.number ?: ""}/add"
 	}
 
@@ -162,9 +171,14 @@ internal sealed interface BranchLabel {
 	data object Else : BranchLabel {
 		override val key: String get() = "else"
 	}
+
+	/** Numbered from 1; keyed by its step. */
+	data class Parallel(val step: String, val number: Int) : BranchLabel {
+		override val key: String get() = "branch/$step"
+	}
 }
 
-/** Paths under function calls. */
+/** Paths under function runs. */
 internal fun runPathOf(path: String, pointing: Boolean): String = if (pointing) "0.$path" else path
 
 internal fun drawnAsChain(step: StepDraft): Boolean = step is StepDraft.If && chainOf(step).size > 1
@@ -192,18 +206,19 @@ private class CardsDrawer(
 	private val last = lastRun?.steps.orEmpty().associateBy { it.path }
 	private val active = lastRun?.active
 
-	fun full(slot: Slot) = insertedStep(steps, slot, StepDraft.Exit("probe")) == null
+	fun full(slot: Slot) = insertedStep(steps, slot, StepDraft.Return("probe")) == null
 
 	private fun lastAt(path: String) = last[runPathOf(path, pointing)]
 
 	fun rows(list: List<StepDraft>, base: String?, depth: Int): List<CardRow> =
-		list.withIndex().flatMap { (index, step) ->
-			val path = if (base == null) "$index" else "$base.$index"
-			// Head link owns status.
-			val own = !drawnAsChain(step)
-			val card = CardRow.Card(step, depth, path, issueOf(step).takeIf { own }, lastAt(path).takeIf { own }, runPathOf(path, pointing) == active)
-			listOf(card) + sideRows(step, path, depth + 1)
-		}
+		list.withIndex().flatMap { (index, step) -> cardRows(step, if (base == null) "$index" else "$base.$index", depth) }
+
+	private fun cardRows(step: StepDraft, path: String, depth: Int): List<CardRow> {
+		// Head link owns status.
+		val own = !drawnAsChain(step)
+		val card = CardRow.Card(step, depth, path, issueOf(step).takeIf { own }, lastAt(path).takeIf { own }, runPathOf(path, pointing) == active)
+		return listOf(card) + sideRows(step, path, depth + 1)
+	}
 
 	private fun side(parent: String, side: Side, list: List<StepDraft>, path: String, depth: Int): List<CardRow> {
 		val slot = Slot(parent, side, list.size)
@@ -216,7 +231,20 @@ private class CardsDrawer(
 		is StepDraft.Try ->
 			side(step.key, Side.Body, step.body, path, depth) + CardRow.SideLabel(step.key, Side.Catch, depth) +
 				side(step.key, Side.Catch, step.catch, path, depth)
-		is StepDraft.Do, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Call, is StepDraft.Kept -> emptyList()
+		is StepDraft.Parallel -> parallelRows(step, path, depth)
+		is StepDraft.Start -> side(step.key, Side.Body, step.steps, path, depth)
+		is StepDraft.Action, is StepDraft.Wait, is StepDraft.Return, is StepDraft.Comment, is StepDraft.RunFunction,
+		is StepDraft.Variable, is StepDraft.Await, is StepDraft.Throw, is StepDraft.ScriptOnly -> emptyList()
+	}
+
+	/** A branch label above each step; one slot adds a branch. */
+	private fun parallelRows(step: StepDraft.Parallel, path: String, depth: Int): List<CardRow> {
+		val base = "$path.${Side.Body.number}"
+		val branches = step.branches.withIndex().flatMap { (index, branch) ->
+			listOf(CardRow.Branch(step.key, BranchLabel.Parallel(branch.key, index + 1), depth)) + cardRows(branch, "$base.$index", depth)
+		}
+		val slot = Slot(step.key, Side.Body, step.branches.size)
+		return branches + CardRow.AddSlot(slot, depth, full(slot), branch = true)
 	}
 
 	private fun ifRows(step: StepDraft.If, path: String, depth: Int): List<CardRow> {
@@ -224,7 +252,7 @@ private class CardsDrawer(
 		val addLink = CardRow.AddBranch(step.key, BranchKind.ELSE_IF, depth, withElseIf(steps, step.key) == null)
 		if (links.size == 1) {
 			return side(step.key, Side.Then, step.then, path, depth) + addLink + CardRow.SideLabel(step.key, Side.Else, depth) +
-				side(step.key, Side.Else, step.otherwise, path, depth)
+				side(step.key, Side.Else, step.elseSteps, path, depth)
 		}
 		val paths = links.indices.runningFold(path) { at, _ -> "$at.${Side.Else.number}.0" }
 		val bodies = links.flatMapIndexed { index, link ->
@@ -234,7 +262,7 @@ private class CardsDrawer(
 		}
 		val end = links.last()
 		return bodies + addLink + CardRow.Branch(step.key, BranchLabel.Else, depth) +
-			side(end.key, Side.Else, end.otherwise, paths[links.lastIndex], depth)
+			side(end.key, Side.Else, end.elseSteps, paths[links.lastIndex], depth)
 	}
 
 	private fun switchRows(step: StepDraft.Switch, path: String, depth: Int): List<CardRow> {
@@ -260,28 +288,20 @@ internal fun addBranchText(kind: BranchKind): String = when (kind) {
 	BranchKind.ELSE_IF -> "+ Else if"
 }
 
-internal data class StatementOffer(val kind: String, val label: String)
+internal fun addSlotText(slot: CardRow.AddSlot): String = if (slot.branch) "+ Branch" else "+ Add step"
 
-private val STATEMENTS = listOf(
-	"if" to "If",
-	"switch" to "Switch",
-	"try" to "Try",
-	"wait" to "Wait",
-	"exit" to "Stop here",
-	"note" to "Note",
-	"call" to "Call",
-)
+internal data class StatementOffer(val kind: String, val label: String)
 
 private const val FRESH_WAIT_MIN = "5"
 
-/** Catch error variable. */
-private const val FAILURE_NAME = "e"
+/** The error a catch holds. */
+private const val ERROR_NAME = "e"
 
 /** Statements this Gateway supports. */
 internal fun statementsOffered(draft: AutomationDraft, offer: AutomationOffer): List<StatementOffer> {
 	val served = offer.functions?.served?.statements.orEmpty()
 	if (!unnamedServed(offer) && draft.runs !is RunsHead.Points) return emptyList()
-	return STATEMENTS.filter { (kind, _) -> kind in served }.map { (kind, label) -> StatementOffer(kind, label) }
+	return STATEMENT_LABELS.filter { (kind, _) -> kind in served }.map { (kind, label) -> StatementOffer(kind, label) }
 }
 
 internal fun freshStatement(kind: String): StepDraft? = when (kind) {
@@ -289,9 +309,14 @@ internal fun freshStatement(kind: String): StepDraft? = when (kind) {
 	"switch" -> StepDraft.Switch(freshKey(), "", emptyList(), emptyList())
 	"try" -> StepDraft.Try(freshKey(), emptyList(), emptyList())
 	"wait" -> StepDraft.Wait(freshKey(), FRESH_WAIT_MIN)
-	"exit" -> StepDraft.Exit(freshKey())
-	"note" -> StepDraft.Note(freshKey(), "")
-	"call" -> StepDraft.Call(freshKey(), "", emptyMap())
+	"return" -> StepDraft.Return(freshKey())
+	"comment" -> StepDraft.Comment(freshKey(), "")
+	"run_function" -> StepDraft.RunFunction(freshKey(), "", emptyMap())
+	"variable" -> StepDraft.Variable(freshKey(), "", "")
+	"parallel" -> StepDraft.Parallel(freshKey(), emptyList())
+	"start" -> StepDraft.Start(freshKey(), "", emptyList())
+	"await" -> StepDraft.Await(freshKey(), "", "")
+	"throw" -> StepDraft.Throw(freshKey(), "")
 	else -> null
 }
 
@@ -302,16 +327,16 @@ internal data class SlotOffers(val actions: List<ActionOffer>, val statements: L
 
 internal fun slotOffers(draft: AutomationDraft, offer: AutomationOffer, slot: CardRow.AddSlot): SlotOffers {
 	if (slot.full) return SlotOffers(emptyList(), emptyList())
-	val plainOnly = offer.functions == null || (!unnamedServed(offer) && draft.runs is RunsHead.Own)
+	val plainOnly = offer.functions == null || (!unnamedServed(offer) && draft.runs is RunsHead.Unnamed)
 	val capped = plainOnly && draft.steps.size >= MAX_ACTIONS
 	val actions = if (capped) emptyList() else offer.actions.filter { freshAction(it.kind, offer) != null }
 	return SlotOffers(actions, statementsOffered(draft, offer))
 }
 
-/** Kept values; catch failure. */
-internal fun runNamesOf(steps: List<StepDraft>): List<String> {
-	val kept = everyStep(steps).mapNotNull { ((it as? StepDraft.Kept)?.step as? FunctionStep.Let)?.name }.distinct()
-	return kept.filter { it != FAILURE_NAME }.take(Protocol.Wire.RUN_NAMES_MAX - 1) + FAILURE_NAME
+/** Names a run sets; the error a catch holds. */
+internal fun variablesOf(steps: List<StepDraft>): List<String> {
+	val set = variablesHere(steps, "").map { it.name }.filter { it != ERROR_NAME }
+	return set.take(Protocol.Wire.RUN_VARIABLES_MAX - 1) + ERROR_NAME
 }
 
 /** Unserved statements disable editing. */
@@ -326,10 +351,15 @@ private fun statementKind(step: StepDraft): String? = when (step) {
 	is StepDraft.Switch -> "switch"
 	is StepDraft.Try -> "try"
 	is StepDraft.Wait -> "wait"
-	is StepDraft.Exit -> "exit"
-	is StepDraft.Note -> "note"
-	is StepDraft.Call -> "call"
-	is StepDraft.Do, is StepDraft.Kept -> null
+	is StepDraft.Return -> "return"
+	is StepDraft.Comment -> "comment"
+	is StepDraft.RunFunction -> "run_function"
+	is StepDraft.Variable -> "variable"
+	is StepDraft.Parallel -> "parallel"
+	is StepDraft.Start -> "start"
+	is StepDraft.Await -> "await"
+	is StepDraft.Throw -> "throw"
+	is StepDraft.Action, is StepDraft.ScriptOnly -> null
 }
 
 internal fun conditionAsk(
@@ -338,36 +368,26 @@ internal fun conditionAsk(
 	scope: FunctionPreviewScope?,
 	steps: List<StepDraft>,
 ): ConsoleOp.AutomationPreview? =
-	condition.takeIf { it.isNotBlank() }?.let { previewAsk(trigger, null, scope, it, runNamesOf(steps)) }
+	condition.takeIf { it.isNotBlank() }?.let { previewAsk(trigger, null, scope, it, variablesOf(steps)) }
 
-internal sealed interface ConditionPreview {
-	/** Blank or no trigger. */
-	data object Plain : ConditionPreview
+/** What a condition draws: its issue, or the warning the preview answers. */
+internal sealed interface ConditionSaid {
+	data object Silent : ConditionSaid
 
-	data object Asking : ConditionPreview
+	data class Issue(val line: String, val start: Int, val end: Int) : ConditionSaid
 
-	data object Unread : ConditionPreview
-
-	data class Holds(val holds: Boolean) : ConditionPreview
-
-	/** Runtime value or nonboolean. */
-	data class CannotTell(val why: String) : ConditionPreview
-
-	data class Refused(val line: String, val start: Int, val end: Int) : ConditionPreview
+	data class Warning(val line: String) : ConditionSaid
 }
 
-internal fun conditionPreviewOf(condition: String, asked: Boolean, read: PreviewRead): ConditionPreview {
-	val answer = read.answer
-	val said = answer?.condition
+internal fun conditionSaidOf(condition: String, asked: Boolean, read: PreviewRead): ConditionSaid {
+	val said = read.answer?.condition
+	val issue = said?.issue
+	val warning = said?.warning
 	return when {
-		!asked || condition.isBlank() -> ConditionPreview.Plain
-		read.failed -> ConditionPreview.Unread
-		answer == null -> ConditionPreview.Asking
-		said == null -> ConditionPreview.Unread
-		said.issue != null -> said.issue.let { ConditionPreview.Refused(it.message, it.start.toInt(), it.end.toInt()) }
-		said.holds != null -> ConditionPreview.Holds(said.holds)
-		said.unread != null -> ConditionPreview.CannotTell(said.unread)
-		else -> ConditionPreview.Unread
+		!asked || condition.isBlank() -> ConditionSaid.Silent
+		issue != null -> ConditionSaid.Issue(issue.message, issue.start.toInt(), issue.end.toInt())
+		warning != null -> ConditionSaid.Warning(warning)
+		else -> ConditionSaid.Silent
 	}
 }
 
@@ -389,59 +409,65 @@ internal fun lastLineOf(drawn: StepDraft, step: AutomationLastStep?): String? {
 	val reason = step.reason?.let { ": $it" }.orEmpty()
 	return when (Protocol.Wire.RunOutcome.entries.find { it.wire == step.outcome }) {
 		null -> if (step.outcome == null) "Started" else "Last run: ${step.outcome}$reason"
-		Protocol.Wire.RunOutcome.RAN -> when {
-			step.case != null -> (drawn as? StepDraft.Switch)?.let { "Last run: took ${caseLabel(it, step.case.toInt())}" } ?: "Last run: done"
-			step.side == "then" -> "Last run: it held"
-			step.side == "else" -> "Last run: it did not hold"
-			else -> "Last run: done"
+		Protocol.Wire.RunOutcome.DONE -> when {
+			step.case != null -> (drawn as? StepDraft.Switch)?.let { "Last run: ${caseLabel(it, step.case.toInt())}" } ?: "Last run: Done"
+			step.side == "then" -> "Last run: the condition held"
+			step.side == "else" -> "Last run: the condition did not hold"
+			else -> "Last run: Done"
 		}
-		Protocol.Wire.RunOutcome.REFUSED -> "Last run: failed$reason"
-		Protocol.Wire.RunOutcome.UNCERTAIN -> "Last run: unsure$reason"
-		Protocol.Wire.RunOutcome.SUPPRESSED -> "Last run: skipped$reason"
+		Protocol.Wire.RunOutcome.FAILED -> "Last run: Failed$reason"
+		Protocol.Wire.RunOutcome.UNSURE -> "Last run: Unsure$reason"
+		Protocol.Wire.RunOutcome.SKIPPED -> "Last run: Skipped$reason"
 	}
 }
 
 /** Hide issues while blank. */
 internal fun cardHint(step: StepDraft, offer: AutomationOffer, valueNames: Set<String>, calleeParams: CalleeParams): String? = when (step) {
-	is StepDraft.Do -> actionHint(step.action, offer, valueNames)
+	is StepDraft.Action -> actionHint(step.action, offer, valueNames)
 	is StepDraft.Wait -> step.minutes.takeIf { it.isNotBlank() }?.let(::waitIssue)
-	is StepDraft.Call -> callValueIssue(step, calleeParams)
-	is StepDraft.If, is StepDraft.Try, is StepDraft.Switch, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept -> null
+	is StepDraft.RunFunction -> argIssue(step, calleeParams)
+	is StepDraft.Variable -> nameHint(step.name)
+	is StepDraft.Start -> nameHint(step.name)
+	is StepDraft.Await -> nameHint(step.name)
+	is StepDraft.If, is StepDraft.Try, is StepDraft.Switch, is StepDraft.Return, is StepDraft.Comment, is StepDraft.Parallel,
+	is StepDraft.Throw, is StepDraft.ScriptOnly -> null
 }
+
+private fun nameHint(name: String): String? = name.takeIf { it.isNotBlank() && !nameFits(it) }?.let { paramIssueLine(ParamIssue.INVALID) }
 
 internal fun waitIssue(typed: String): String? {
 	val minutes = parseDecimal(typed.trim()) ?: return "Minutes as a number"
 	return "From 0 to ${Protocol.Wire.WAIT_MINUTES_MAX} minutes".takeIf { minutes < 0 || minutes > Protocol.Wire.WAIT_MINUTES_MAX }
 }
 
-internal sealed interface CallChoice {
-	data class Existing(val id: String, val name: String) : CallChoice
+internal sealed interface FunctionChoice {
+	data class Existing(val id: String, val name: String) : FunctionChoice
 
-	data object New : CallChoice
+	data object New : FunctionChoice
 }
 
 internal fun functionHere(draft: AutomationDraft, tree: String?): String? =
 	tree ?: (draft.runs as? RunsHead.Points)?.pointing?.functionId ?: draft.newFunctionId
 
-/** Exclude recursive callees. */
-internal fun callChoices(draft: AutomationDraft, offer: AutomationOffer, tree: String?): List<CallChoice> {
+/** Leaves out functions that lead back here. */
+internal fun functionChoices(draft: AutomationDraft, offer: AutomationOffer, tree: String?): List<FunctionChoice> {
 	val here = functionHere(draft, tree)
 	val listed = offer.functions?.rows.orEmpty().filter { it.function.name.isNotBlank() }.map { it.id to it.function.name }
 	val made = draft.callees.values.filter { it.base == 0L && it.name.isNotBlank() }.map { it.id to it.name }
 	val open = (listed + made).distinctBy { it.first }.filter { (id, _) ->
 		here == null || here !in draft.reached(listOf(id), offer)
 	}
-	return open.map { (id, name) -> CallChoice.Existing(id, name) } + CallChoice.New
+	return open.map { (id, name) -> FunctionChoice.Existing(id, name) } + FunctionChoice.New
 }
 
 internal fun calleeParams(draft: AutomationDraft, offer: AutomationOffer, id: String): List<FunctionParam>? =
 	functionSource(draft, offer, id)?.params
 
-/** Calls read caller names. */
-internal fun callNames(draft: AutomationDraft, offer: AutomationOffer, tree: String?, key: String): List<String> {
-	val values = if (tree == null) (draft.runs as? RunsHead.Points)?.pointing?.params.orEmpty() else draft.callees[tree]?.params.orEmpty()
+/** Names an argument may read in scope. */
+internal fun argNames(draft: AutomationDraft, offer: AutomationOffer, tree: String?, key: String): List<String> {
+	val params = if (tree == null) (draft.runs as? RunsHead.Points)?.pointing?.params.orEmpty() else draft.callees[tree]?.params.orEmpty()
 	val trigger = offer.names(draft.trigger.kind).map { it.name }
-	return (trigger + values.map { it.param.name }.filter { it.isNotBlank() } + runNamesHere(draft.stepsOf(tree), key).map { it.name }).distinct()
+	return (trigger + params.map { it.param.name }.filter { it.isNotBlank() } + variablesHere(draft.stepsOf(tree), key).map { it.name }).distinct()
 }
 
 /** Preview uses tree scope. */
@@ -452,46 +478,46 @@ internal fun namesAt(draft: AutomationDraft, offer: AutomationOffer, key: String
 	val callee = draft.treeHolding(key)?.let { draft.callees[it] }
 	if (callee != null) return namesHere(offer, draft.trigger.kind, answered, callee.params.map { it.param })
 	val pointing = draft.runsDraft() as? RunsDraft.Pointing
-	return namesHere(offer, draft.trigger.kind, answered, pointing?.wireParams().orEmpty(), pointing?.valuesByName().orEmpty())
+	return namesHere(offer, draft.trigger.kind, answered, pointing?.wireParams().orEmpty(), pointing?.argsByName().orEmpty())
 }
 
-internal sealed interface CallLine {
+internal sealed interface RunFunctionLine {
 	/** Reload re-reads `id`. */
-	data class Moved(val id: String) : CallLine
+	data class Changed(val id: String) : RunFunctionLine
 
-	data object Attention : CallLine
+	data object CannotSave : RunFunctionLine
+
+	data class Issues(val count: IssueCount) : RunFunctionLine
 }
 
-/** Through its calls too. */
-internal fun callLine(
+/** Through the functions it runs too. */
+internal fun runFunctionLine(
 	draft: AutomationDraft,
 	offer: AutomationOffer,
 	said: AutomationSaid?,
 	function: String,
-	/** Functions holding errors. */
-	flagged: Set<String> = emptySet(),
-): CallLine? {
+	/** Other functions' check counts. */
+	counts: Map<String, IssueCount> = emptyMap(),
+): RunFunctionLine? {
 	if (function.isBlank()) return null
 	val below = draft.reached(listOf(function), offer)
-	movedCallee(said, draft, offer)?.takeIf { it in below }?.let { return CallLine.Moved(it) }
+	changedCallee(said, draft, offer)?.takeIf { it in below }?.let { return RunFunctionLine.Changed(it) }
 	val saidKey = when (said) {
 		is AutomationSaid.Field -> (said.at as? SaidAt.Card)?.key
-		is AutomationSaid.Hole -> said.key
+		is AutomationSaid.Placeholder -> said.key
 		else -> null
 	}
 	val saidBelow = saidKey?.let { draft.treeHolding(it) } in below
-	val issueBelow = below.any { id ->
-		id in flagged || when (val source = functionSource(draft, offer, id)) {
-			is FunctionSource.Cards -> source.callee?.let { calleeIssue(it, offer) } != null
-			is FunctionSource.Listed -> source.row.invalid != null
-			null -> false
-		}
-	}
-	return CallLine.Attention.takeIf { saidBelow || issueBelow }
+	val unwritableBelow = below.any { id -> (functionSource(draft, offer, id) as? FunctionSource.Cards)?.callee?.let { calleeIssue(it, offer) } != null }
+	if (saidBelow || unwritableBelow) return RunFunctionLine.CannotSave
+	val count = below.mapNotNull { id ->
+		counts[id] ?: (functionSource(draft, offer, id) as? FunctionSource.Listed)?.row?.invalid?.let { IssueCount(1, 0) }
+	}.fold(IssueCount(0, 0), IssueCount::plus)
+	return RunFunctionLine.Issues(count).takeIf { count.any }
 }
 
 /** Trigger inputs appear given. */
-internal fun callRows(draft: AutomationDraft, offer: AutomationOffer, fields: SourceFields, function: String): List<ValueRow>? {
+internal fun argRows(draft: AutomationDraft, offer: AutomationOffer, fields: SourceFields, function: String): List<ValueRow>? {
 	val params = calleeParams(draft, offer, function) ?: return null
 	return valueRows(params, givenOf(draft, fields), emptyMap(), measureOf(draft))
 }

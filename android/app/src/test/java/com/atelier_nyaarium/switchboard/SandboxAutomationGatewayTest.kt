@@ -79,16 +79,16 @@ class SandboxAutomationGatewayTest {
 		val checked = gateway.check("sandbox", check)!!
 		val saved = gateway.save("sandbox", save)
 
-		assertEquals(Protocol.Wire.AutomationSaveRefusalCode.MOVED.wire, checked.refusal?.code)
+		assertEquals(Protocol.Wire.AutomationSaveRefusalCode.CHANGED.wire, checked.refusal?.code)
 		assertEquals(checked.refusal, saved.refusal)
 		assertEquals(before, gateway.list("sandbox"))
 	}
 
 	@Test
-	fun aFunctionMovedDuringCheckCanBeSavedAgainstItsNewRevision() = runBlocking {
+	fun aFunctionChangedDuringCheckCanBeSavedAgainstItsNewRevision() = runBlocking {
 		val gateway = gateway()
-		val lamp = gateway.rows("sandbox").single { pointerOf(it.automation) == SANDBOX_MOVING_FUNCTION }
-		val shown = gateway.list("sandbox").functions.orEmpty().single { it.id == SANDBOX_MOVING_FUNCTION }
+		val lamp = gateway.rows("sandbox").single { pointerOf(it.automation) == SANDBOX_CHANGING_FUNCTION }
+		val shown = gateway.list("sandbox").functions.orEmpty().single { it.id == SANDBOX_CHANGING_FUNCTION }
 		val previousSteps = written(shown.function)
 		val save = ConsoleOp.AutomationSave(
 			automationId = lamp.id,
@@ -106,11 +106,11 @@ class SandboxAutomationGatewayTest {
 		)
 
 		val refused = gateway.check("sandbox", check)!!
-		val changed = gateway.list("sandbox").functions.orEmpty().single { it.id == SANDBOX_MOVING_FUNCTION }
+		val changed = gateway.list("sandbox").functions.orEmpty().single { it.id == SANDBOX_CHANGING_FUNCTION }
 		val again = gateway.check("sandbox", check.copy(functionBase = changed.revision))!!
 		val saved = gateway.save("sandbox", save.copy(functionBase = changed.revision))
 
-		assertEquals(Protocol.Wire.AutomationSaveRefusalCode.MOVED.wire, refused.refusal?.code)
+		assertEquals(Protocol.Wire.AutomationSaveRefusalCode.CHANGED.wire, refused.refusal?.code)
 		assertEquals(Protocol.Wire.AutomationSaveRecord.FUNCTION.wire, refused.refusal?.record)
 		assertEquals(shown.revision + 1L, changed.revision)
 		assertNotEquals(previousSteps, written(changed.function))
@@ -143,7 +143,7 @@ class SandboxAutomationGatewayTest {
 	}
 
 	@Test
-	fun aDangerousActionAsksOnceAndATextIsFilledFromTheTriggersNamesOrRefusedAtItsHole() = runBlocking {
+	fun aDangerousActionAsksOnceAndATextIsFilledFromTheTriggersNamesOrRefusedAtItsPlaceholder() = runBlocking {
 		val gateway = gateway()
 		val posts = mention().copy(actions = listOf(AutomationAction.IftttTrigger("door")))
 		val evening = AutomationTrigger.Time("18:00", listOf(1L), "America/Los_Angeles")
@@ -157,7 +157,7 @@ class SandboxAutomationGatewayTest {
 		assertEquals(listOf("Send to IFTTT"), asked.confirm)
 		assertEquals(listOf(true, true), listOf(agreed.stored, toggled.stored))
 		assertEquals("It is 18:00.", filled?.filled)
-		assertEquals(listOf(6L, 13L), listOf(refused?.hole?.start, refused?.hole?.end))
+		assertEquals(listOf(6L, 13L), listOf(refused?.placeholder?.start, refused?.placeholder?.end))
 	}
 
 	@Test
@@ -166,7 +166,7 @@ class SandboxAutomationGatewayTest {
 		val rows = gateway.list("sandbox").functions.orEmpty().associateBy { it.id }
 		val idle = gateway.list(EMPTY_GATEWAY)
 
-		assertEquals(listOf("value"), rows.getValue("too-warm").reads.names)
+		assertEquals(listOf("reading"), rows.getValue("too-warm").reads.names)
 		assertEquals(listOf("lamp", "message"), rows.getValue("blink").reads.names)
 		assertEquals(false, rows.getValue("too-warm").moves)
 		// Today's road.
@@ -182,12 +182,12 @@ class SandboxAutomationGatewayTest {
 				trigger = AutomationTrigger.Time("18:00", emptyList(), "UTC"),
 				text = "Good {message}",
 				params = listOf(FunctionParam("message", "text")),
-				values = buildJsonObject { put("message", "evening") },
+				args = buildJsonObject { put("message", "evening") },
 			),
 		)
 		val warmHall = gateway.rows("sandbox").single { it.id == "warm-hall" }
-		val temperature = gateway.preview("sandbox", ConsoleOp.AutomationPreview(trigger = warmHall.automation.trigger, text = "It is {value}."))
-		val previewValue = temperature?.names?.single { it.name == "value" }?.shown
+		val temperature = gateway.preview("sandbox", ConsoleOp.AutomationPreview(trigger = warmHall.automation.trigger, text = "It is {reading}."))
+		val previewValue = temperature?.names?.single { it.name == "reading" }?.shown
 
 		assertEquals("Good evening", preview?.filled)
 		assertEquals("35.2 °F", previewValue)
@@ -202,7 +202,7 @@ class SandboxAutomationGatewayTest {
 		val body = AutomationFunction(
 			"Too warm",
 			listOf(FunctionParam("room", "text")),
-			listOf(FunctionStep.Do(action = "tell_assistant", args = JsonObject(mapOf("when" to literal("now"), "message" to literal("It is {room}."))))),
+			listOf(FunctionStep.Action(action = "tell_assistant", args = JsonObject(mapOf("when" to literal("now"), "message" to literal("It is {room}."))))),
 		)
 		val answer = gateway.save(
 			"sandbox",
@@ -225,7 +225,7 @@ class SandboxAutomationGatewayTest {
 		val withoutValues = AutomationFunction(
 			"Blink",
 			emptyList(),
-			listOf(FunctionStep.Do(action = "tell_assistant", args = JsonObject(mapOf("when" to literal("now"), "message" to literal("Done"))))),
+			listOf(FunctionStep.Action(action = "tell_assistant", args = JsonObject(mapOf("when" to literal("now"), "message" to literal("Done"))))),
 		)
 		val functionAnswer = gateway.save(
 			"sandbox",
@@ -279,7 +279,7 @@ class SandboxAutomationGatewayTest {
 	}
 
 	@Test
-	fun aMissingFunctionOrADangerRefusesWhileAHoleOrAFitIsAnIssue() = runBlocking {
+	fun aMissingFunctionOrADangerRefusesWhileAPlaceholderOrAFitIsAnIssue() = runBlocking {
 		val gateway = gateway()
 		val warm = gateway.rows("sandbox").single { it.id == "warm-room" }
 		suspend fun save(automation: Automation, function: AutomationSaveFunction? = null) =
@@ -287,7 +287,7 @@ class SandboxAutomationGatewayTest {
 		suspend fun check(automation: Automation, function: AutomationSaveFunction? = null) =
 			gateway.check("sandbox", ConsoleOp.AutomationCheck(automationId = warm.id, automation = automation, automationBase = warm.revision, function = function))!!
 		fun body(action: String, vararg args: Pair<String, String>) =
-			AutomationFunction("Too warm", emptyList(), listOf(FunctionStep.Do(action = action, args = JsonObject(args.associate { (name, text) -> name to literal(text) }))))
+			AutomationFunction("Too warm", emptyList(), listOf(FunctionStep.Action(action = action, args = JsonObject(args.associate { (name, text) -> name to literal(text) }))))
 
 		assertEquals("unknown_function", save(warm.automation.copy(actions = listOf(AutomationAction.RunFunction(function = "gone"))))?.code)
 		val hole = check(warm.automation, AutomationSaveFunction.Edit("too-warm", body("tell_assistant", "when" to "now", "message" to "It is {nope}."), 2L))
@@ -300,14 +300,14 @@ class SandboxAutomationGatewayTest {
 	}
 
 	@Test
-	fun aSaveWhoseTextNamesNothingHereIsRefusedAtItsHoleAndStoresNothing() = runBlocking {
+	fun aSaveWhoseTextNamesNothingHereIsRefusedAtItsPlaceholderAndStoresNothing() = runBlocking {
 		val gateway = gateway()
 		val told = { message: String -> mention().copy(actions = listOf(AutomationAction.TellAssistant("now"), AutomationAction.TellAssistant("now", message))) }
 
 		val refused = gateway.put("sandbox", "told", told("It is {nope}."), 0L)
 		val kept = gateway.put("sandbox", "told", told("About {event}."), 0L)
 
-		assertEquals(listOf(false, 1L, "message", 6L, 12L), listOf(refused.stored, refused.hole?.action, refused.hole?.param, refused.hole?.start, refused.hole?.end))
+		assertEquals(listOf(false, 1L, "message", 6L, 12L), listOf(refused.stored, refused.placeholder?.action, refused.placeholder?.param, refused.placeholder?.start, refused.placeholder?.end))
 		assertEquals(listOf(true, 1L), listOf(kept.stored, kept.revision))
 	}
 }

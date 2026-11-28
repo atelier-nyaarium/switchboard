@@ -27,7 +27,7 @@ const ports: PassPorts = {
 	laneTold: () => false,
 	errorAt: () => false,
 	windowOf: () => 600_000,
-	callAt: () => null,
+	pointerAt: () => null,
 	ready: () => true,
 	sentenceOf: () => "automation",
 	withMessage: (fields, messages, notes = []) => ({
@@ -97,14 +97,14 @@ describe("automation pass", () => {
 		expect(result.next.fires).toEqual([]);
 		expect(result.next.log.rows.at(-1)).toMatchObject({
 			kind: "step",
-			outcome: "ran",
+			outcome: "done",
 			action: "device_set",
 			step: "0",
 		});
 		expect(result.next.lastRuns.automation?.run).toEqual({
 			at: 0,
 			revision: 1,
-			steps: [{ path: "0", kind: "device_set", outcome: "ran", startMs: 0, endMs: 1 }],
+			steps: [{ path: "0", kind: "device_set", outcome: "done", startMs: 0, endMs: 1 }],
 			running: false,
 		});
 	});
@@ -147,7 +147,7 @@ describe("automation pass", () => {
 			run: {
 				at: 0,
 				revision: 1,
-				steps: [{ path: "0", kind: "device_set", outcome: "ran" as const }],
+				steps: [{ path: "0", kind: "device_set", outcome: "done" as const }],
 				running: false,
 			},
 		};

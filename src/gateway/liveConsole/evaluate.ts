@@ -71,7 +71,7 @@ const kindOf = (value: unknown): string =>
 						? "text"
 						: typeof value === "number"
 							? "a number"
-							: "a yes/no";
+							: "true or false";
 
 /** Return detached read values. */
 const settle = async (value: unknown): Promise<unknown> => {
@@ -229,12 +229,12 @@ function reader(registry: ConsoleRegistry, audience: ConsoleAudience, options: C
 			case "template": {
 				let text = "";
 				for (const piece of node.pieces) {
-					if (piece.kind !== "hole") {
+					if (piece.kind !== "placeholder") {
 						text += piece.value;
 						continue;
 					}
 					const inner = piece.node;
-					if (!inner || piece.broken) return fail(piece, "incomplete", "a hole here cannot be read");
+					if (!inner || piece.broken) return fail(piece, "incomplete", "a placeholder here cannot be read");
 					const named =
 						inner.kind === "ident"
 							? resolveName(registry, audience, inner.name, (name) => variables.get(name))
@@ -267,7 +267,7 @@ function reader(registry: ConsoleRegistry, audience: ConsoleAudience, options: C
 				if (node.op === "!") {
 					return typeof operand === "boolean"
 						? !operand
-						: fail(node, "wrong_type", `! needs a yes/no, not ${kindOf(operand)}`);
+						: fail(node, "wrong_type", `! needs true or false, not ${kindOf(operand)}`);
 				}
 				return typeof operand === "number"
 					? finite(node, -operand)
@@ -277,13 +277,13 @@ function reader(registry: ConsoleRegistry, audience: ConsoleAudience, options: C
 				if (node.op === "and" || node.op === "or") {
 					const first = scalar(node.left, await walk(node.left));
 					if (typeof first !== "boolean") {
-						return fail(node.left, "wrong_type", `${node.op} needs a yes/no, not ${kindOf(first)}`);
+						return fail(node.left, "wrong_type", `${node.op} needs true or false, not ${kindOf(first)}`);
 					}
 					if (first === (node.op === "or")) return first;
 					const second = scalar(node.right, await walk(node.right));
 					return typeof second === "boolean"
 						? second
-						: fail(node.right, "wrong_type", `${node.op} needs a yes/no, not ${kindOf(second)}`);
+						: fail(node.right, "wrong_type", `${node.op} needs true or false, not ${kindOf(second)}`);
 				}
 				const left = scalar(node.left, await walk(node.left));
 				const right = scalar(node.right, await walk(node.right));

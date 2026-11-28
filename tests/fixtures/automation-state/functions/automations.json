@@ -9,7 +9,7 @@
 			"trigger": {
 				"kind": "event",
 				"source": "github",
-				"conditions": [{ "field": "reason", "test": "is", "value": "mention" }]
+				"conditions": [{ "field": "reason", "operator": "is", "value": "mention" }]
 			},
 			"actions": [{ "kind": "tell_assistant", "when": "now" }]
 		}
@@ -24,7 +24,7 @@
 			"trigger": {
 				"kind": "event",
 				"source": "github",
-				"conditions": [{ "field": "reason", "test": "is", "value": "review_requested" }]
+				"conditions": [{ "field": "reason", "operator": "is", "value": "review_requested" }]
 			},
 			"actions": [{ "kind": "tell_assistant", "when": "now" }]
 		}
@@ -39,7 +39,7 @@
 			"trigger": {
 				"kind": "event",
 				"source": "github",
-				"conditions": [{ "field": "reason", "test": "is", "value": "assign" }]
+				"conditions": [{ "field": "reason", "operator": "is", "value": "assign" }]
 			},
 			"actions": [{ "kind": "tell_assistant", "when": "now" }]
 		}
@@ -55,7 +55,7 @@
 			"trigger": {
 				"kind": "event",
 				"source": "github",
-				"conditions": [{ "field": "reason", "test": "is", "value": "ci_activity" }]
+				"conditions": [{ "field": "reason", "operator": "is", "value": "ci_activity" }]
 			},
 			"actions": [{ "kind": "tell_assistant", "when": "now" }]
 		}
@@ -111,7 +111,7 @@
 			"params": [{ "name": "room", "type": "device" }],
 			"steps": [
 				{
-					"kind": "do",
+					"kind": "action",
 					"action": "device_set",
 					"args": {
 						"device": { "kind": "expression", "text": "room" },
@@ -119,7 +119,7 @@
 					}
 				},
 				{
-					"kind": "do",
+					"kind": "action",
 					"action": "tell_assistant",
 					"args": {
 						"when": { "kind": "literal", "value": "quietly" },
@@ -137,12 +137,12 @@
 		"body": {
 			"enabled": true,
 			"trigger": { "kind": "interval", "everyMin": 60 },
-			"keepTryingMin": 60,
+			"retryForMin": 60,
 			"actions": [
 				{
 					"kind": "run_function",
 					"function": "warm-up",
-					"values": { "room": "aa:bb:cc:dd:ee:02" }
+					"args": { "room": "aa:bb:cc:dd:ee:02" }
 				}
 			]
 		}
@@ -156,7 +156,11 @@
 			"name": "Left",
 			"params": [],
 			"steps": [
-				{ "kind": "do", "action": "tell_assistant", "args": { "when": { "kind": "literal", "value": "now" } } }
+				{
+					"kind": "action",
+					"action": "tell_assistant",
+					"args": { "when": { "kind": "literal", "value": "now" } }
+				}
 			]
 		}
 	}

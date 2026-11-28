@@ -1,14 +1,29 @@
 {
 	"approveEverySend": true,
 	"temperatureUnit": "C",
-	"watchers": [{ "id": "github", "grant": null, "enabled": true }],
+	"watchers": [
+		{
+			"id": "github",
+			"grant": null,
+			"enabled": true
+		}
+	],
 	"automations": [
 		{
 			"id": "gong",
 			"automation": {
 				"enabled": true,
-				"trigger": { "kind": "event", "source": "github", "conditions": [] },
-				"actions": [{ "kind": "run_function", "function": "gong-fn" }]
+				"trigger": {
+					"kind": "event",
+					"source": "github",
+					"conditions": []
+				},
+				"actions": [
+					{
+						"kind": "run_function",
+						"function": "gong-fn"
+					}
+				]
 			}
 		}
 	],
@@ -20,13 +35,23 @@
 				"params": [],
 				"steps": [
 					{
-						"kind": "do",
+						"kind": "action",
 						"action": "tell_assistant",
-						"args": { "when": { "kind": "literal", "value": "now" } }
+						"args": {
+							"when": {
+								"kind": "literal",
+								"value": "now"
+							}
+						}
 					}
 				]
 			}
 		}
 	],
-	"integrations": [{ "id": "ifttt", "grant": null }]
+	"integrations": [
+		{
+			"id": "ifttt",
+			"grant": null
+		}
+	]
 }

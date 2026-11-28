@@ -252,10 +252,10 @@ private fun FlowCanvas(
 			val k = density.density * scale
 			for (band in layout.rows) {
 				val title = when (band.role) {
-					FlowRole.START -> "WHEN"
-					FlowRole.AUTOMATION -> "AUTOMATION"
-					FlowRole.FUNCTION -> if (band.layer == 0) "FUNCTION" else null
-					FlowRole.ACTED -> "ACTS ON"
+					FlowRole.START -> "Triggers"
+					FlowRole.AUTOMATION -> "Automations"
+					FlowRole.FUNCTION -> if (band.layer == 0) "Functions" else null
+					FlowRole.ACTED -> "Targets"
 				} ?: continue
 				drawText(measurer, title, Offset(FlowSize.PAD * k, (band.centerY - FlowSize.PILL_H / 2 - FlowSize.LABEL_H - FlowSize.ROW_TITLE + 4f) * k), rowStyle.copy(fontSize = rowStyle.fontSize * scale))
 			}
@@ -425,12 +425,12 @@ private fun FlowSheetCard(
 					}
 					for (note in sheet.notes) Text(noteText(note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 					if (sheet.steps.isEmpty()) {
-						Text(sheet.ranAt?.let { "Ran ${agoText(it)}" } ?: "Has not run", style = MaterialTheme.typography.bodySmall, color = dim)
+						Text(sheet.ranAt?.let { "Ran ${agoText(it)}" } ?: "Never ran", style = MaterialTheme.typography.bodySmall, color = dim)
 					}
 					for (step in sheet.steps) {
 						Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-							Text(offer.labelOf(step.kind), style = MaterialTheme.typography.bodySmall, color = palette.of(colourOf(FlowFacts(step.ended, FlowHappened.RAN))), modifier = Modifier.weight(1f))
-							Text(listOfNotNull(step.reason ?: if (step.open) "running" else endedWord(step.ended), step.tookMs?.let(::tookText)).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = dim)
+							Text(kindLabel(step.kind, offer), style = MaterialTheme.typography.bodySmall, color = palette.of(colourOf(FlowFacts(step.ended, FlowHappened.RAN))), modifier = Modifier.weight(1f))
+							Text(listOfNotNull(step.reason ?: step.word, step.tookMs?.let(::tookText)).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = dim)
 						}
 					}
 					if (sheet.replays) ReplayControls(sheet.id, replaying, onReplay, onPlay, onScrub)
@@ -525,7 +525,7 @@ private fun DrawScope.drawSample(row: LegendRow, palette: FlowPalette, k: Float,
 	fun node(key: FlowKey, boxWidth: Float, boxHeight: Float, selected: Boolean = false) =
 		drawNode(FlowNode(key, ""), FlowBox(key, center, boxWidth, boxHeight), row.facts, selected, palette, k, dash, 1f, measurer, style)
 	when (row.sample) {
-		LegendSample.RING -> node(FlowKey.Clock, FlowSize.RING, FlowSize.RING)
+		LegendSample.RING -> node(FlowKey.Schedule, FlowSize.RING, FlowSize.RING)
 		LegendSample.AUTOMATION -> node(FlowKey.Automation(""), 44f, 18f)
 		LegendSample.FUNCTION -> node(FlowKey.Function(""), 44f, 18f)
 		LegendSample.PICKED -> node(FlowKey.Automation(""), 44f, 18f, selected = true)

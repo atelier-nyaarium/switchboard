@@ -24,7 +24,7 @@ import com.atelier_nyaarium.switchboard.assistant.IntervalUnit
 import com.atelier_nyaarium.switchboard.assistant.TextRef
 import com.atelier_nyaarium.switchboard.assistant.TriggerDraft
 import com.atelier_nyaarium.switchboard.proto.AutomationFunctionServes
-import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
+import com.atelier_nyaarium.switchboard.proto.AutomationPlaceholderSpan
 import com.atelier_nyaarium.switchboard.proto.AutomationServes
 import com.atelier_nyaarium.switchboard.proto.FunctionParam
 import com.atelier_nyaarium.switchboard.proto.AutomationFunctionRow
@@ -42,7 +42,7 @@ import com.atelier_nyaarium.switchboard.assistant.pointedTo
 import com.atelier_nyaarium.switchboard.assistant.Slot
 import com.atelier_nyaarium.switchboard.assistant.StepDraft
 import com.atelier_nyaarium.switchboard.assistant.stepOfDraft
-import com.atelier_nyaarium.switchboard.assistant.refusedHoleOf
+import com.atelier_nyaarium.switchboard.assistant.refusedPlaceholderOf
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -74,7 +74,7 @@ private val SERVES = AutomationServes(
 	triggers = SANDBOX_SERVES.triggers.filter { it.kind in setOf("event", "interval") },
 	actions = SANDBOX_SERVES.actions.filter { it.kind == "tell_assistant" },
 	numbers = emptyList(),
-	switches = emptyList(),
+	devices = emptyList(),
 )
 
 
@@ -161,7 +161,7 @@ class AutomationOpsTest {
 		}
 
 		override suspend fun preview(gatewayId: String, ask: ConsoleOp.AutomationPreview): ConsoleAutomationPreviewResult? {
-			previews += Triple(ask.text, ask.params, ask.values)
+			previews += Triple(ask.text, ask.params, ask.args)
 			return ConsoleAutomationPreviewResult(matched = 1L, of = 3L, matches = emptyList(), filled = ask.text)
 		}
 
@@ -298,21 +298,21 @@ class AutomationOpsTest {
 	}
 
 	@Test
-	fun aListingSaysWhatItsGatewayHoldsAndARefusedSaveCarriesWhatToAskAndWhereAHoleFailed() = runBlocking {
+	fun aListingSaysWhatItsGatewayHoldsAndARefusedSaveCarriesWhatToAskAndWhereAPlaceholderFailed() = runBlocking {
 		val fake = FakeGateway().apply { shelves["sakura"] = emptyList() }
 		val state = admitting("sakura")
 		val ops = AutomationOps(state, Host(fake))
 		ops.refresh("sakura")
 		fake.answers += ConsoleAutomationPutResult(false, 0L, reason = "confirm", confirm = listOf("Send to IFTTT"))
-		fake.answers += ConsoleAutomationPutResult(false, 0L, reason = "no name x here", hole = AutomationHoleSpan(0L, "message", 3L, 6L))
+		fake.answers += ConsoleAutomationPutResult(false, 0L, reason = "no name x here", placeholder =AutomationPlaceholderSpan(0L, "message", 3L, 6L))
 
 		val asks = ops.save("sakura", "new", automation(), 0L, stored = null) as AutomationSaved.Refused
-		val hole = ops.save("sakura", "new", automation(), 0L, stored = null) as AutomationSaved.Refused
+		val placeholder = ops.save("sakura", "new", automation(), 0L, stored = null) as AutomationSaved.Refused
 		ops.save("sakura", "new", automation(), 0L, stored = null, confirmed = true)
 
 		assertEquals(SERVES, state.value.gateways.entry("sakura")?.automationServes)
 		assertEquals(listOf("Send to IFTTT"), asks.confirm)
-		assertEquals(refusedHoleOf(AutomationHoleSpan(0L, "message", 3L, 6L)), hole.hole)
+		assertEquals(refusedPlaceholderOf(AutomationPlaceholderSpan(0L, "message", 3L, 6L)), placeholder.placeholder)
 		assertEquals(listOf(false, false, true), fake.confirmed)
 	}
 
@@ -472,13 +472,13 @@ class AutomationOpsTest {
 	}
 
 	@Test
-	fun aTextHolePreviewReceivesTheFunctionValues() = runBlocking {
+	fun aTextPlaceholderPreviewReceivesTheFunctionArgs() = runBlocking {
 		val function = functionRow("notice", "Notice", listOf("review"), params = listOf(FunctionParam("room", "text")))
 		val functions = AutomationFunctionServes(32L, listOf("tell_assistant"), listOf("device", "text", "number"))
 		val offer = offerOf(SERVES.copy(functions = functions), away = false, functions = listOf(function))
 		val pointer = Automation(enabled = true, trigger = automation().trigger, actions = listOf(AutomationAction.RunFunction(
 			"notice",
-			values = buildJsonObject { put("room", "Bedroom") },
+			args = buildJsonObject { put("room", "Bedroom") },
 		)))
 		val draft = automationDraftOf(automationRow(automation = pointer), EditContext(offer, emptyList()))!!
 		val scope = functionPreviewScopeOf(draft.runsDraft())!!
@@ -519,7 +519,7 @@ class AutomationOpsTest {
 	}
 
 	@Test
-	fun aReloadThatReadsNothingNewerKeepsTheDraftAndStillSaysMoved() = runBlocking {
+	fun aReloadThatReadsNothingNewerKeepsTheDraftAndStillSaysChanged() = runBlocking {
 		val fake = FakeGateway().apply { serves = SANDBOX_SERVES }
 		val function = functionRow("notice", "Notice", listOf("review"), steps = listOf(plugStep("on")))
 		fake.functionRows += function
@@ -543,7 +543,7 @@ class AutomationOpsTest {
 		val session = ops.edits.state.value.held.getValue(key)
 
 		assertEquals(draft, session.draft)
-		assertEquals(AutomationSaid.FunctionMoved("notice"), session.said)
+		assertEquals(AutomationSaid.FunctionChanged("notice"), session.said)
 		assertEquals(1, state.value.notices.size)
 	}
 
@@ -593,14 +593,14 @@ class AutomationOpsTest {
 	}
 
 	@Test
-	fun reloadingAMovedCalleeReplacesThatCalleeAloneAndSaysItsEditsWereDropped() = runBlocking {
+	fun reloadingAChangedCalleeReplacesThatCalleeAloneAndSaysItsEditsWereDropped() = runBlocking {
 		val fake = FakeGateway().apply { serves = SANDBOX_SERVES }
 		val chime = functionRow("chime", "Chime", emptyList(), steps = listOf(plugStep("on"))).copy(callers = listOf("notice"))
 		val notice = functionRow(
 			"notice",
 			"Notice",
 			listOf("review"),
-			steps = listOf(com.atelier_nyaarium.switchboard.proto.FunctionStep.Call("chime", null)),
+			steps = listOf(com.atelier_nyaarium.switchboard.proto.FunctionStep.RunFunction("chime", null)),
 		)
 		fake.functionRows += listOf(notice, chime)
 		val owner = automationRow(
@@ -618,7 +618,7 @@ class AutomationOpsTest {
 		ops.edits.show(key)
 		val opening = ops.edits.open(key, automationDraftOf(owner, context)!!)!!
 		ops.edits.edit(key, opening) { held ->
-			held.openedCallee("chime", context.offer).plusStep(Slot(null, null, 1), StepDraft.Exit("stop"), tree = "chime")
+			held.openedCallee("chime", context.offer).plusStep(Slot(null, null, 1), StepDraft.Return("stop"), tree = "chime")
 		}
 		fake.functionRows.clear()
 		fake.functionRows += listOf(notice, chime.copy(revision = 7L, function = chime.function.copy(steps = listOf(plugStep("off")))))
@@ -641,7 +641,7 @@ class AutomationOpsTest {
 			"notice",
 			"Notice",
 			listOf("review"),
-			steps = listOf(com.atelier_nyaarium.switchboard.proto.FunctionStep.Call("chime", null)),
+			steps = listOf(com.atelier_nyaarium.switchboard.proto.FunctionStep.RunFunction("chime", null)),
 		)
 		fake.functionRows += listOf(notice, chime)
 		val owner = automationRow(
@@ -678,7 +678,7 @@ class AutomationOpsTest {
 			"notice",
 			"Notice",
 			listOf("review"),
-			steps = listOf(com.atelier_nyaarium.switchboard.proto.FunctionStep.Call("chime", null)),
+			steps = listOf(com.atelier_nyaarium.switchboard.proto.FunctionStep.RunFunction("chime", null)),
 		)
 		fake.functionRows += listOf(notice, chime)
 		val owner = automationRow(
@@ -776,7 +776,7 @@ class AutomationOpsTest {
 
 		assertTrue(ops.commit(key, shown, confirmed = false) is EditOutcome.Stays)
 		val offered = ops.edits.state.value.held.getValue(key)
-		assertEquals(5L to listOf<Any>(toldDraft("quietly")), offered.draft.revision to offered.draft.steps.filterIsInstance<StepDraft.Do>().map { it.action })
+		assertEquals(5L to listOf<Any>(toldDraft("quietly")), offered.draft.revision to offered.draft.steps.filterIsInstance<StepDraft.Action>().map { it.action })
 		assertEquals(EditOutcome.Done, ops.commit(key, shown, confirmed = false))
 		assertEquals(EditState<AutomationDraftKey, AutomationDraft, AutomationSaid>(), ops.edits.state.value)
 	}
@@ -828,7 +828,7 @@ class AutomationOpsTest {
 		val second = ops.edits.askLeave()
 
 		assertEquals(listOf(false, false), listOf(first, second))
-		assertEquals(null to listOf<Any>(toldDraft("now", "Hi")), held.text to held.steps.filterIsInstance<StepDraft.Do>().map { it.action })
+		assertEquals(null to listOf<Any>(toldDraft("now", "Hi")), held.text to held.steps.filterIsInstance<StepDraft.Action>().map { it.action })
 		assertEquals(key, ops.edits.state.value.leaving?.key)
 	}
 
@@ -847,7 +847,7 @@ class AutomationOpsTest {
 
 		assertEquals(listOf(false, false), listOf(first, second))
 		assertFalse(held.picking)
-		assertEquals(listOf<Any>(toldDraft("now", "Hi")), held.steps.filterIsInstance<StepDraft.Do>().map { it.action })
+		assertEquals(listOf<Any>(toldDraft("now", "Hi")), held.steps.filterIsInstance<StepDraft.Action>().map { it.action })
 		assertTrue(openKey != null && ops.edits.page(held) == null)
 		assertEquals(key, ops.edits.state.value.leaving?.key)
 	}

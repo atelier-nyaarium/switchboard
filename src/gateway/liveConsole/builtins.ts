@@ -71,7 +71,7 @@ function joined(mode: "all" | "any", held: readonly unknown[]): Record<string, u
 		? once.flatMap((item) => (item.error ? [{ code: item.error.code, message: item.error.message }] : []))
 		: [];
 	const error =
-		errors.length > 0 ? { code: "together", message: `${errors.length} of ${once.length} failed`, errors } : null;
+		errors.length > 0 ? { code: "parallel", message: `${errors.length} of ${once.length} failed`, errors } : null;
 	return { ...key, done, failed: error !== null, error };
 }
 
@@ -181,7 +181,7 @@ export const BUILTINS: readonly Builtin[] = [
 		receiver: "none",
 		params: tasks,
 		returns: "Task",
-		description: "A task done with the first to end; awaiting it keeps that one.",
+		description: "A task done with the first to end; awaiting it gives that one.",
 		type: () => "Task",
 		run: (_receiver, args) => joined("any", args),
 	},
@@ -189,15 +189,15 @@ export const BUILTINS: readonly Builtin[] = [
 		name: "if",
 		receiver: "none",
 		params: [
-			{ name: "when", check: (value) => typeof value === "boolean", type: "Yes/no" },
+			{ name: "condition", check: (value) => typeof value === "boolean", type: "Boolean" },
 			{ name: "then", check: any, type: "Any" },
-			{ name: "otherwise", check: any, type: "Any" },
+			{ name: "else", check: any, type: "Any" },
 		],
 		returns: "Any",
-		description: "then when it holds, else otherwise; only the one chosen is read.",
+		description: "then when the condition is true, else when false; only the one chosen is read.",
 		lazy: true,
 		type: () => undefined,
-		run: (_receiver, [when, then, otherwise]) => (when ? then : otherwise),
+		run: (_receiver, [condition, then, elseValue]) => (condition ? then : elseValue),
 	},
 ];
 

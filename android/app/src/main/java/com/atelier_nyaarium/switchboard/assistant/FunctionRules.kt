@@ -2,7 +2,8 @@ package com.atelier_nyaarium.switchboard.assistant
 
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.proto.AutomationAction
-import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
+import com.atelier_nyaarium.switchboard.issueCountsLine
+import com.atelier_nyaarium.switchboard.proto.AutomationPlaceholderSpan
 import com.atelier_nyaarium.switchboard.proto.AutomationIssue
 import com.atelier_nyaarium.switchboard.proto.AutomationFunctionRow
 import com.atelier_nyaarium.switchboard.proto.AutomationFunctionServes
@@ -56,21 +57,21 @@ internal data class ValueRow(
 	val key: String? = null,
 )
 
-internal data class PlugChoice(val device: String, val label: String, val reference: FunctionValueReference? = null)
+internal data class DeviceChoice(val device: String, val label: String, val reference: FunctionParamReference? = null)
 
-internal fun plugChoices(functionParams: List<FunctionValueDraft>, offer: AutomationOffer): List<PlugChoice> =
+internal fun deviceChoices(functionParams: List<FunctionParamDraft>, offer: AutomationOffer): List<DeviceChoice> =
 	functionParams
 		.filter { it.param.type == FunctionParamType.DEVICE.wire && it.param.name.isNotBlank() }
-		.map { PlugChoice(it.key, "${it.param.name} (value)", FunctionValueReference(it.key, it.param.name)) } +
-		offer.switches.map { PlugChoice(it.device, it.name) }
+		.map { DeviceChoice(it.key, "${it.param.name} (parameter)", FunctionParamReference(it.key, it.param.name)) } +
+		offer.devices.map { DeviceChoice(it.device, it.name) }
 
-internal fun storePlugChoice(action: ActionDraft, param: String, choice: PlugChoice): ActionDraft =
+internal fun storeDeviceChoice(action: ActionDraft, param: String, choice: DeviceChoice): ActionDraft =
 	choice.reference?.let { withReference(action, param, it) } ?: withValue(action, param, choice.device)
 
 internal enum class ParamIssue { EMPTY, INVALID, DUPLICATE }
 
 /** Names a crossing gives in its measure. */
-private val MEASURED = setOf("value", "threshold")
+private val MEASURED = setOf("reading", "threshold")
 
 /** `measure` is a crossing's; null otherwise. */
 internal fun givenWord(name: String, type: GivenType, measure: String?): TypeWord = when {
@@ -115,8 +116,8 @@ internal fun functionParamTypeText(type: String): String = when (type) {
 internal enum class ValueIssue { UNKNOWN_DEVICE, NOT_A_NUMBER }
 
 internal fun valueIssue(param: FunctionParam, text: String, offer: AutomationOffer): ValueIssue? = when (param.type) {
-	FunctionParamType.DEVICE.wire -> ValueIssue.UNKNOWN_DEVICE.takeIf { offer.switches.none { it.device == text } }
-	FunctionParamType.NUMBER.wire -> ValueIssue.NOT_A_NUMBER.takeIf { functionValueOf(param, text) == null }
+	FunctionParamType.DEVICE.wire -> ValueIssue.UNKNOWN_DEVICE.takeIf { offer.devices.none { it.device == text } }
+	FunctionParamType.NUMBER.wire -> ValueIssue.NOT_A_NUMBER.takeIf { functionArgOf(param, text) == null }
 	else -> null
 }
 
@@ -132,7 +133,7 @@ internal sealed interface RunsIssue {
 
 	data class InCallee(val name: String) : RunsIssue
 
-	data object NameWithValues : RunsIssue
+	data object NameWithParams : RunsIssue
 
 	data class BadParam(val name: String, val issue: ParamIssue) : RunsIssue
 
@@ -154,17 +155,17 @@ internal sealed interface RunsNote {
 private fun nameIssue(name: String): RunsIssue? =
 	RunsIssue.NameTooLong(Protocol.Wire.FUNCTION_NAME_MAX).takeIf { name.trim().length > Protocol.Wire.FUNCTION_NAME_MAX }
 
-/** A typed value its type cannot read. */
-internal fun callValueIssue(step: StepDraft.Call, calleeParams: CalleeParams): String? {
+/** A typed argument its type cannot read. */
+internal fun argIssue(step: StepDraft.RunFunction, calleeParams: CalleeParams): String? {
 	val params = calleeParams(step.function).orEmpty().associateBy { it.name }
-	return step.values.entries.firstNotNullOfOrNull { (name, value) ->
+	return step.args.entries.firstNotNullOfOrNull { (name, arg) ->
 		val param = params[name] ?: return@firstNotNullOfOrNull null
-		"$name is a number".takeIf { value is CallValue.Typed && value.text.isNotBlank() && functionValueOf(param, value.text) == null }
+		"$name is a number".takeIf { arg is FunctionArg.Typed && arg.text.isNotBlank() && functionArgOf(param, arg.text) == null }
 	}
 }
 
 private fun notPlain(steps: List<StepDraft>): StepDraft? =
-	everyStep(steps).firstOrNull { step -> !(step is StepDraft.Do && step.action is ActionDraft.Filled) }
+	everyStep(steps).firstOrNull { step -> !(step is StepDraft.Action && step.action is ActionDraft.Filled) }
 
 /** Statements need functions. */
 private fun flatIssue(steps: List<StepDraft>, offer: AutomationOffer): RunsIssue? {
@@ -179,12 +180,16 @@ internal fun calleeIssue(callee: CalleeDraft, offer: AutomationOffer): RunsIssue
 }
 
 /** Unwritable, not merely broken. */
-private fun unwritable(steps: List<StepDraft>, offer: AutomationOffer, params: List<FunctionValueDraft>): StepDraft? =
+private fun unwritable(steps: List<StepDraft>, offer: AutomationOffer, params: List<FunctionParamDraft>): StepDraft? =
 	everyStep(steps).firstOrNull { step ->
 		when (step) {
-			is StepDraft.Do -> stepOf(step.action, offer, params) == null
-			is StepDraft.Call -> step.function.isBlank()
-			is StepDraft.If, is StepDraft.Try, is StepDraft.Switch, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Kept -> false
+			is StepDraft.Action -> stepOf(step.action, offer, params) == null
+			is StepDraft.RunFunction -> step.function.isBlank()
+			is StepDraft.Variable -> !nameFits(step.name)
+			is StepDraft.Start -> step.name.isNotBlank() && !nameFits(step.name)
+			is StepDraft.Await -> step.task.isBlank() || (step.name.isNotBlank() && !nameFits(step.name))
+			is StepDraft.If, is StepDraft.Try, is StepDraft.Switch, is StepDraft.Wait, is StepDraft.Return, is StepDraft.Comment,
+			is StepDraft.Parallel, is StepDraft.Throw, is StepDraft.ScriptOnly -> false
 		}
 	}
 
@@ -203,16 +208,16 @@ private fun paramIssues(params: List<FunctionParam>, given: TriggerGiven): List<
 
 internal fun runsIssue(runs: RunsDraft, selfId: String, given: TriggerGiven, offer: AutomationOffer): RunsIssue? =
 	when (runs) {
-		is RunsDraft.Kept -> null
+		is RunsDraft.Unlisted -> null
 		is RunsDraft.Flat -> if (runs.steps.isEmpty()) RunsIssue.NoSteps else flatIssue(runs.steps, offer)
 		is RunsDraft.Pointing -> if (runs.steps.isEmpty()) RunsIssue.NoSteps else pointingIssue(runs, selfId, given, offer)
 	}
 
-/** Named-function value guidance. */
+/** Named-function argument guidance. */
 internal fun runsNote(runs: RunsDraft, given: TriggerGiven, offer: AutomationOffer): RunsNote? {
 	val pointing = runs as? RunsDraft.Pointing ?: return null
 	if (pointing.name.isBlank()) return null
-	for (row in valueRows(pointing.wireParams(), given, pointing.valuesByName(), measure = null)) {
+	for (row in valueRows(pointing.wireParams(), given, pointing.argsByName(), measure = null)) {
 		val param = row.param ?: continue
 		when (val source = row.source) {
 			ValueSource.FromTrigger, is ValueSource.Mismatch -> Unit
@@ -232,8 +237,8 @@ private fun pointingIssue(
 	if (runs.name.isBlank()) {
 		val others = othersOf(runs, selfId, offer.functions)
 		if (sharedName(runs, others)) return RunsIssue.SharedName(others.size + 1)
-		val values = runs.params.isNotEmpty() || doings(runs.steps).any { (it.action as? ActionDraft.Filled)?.references?.isNotEmpty() == true }
-		if (values && !unnamedServed(offer)) return RunsIssue.NameWithValues
+		val params = runs.params.isNotEmpty() || actionCards(runs.steps).any { (it.action as? ActionDraft.Filled)?.references?.isNotEmpty() == true }
+		if (params && !unnamedServed(offer)) return RunsIssue.NameWithParams
 		if (!unnamedServed(offer)) return notPlain(runs.steps)?.let { RunsIssue.NotAStep(it.key) }
 		return unwritable(runs.steps, offer, runs.params)?.let { RunsIssue.NotAStep(it.key) }
 	}
@@ -257,13 +262,13 @@ internal data class RunsView(
 	val reach: List<String>,
 	val unique: Boolean,
 	val makeUnique: Boolean,
-	val kept: Boolean,
+	val unlisted: Boolean,
 	val issue: RunsIssue?,
 	/** Its function's invalid line. */
 	val invalid: String? = null,
-	val moved: Boolean = false,
+	val changed: Boolean = false,
 	/** Named, or unnamed where held. */
-	val valuesAllowed: Boolean = false,
+	val paramsAllowed: Boolean = false,
 	/** Pre-check guidance. */
 	val note: RunsNote? = null,
 	val issues: List<CardIssue> = emptyList(),
@@ -272,8 +277,8 @@ internal data class RunsView(
 	val reachHeader: Boolean get() = reach.isNotEmpty()
 }
 
-internal fun canAddValue(view: RunsView): Boolean =
-	!view.kept && view.valuesAllowed && view.values.count { it.param != null } < Protocol.Wire.FUNCTION_PARAMS_MAX
+internal fun canAddParam(view: RunsView): Boolean =
+	!view.unlisted && view.paramsAllowed && view.values.count { it.param != null } < Protocol.Wire.FUNCTION_PARAMS_MAX
 
 /** Empty bodies stay cardless. */
 private fun blockIssue(issue: RunsIssue?): RunsIssue? = when (issue) {
@@ -281,7 +286,7 @@ private fun blockIssue(issue: RunsIssue?): RunsIssue? = when (issue) {
 	is RunsIssue.NotAStep,
 	is RunsIssue.NeedsName,
 	is RunsIssue.InCallee,
-	RunsIssue.NameWithValues,
+	RunsIssue.NameWithParams,
 	is RunsIssue.BadParam,
 	is RunsIssue.SharedName,
 	is RunsIssue.NameTooLong,
@@ -304,8 +309,8 @@ internal fun runsView(
 	val note = runsNote(draft.runsDraft(), givenOf(draft, fields), offer).takeIf { drawn == null }
 	val issues = drawn?.rest.orEmpty()
 	return when (val runs = draft.runsDraft()) {
-		is RunsDraft.Flat -> RunsView("", true, null, emptyList(), emptyList(), unique = false, makeUnique = false, kept = false, issue = issue, issues = issues)
-		is RunsDraft.Kept -> RunsView("", false, null, emptyList(), emptyList(), unique = false, makeUnique = false, kept = true, issue = null, issues = issues)
+		is RunsDraft.Flat -> RunsView("", true, null, emptyList(), emptyList(), unique = false, makeUnique = false, unlisted = false, issue = issue, issues = issues)
+		is RunsDraft.Unlisted -> RunsView("", false, null, emptyList(), emptyList(), unique = false, makeUnique = false, unlisted = true, issue = null, issues = issues)
 		is RunsDraft.Pointing -> {
 			val others = othersOf(runs, draft.id, functions)
 			val shared = sharedName(runs, others)
@@ -315,7 +320,7 @@ internal fun runsView(
 				name = runs.name,
 				nameEditable = true,
 				usedBy = if (shared) others.size + 1 else null,
-				values = valueRows(runs.wireParams(), givenOf(draft, fields), runs.valuesByName(), measureOf(draft), reads).map { value ->
+				values = valueRows(runs.wireParams(), givenOf(draft, fields), runs.argsByName(), measureOf(draft), reads).map { value ->
 					val at = SaidAt.Value(value.name)
 					value.copy(
 						refused = refusedField(said, at, saidText(draft, at)),
@@ -325,11 +330,11 @@ internal fun runsView(
 				reach = if (shared && row != null) reachLine(row, draft.id, rows, functions.rows) else emptyList(),
 				unique = runs.mode == PointMode.UNIQUE,
 				makeUnique = shared,
-				kept = false,
+				unlisted = false,
 				issue = issue,
 				invalid = row?.invalid,
-				moved = movedFor(said, runs),
-				valuesAllowed = runs.name.isNotBlank() || unnamedServed(offer),
+				changed = changedFor(said, runs),
+				paramsAllowed = runs.name.isNotBlank() || unnamedServed(offer),
 				note = note,
 				issues = issues,
 			)
@@ -345,34 +350,34 @@ internal sealed interface FunctionLine {
 	/** Its function is not listed. */
 	data object Unlisted : FunctionLine
 
-	/** Unnamed automation function. */
-	data class Own(val does: String) : FunctionLine
+	/** An unnamed function. */
+	data class Unnamed(val does: String) : FunctionLine
 }
 
 /** Null for an automation with its own steps. */
 internal fun functionLine(row: AutomationRow, functions: List<AutomationFunctionRow>?, offer: AutomationOffer): FunctionLine? {
 	val pointer = pointerOf(row.automation) ?: return null
 	val held = functions?.firstOrNull { it.id == pointer } ?: return FunctionLine.Unlisted
-	if (held.function.name.isBlank()) return FunctionLine.Own(ownLine(written(held.function), offer))
+	if (held.function.name.isBlank()) return FunctionLine.Unnamed(unnamedLine(written(held.function), offer))
 	return FunctionLine.Named(held.function.name, usersCount(held))
 }
 
 /** Line naming reached actions. */
-internal fun ownLine(steps: List<FunctionStep>, offer: AutomationOffer): String = steps.joinToString(" · ") { step ->
-	doingText(step, offer) ?: run {
+internal fun unnamedLine(steps: List<FunctionStep>, offer: AutomationOffer): String = steps.joinToString(" · ") { step ->
+	actionText(step, offer) ?: run {
 		val label = cardLabel(treeOf(step, offer), offer)
-		val reached = stepsUnder(step).mapNotNull { doingText(it, offer) }.distinct()
+		val reached = stepsUnder(step).mapNotNull { actionText(it, offer) }.distinct()
 		if (reached.isEmpty()) label else "$label → ${reached.joinToString("; ")}"
 	}
 }
 
-private fun doingText(step: FunctionStep, offer: AutomationOffer): String? =
-	(step as? FunctionStep.Do)?.let { doesLine(stepDraftOf(it, offer), it.action, offer) }
+private fun actionText(step: FunctionStep, offer: AutomationOffer): String? =
+	(step as? FunctionStep.Action)?.let { doesLine(stepDraftOf(it, offer), it.action, offer) }
 
 internal const val SCRIPT_ERRORS_LINE = "Its script has errors. It will not run."
 
 internal fun rowErrorsLine(row: AutomationRow): String? =
-	row.errors?.takeIf { it > 0 }?.let { if (it == 1L) "1 error" else "$it errors" }
+	row.errors?.takeIf { it > 0 }?.let { issueCountsLine(it.toInt(), 0) }
 
 internal fun rowScriptErrors(row: AutomationRow, served: Served): Boolean {
 	val rows = when (served) {
@@ -380,7 +385,7 @@ internal fun rowScriptErrors(row: AutomationRow, served: Served): Boolean {
 		is Served.Unknown -> null
 	} ?: return false
 	val pointer = pointerOf(row.automation) ?: return false
-	val reached = reachOver(listOf(pointer)) { id -> rows.firstOrNull { it.id == id }?.let { callsOf(it.function) }.orEmpty() }
+	val reached = reachOver(listOf(pointer)) { id -> rows.firstOrNull { it.id == id }?.let { functionsRunBy(it.function) }.orEmpty() }
 	return rows.any { it.id in reached && written(it.function).singleOrNull() is FunctionStep.Unparsed }
 }
 
@@ -401,7 +406,7 @@ internal fun reachLine(
 	functions: List<AutomationFunctionRow> = emptyList(),
 ): List<String> =
 	function.users.filter { it != selfId }.mapNotNull { id -> rows.firstOrNull { it.id == id }?.sentence } +
-		function.callers.orEmpty().map { id -> "Called by ${functions.firstOrNull { it.id == id }?.function?.name?.ifBlank { null } ?: id}" }
+		function.callers.orEmpty().map { id -> "Run by ${functions.firstOrNull { it.id == id }?.function?.name?.ifBlank { null } ?: id}" }
 
 /** The function a delete takes with it, by name. */
 internal fun automationDeleteTakes(row: AutomationRow, functions: List<AutomationFunctionRow>?): String? {
@@ -461,13 +466,13 @@ internal sealed interface SaveAnswer {
 	data class Confirm(val labels: List<String>) : SaveAnswer
 
 	/** Lands on its field. */
-	data class Hole(
+	data class Placeholder(
 		val record: AutomationSaveRecord?,
 		val path: String?,
 		val param: String?,
 		val start: Long?,
 		val end: Long?,
-		/** Called function ID. */
+		/** Run function ID. */
 		val id: String? = null,
 	) : SaveAnswer
 
@@ -486,18 +491,24 @@ internal sealed interface RefusedAt {
 	data class Step(val path: String, val param: String, val function: String? = null) : RefusedAt
 }
 
-/** Hole path and function. */
-internal data class RefusedHole(val path: String, val param: String, val start: Int, val end: Int, val function: String? = null)
+/** Placeholder path and function. */
+internal data class RefusedPlaceholder(val path: String, val param: String, val start: Int, val end: Int, val function: String? = null)
 
 // skew:step-refusals
-internal fun refusedHoleOf(hole: SaveAnswer.Hole): RefusedHole? {
-	val path = hole.path?.takeIf { it.isNotEmpty() } ?: return null
-	return RefusedHole(path, hole.param ?: return null, hole.start?.toInt() ?: return null, hole.end?.toInt() ?: return null, hole.id)
+internal fun refusedPlaceholderOf(placeholder: SaveAnswer.Placeholder): RefusedPlaceholder? {
+	val path = placeholder.path?.takeIf { it.isNotEmpty() } ?: return null
+	return RefusedPlaceholder(
+		path,
+		placeholder.param ?: return null,
+		placeholder.start?.toInt() ?: return null,
+		placeholder.end?.toInt() ?: return null,
+		placeholder.id,
+	)
 }
 
-/** An older put names its action by index. */
-internal fun refusedHoleOf(span: AutomationHoleSpan): RefusedHole =
-	RefusedHole("${span.action}", span.param, span.start.toInt(), span.end.toInt())
+/** A put names its action by index. */
+internal fun refusedPlaceholderOf(span: AutomationPlaceholderSpan): RefusedPlaceholder =
+	RefusedPlaceholder("${span.action}", span.param, span.start.toInt(), span.end.toInt())
 
 // skew:step-refusals
 /** A row or field it names. */
@@ -509,19 +520,19 @@ internal fun refusedAtOf(refusal: AutomationSaveRefusal): RefusedAt? {
 	if (step != null && param != null) return RefusedAt.Step(step, param, function)
 	val parts = refusal.path?.split(".") ?: return null
 	return when {
-		parts.size == 2 && parts[0] == VALUES -> RefusedAt.Value(parts[1])
+		parts.size == 2 && parts[0] == ARGS -> RefusedAt.Value(parts[1])
 		parts.size == 3 && parts[0] == STEPS -> parts[1].takeIf { it.toIntOrNull() != null }?.let { RefusedAt.Step(it, parts[2], function) }
 		else -> null
 	}
 }
 
-private const val VALUES = "values"
+private const val ARGS = "args"
 
 private const val STEPS = "steps"
 
-/** Only the automation's own move offers its row. */
-internal fun movedAutomation(refused: SaveAnswer.Refused): Boolean =
-	refused.code == AutomationSaveRefusalCode.MOVED && refused.refusal.record == AutomationSaveRecord.AUTOMATION.wire
+/** Only the automation's own change offers its row. */
+internal fun changedAutomation(refused: SaveAnswer.Refused): Boolean =
+	refused.code == AutomationSaveRefusalCode.CHANGED && refused.refusal.record == AutomationSaveRecord.AUTOMATION.wire
 
 internal fun saveAnswerOf(result: ConsoleAutomationSaveResult): SaveAnswer {
 	if (result.stored) return SaveAnswer.Stored(result.automation, result.function, result.issues.orEmpty())
@@ -530,7 +541,7 @@ internal fun saveAnswerOf(result: ConsoleAutomationSaveResult): SaveAnswer {
 	return when (code) {
 		AutomationSaveRefusalCode.CONFIRM -> SaveAnswer.Confirm(refusal.labels.orEmpty())
 		// skew:step-refusals
-		AutomationSaveRefusalCode.HOLE -> SaveAnswer.Hole(
+		AutomationSaveRefusalCode.PLACEHOLDER -> SaveAnswer.Placeholder(
 			refusal.record?.let { word -> AutomationSaveRecord.entries.find { it.wire == word } },
 			refusal.path,
 			refusal.param,
@@ -538,7 +549,7 @@ internal fun saveAnswerOf(result: ConsoleAutomationSaveResult): SaveAnswer {
 			refusal.end,
 			refusal.id.takeIf { refusal.record == AutomationSaveRecord.FUNCTION.wire },
 		)
-		AutomationSaveRefusalCode.MOVED,
+		AutomationSaveRefusalCode.CHANGED,
 		AutomationSaveRefusalCode.GONE,
 		AutomationSaveRefusalCode.FULL,
 		AutomationSaveRefusalCode.INVALID,
@@ -553,13 +564,13 @@ internal fun saveAnswerOf(result: ConsoleAutomationSaveResult): SaveAnswer {
 		AutomationSaveRefusalCode.NEWER_AUTOMATION,
 		AutomationSaveRefusalCode.NO_FREE_ID,
 		AutomationSaveRefusalCode.LOOP,
-		AutomationSaveRefusalCode.PRIVATE,
+		AutomationSaveRefusalCode.UNNAMED,
 		-> SaveAnswer.Refused(code, refusal)
 	}
 }
 
-/** Undeclared values; none while unknown. */
-internal fun strayCallValues(step: StepDraft.Call, params: List<FunctionParam>?): List<String> {
+/** Undeclared arguments; none while unknown. */
+internal fun strayArgs(step: StepDraft.RunFunction, params: List<FunctionParam>?): List<String> {
 	val declared = params?.map { it.name }?.toSet() ?: return emptyList()
-	return step.values.keys.filter { it !in declared }
+	return step.args.keys.filter { it !in declared }
 }

@@ -3,8 +3,8 @@
 import { type DurableStore, openDurable, type RestoreRepairs } from "../../shared/durable-store.js";
 import {
 	AUTOMATION_SERVES,
+	type AutomationDeviceOffer,
 	type AutomationNumberOffer,
-	type AutomationSwitchOffer,
 } from "../../shared/schemasAutomation.js";
 import type { ConsoleDescription } from "../../shared/schemasLiveConsole.js";
 import { type AutomationPreviewDeps, previewAutomation } from "../computed/automationPreview.js";
@@ -91,7 +91,7 @@ export function openAutomationPair(deps: AutomationPairDeps): AutomationPair {
 }
 
 export interface AutomationStageDeps extends AutomationPairDeps {
-	offers: () => { numbers: AutomationNumberOffer[]; switches: AutomationSwitchOffer[] };
+	offers: () => { numbers: AutomationNumberOffer[]; devices: AutomationDeviceOffer[] };
 	previewEvent: AutomationPreviewDeps["event"];
 	/** Absent before the console is composed. */
 	scriptVocabulary?: () => ConsoleDescription | undefined;
@@ -105,7 +105,7 @@ export function composeAutomations(deps: AutomationStageDeps): AutomationStage {
 	const pair = openAutomationPair(deps);
 	const { automations } = pair;
 	const script = scriptOps({
-		switches: () => deps.offers().switches.map((offer) => ({ id: offer.device, name: offer.name })),
+		devices: () => deps.offers().devices.map((offer) => ({ id: offer.device, name: offer.name })),
 		functions: () => automations.functionRows(),
 		givenOf: (trigger) => automations.givenOf(trigger),
 		vocabulary: () => deps.scriptVocabulary?.() ?? { builtins: [], entities: [] },
@@ -124,8 +124,8 @@ export function composeAutomations(deps: AutomationStageDeps): AutomationStage {
 					{
 						event: deps.previewEvent,
 						namesNow: (clocked) => automations.namesNow(clocked),
-						holes: () => deps.automations.holes?.(),
-						switchName: deps.automations.actions?.switchName,
+						placeholders: () => deps.automations.placeholders?.(),
+						deviceName: deps.automations.actions?.deviceName,
 					},
 					request,
 				),

@@ -58,7 +58,7 @@ describe("field types", () => {
 	});
 
 	it("refuses a condition over a number or bytes field", () => {
-		const condition = { field: "temperature", test: "is" as const, value: "30" };
+		const condition = { field: "temperature", operator: "is" as const, value: "30" };
 
 		expect(conditionsIssue([condition], [temperature])).not.toBeNull();
 	});

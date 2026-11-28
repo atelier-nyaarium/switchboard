@@ -10,7 +10,7 @@ import com.atelier_nyaarium.switchboard.assistant.FlowNote
 import com.atelier_nyaarium.switchboard.assistant.FlowPattern
 import com.atelier_nyaarium.switchboard.assistant.FlowReplay
 import com.atelier_nyaarium.switchboard.assistant.FlowWeight
-import com.atelier_nyaarium.switchboard.assistant.SwitchOffer
+import com.atelier_nyaarium.switchboard.assistant.DeviceOffer
 import com.atelier_nyaarium.switchboard.assistant.Unfollowed
 import com.atelier_nyaarium.switchboard.assistant.colourOf
 import com.atelier_nyaarium.switchboard.assistant.flowFacts
@@ -45,8 +45,8 @@ class FlowMapTest {
 			put("text", text)
 		}
 	}
-	private val setNamed = FunctionStep.Do("device_set", args = JsonObject(mapOf("device" to expression("device"), "verb" to literal("on"))))
-	private val tell = FunctionStep.Do("tell_assistant", args = JsonObject(mapOf("when" to literal("now"))))
+	private val setNamed = FunctionStep.Action("device_set", args = JsonObject(mapOf("device" to expression("device"), "verb" to literal("on"))))
+	private val tell = FunctionStep.Action("tell_assistant", args = JsonObject(mapOf("when" to literal("now"))))
 	private val point = { function: String, device: String? ->
 		AutomationAction.RunFunction(function, device?.let { JsonObject(mapOf("device" to JsonPrimitive(it))) })
 	}
@@ -55,18 +55,18 @@ class FlowMapTest {
 		"Warm the room",
 		listOf("mine", "downstairs"),
 		params = listOf(FunctionParam("device", "device")),
-		steps = listOf(setNamed, FunctionStep.Call("blink")),
+		steps = listOf(setNamed, FunctionStep.RunFunction("blink")),
 	)
 	private val blink = functionRow("blink", "Blink", listOf())
 	private val guarded = functionRow("guarded", "Guarded", listOf("caught"), steps = listOf(FunctionStep.Try(listOf(plugStep("on")), listOf(tell))))
 	private val bare = functionRow("bare", "Bare", listOf("loose"), steps = listOf(plugStep("on")))
-	private val careful = functionRow("careful", "Careful", listOf("wrapped"), steps = listOf(FunctionStep.Try(listOf(FunctionStep.Call("bare")), listOf(tell))))
+	private val careful = functionRow("careful", "Careful", listOf("wrapped"), steps = listOf(FunctionStep.Try(listOf(FunctionStep.RunFunction("bare")), listOf(tell))))
 
 	private fun input(rows: List<AutomationRow>) = FlowInput(
 		rows = rows,
 		functions = listOf(warm, blink, guarded, bare, careful),
 		sources = emptyList(),
-		switches = listOf(SwitchOffer("plug-a", "Heater"), SwitchOffer(SANDBOX_SWITCH, "Lamp")),
+		devices = listOf(DeviceOffer("plug-a", "Heater"), DeviceOffer(SANDBOX_DEVICE, "Lamp")),
 		numbers = emptyList(),
 	)
 
@@ -97,7 +97,7 @@ class FlowMapTest {
 				Triple(FlowKey.Automation("mine"), FlowKey.Function("warm"), mapOf("mine" to setOf("0"))),
 				Triple(FlowKey.Function("warm"), FlowKey.Plug("plug-a"), mapOf("mine" to setOf("0.0"))),
 				Triple(FlowKey.Function("warm"), FlowKey.Function("blink"), mapOf("mine" to setOf("0.1"), "downstairs" to setOf("0.1"))),
-				Triple(FlowKey.Function("blink"), FlowKey.Plug(SANDBOX_SWITCH), mapOf("mine" to setOf("0.1.0"), "downstairs" to setOf("0.1.0"))),
+				Triple(FlowKey.Function("blink"), FlowKey.Plug(SANDBOX_DEVICE), mapOf("mine" to setOf("0.1.0"), "downstairs" to setOf("0.1.0"))),
 				Triple(FlowKey.Sensor(SANDBOX_SENSOR), FlowKey.Automation("downstairs"), mapOf("downstairs" to emptySet())),
 				Triple(FlowKey.Automation("downstairs"), FlowKey.Function("warm"), mapOf("downstairs" to setOf("0"))),
 				Triple(FlowKey.Function("warm"), FlowKey.Plug("plug-b"), mapOf("downstairs" to setOf("0.0"))),
@@ -115,7 +115,7 @@ class FlowMapTest {
 			listOf(
 				y(FlowKey.Sensor(SANDBOX_SENSOR)) < y(FlowKey.Automation("mine")),
 				y(FlowKey.Function("warm")) < y(FlowKey.Function("blink")),
-				y(FlowKey.Function("blink")) < y(FlowKey.Plug(SANDBOX_SWITCH)),
+				y(FlowKey.Function("blink")) < y(FlowKey.Plug(SANDBOX_DEVICE)),
 			),
 		)
 	}
@@ -126,24 +126,24 @@ class FlowMapTest {
 			automationRow("caught", "Caught", listOf(point("guarded", null))).copy(
 				lastRun = run(
 					10L,
-					step("0", "run_function", "ran"),
-					step("0.0", "try", "ran"),
-					step("0.0.0.0", "device_set", "refused"),
-					step("0.0.1.0", "tell_assistant", "ran"),
+					step("0", "run_function", "done"),
+					step("0.0", "try", "done"),
+					step("0.0.0.0", "device_set", "failed"),
+					step("0.0.1.0", "tell_assistant", "done"),
 				),
 			),
 			automationRow("loose", "Loose", listOf(point("bare", null))).copy(
-				lastRun = run(20L, step("0", "run_function", "refused"), step("0.0", "device_set", "refused")),
+				lastRun = run(20L, step("0", "run_function", "failed"), step("0.0", "device_set", "failed")),
 			),
 		)
 		val wrapped = automationRow("wrapped", "Wrapped", listOf(point("careful", null))).copy(
 			lastRun = run(
 				5L,
-				step("0", "run_function", "ran"),
-				step("0.0", "try", "ran"),
-				step("0.0.0.0", "call", "refused"),
-				step("0.0.0.0.0", "device_set", "refused"),
-				step("0.0.1.0", "tell_assistant", "ran"),
+				step("0", "run_function", "done"),
+				step("0.0", "try", "done"),
+				step("0.0.0.0", "run_function", "failed"),
+				step("0.0.0.0.0", "device_set", "failed"),
+				step("0.0.1.0", "tell_assistant", "done"),
 			),
 		)
 		val graph = flowGraph(input(rows + wrapped))
@@ -153,30 +153,30 @@ class FlowMapTest {
 		val caughtAbove = graph.lines.withIndex().single { (_, line) -> line.from == FlowKey.Function("bare") && "wrapped" in line.steps }.index
 		assertEquals(FlowWeight.THIN, weightOf(flowFacts(graph, flowRuns(rows + wrapped), prefer = "wrapped").lines[caughtAbove]))
 
-		assertEquals(Triple(FlowColour.RED, FlowPattern.SOLID, FlowWeight.THIN), lineStyle(FlowKey.Function("guarded"), FlowKey.Plug(SANDBOX_SWITCH), false))
+		assertEquals(Triple(FlowColour.RED, FlowPattern.SOLID, FlowWeight.THIN), lineStyle(FlowKey.Function("guarded"), FlowKey.Plug(SANDBOX_DEVICE), false))
 		assertEquals(true, facts.lines[graph.line(FlowKey.Function("guarded"), FlowKey.Assistant, true)].onFailure)
 		assertEquals(FlowColour.OK, colourOf(facts.nodes.getValue(FlowKey.Automation("caught"))))
-		assertEquals(Triple(FlowColour.RED, FlowPattern.SOLID, FlowWeight.THICK), lineStyle(FlowKey.Function("bare"), FlowKey.Plug(SANDBOX_SWITCH), false))
+		assertEquals(Triple(FlowColour.RED, FlowPattern.SOLID, FlowWeight.THICK), lineStyle(FlowKey.Function("bare"), FlowKey.Plug(SANDBOX_DEVICE), false))
 		assertEquals(Triple(FlowColour.RED, FlowPattern.SOLID, FlowWeight.THIN), lineStyle(FlowKey.Automation("loose"), FlowKey.Function("bare"), false))
 		assertEquals(FlowColour.RED, colourOf(facts.nodes.getValue(FlowKey.Automation("loose"))))
 		assertEquals(FlowColour.OK, colourOf(facts.lines[graph.line(FlowKey.Sensor(SANDBOX_SENSOR), FlowKey.Automation("loose"))]))
 		// The newest act on the lamp is the loose one's.
-		assertEquals(FlowColour.RED, colourOf(facts.nodes.getValue(FlowKey.Plug(SANDBOX_SWITCH))))
+		assertEquals(FlowColour.RED, colourOf(facts.nodes.getValue(FlowKey.Plug(SANDBOX_DEVICE))))
 	}
 
 	@Test
 	fun `a step in flight moves, a retry is amber, a switched-off automation is dotted, and one that never ran is faint`() {
 		val rows = listOf(
-			automationRow("busy", "Busy", listOf(AutomationAction.DeviceSet(SANDBOX_SWITCH, "on"))).copy(
+			automationRow("busy", "Busy", listOf(AutomationAction.DeviceSet(SANDBOX_DEVICE, "on"))).copy(
 				lastRun = run(5L, step("0", "device_set", null, retrying = true), running = true),
 			),
 			automationRow("off", "Off", listOf(AutomationAction.DeviceSet("plug-a", "on"))).let {
-				it.copy(automation = it.automation.copy(enabled = false), lastRun = run(1L, step("0", "device_set", "ran")))
+				it.copy(automation = it.automation.copy(enabled = false), lastRun = run(1L, step("0", "device_set", "done")))
 			},
 			automationRow("never", "Never", listOf(AutomationAction.DeviceSet("plug-c", "on"))),
 			automationRow("broken", "Broken", listOf(AutomationAction.DeviceSet("plug-d", "on"))).copy(
 				invalid = "its plug is gone",
-				lastRun = run(2L, step("0", "device_set", "ran")),
+				lastRun = run(2L, step("0", "device_set", "done")),
 			),
 		)
 		val graph = flowGraph(input(rows))
@@ -184,7 +184,7 @@ class FlowMapTest {
 
 		assertEquals(
 			Triple(FlowColour.AMBER, FlowPattern.MOVING_DASH, FlowWeight.THIN),
-			styles(facts.lines[graph.line(FlowKey.Automation("busy"), FlowKey.Plug(SANDBOX_SWITCH))]),
+			styles(facts.lines[graph.line(FlowKey.Automation("busy"), FlowKey.Plug(SANDBOX_DEVICE))]),
 		)
 		assertEquals(FlowPattern.MOVING_DASH, patternOf(facts.nodes.getValue(FlowKey.Automation("busy"))))
 		assertEquals(
@@ -205,15 +205,15 @@ class FlowMapTest {
 	fun `a selected automation's lines read its own run, and its reach is its own lines`() {
 		val rows = listOf(
 			automationRow("mine", "Mine", listOf(point("warm", "plug-a"))).copy(
-				lastRun = run(100L, step("0", "run_function", "ran"), step("0.0", "device_set", "ran"), step("0.1", "call", "ran"), step("0.1.0", "device_set", "ran")),
+				lastRun = run(100L, step("0", "run_function", "done"), step("0.0", "device_set", "done"), step("0.1", "run_function", "done"), step("0.1.0", "device_set", "done")),
 			),
 			automationRow("downstairs", "Downstairs", listOf(point("warm", "plug-b"))).copy(
 				lastRun = run(
 					200L,
-					step("0", "run_function", "refused"),
-					step("0.0", "device_set", "ran"),
-					step("0.1", "call", "refused"),
-					step("0.1.0", "device_set", "refused"),
+					step("0", "run_function", "failed"),
+					step("0.0", "device_set", "done"),
+					step("0.1", "run_function", "failed"),
+					step("0.1.0", "device_set", "failed"),
 				),
 			),
 		)
@@ -223,7 +223,7 @@ class FlowMapTest {
 		val chosen = flowFacts(graph, flowRuns(rows), prefer = "mine")
 
 		assertEquals(listOf(FlowColour.RED, FlowColour.OK), listOf(colourOf(newest.lines[call]), colourOf(chosen.lines[call])))
-		val lamp = FlowKey.Plug(SANDBOX_SWITCH)
+		val lamp = FlowKey.Plug(SANDBOX_DEVICE)
 		assertEquals(listOf(FlowColour.RED, FlowColour.OK), listOf(colourOf(newest.nodes.getValue(lamp)), colourOf(chosen.nodes.getValue(lamp))))
 		assertEquals(
 			setOf(FlowKey.Plug("plug-a")),
@@ -252,10 +252,10 @@ class FlowMapTest {
 
 		assertEquals(
 			listOf(
-				Triple(FlowKey.Plug(SANDBOX_SWITCH), "mention, assign", mapOf("mine" to setOf("0.0.0.0"), "downstairs" to setOf("0.0.0.0"))),
-				Triple(FlowKey.Plug(SANDBOX_SWITCH), "review", mapOf("mine" to setOf("0.0.1.0"), "downstairs" to setOf("0.0.1.0"))),
-				Triple(FlowKey.Plug(SANDBOX_SWITCH), "default", mapOf("mine" to setOf("0.0.2.0"), "downstairs" to setOf("0.0.2.0"))),
-				Triple(FlowKey.Assistant, "default", mapOf("mine" to setOf("0.0.2.1"), "downstairs" to setOf("0.0.2.1"))),
+				Triple(FlowKey.Plug(SANDBOX_DEVICE), "mention, assign", mapOf("mine" to setOf("0.0.0.0"), "downstairs" to setOf("0.0.0.0"))),
+				Triple(FlowKey.Plug(SANDBOX_DEVICE), "review", mapOf("mine" to setOf("0.0.1.0"), "downstairs" to setOf("0.0.1.0"))),
+				Triple(FlowKey.Plug(SANDBOX_DEVICE), "Default", mapOf("mine" to setOf("0.0.2.0"), "downstairs" to setOf("0.0.2.0"))),
+				Triple(FlowKey.Assistant, "Default", mapOf("mine" to setOf("0.0.2.1"), "downstairs" to setOf("0.0.2.1"))),
 			),
 			acts.map { Triple(it.to, it.case?.label, it.steps) },
 		)
@@ -265,18 +265,18 @@ class FlowMapTest {
 	@Test
 	fun `a thing takes its newest act by step time, and its card names each toucher once`() {
 		val rows = listOf(
-			automationRow("both", "Both", listOf(AutomationAction.DeviceSet(SANDBOX_SWITCH, "on"), point("bare", null))).copy(
+			automationRow("both", "Both", listOf(AutomationAction.DeviceSet(SANDBOX_DEVICE, "on"), point("bare", null))).copy(
 				lastRun = run(
 					1L,
-					step("0", "device_set", "ran", start = 0, end = 10),
-					step("1", "run_function", "refused", start = 20, end = 30),
-					step("1.0", "device_set", "refused", start = 20, end = 30),
+					step("0", "device_set", "done", start = 0, end = 10),
+					step("1", "run_function", "failed", start = 20, end = 30),
+					step("1.0", "device_set", "failed", start = 20, end = 30),
 				),
 			),
 		)
 		val graph = flowGraph(input(rows))
 		val facts = flowFacts(graph, flowRuns(rows))
-		val lamp = FlowKey.Plug(SANDBOX_SWITCH)
+		val lamp = FlowKey.Plug(SANDBOX_DEVICE)
 
 		assertEquals(FlowColour.RED, colourOf(facts.nodes.getValue(lamp)))
 		val sheet = flowSheet(graph, facts, rows, lamp) as com.atelier_nyaarium.switchboard.assistant.FlowSheet.OfThing
@@ -285,11 +285,11 @@ class FlowMapTest {
 
 	@Test
 	fun `a call the walk refused draws no line, and a refresh drops a gone selection and a replaced replay`() {
-		val loopy = functionRow("loopy", "Loopy", listOf("spin"), steps = listOf(FunctionStep.Call("loopy")))
+		val loopy = functionRow("loopy", "Loopy", listOf("spin"), steps = listOf(FunctionStep.RunFunction("loopy")))
 		val spin = automationRow("spin", "Spin", listOf(point("loopy", null)))
 		val graph = flowGraph(input(listOf(spin)).copy(functions = listOf(loopy)))
 		val ran = run(1L, step("0", "run_function", null))
-		val refreshed = listOf(spin.copy(lastRun = run(2L, step("0", "run_function", "ran"))))
+		val refreshed = listOf(spin.copy(lastRun = run(2L, step("0", "run_function", "done"))))
 
 		assertEquals(emptyList<FlowLine>(), graph.lines.filter { it.act == FlowAct.CALLS })
 		assertEquals(listOf(FlowNote.Unfollowed("loopy", Unfollowed.LOOP)), graph.node(FlowKey.Function("loopy"))?.notes)
@@ -335,16 +335,16 @@ class FlowMapTest {
 	fun `a replay reads the run at a moment by its times, and a beat a step in written order when it has none`() {
 		val timed = run(
 			0L,
-			step("0", "device_set", "ran", start = 0, end = 0),
-			step("1", "wait", "ran", start = 0, end = 300_000),
-			step("2", "device_set", "refused", start = 300_000, end = 310_000).copy(retriedMs = 302_000),
+			step("0", "device_set", "done", start = 0, end = 0),
+			step("1", "wait", "done", start = 0, end = 300_000),
+			step("2", "device_set", "failed", start = 300_000, end = 310_000).copy(retriedMs = 302_000),
 		)
 		val replay = FlowReplay(timed)
 		val opened = { moment: Long -> replay.runAt(moment).steps.map { it.path to it.outcome } }
-		val untimed = FlowReplay(run(0L, step("0", "device_set", "ran"), step("1", "device_set", "ran")))
+		val untimed = FlowReplay(run(0L, step("0", "device_set", "done"), step("1", "device_set", "done")))
 
 		assertEquals(listOf("0" to null), opened(0))
-		assertEquals(listOf("0" to "ran", "1" to null), opened(500))
+		assertEquals(listOf("0" to "done", "1" to null), opened(500))
 		// Five minutes plays as one long gap.
 		assertEquals(true, replay.length < 6_000)
 		assertEquals(timed, replay.runAt(replay.length))
@@ -358,6 +358,6 @@ class FlowMapTest {
 			listOf(ended, ended.toggled(), ended.toggled().scrubbed(1_000)).map { it.moment to it.playing },
 		)
 		assertEquals(listOf("0" to null), untimed.runAt(500).steps.map { it.path to it.outcome })
-		assertEquals(listOf("0" to "ran", "1" to null), untimed.runAt(1_000).steps.map { it.path to it.outcome })
+		assertEquals(listOf("0" to "done", "1" to null), untimed.runAt(1_000).steps.map { it.path to it.outcome })
 	}
 }

@@ -1,1 +1,8 @@
-{ "kind": "run_function", "function": "warm-up", "values": { "room": "aa:bb:cc:dd:ee:01", "degrees": 21 } }
+{
+	"kind": "run_function",
+	"function": "warm-up",
+	"args": {
+		"room": "aa:bb:cc:dd:ee:01",
+		"degrees": 21
+	}
+}

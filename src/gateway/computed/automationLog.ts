@@ -16,11 +16,11 @@ type Outcome = (typeof ROW_OUTCOMES)[number];
 
 /** A run that never ran, and how it logs. */
 const LOST: Readonly<Record<string, Outcome>> = {
-	[REPLACED]: "suppressed",
-	[CROWDED]: "suppressed",
-	[TOO_MANY]: "refused",
-	[BEHIND]: "suppressed",
-	[COOLING]: "suppressed",
+	[REPLACED]: "skipped",
+	[CROWDED]: "skipped",
+	[TOO_MANY]: "failed",
+	[BEHIND]: "skipped",
+	[COOLING]: "skipped",
 };
 export type LostReason = typeof REPLACED | typeof CROWDED | typeof TOO_MANY | typeof BEHIND | typeof COOLING;
 
@@ -98,8 +98,8 @@ const KEYS: Readonly<Record<LogRow["kind"], (row: LogRow) => string>> = {
 	trigger: () => "trigger",
 };
 
-/** A refusal stands, and so does every lost run. */
-const stands = (row: LogRow): boolean => row.kind === "lost" || row.outcome === "refused";
+/** A failure stands, and so does every lost run. */
+const stands = (row: LogRow): boolean => row.kind === "lost" || row.outcome === "failed";
 
 export interface Log {
 	rows: readonly LogRow[];
@@ -186,11 +186,11 @@ export function readLog(rows: unknown, standing: unknown): Log {
 		const parsed = StoredRowSchema.safeParse(row);
 		return parsed.success ? [{ kind: kindOf(parsed.data), ...parsed.data }] : [];
 	});
-	const kept = capped(read);
+	const within = capped(read);
 	if (typeof standing !== "object" || standing === null || Array.isArray(standing))
-		return { rows: kept, standing: kept.reduce(standingAfter, {}) };
+		return { rows: within, standing: within.reduce(standingAfter, {}) };
 	// Each reason alone; an automation with none read back from its rows.
-	const fromRows: Log["standing"] = kept.reduce(standingAfter, {});
+	const fromRows: Log["standing"] = within.reduce(standingAfter, {});
 	const held = Object.fromEntries(
 		Object.entries(standing).flatMap(([id, keys]) => {
 			if (typeof keys !== "object" || keys === null) return [];
@@ -201,5 +201,5 @@ export function readLog(rows: unknown, standing: unknown): Log {
 			return each ? [[id, each]] : [];
 		}),
 	);
-	return { rows: kept, standing: held };
+	return { rows: within, standing: held };
 }

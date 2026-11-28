@@ -12,10 +12,10 @@ internal sealed interface WalkEntry {
 	val path: String
 }
 
-/** Automation action, not call. */
+/** Automation action, not a function run. */
 internal data class WalkAction(override val path: String, val index: Int, val action: AutomationAction) : WalkEntry
 
-/** Called step, any depth. */
+/** A run function's step, any depth. */
 internal data class WalkStep(override val path: String, val index: Int, val step: FunctionStep, val via: String) : WalkEntry
 
 internal enum class Unfollowed(val wire: String) {
@@ -32,9 +32,9 @@ internal enum class Unfollowed(val wire: String) {
 	BUDGET("budget"),
 }
 
-internal data class UnfollowedCall(
+internal data class UnfollowedFunction(
 	override val path: String,
-	val call: AutomationAction.RunFunction,
+	val runFunction: AutomationAction.RunFunction,
 	val reason: Unfollowed,
 ) : WalkEntry
 
@@ -47,31 +47,31 @@ private fun walk(automation: Automation, functionOf: ((String) -> AutomationFunc
 		val path = at.toString()
 		when {
 			action !is AutomationAction.RunFunction -> listOf(WalkAction(path, at, action))
-			functionOf == null -> listOf(UnfollowedCall(path, action, Unfollowed.NOT_EXPANDED))
+			functionOf == null -> listOf(UnfollowedFunction(path, action, Unfollowed.NOT_EXPANDED))
 			else -> followed(action, path, emptyList(), functionOf, budget)
 		}
 	}
 }
 
-/** Steps under call path. */
+/** Steps under the run's path. */
 private fun followed(
-	call: AutomationAction.RunFunction,
+	run: AutomationAction.RunFunction,
 	site: String,
 	chain: List<String>,
 	functionOf: (String) -> AutomationFunction?,
 	budget: Budget,
 ): List<WalkEntry> {
-	if (call.function in chain) return listOf(UnfollowedCall(site, call, Unfollowed.LOOP))
-	val function = functionOf(call.function) ?: return listOf(UnfollowedCall(site, call, Unfollowed.MISSING))
+	if (run.function in chain) return listOf(UnfollowedFunction(site, run, Unfollowed.LOOP))
+	val function = functionOf(run.function) ?: return listOf(UnfollowedFunction(site, run, Unfollowed.MISSING))
 	val steps = stepsIn(written(function), emptyList())
-	if (steps.size > budget.left || budget.frames == 0) return listOf(UnfollowedCall(site, call, Unfollowed.BUDGET))
+	if (steps.size > budget.left || budget.frames == 0) return listOf(UnfollowedFunction(site, run, Unfollowed.BUDGET))
 	budget.left -= steps.size
 	budget.frames -= 1
-	val above = chain + call.function
+	val above = chain + run.function
 	return steps.flatMap { (numbers, step) ->
 		val path = (listOf(site) + numbers.map { it.toString() }).joinToString(".")
-		val here = WalkStep(path, numbers.last(), step, call.function)
-		if (step !is FunctionStep.Call) listOf(here)
+		val here = WalkStep(path, numbers.last(), step, run.function)
+		if (step !is FunctionStep.RunFunction) listOf(here)
 		else listOf(here) + followed(AutomationAction.RunFunction(function = step.function), path, above, functionOf, budget)
 	}
 }
@@ -100,8 +100,8 @@ internal fun sidesOf(step: FunctionStep): List<Pair<Side, List<FunctionStep>>> =
 	is FunctionStep.Try -> listOf(Side.Body to step.steps, Side.Catch to step.catch)
 	is FunctionStep.Parallel -> listOf(Side.Body to step.steps)
 	is FunctionStep.Start -> listOf(Side.Body to step.steps)
-	is FunctionStep.Do, is FunctionStep.Exit, is FunctionStep.Throw, is FunctionStep.Let, is FunctionStep.Await,
-	is FunctionStep.Wait, is FunctionStep.Note, is FunctionStep.Unparsed, is FunctionStep.Call, is FunctionStep.Unknown -> emptyList()
+	is FunctionStep.Action, is FunctionStep.Return, is FunctionStep.Throw, is FunctionStep.Variable, is FunctionStep.Await,
+	is FunctionStep.Wait, is FunctionStep.Comment, is FunctionStep.Unparsed, is FunctionStep.RunFunction, is FunctionStep.Unknown -> emptyList()
 }
 
 /** Parents precede children. */
@@ -111,10 +111,10 @@ private fun stepsIn(steps: List<FunctionStep>, base: List<Int>): List<Pair<List<
 		listOf(at to step) + sidesOf(step).flatMap { (side, list) -> stepsIn(list, at + side.number) }
 	}
 
-/** Unexpanded calls, written order. */
+/** Unexpanded runs, written order. */
 internal fun reached(automation: Automation): List<WalkEntry> = walk(automation, null)
 
-/** Follow available calls. */
+/** Follow available functions. */
 internal fun reached(automation: Automation, functionOf: (String) -> AutomationFunction?): List<WalkEntry> =
 	walk(automation, functionOf)
 
@@ -127,27 +127,27 @@ internal fun stepsUnder(step: FunctionStep): List<FunctionStep> = stepsIn(listOf
 @OptIn(OpensWalk::class)
 internal fun written(function: AutomationFunction): List<FunctionStep> = function.steps
 
-/** The functions a function's steps call, at any depth. */
-internal fun callsOf(function: AutomationFunction): List<String> = called(written(function))
+/** The functions a function's steps run, at any depth. */
+internal fun functionsRunBy(function: AutomationFunction): List<String> = runIn(written(function))
 
 /** Includes `starts`. */
-internal fun reachOver(starts: Collection<String>, callsOf: (String) -> List<String>): Set<String> {
+internal fun reachOver(starts: Collection<String>, functionsRunBy: (String) -> List<String>): Set<String> {
 	val seen = mutableSetOf<String>()
 	val queue = ArrayDeque(starts.filter { it.isNotBlank() })
 	while (queue.isNotEmpty()) {
 		val id = queue.removeFirst()
-		if (seen.add(id)) queue += callsOf(id)
+		if (seen.add(id)) queue += functionsRunBy(id)
 	}
 	return seen
 }
 
-/** Kept steps' calls. */
-internal fun callsIn(steps: List<FunctionStep>): List<String> = called(steps)
+/** Stored steps' runs. */
+internal fun functionsRunIn(steps: List<FunctionStep>): List<String> = runIn(steps)
 
-private fun called(steps: List<FunctionStep>): List<String> = steps.flatMap { step ->
-	listOfNotNull((step as? FunctionStep.Call)?.function) + sidesOf(step).flatMap { (_, list) -> called(list) }
+private fun runIn(steps: List<FunctionStep>): List<String> = steps.flatMap { step ->
+	listOfNotNull((step as? FunctionStep.RunFunction)?.function) + sidesOf(step).flatMap { (_, list) -> runIn(list) }
 }
 
-/** The list as written, one level; a call is never followed. */
+/** The list as written, one level; a function run is never followed. */
 @OptIn(OpensWalk::class)
 internal fun written(automation: Automation): List<AutomationAction> = automation.actions

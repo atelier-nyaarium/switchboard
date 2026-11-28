@@ -9,7 +9,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.decodeFromJsonElement
 
-internal const val GATEWAY_UNREACHABLE = "This Gateway could not be reached"
+internal const val GATEWAY_UNREACHABLE = "This Gateway could not be reached."
 
 internal suspend fun <T> gatewayAttempt(tag: String, call: suspend () -> T): T? = try {
 	call()

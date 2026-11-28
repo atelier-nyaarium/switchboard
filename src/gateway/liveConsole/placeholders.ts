@@ -5,24 +5,24 @@ import {
 	parseConsoleText,
 	piecesOf,
 } from "../../shared/live-console-grammar.js";
-import { HOLE_FAILED } from "../../shared/text-holes.js";
+import { PLACEHOLDER_FAILED } from "../../shared/text-placeholders.js";
 import { arityIssue, freeBuiltin, valueBuiltin } from "./builtins.js";
 import { type ConsoleVariable, DOING_REFUSED, evaluateConsole, evaluateNode } from "./evaluate.js";
 import { type ConsoleAudience, type ConsoleRegistry, resolveName } from "./registry.js";
 
 /** Host audience; slow members barred. */
 const AUDIENCE: ConsoleAudience = "host";
-const HOLE_STEPS_MAX = 2_000;
+const PLACEHOLDER_STEPS_MAX = 2_000;
 
 /** UTF-16 offsets, end-exclusive. */
-export interface HoleIssue {
+export interface PlaceholderIssue {
 	start: number;
 	end: number;
 	message: string;
 }
 
 /** `shown` prints for a bare name. */
-export interface HoleName {
+export interface PlaceholderName {
 	value: unknown;
 	shown?: string;
 }
@@ -41,10 +41,10 @@ function unreadable(node: ConsoleNode, names: ReadonlySet<string>, registry: Con
 		case "literal":
 			return null;
 		case "template":
-			// A broken hole is the parser's to report.
+			// A broken placeholder is the parser's to report.
 			return (
 				node.pieces
-					.map((piece) => (piece.kind === "hole" && !piece.broken ? walk(piece.node) : null))
+					.map((piece) => (piece.kind === "placeholder" && !piece.broken ? walk(piece.node) : null))
 					.find((issue) => issue !== null) ?? null
 			);
 		case "ident": {
@@ -115,7 +115,11 @@ function sourceIssue(source: string, scope: ReadonlySet<string>, registry: Conso
 	return found ? { at: "span", ...found } : null;
 }
 
-export function holeIssue(text: string, names: readonly string[], registry: ConsoleRegistry): HoleIssue | null {
+export function placeholderIssue(
+	text: string,
+	names: readonly string[],
+	registry: ConsoleRegistry,
+): PlaceholderIssue | null {
 	const { node, issues } = parseConsoleText(text);
 	const [syntax] = issues;
 	const meaning = unreadable(node, new Set(names), registry);
@@ -124,7 +128,11 @@ export function holeIssue(text: string, names: readonly string[], registry: Cons
 }
 
 /** A bare expression, no braces. */
-export function expressionIssue(source: string, names: readonly string[], registry: ConsoleRegistry): HoleIssue | null {
+export function expressionIssue(
+	source: string,
+	names: readonly string[],
+	registry: ConsoleRegistry,
+): PlaceholderIssue | null {
 	const found = sourceIssue(source, new Set(names), registry);
 	if (!found) return null;
 	if (found.at === "span") return { start: found.start, end: found.end, message: found.message };
@@ -135,24 +143,26 @@ export function expressionIssue(source: string, names: readonly string[], regist
 	};
 }
 
-/** One registry's holes port. */
-export const holesOver = (registry: ConsoleRegistry) => ({
-	issue: (text: string, names: readonly string[]) => holeIssue(text, names, registry),
+/** One registry's placeholders port. */
+export const placeholdersOver = (registry: ConsoleRegistry) => ({
+	issue: (text: string, names: readonly string[]) => placeholderIssue(text, names, registry),
 	expression: (source: string, names: readonly string[]) => expressionIssue(source, names, registry),
-	fill: (text: string, names: Readonly<Record<string, HoleName>>) => fillHoles(text, names, registry),
-	evaluate: (source: string, names: Readonly<Record<string, HoleName>>) => evaluateHole(source, names, registry),
-	shown: (source: string, names: Readonly<Record<string, HoleName>>) => shownHole(source, names, registry),
+	fill: (text: string, names: Readonly<Record<string, PlaceholderName>>) => fillPlaceholders(text, names, registry),
+	evaluate: (source: string, names: Readonly<Record<string, PlaceholderName>>) =>
+		evaluatePlaceholder(source, names, registry),
+	shown: (source: string, names: Readonly<Record<string, PlaceholderName>>) =>
+		shownPlaceholder(source, names, registry),
 	entity: (name: string) => registry.has(name),
 });
 
-export type ConsoleHoles = ReturnType<typeof holesOver>;
+export type ConsolePlaceholders = ReturnType<typeof placeholdersOver>;
 
 export interface FilledText {
 	text: string;
 	failed: number;
 }
 
-const variablesOf = (names: Readonly<Record<string, HoleName>>): Record<string, ConsoleVariable> =>
+const variablesOf = (names: Readonly<Record<string, PlaceholderName>>): Record<string, ConsoleVariable> =>
 	Object.fromEntries(
 		Object.entries(names).map(([name, held]) => [
 			name,
@@ -161,23 +171,23 @@ const variablesOf = (names: Readonly<Record<string, HoleName>>): Record<string, 
 	);
 
 /** Null when it fails. */
-export async function evaluateHole(
+export async function evaluatePlaceholder(
 	source: string,
-	names: Readonly<Record<string, HoleName>>,
+	names: Readonly<Record<string, PlaceholderName>>,
 	registry: ConsoleRegistry,
 ): Promise<{ value: unknown } | null> {
 	const answer = await evaluateConsole(source, registry, AUDIENCE, {
 		variables: variablesOf(names),
-		stepsMax: HOLE_STEPS_MAX,
+		stepsMax: PLACEHOLDER_STEPS_MAX,
 		noSlow: true,
 	});
 	const [only, more] = answer.ok ? answer.results : [];
 	return only && !more && !only.assigned ? { value: only.value } : null;
 }
 
-export async function shownHole(
+export async function shownPlaceholder(
 	source: string,
-	names: Readonly<Record<string, HoleName>>,
+	names: Readonly<Record<string, PlaceholderName>>,
 	registry: ConsoleRegistry,
 ): Promise<string | null> {
 	const { node, issues } = parseConsoleExpression(source);
@@ -185,31 +195,31 @@ export async function shownHole(
 	const { start, end } = node;
 	const alone: ConsoleNode = {
 		kind: "template",
-		pieces: [{ kind: "hole", node, closed: true, broken: false, start, end }],
+		pieces: [{ kind: "placeholder", node, closed: true, broken: false, start, end }],
 		closed: true,
 		start,
 		end,
 	};
-	const options = { variables: variablesOf(names), stepsMax: HOLE_STEPS_MAX, noSlow: true };
+	const options = { variables: variablesOf(names), stepsMax: PLACEHOLDER_STEPS_MAX, noSlow: true };
 	const answer = await evaluateNode(alone, source.length, registry, AUDIENCE, options);
 	return answer.ok && typeof answer.value === "string" ? answer.value : null;
 }
 
 /** Never throws. */
-export async function fillHoles(
+export async function fillPlaceholders(
 	text: string,
-	names: Readonly<Record<string, HoleName>>,
+	names: Readonly<Record<string, PlaceholderName>>,
 	registry: ConsoleRegistry,
 ): Promise<FilledText> {
-	const options = { variables: variablesOf(names), stepsMax: HOLE_STEPS_MAX, noSlow: true };
+	const options = { variables: variablesOf(names), stepsMax: PLACEHOLDER_STEPS_MAX, noSlow: true };
 	let filled = "";
 	let failed = 0;
 	for (const piece of piecesOf(parseConsoleText(text).node) ?? []) {
-		if (piece.kind !== "hole") {
+		if (piece.kind !== "placeholder") {
 			filled += piece.value;
 			continue;
 		}
-		// Each hole is read alone, so one that fails marks itself.
+		// Each placeholder is read alone, so one that fails marks itself.
 		const alone: ConsoleNode = {
 			kind: "template",
 			pieces: [piece],
@@ -220,7 +230,7 @@ export async function fillHoles(
 		const answer = piece.broken ? null : await evaluateNode(alone, text.length, registry, AUDIENCE, options);
 		const printed = answer?.ok && typeof answer.value === "string" ? answer.value : null;
 		if (printed === null) failed += 1;
-		filled += printed ?? HOLE_FAILED;
+		filled += printed ?? PLACEHOLDER_FAILED;
 	}
 	return { text: filled, failed };
 }

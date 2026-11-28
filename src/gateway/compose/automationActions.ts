@@ -52,7 +52,7 @@ export function automationActions(deps: AutomationActionsDeps): AutomationAction
 	};
 	return {
 		ready: (action) => ready[action.kind](),
-		switchName: (device) => {
+		deviceName: (device) => {
 			const record = deps.devices()?.record(device);
 			return record?.kind === "switch" ? record.name : null;
 		},

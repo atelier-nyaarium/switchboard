@@ -87,7 +87,7 @@ internal class FlowReplay(val run: AutomationLastRun) {
 			val retrying = if (step.retriedMs != null) step.path in of(MarkKind.RETRIES) else step.outcome == null && step.retrying == true
 			step.copy(outcome = null, reason = null, side = null, retrying = retrying.takeIf { it })
 		}
-		return run.copy(steps = steps, running = true, active = null, beside = null)
+		return run.copy(steps = steps, running = true, active = null, inFlight = null)
 	}
 
 	/** Newest open step progress. */

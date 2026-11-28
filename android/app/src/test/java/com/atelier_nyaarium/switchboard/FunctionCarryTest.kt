@@ -51,7 +51,7 @@ class FunctionCarryTest {
 
 	@Test
 	fun aDestinationMustHoldFunctionsAndEveryCarriedStepKind() {
-		val tell = FunctionStep.Do(action = "tell_assistant", args = JsonObject(emptyMap()))
+		val tell = FunctionStep.Action(action = "tell_assistant", args = JsonObject(emptyMap()))
 		val chime = CarriedFunction("chime", AutomationFunction("Chime", emptyList(), listOf(tell)))
 		val later = CarriedFunction("later", AutomationFunction("Later", emptyList(), listOf(FunctionStep.Unknown("wait", JsonObject(emptyMap())))))
 		val serves = AutomationFunctionServes(max = 32L, steps = listOf("tell_assistant", "device_set"), paramTypes = listOf("device", "text", "number"))
@@ -96,10 +96,10 @@ class FunctionCarryTest {
 
 	@Test
 	fun aTreeIsReadAtEveryDepthActionsByStepsStatementsByStatementsAndNoNameByUnnamed() {
-		val tell = FunctionStep.Do(action = "tell_assistant", args = JsonObject(emptyMap()))
-		val ifttt = FunctionStep.Do(action = "ifttt_trigger", args = JsonObject(emptyMap()))
+		val tell = FunctionStep.Action(action = "tell_assistant", args = JsonObject(emptyMap()))
+		val ifttt = FunctionStep.Action(action = "ifttt_trigger", args = JsonObject(emptyMap()))
 		fun tree(name: String, inside: FunctionStep) =
-			CarriedFunction(name.ifBlank { "own" }, AutomationFunction(name, emptyList(), listOf(FunctionStep.If(`when` = "true", steps = listOf(inside)))))
+			CarriedFunction(name.ifBlank { "own" }, AutomationFunction(name, emptyList(), listOf(FunctionStep.If(condition = "true", steps = listOf(inside)))))
 		val serves = AutomationFunctionServes(
 			max = 32L,
 			steps = listOf("tell_assistant", "device_set"),

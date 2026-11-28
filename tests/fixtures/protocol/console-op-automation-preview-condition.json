@@ -1,8 +1,18 @@
 {
 	"kind": "automation_preview",
-	"trigger": { "kind": "interval", "everyMin": 60 },
-	"params": [{ "name": "level", "type": "number" }],
-	"values": { "level": 3 },
+	"trigger": {
+		"kind": "interval",
+		"everyMin": 60
+	},
+	"params": [
+		{
+			"name": "level",
+			"type": "number"
+		}
+	],
+	"args": {
+		"level": 3
+	},
 	"condition": "level > 2 and count < 5",
-	"runNames": ["count", "e"]
+	"variables": ["count", "e"]
 }

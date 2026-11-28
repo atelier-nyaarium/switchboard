@@ -1,11 +1,11 @@
 {
 	"steps": [
 		{
-			"kind": "note",
+			"kind": "comment",
 			"text": "Warm the room, then say so."
 		},
 		{
-			"kind": "let",
+			"kind": "variable",
 			"name": "humid",
 			"value": {
 				"kind": "expression",
@@ -14,10 +14,10 @@
 		},
 		{
 			"kind": "if",
-			"when": "value < threshold and humid > 60",
+			"condition": "reading < threshold and humid > 60",
 			"steps": [
 				{
-					"kind": "do",
+					"kind": "action",
 					"action": "device_set",
 					"args": {
 						"device": {
@@ -40,7 +40,7 @@
 			],
 			"else": [
 				{
-					"kind": "exit"
+					"kind": "return"
 				}
 			]
 		},
@@ -48,9 +48,9 @@
 			"kind": "try",
 			"steps": [
 				{
-					"kind": "call",
+					"kind": "run_function",
 					"function": "fn-blink",
-					"values": {
+					"args": {
 						"lamp": {
 							"kind": "literal",
 							"value": "aa:bb:cc:dd:ee:01"
@@ -60,7 +60,7 @@
 			],
 			"catch": [
 				{
-					"kind": "do",
+					"kind": "action",
 					"action": "tell_assistant",
 					"args": {
 						"when": {
@@ -78,7 +78,7 @@
 	],
 	"names": [
 		{
-			"name": "value",
+			"name": "reading",
 			"type": "Number",
 			"start": 0,
 			"end": 278
@@ -143,11 +143,11 @@
 			"members": [
 				{
 					"name": "done",
-					"type": "Truth"
+					"type": "Boolean"
 				},
 				{
 					"name": "failed",
-					"type": "Truth"
+					"type": "Boolean"
 				},
 				{
 					"name": "error",

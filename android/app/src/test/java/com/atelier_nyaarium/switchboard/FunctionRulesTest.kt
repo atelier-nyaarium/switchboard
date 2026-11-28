@@ -2,15 +2,15 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.assistant.ActionDraft
 import com.atelier_nyaarium.switchboard.assistant.FunctionLine
-import com.atelier_nyaarium.switchboard.assistant.FunctionValueDraft
-import com.atelier_nyaarium.switchboard.assistant.FunctionValueReference
-import com.atelier_nyaarium.switchboard.assistant.SwitchOffer
+import com.atelier_nyaarium.switchboard.assistant.FunctionParamDraft
+import com.atelier_nyaarium.switchboard.assistant.FunctionParamReference
+import com.atelier_nyaarium.switchboard.assistant.DeviceOffer
 import com.atelier_nyaarium.switchboard.assistant.RunsView
 import com.atelier_nyaarium.switchboard.assistant.ValueRow
-import com.atelier_nyaarium.switchboard.assistant.canAddValue
+import com.atelier_nyaarium.switchboard.assistant.canAddParam
 import com.atelier_nyaarium.switchboard.assistant.functionParamTypeText
-import com.atelier_nyaarium.switchboard.assistant.plugChoices
-import com.atelier_nyaarium.switchboard.assistant.storePlugChoice
+import com.atelier_nyaarium.switchboard.assistant.deviceChoices
+import com.atelier_nyaarium.switchboard.assistant.storeDeviceChoice
 import com.atelier_nyaarium.switchboard.assistant.PointMode
 import com.atelier_nyaarium.switchboard.assistant.ParamIssue
 import com.atelier_nyaarium.switchboard.assistant.RunsDraft
@@ -23,7 +23,7 @@ import com.atelier_nyaarium.switchboard.assistant.ValueSource
 import com.atelier_nyaarium.switchboard.assistant.automationDeleteTakes
 import com.atelier_nyaarium.switchboard.assistant.functionLine
 import com.atelier_nyaarium.switchboard.assistant.offerOf
-import com.atelier_nyaarium.switchboard.assistant.ownLine
+import com.atelier_nyaarium.switchboard.assistant.unnamedLine
 import com.atelier_nyaarium.switchboard.assistant.pickerChoices
 import com.atelier_nyaarium.switchboard.assistant.pointedAt
 import com.atelier_nyaarium.switchboard.assistant.reachLine
@@ -69,9 +69,9 @@ internal fun literal(text: String) = buildJsonObject {
 	put("value", text)
 }
 
-internal fun plugStep(verb: String) = FunctionStep.Do(
+internal fun plugStep(verb: String) = FunctionStep.Action(
 	action = "device_set",
-	args = JsonObject(mapOf("device" to literal(SANDBOX_SWITCH), "verb" to literal(verb))),
+	args = JsonObject(mapOf("device" to literal(SANDBOX_DEVICE), "verb" to literal(verb))),
 )
 
 /** Listed rows only. */
@@ -99,16 +99,16 @@ class FunctionRulesTest {
 		automationRow("mine", "My room thermometer above 26 °C", listOf(AutomationAction.RunFunction(function = "too-warm"))),
 		automationRow("downstairs", "Downstairs thermometer above 26 °C", listOf(AutomationAction.RunFunction(function = "too-warm"))),
 		automationRow("outside", "Outside below 2 °C", listOf(AutomationAction.RunFunction(function = "frost"))),
-		automationRow("plain", "Every day at 18:00", listOf(AutomationAction.DeviceSet(SANDBOX_SWITCH, "on"))),
+		automationRow("plain", "Every day at 18:00", listOf(AutomationAction.DeviceSet(SANDBOX_DEVICE, "on"))),
 		automationRow("lost", "A newer build's", listOf(AutomationAction.RunFunction(function = "unread"))),
 	)
-	private fun valuesByName(runs: RunsDraft.Pointing, values: Map<String, String>): Map<String, String> =
-		runs.params.mapNotNull { row -> values[row.param.name]?.let { row.key to it } }.toMap()
+	private fun argsByName(runs: RunsDraft.Pointing, args: Map<String, String>): Map<String, String> =
+		runs.params.mapNotNull { row -> args[row.param.name]?.let { row.key to it } }.toMap()
 
 	@Test
 	fun eachValueSaysWhereItComesFromAndHowItsTypeReads() {
 		val params = listOf(
-			FunctionParam("value", "number"),
+			FunctionParam("reading", "number"),
 			FunctionParam("device", "device"),
 			FunctionParam("room", "text"),
 			FunctionParam("times", "number"),
@@ -130,43 +130,43 @@ class FunctionRulesTest {
 		// No measure known: the type's own word.
 		assertEquals(TypeWord.Given(GivenType.NUMBER), valueRows(params.take(1), given, emptyMap(), measure = null).single().type)
 		assertEquals(ValueIssue.UNKNOWN_DEVICE, valueIssue(FunctionParam("lamp", "device"), "ff:ff", FN_OFFER))
-		assertNull(valueIssue(FunctionParam("lamp", "device"), SANDBOX_SWITCH, FN_OFFER))
+		assertNull(valueIssue(FunctionParam("lamp", "device"), SANDBOX_DEVICE, FN_OFFER))
 		assertEquals(ValueIssue.NOT_A_NUMBER, valueIssue(FunctionParam("times", "number"), "two", FN_OFFER))
 		assertNull(valueIssue(FunctionParam("times", "number"), "3", FN_OFFER))
 		assertEquals(listOf(ValueIssue.NOT_A_NUMBER, ValueIssue.NOT_A_NUMBER), listOf("NaN", "Infinity").map { valueIssue(FunctionParam("times", "number"), it, FN_OFFER) })
 	}
 
 	@Test
-	fun plugChoicesPutDeviceValuesBeforePlugsAndStoreReferencesByKey() {
+	fun deviceChoicesPutDeviceParamsBeforeDevicesAndStoreReferencesByKey() {
 		val params = listOf(
-			FunctionValueDraft("lamp-key", FunctionParam("lamp", "device")),
-			FunctionValueDraft("room-key", FunctionParam("room", "text")),
-			FunctionValueDraft("fan-key", FunctionParam("fan", "device")),
+			FunctionParamDraft("lamp-key", FunctionParam("lamp", "device")),
+			FunctionParamDraft("room-key", FunctionParam("room", "text")),
+			FunctionParamDraft("fan-key", FunctionParam("fan", "device")),
 		)
-		val offer = FN_OFFER.copy(switches = listOf(SwitchOffer("plug-a", "Plug A"), SwitchOffer("plug-b", "Plug B")))
-		val choices = plugChoices(params, offer)
+		val offer = FN_OFFER.copy(devices = listOf(DeviceOffer("plug-a", "Plug A"), DeviceOffer("plug-b", "Plug B")))
+		val choices = deviceChoices(params, offer)
 		val empty = ActionDraft.Filled("device_set", mapOf("device" to "", "verb" to "on"))
-		val fromValue = storePlugChoice(empty, "device", choices.first()) as ActionDraft.Filled
-		val fromPlug = storePlugChoice(fromValue, "device", choices.last()) as ActionDraft.Filled
+		val fromValue = storeDeviceChoice(empty, "device", choices.first()) as ActionDraft.Filled
+		val fromPlug = storeDeviceChoice(fromValue, "device", choices.last()) as ActionDraft.Filled
 
-		assertEquals(listOf("lamp (value)", "fan (value)", "Plug A", "Plug B"), choices.map { it.label })
-		assertEquals(mapOf("device" to FunctionValueReference("lamp-key", "lamp")), fromValue.references)
+		assertEquals(listOf("lamp (parameter)", "fan (parameter)", "Plug A", "Plug B"), choices.map { it.label })
+		assertEquals(mapOf("device" to FunctionParamReference("lamp-key", "lamp")), fromValue.references)
 		assertEquals("plug-b", fromPlug.values.getValue("device"))
 		assertTrue(fromPlug.references.isEmpty())
 	}
 
 	@Test
-	fun addValueNeedsAFunctionThatHoldsValuesBelowItsCap() {
-		val empty = RunsView("", true, null, emptyList(), emptyList(), unique = false, makeUnique = false, kept = false, issue = null)
-		val named = empty.copy(name = "Notify", valuesAllowed = true)
+	fun addParamNeedsAFunctionThatHoldsParamsBelowItsCap() {
+		val empty = RunsView("", true, null, emptyList(), emptyList(), unique = false, makeUnique = false, unlisted = false, issue = null)
+		val named = empty.copy(name = "Notify", paramsAllowed = true)
 		val full = named.copy(values = (1..Protocol.Wire.FUNCTION_PARAMS_MAX).map { index ->
 			ValueRow("v$index", TypeWord.Declared("text"), ValueSource.Unset, FunctionParam("v$index", "text"))
 		})
 
-		assertFalse(canAddValue(empty))
-		assertTrue(canAddValue(named))
-		assertFalse(canAddValue(full))
-		assertFalse(canAddValue(named.copy(kept = true)))
+		assertFalse(canAddParam(empty))
+		assertTrue(canAddParam(named))
+		assertFalse(canAddParam(full))
+		assertFalse(canAddParam(named.copy(unlisted = true)))
 	}
 
 	@Test
@@ -181,12 +181,12 @@ class FunctionRulesTest {
 		val pointing = pointedAt(RunsDraft.Flat(emptyList()), "mine", blink, offer)
 		fun issue(runs: RunsDraft) = runsIssue(runs, "mine", given, offer)
 		fun note(runs: RunsDraft) = runsNote(runs, given, offer)
-		val mistyped = pointing.copy(values = valuesByName(pointing, mapOf("lamp" to SANDBOX_SWITCH, "times" to "two")))
-		val set = pointing.copy(values = valuesByName(pointing, mapOf("lamp" to SANDBOX_SWITCH, "times" to "3")))
+		val mistyped = pointing.copy(args = argsByName(pointing, mapOf("lamp" to SANDBOX_DEVICE, "times" to "two")))
+		val set = pointing.copy(args = argsByName(pointing, mapOf("lamp" to SANDBOX_DEVICE, "times" to "3")))
 
 		assertEquals(RunsIssue.NoSteps, issue(RunsDraft.Flat(emptyList())))
-		assertNull(issue(RunsDraft.Flat(listOf(StepDraft.Do("plug", ActionDraft.Filled("device_set", mapOf("device" to SANDBOX_SWITCH, "verb" to "on")))))))
-		val unknown = StepDraft.Do("unknown", ActionDraft.Kept(AutomationAction.Unknown("chime", buildJsonObject { put("kind", "chime") })))
+		assertNull(issue(RunsDraft.Flat(listOf(StepDraft.Action("plug", ActionDraft.Filled("device_set", mapOf("device" to SANDBOX_DEVICE, "verb" to "on")))))))
+		val unknown = StepDraft.Action("unknown", ActionDraft.Unsupported(AutomationAction.Unknown("chime", buildJsonObject { put("kind", "chime") })))
 		assertEquals(RunsIssue.NotAStep("unknown"), issue(RunsDraft.Pointing("new", 0L, "Chime", emptyList(), listOf(unknown), emptyMap(), AutomationAction.RunFunction(function = "new"), PointMode.NEW, null)))
 		assertEquals(listOf<RunsIssue?>(null, null, null), listOf(pointing, mistyped, set).map(::issue))
 		assertEquals(listOf(RunsNote.Unset("lamp"), RunsNote.BadValue("times", ValueIssue.NOT_A_NUMBER), null), listOf(pointing, mistyped, set).map(::note))
@@ -198,13 +198,13 @@ class FunctionRulesTest {
 	}
 
 	@Test
-	fun declaredNamesAreValidatedAndClearedValuesStayWhereUnnamedIsHeld() {
+	fun declaredNamesAreValidatedAndClearedParamsStayWhereUnnamedIsHeld() {
 		val sole = functionRow("solo", "Solo", listOf("mine"), steps = listOf(plugStep("on")))
 		val base = pointedAt(RunsDraft.Flat(emptyList()), "mine", sole, FN_OFFER)
 		val older = FN_OFFER.copy(functions = FN_OFFER.functions!!.copy(served = FN_OFFER.functions!!.served.copy(unnamed = null)))
 		fun issue(params: List<FunctionParam>, name: String = "Solo", offer: AutomationOffer = FN_OFFER) =
 			runsIssue(base.copy(name = name, params = params.mapIndexed { index, param ->
-				base.params.getOrNull(index)?.copy(param = param) ?: FunctionValueDraft("value-$index", param)
+				base.params.getOrNull(index)?.copy(param = param) ?: FunctionParamDraft("value-$index", param)
 			}), "mine", given, offer)
 
 		assertEquals(RunsIssue.BadParam("", ParamIssue.EMPTY), issue(listOf(FunctionParam("", "text"))))
@@ -212,24 +212,24 @@ class FunctionRulesTest {
 		assertEquals(RunsIssue.BadParam("lamp", ParamIssue.DUPLICATE), issue(listOf(FunctionParam("lamp", "text"), FunctionParam("lamp", "number"))))
 		assertNull(issue(listOf(FunctionParam("device", "text"))))
 		assertEquals(RunsIssue.TooManyParams, issue((0..Protocol.Wire.FUNCTION_PARAMS_MAX).map { FunctionParam("v$it", "text") }))
-		// Values stay on an unnamed function only where the Gateway holds one.
+		// Params stay on an unnamed function only where the Gateway holds one.
 		assertNull(issue(listOf(FunctionParam("lamp", "device")), name = ""))
-		assertEquals(RunsIssue.NameWithValues, issue(listOf(FunctionParam("lamp", "device")), name = "", offer = older))
+		assertEquals(RunsIssue.NameWithParams, issue(listOf(FunctionParam("lamp", "device")), name = "", offer = older))
 	}
 
 	@Test
 	fun listedReadsComeFirstAndUseTheActualGivenType() {
-		val reads = FunctionReads(listOf("device", "value", "lamp"), emptyList())
-		val values = valueRows(listOf(FunctionParam("lamp", "device")), given, mapOf("lamp" to SANDBOX_SWITCH), "temperature", reads)
+		val reads = FunctionReads(listOf("device", "reading", "lamp"), emptyList())
+		val values = valueRows(listOf(FunctionParam("lamp", "device")), given, mapOf("lamp" to SANDBOX_DEVICE), "temperature", reads)
 
-		assertEquals(listOf("device", "value", "lamp"), values.map { it.name })
+		assertEquals(listOf("device", "reading", "lamp"), values.map { it.name })
 		assertEquals(listOf(ValueSource.FromTrigger, ValueSource.FromTrigger), values.take(2).map { it.source })
 		assertEquals(TypeWord.Given(GivenType.TEXT), values.first().type)
 	}
 
 	@Test
-	fun anOwnLineReadsDoStepsAsFlatRowsAndSteeringCardsByWhatTheyReach() {
-		val tell = FunctionStep.Do(action = "tell_assistant", args = JsonObject(mapOf("when" to literal("now"))))
+	fun anUnnamedLineReadsActionStepsAsFlatRowsAndSteeringCardsByWhatTheyReach() {
+		val tell = FunctionStep.Action(action = "tell_assistant", args = JsonObject(mapOf("when" to literal("now"))))
 		val steps = listOf(
 			FunctionStep.Switch(
 				subject = "event.kind",
@@ -242,8 +242,8 @@ class FunctionRulesTest {
 		)
 
 		assertEquals(
-			"Switch → Switch a plug: Desk lamp, On; Tell the assistant: Now · Together → Switch a plug: Desk lamp, Off · Try · Tell the assistant: Now",
-			ownLine(steps, FN_OFFER),
+			"Switch → Set device: Desk lamp, On; Tell the assistant: Now · Parallel → Set device: Desk lamp, Off · Try · Tell the assistant: Now",
+			unnamedLine(steps, FN_OFFER),
 		)
 	}
 
@@ -251,7 +251,7 @@ class FunctionRulesTest {
 	fun theListNamesEachRowsFunctionAndCountsOnlyAShared() {
 		val functions = listOf(tooWarm, frost)
 
-		val own = functionRow("fn-own", "", listOf("mine"), steps = listOf(FunctionStep.If(`when` = "true", steps = listOf(plugStep("on"))), plugStep("off")))
+		val own = functionRow("fn-own", "", listOf("mine"), steps = listOf(FunctionStep.If(condition = "true", steps = listOf(plugStep("on"))), plugStep("off")))
 		val pointing = automationRow("own", "Every day at 06:00", listOf(AutomationAction.RunFunction(function = "fn-own")))
 
 		assertEquals(FunctionLine.Named("Too warm", 2), functionLine(rows[0], functions, FN_OFFER))
@@ -259,7 +259,7 @@ class FunctionRulesTest {
 		assertNull(functionLine(rows[3], functions, FN_OFFER))
 		assertEquals(FunctionLine.Unlisted, functionLine(rows[4], functions, FN_OFFER))
 		assertEquals(
-			FunctionLine.Own("If → Switch a plug: Desk lamp, On · Switch a plug: Desk lamp, Off"),
+			FunctionLine.Unnamed("If → Set device: Desk lamp, On · Set device: Desk lamp, Off"),
 			functionLine(pointing, functions + own, FN_OFFER),
 		)
 		assertEquals(listOf("Downstairs thermometer above 26 °C"), reachLine(tooWarm, "mine", rows))
@@ -271,16 +271,16 @@ class FunctionRulesTest {
 	@Test
 	fun thePickerListsWhatThisTriggerCouldRunMostUsedFirst() {
 		val blink = functionRow("blink", "Blink", listOf("a", "b"), params = listOf(FunctionParam("lamp", "device"), FunctionParam("times", "number")))
-		val notify = functionRow("notify", "Notify", listOf("c", "d"), params = listOf(FunctionParam("room", "text"), FunctionParam("value", "number")))
+		val notify = functionRow("notify", "Notify", listOf("c", "d"), params = listOf(FunctionParam("room", "text"), FunctionParam("reading", "number")))
 		val off = functionRow("off", "Everything off", listOf("e", "f", "g"))
 		val github = functionRow("wake", "Wake me", listOf("h", "i", "j", "k"), reads = FunctionReads(listOf("event"), listOf("reason")))
-		val asText = functionRow("text", "Says a value", listOf("l"), params = listOf(FunctionParam("value", "text")))
+		val asText = functionRow("text", "Says a value", listOf("l"), params = listOf(FunctionParam("reading", "text")))
 		val readsDevice = functionRow("reads-device", "Device read", listOf("m"), reads = FunctionReads(listOf("device"), emptyList()))
 
 		val picked = pickerChoices(given, listOf(blink, notify, off, github, asText, readsDevice), measure = "temperature")
 
 		assertEquals(listOf("off", "blink", "notify", "reads-device"), picked.map { it.function.id })
-		assertEquals(listOf("room" to TypeWord.Declared("text"), "value" to TypeWord.Measure("temperature")), picked[2].signature)
+		assertEquals(listOf("room" to TypeWord.Declared("text"), "reading" to TypeWord.Measure("temperature")), picked[2].signature)
 		assertEquals(3, picked[0].count)
 		assertEquals(listOf("device" to TypeWord.Given(GivenType.TEXT)), picked.first { it.function.id == "reads-device" }.signature)
 		// Current first, invalid marked.
@@ -297,16 +297,16 @@ class FunctionRulesTest {
 			saveAnswerOf(ConsoleAutomationSaveResult(stored = false, refusal = AutomationSaveRefusal(code = "confirm", labels = listOf("Send to IFTTT")))),
 		)
 		assertEquals(
-			SaveAnswer.Hole(AutomationSaveRecord.FUNCTION, "1", "message", 3L, 9L),
+			SaveAnswer.Placeholder(AutomationSaveRecord.FUNCTION, "1", "message", 3L, 9L),
 			saveAnswerOf(
 				ConsoleAutomationSaveResult(
 					stored = false,
-					refusal = AutomationSaveRefusal(code = "hole", record = "function", path = "1", param = "message", start = 3L, end = 9L),
+					refusal = AutomationSaveRefusal(code = "placeholder", record = "function", path = "1", param = "message", start = 3L, end = 9L),
 				),
 			),
 		)
-		val moved = AutomationSaveRefusal(code = "moved", record = "function", revision = 5L)
-		assertEquals(SaveAnswer.Refused(AutomationSaveRefusalCode.MOVED, moved), saveAnswerOf(ConsoleAutomationSaveResult(stored = false, refusal = moved)))
+		val changed = AutomationSaveRefusal(code = "changed", record = "function", revision = 5L)
+		assertEquals(SaveAnswer.Refused(AutomationSaveRefusalCode.CHANGED, changed), saveAnswerOf(ConsoleAutomationSaveResult(stored = false, refusal = changed)))
 		val later = AutomationSaveRefusal(code = "later_word")
 		assertEquals(SaveAnswer.Refused(null, later), saveAnswerOf(ConsoleAutomationSaveResult(stored = false, refusal = later)))
 	}

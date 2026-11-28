@@ -31,7 +31,7 @@ export interface StepIssueAt {
 }
 
 export interface ScriptOpsDeps {
-	switches: () => ScriptTables["switches"];
+	devices: () => ScriptTables["devices"];
 	functions: () => readonly ScriptFunction[];
 	/** Throws for a trigger it cannot read. */
 	givenOf: (trigger: AutomationTrigger) => TriggerGiven;
@@ -54,7 +54,7 @@ export function scriptOps(deps: ScriptOpsDeps) {
 	const tables = (context: Context): ScriptTables => {
 		const drafted = context.functions ?? [];
 		const stored = deps.functions().filter((held) => !drafted.some((draft) => draft.id === held.id));
-		return { switches: deps.switches(), functions: [...drafted, ...stored] };
+		return { devices: deps.devices(), functions: [...drafted, ...stored] };
 	};
 
 	const given = (trigger: AutomationTrigger | undefined): TriggerGiven | undefined => {
@@ -66,10 +66,10 @@ export function scriptOps(deps: ScriptOpsDeps) {
 		}
 	};
 
-	const namesOf = (context: Context, read: Parameters<typeof scriptNames>[0]["bindings"], length: number) =>
+	const namesOf = (context: Context, read: Parameters<typeof scriptNames>[0]["variables"], length: number) =>
 		scriptNames({
 			length,
-			bindings: read,
+			variables: read,
 			given: given(context.trigger),
 			params: context.params,
 			description: deps.vocabulary(),
@@ -93,7 +93,7 @@ export function scriptOps(deps: ScriptOpsDeps) {
 			return {
 				text: printed.text,
 				...(printed.readOnly ? { readOnly: printed.readOnly } : {}),
-				names: namesOf(request, printed.bindings, printed.text.length),
+				names: namesOf(request, printed.variables, printed.text.length),
 				types: typesOf(request),
 				statements: printed.statements,
 			};
@@ -101,7 +101,7 @@ export function scriptOps(deps: ScriptOpsDeps) {
 
 		parse(request: ParseRequest): ConsoleScriptParseResult {
 			const parsed = parseScript(request.text, tables(request));
-			const names = namesOf(request, parsed.bindings, request.text.length);
+			const names = namesOf(request, parsed.variables, request.text.length);
 			const types = typesOf(request);
 			if (!parsed.steps) {
 				const level = ISSUE_LEVELS.unparsed;

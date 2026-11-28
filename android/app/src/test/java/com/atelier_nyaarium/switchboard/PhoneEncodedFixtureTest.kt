@@ -101,14 +101,14 @@ class PhoneEncodedFixtureTest {
 	private val offer = offerOf(SANDBOX_SERVES, away = false)
 
 	private fun draft(trigger: TriggerDraft, vararg actions: ActionDraft) =
-		AutomationDraft("a", trigger, actions.mapIndexed { index, action -> StepDraft.Do("action-$index", action) }, enabled = true, revision = 0L, EditContext(offer, emptyList()), display = "F")
+		AutomationDraft("a", trigger, actions.mapIndexed { index, action -> StepDraft.Action("action-$index", action) }, enabled = true, revision = 0L, EditContext(offer, emptyList()), display = "F")
 
 	/** What the editor saves, typed as an owner types it. */
 	private val edited = listOf(
 		"a crossing that switches a plug and tells with a message" to draft(
 			TriggerDraft.Crossing(SANDBOX_SENSOR, "temperature", "below", "35.6", "0.9", "10", "C"),
-			plugDraft(SANDBOX_SWITCH, "on"),
-			toldDraft("quietly", "It is {value} at {device}."),
+			plugDraft(SANDBOX_DEVICE, "on"),
+			toldDraft("quietly", "It is {reading} at {device}."),
 		),
 		"a time of day that sends to IFTTT with one value" to draft(
 			TriggerDraft.Time("18:30", setOf(1, 5), "America/Los_Angeles"),
@@ -153,13 +153,13 @@ class PhoneEncodedFixtureTest {
 		listOf(
 			"a save the owner agreed to" to ConsoleOp.AutomationPut("door", edited[1].second.toAutomation(offer)!!, 2L, confirmed = true),
 			"a save that needs no go-ahead" to ConsoleOp.AutomationPut("hourly", edited[2].second.toAutomation(offer)!!, 0L),
-			"a preview of a text with holes" to
-				ConsoleOp.AutomationPreview(edited[0].second.toAutomation(offer)!!.trigger, text = "It is {value} at {device}."),
-			"a preview with function values" to ConsoleOp.AutomationPreview(
+			"a preview of a text with placeholders" to
+				ConsoleOp.AutomationPreview(edited[0].second.toAutomation(offer)!!.trigger, text = "It is {reading} at {device}."),
+			"a preview with function args" to ConsoleOp.AutomationPreview(
 				edited[0].second.toAutomation(offer)!!.trigger,
 				text = "The room is {room}.",
 				params = listOf(FunctionParam("room", "text")),
-				values = JsonObject(mapOf("room" to JsonPrimitive("Office"))),
+				args = JsonObject(mapOf("room" to JsonPrimitive("Office"))),
 			),
 			"a preview of a trigger alone" to ConsoleOp.AutomationPreview(edited[2].second.toAutomation(offer)!!.trigger),
 			"a function save with a result name" to ConsoleOp.AutomationSave(
@@ -176,7 +176,7 @@ class PhoneEncodedFixtureTest {
 					body = AutomationFunction(
 						name = "Notice",
 						params = emptyList(),
-						steps = listOf(FunctionStep.Do(action = "tell_assistant", `as` = "result", args = JsonObject(mapOf("when" to literal("now"), "message" to literal("Done"))))),
+						steps = listOf(FunctionStep.Action(action = "tell_assistant", `as` = "result", args = JsonObject(mapOf("when" to literal("now"), "message" to literal("Done"))))),
 					),
 				),
 			),

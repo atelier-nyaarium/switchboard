@@ -8,29 +8,28 @@ import {
 	type EventTrigger,
 } from "../../shared/schemasAutomation.js";
 import { oneLine } from "../../shared/system-reminder.js";
-import { functionScopeOf, holeNames, holeScope } from "./automationScope.js";
-import type { AutomationHoles } from "./automations.js";
+import { functionScopeOf, placeholderNames, placeholderScope } from "./automationScope.js";
+import type { AutomationPlaceholders } from "./automations.js";
 
-type Names = Parameters<AutomationHoles["fill"]>[1];
+type Names = Parameters<AutomationPlaceholders["fill"]>[1];
 
 export interface AutomationPreviewDeps {
 	/** Throws what a put would refuse. */
 	event: (trigger: EventTrigger) => Promise<{ preview: ConsoleAutomationPreviewResult; names: Names | null }>;
 	/** Throws what a put would refuse. */
 	namesNow: (trigger: Exclude<AutomationTrigger, EventTrigger>) => Names;
-	holes: () => AutomationHoles | undefined;
-	switchName?: (device: string) => string | null;
+	placeholders: () => AutomationPlaceholders | undefined;
+	deviceName?: (device: string) => string | null;
 }
 
 export type PreviewRequest = Omit<Extract<ConsoleOp, { kind: "automation_preview" }>, "kind">;
 
 const NAME_SHOWN_MAX = 200;
-const RUN_VALUE = "it reads a value an earlier step keeps";
-const UNREAD_NOW = "it cannot be read now";
-const NO_EVENT_YET = "no event has come in yet";
-const NOT_BOOLEAN = "it is not true or false";
+const NOT_BOOLEAN = "the newest event makes it neither true nor false";
 const ISSUE_MAX = 200;
 const FILLED_MAX = 4_000;
+
+type Judged = NonNullable<ConsoleAutomationPreviewResult["condition"]>;
 
 const shownOf = (held: Names[string]): string => {
 	const text = held.shown ?? (typeof held.value === "object" ? "a record" : String(held.value ?? "none"));
@@ -39,12 +38,12 @@ const shownOf = (held: Names[string]): string => {
 
 export async function previewAutomation(
 	deps: AutomationPreviewDeps,
-	{ trigger, text, params = [], values, condition, runNames = [] }: PreviewRequest,
+	{ trigger, text, params = [], args, condition, variables = [] }: PreviewRequest,
 ): Promise<ConsoleAutomationPreviewResult> {
 	const seen = trigger.kind === "event" ? await deps.event(trigger) : null;
 	const names = seen ? seen.names : deps.namesNow(trigger as Exclude<AutomationTrigger, EventTrigger>);
 	const preview = seen?.preview ?? { matched: 0, of: 0, matches: [] };
-	const paramNames = functionScopeOf(params, values, deps.switchName);
+	const paramNames = functionScopeOf(params, args, deps.deviceName);
 	const listed = AUTOMATION_TRIGGER_NAMES[trigger.kind]
 		.flatMap((name) => {
 			const held = names?.[name];
@@ -56,36 +55,32 @@ export async function previewAutomation(
 				shown: paramNames[param.name] ? shownOf(paramNames[param.name]) : "not set",
 			})),
 		);
-	const holes = deps.holes();
-	const scope = holeNames(AUTOMATION_TRIGGER_NAMES[trigger.kind], params);
-	const judged =
-		condition === undefined
-			? {}
-			: {
-					condition: await (async (): Promise<NonNullable<ConsoleAutomationPreviewResult["condition"]>> => {
-						if (!holes) return { unread: UNREAD_NOW };
-						const found = holes.expression(condition, [...scope, ...runNames]);
-						if (found) return { issue: { ...found, message: oneLine(found.message).slice(0, ISSUE_MAX) } };
-						// A run's name wins over one of the same spelling, so it parses only without them.
-						if (
-							holes.expression(
-								condition,
-								scope.filter((name) => !runNames.includes(name)),
-							)
-						)
-							return { unread: RUN_VALUE };
-						const value = await holes.evaluate(
-							condition,
-							holeScope(names, params, values, deps.switchName),
-						);
-						if (value === null) return { unread: seen && !names?.event ? NO_EVENT_YET : UNREAD_NOW };
-						return typeof value.value === "boolean" ? { holds: value.value } : { unread: NOT_BOOLEAN };
-					})(),
-				};
+	const placeholders = deps.placeholders();
+	const scope = placeholderNames(AUTOMATION_TRIGGER_NAMES[trigger.kind], params);
+
+	/** A save's issue, else a warning only an event's own value can raise. */
+	const judge = async (source: string): Promise<Judged> => {
+		if (!placeholders) return {};
+		const found = placeholders.expression(source, [...scope, ...variables]);
+		if (found) return { issue: { ...found, message: oneLine(found.message).slice(0, ISSUE_MAX) } };
+		// A variable wins over one of the same spelling, so it parses only without them.
+		const readsVariable =
+			placeholders.expression(
+				source,
+				scope.filter((name) => !variables.includes(name)),
+			) !== null;
+		if (readsVariable || !seen || !names?.event) return {};
+		const value = await placeholders.evaluate(source, placeholderScope(names, params, args, deps.deviceName));
+		return value !== null && typeof value.value !== "boolean" ? { warning: NOT_BOOLEAN } : {};
+	};
+
+	const judged = condition === undefined ? {} : { condition: await judge(condition) };
 	if (text === undefined) return { ...preview, names: listed, ...judged };
-	const found = holes?.issue(text, scope) ?? null;
-	const hole = found ? { ...found, message: oneLine(found.message).slice(0, ISSUE_MAX) } : null;
-	if (!holes || hole) return { ...preview, names: listed, ...judged, ...(hole ? { hole } : {}) };
-	const filled = await holes.fill(text, holeScope(names, params, values, deps.switchName));
+	const found = placeholders?.issue(text, scope) ?? null;
+	const placeholder = found ? { ...found, message: oneLine(found.message).slice(0, ISSUE_MAX) } : null;
+	if (!placeholders || placeholder) {
+		return { ...preview, names: listed, ...judged, ...(placeholder ? { placeholder } : {}) };
+	}
+	const filled = await placeholders.fill(text, placeholderScope(names, params, args, deps.deviceName));
 	return { ...preview, names: listed, ...judged, filled: filled.text.slice(0, FILLED_MAX) };
 }

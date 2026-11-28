@@ -18,7 +18,7 @@ internal const val MAX_ACTIONS = Protocol.Wire.AUTOMATION_ACTIONS_MAX
 
 internal val PARAM_TEXT = ActionParamKind.TEXT.wire
 internal val PARAM_WORD = ActionParamKind.WORD.wire
-internal val PARAM_SWITCH = ActionParamKind.SWITCH.wire
+internal val PARAM_DEVICE = ActionParamKind.DEVICE.wire
 internal val PARAM_CHOICE = ActionParamKind.CHOICE.wire
 private val WORD = Regex("^[A-Za-z0-9_-]+$")
 private const val KIND = "kind"
@@ -41,14 +41,15 @@ internal val ParamOffer.paramKind: ActionParamKind? get() = ActionParamKind.entr
 
 /** Whether the action form draws it. */
 internal fun drawn(kind: ActionParamKind): Boolean = when (kind) {
-	ActionParamKind.TEXT, ActionParamKind.WORD, ActionParamKind.SWITCH, ActionParamKind.CHOICE -> true
-	ActionParamKind.FUNCTION, ActionParamKind.VALUES -> false
+	ActionParamKind.TEXT, ActionParamKind.WORD, ActionParamKind.DEVICE, ActionParamKind.CHOICE -> true
+	ActionParamKind.FUNCTION, ActionParamKind.ARGS -> false
 }
 
 internal data class ActionOffer(
 	val kind: String,
 	val label: String,
-	val danger: Boolean,
+	/** Asks for confirmation when saved. */
+	val confirm: Boolean,
 	/** Does nothing away from the assistant's home. */
 	val home: Boolean = false,
 	val params: List<ParamOffer> = emptyList(),
@@ -62,7 +63,7 @@ internal data class ActionOffer(
 internal fun actionOfferOf(row: AutomationActionOffer): ActionOffer = ActionOffer(
 	kind = row.kind,
 	label = row.label,
-	danger = row.danger,
+	confirm = row.confirm,
 	home = row.home,
 	params = row.params.map { param ->
 		ParamOffer(
@@ -83,11 +84,11 @@ internal sealed interface ActionDraft {
 	data class Filled(
 		override val kind: String,
 		val values: Map<String, String>,
-		val references: Map<String, FunctionValueReference> = emptyMap(),
+		val references: Map<String, FunctionParamReference> = emptyMap(),
 	) : ActionDraft
 
-	/** One the editor cannot draw whole, kept as sent. */
-	data class Kept(val action: AutomationAction) : ActionDraft {
+	/** One the editor cannot draw whole, written back as sent. */
+	data class Unsupported(val action: AutomationAction) : ActionDraft {
 		override val kind get() = kindOf(action)
 	}
 }
@@ -96,13 +97,13 @@ private fun jsonOf(action: AutomationAction): JsonObject = wireJson.encodeToJson
 
 internal fun kindOf(action: AutomationAction): String = (jsonOf(action)[KIND] as? JsonPrimitive)?.contentOrNull.orEmpty()
 
-/** Kept unless its Gateway offers the kind and every key it holds is a parameter the row names, as text. */
+/** Unsupported unless its Gateway offers the kind and every key it holds is a parameter the row names, as text. */
 internal fun actionDraftOf(action: AutomationAction, offer: AutomationOffer): ActionDraft {
 	val json = jsonOf(action)
-	val row = offer.action(kindOf(action))?.takeIf { it.drawable } ?: return ActionDraft.Kept(action)
+	val row = offer.action(kindOf(action))?.takeIf { it.drawable } ?: return ActionDraft.Unsupported(action)
 	val held = json.filterKeys { it != KIND }
 	val drawn = held.all { (key, value) -> row.param(key) != null && value is JsonPrimitive && value.isString }
-	if (!drawn) return ActionDraft.Kept(action)
+	if (!drawn) return ActionDraft.Unsupported(action)
 	return ActionDraft.Filled(row.kind, row.params.associate { it.name to (held[it.name] as? JsonPrimitive)?.contentOrNull.orEmpty() })
 }
 
@@ -110,7 +111,7 @@ private fun paramIssue(param: ParamOffer, value: String, offer: AutomationOffer)
 	value.isBlank() -> "${param.label} is needed".takeUnless { param.optional }
 	param.max != null && value.length > param.max -> "${param.label}: at most ${param.max} characters"
 	param.kind == PARAM_WORD && !WORD.matches(value) -> "${param.label} is letters, digits, - and _"
-	param.kind == PARAM_SWITCH && offer.switches.none { it.device == value } -> "${param.label} is no longer here; pick again"
+	param.kind == PARAM_DEVICE && offer.devices.none { it.device == value } -> "${param.label} is no longer here; pick again"
 	param.kind == PARAM_CHOICE && param.options.none { it.value == value } -> "${param.label}: pick one"
 	else -> null
 }
@@ -120,7 +121,7 @@ private fun unnamed(action: ActionDraft.Filled, row: ActionOffer): Boolean =
 	action.values.any { (key, value) -> value.isNotBlank() && row.param(key) == null }
 
 private fun issueOf(action: ActionDraft, offer: AutomationOffer, blanks: Boolean, valueNames: Set<String>): String? = when (action) {
-	is ActionDraft.Kept -> null
+	is ActionDraft.Unsupported -> null
 	is ActionDraft.Filled -> {
 		val row = offer.action(action.kind)
 		when {
@@ -130,8 +131,8 @@ private fun issueOf(action: ActionDraft, offer: AutomationOffer, blanks: Boolean
 				val reference = action.references[param.name]
 				if (reference != null) {
 					when {
-						param.kind != PARAM_SWITCH -> "${param.label} cannot use a value"
-						reference.key !in valueNames -> "${reference.name} is no longer a value; pick again"
+						param.kind != PARAM_DEVICE -> "${param.label} cannot use a parameter"
+						reference.key !in valueNames -> "${reference.name} is no longer a parameter; pick again"
 						else -> null
 					}
 				} else {
@@ -151,7 +152,7 @@ internal fun actionHint(action: ActionDraft, offer: AutomationOffer, valueNames:
 	issueOf(action, offer, blanks = false, valueNames = valueNames)
 
 /** One field an action draws; `param` null is a value its row no longer names. */
-internal data class ParamView(val param: ParamOffer?, val name: String, val value: String, val reference: FunctionValueReference? = null)
+internal data class ParamView(val param: ParamOffer?, val name: String, val value: String, val reference: FunctionParamReference? = null)
 
 /** The row's parameters, then each stray value. */
 internal fun actionFields(action: ActionDraft.Filled, offer: AutomationOffer): List<ParamView> {
@@ -163,13 +164,13 @@ internal fun actionFields(action: ActionDraft.Filled, offer: AutomationOffer): L
 
 internal fun withoutValue(action: ActionDraft, name: String): ActionDraft = when (action) {
 	is ActionDraft.Filled -> action.copy(values = action.values - name, references = action.references - name)
-	is ActionDraft.Kept -> action
+	is ActionDraft.Unsupported -> action
 }
 
 /** The last card stays until its kind is gone. */
 internal fun canRemove(draft: AutomationDraft, key: String, offer: AutomationOffer): Boolean {
 	val step = draft.stepAt(key) ?: return false
-	val gone = step is StepDraft.Do && offer.action(step.action.kind) == null
+	val gone = step is StepDraft.Action && offer.action(step.action.kind) == null
 	return everyStep(draft.stepsOf(draft.treeHolding(key))).size > 1 || gone
 }
 
@@ -180,14 +181,14 @@ internal fun homeOnly(kind: String, offer: AutomationOffer): Boolean = offer.awa
 internal fun actionWarning(action: ActionDraft, offer: AutomationOffer): String? {
 	val kind = when (action) {
 		is ActionDraft.Filled -> action.kind
-		is ActionDraft.Kept -> kindOf(action.action)
+		is ActionDraft.Unsupported -> kindOf(action.action)
 	}
 	return HOME_ONLY.takeIf { homeOnly(kind, offer) }
 }
 
 /** A blank optional parameter is left out; null when the action does not read back or would drop a value. */
 internal fun actionOf(action: ActionDraft, offer: AutomationOffer): AutomationAction? = when (action) {
-	is ActionDraft.Kept -> action.action
+	is ActionDraft.Unsupported -> action.action
 	is ActionDraft.Filled -> offer.action(action.kind)?.takeUnless { unnamed(action, it) || action.references.isNotEmpty() }?.let { row ->
 		val json = buildJsonObject {
 			put(KIND, action.kind)
@@ -208,8 +209,8 @@ internal fun freshAction(kind: String, offer: AutomationOffer): ActionDraft? {
 	val values = row.params.associate { param ->
 		param.name to when (param.paramKind) {
 			ActionParamKind.CHOICE -> param.options.firstOrNull()?.value.orEmpty()
-			ActionParamKind.SWITCH -> offer.switches.firstOrNull()?.device ?: return null
-			ActionParamKind.TEXT, ActionParamKind.WORD, ActionParamKind.FUNCTION, ActionParamKind.VALUES, null -> ""
+			ActionParamKind.DEVICE -> offer.devices.firstOrNull()?.device ?: return null
+			ActionParamKind.TEXT, ActionParamKind.WORD, ActionParamKind.FUNCTION, ActionParamKind.ARGS, null -> ""
 		}
 	}
 	return ActionDraft.Filled(kind, values)
@@ -220,19 +221,19 @@ internal fun addableActions(offer: AutomationOffer, held: List<StepDraft>): List
 
 internal fun withValue(action: ActionDraft, param: String, value: String): ActionDraft = when (action) {
 	is ActionDraft.Filled -> action.copy(values = action.values + (param to value), references = action.references - param)
-	is ActionDraft.Kept -> action
+	is ActionDraft.Unsupported -> action
 }
 
-internal fun withReference(action: ActionDraft, param: String, reference: FunctionValueReference): ActionDraft = when (action) {
+internal fun withReference(action: ActionDraft, param: String, reference: FunctionParamReference): ActionDraft = when (action) {
 	is ActionDraft.Filled -> action.copy(values = action.values + (param to ""), references = action.references + (param to reference))
-	is ActionDraft.Kept -> action
+	is ActionDraft.Unsupported -> action
 }
 
 /** A flat row's text. */
 internal fun doesLine(action: ActionDraft, kind: String, offer: AutomationOffer): String =
 	actionLineOf(action, kind, offer) + if (homeOnly(kind, offer)) " (only where the assistant lives)" else ""
 
-/** Its label, then what its choices, switch and words are set to. */
+/** Its label, then what its choices, device and words are set to. */
 private fun actionLineOf(action: ActionDraft, kind: String, offer: AutomationOffer): String {
 	val draft = action as? ActionDraft.Filled ?: return offer.labelOf(kind)
 	val row = offer.action(draft.kind) ?: return draft.kind
@@ -240,9 +241,9 @@ private fun actionLineOf(action: ActionDraft, kind: String, offer: AutomationOff
 		val value = draft.values[param.name].orEmpty()
 		when (param.paramKind) {
 			ActionParamKind.CHOICE -> param.options.find { it.value == value }?.label
-			ActionParamKind.SWITCH -> offer.switches.find { it.device == value }?.name
+			ActionParamKind.DEVICE -> offer.devices.find { it.device == value }?.name
 			ActionParamKind.WORD -> value.takeIf { it.isNotBlank() }
-			ActionParamKind.TEXT, ActionParamKind.FUNCTION, ActionParamKind.VALUES, null -> null
+			ActionParamKind.TEXT, ActionParamKind.FUNCTION, ActionParamKind.ARGS, null -> null
 		}
 	}
 	return if (set.isEmpty()) row.label else "${row.label}: ${set.joinToString(", ")}"

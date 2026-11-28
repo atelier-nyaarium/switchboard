@@ -5,12 +5,12 @@
 			"name": "a flat list",
 			"steps": [
 				{
-					"kind": "do",
+					"kind": "action",
 					"action": "tell_assistant",
 					"args": {}
 				},
 				{
-					"kind": "exit"
+					"kind": "return"
 				}
 			],
 			"paths": ["0", "1"]
@@ -20,25 +20,25 @@
 			"steps": [
 				{
 					"kind": "if",
-					"when": "true",
+					"condition": "true",
 					"steps": [
 						{
-							"kind": "exit"
+							"kind": "return"
 						},
 						{
-							"kind": "note",
+							"kind": "comment",
 							"text": "a"
 						}
 					],
 					"else": [
 						{
-							"kind": "note",
+							"kind": "comment",
 							"text": "b"
 						}
 					]
 				},
 				{
-					"kind": "exit"
+					"kind": "return"
 				}
 			],
 			"paths": ["0", "0.0.0", "0.0.1", "0.1.0", "1"]
@@ -48,10 +48,10 @@
 			"steps": [
 				{
 					"kind": "if",
-					"when": "true",
+					"condition": "true",
 					"else": [
 						{
-							"kind": "exit"
+							"kind": "return"
 						}
 					]
 				}
@@ -62,12 +62,12 @@
 			"name": "a try inside an if's else, its catch holding a call",
 			"steps": [
 				{
-					"kind": "note",
+					"kind": "comment",
 					"text": "first"
 				},
 				{
 					"kind": "if",
-					"when": "ready",
+					"condition": "ready",
 					"else": [
 						{
 							"kind": "try",
@@ -82,7 +82,7 @@
 							],
 							"catch": [
 								{
-									"kind": "call",
+									"kind": "run_function",
 									"function": "chime"
 								},
 								{
@@ -116,14 +116,14 @@
 							"kind": "future_kind",
 							"steps": [
 								{
-									"kind": "exit"
+									"kind": "return"
 								}
 							]
 						}
 					],
 					"catch": [
 						{
-							"kind": "exit"
+							"kind": "return"
 						}
 					]
 				}
@@ -137,26 +137,26 @@
 					"kind": "parallel",
 					"steps": [
 						{
-							"kind": "exit"
+							"kind": "return"
 						},
 						{
 							"kind": "if",
-							"when": "a",
+							"condition": "a",
 							"steps": [
 								{
-									"kind": "exit"
+									"kind": "return"
 								}
 							],
 							"else": [
 								{
-									"kind": "exit"
+									"kind": "return"
 								}
 							]
 						}
 					]
 				},
 				{
-					"kind": "exit"
+					"kind": "return"
 				}
 			],
 			"paths": ["0", "0.0.0", "0.0.1", "0.0.1.0.0", "0.0.1.1.0", "1"]
@@ -169,14 +169,14 @@
 					"as": "t",
 					"steps": [
 						{
-							"kind": "exit"
+							"kind": "return"
 						},
 						{
 							"kind": "if",
-							"when": "a",
+							"condition": "a",
 							"steps": [
 								{
-									"kind": "exit"
+									"kind": "return"
 								}
 							]
 						}
@@ -200,7 +200,7 @@
 							"values": ["mention"],
 							"steps": [
 								{
-									"kind": "exit"
+									"kind": "return"
 								}
 							]
 						},
@@ -212,24 +212,24 @@
 							"values": ["review_requested", "subscribed"],
 							"steps": [
 								{
-									"kind": "note",
+									"kind": "comment",
 									"text": "a"
 								},
 								{
-									"kind": "exit"
+									"kind": "return"
 								}
 							]
 						}
 					],
 					"default": [
 						{
-							"kind": "note",
+							"kind": "comment",
 							"text": "b"
 						}
 					]
 				},
 				{
-					"kind": "exit"
+					"kind": "return"
 				}
 			],
 			"paths": ["0", "0.0.0", "0.2.0", "0.2.1", "0.3.0", "1"]

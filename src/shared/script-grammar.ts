@@ -15,7 +15,7 @@ export const SCRIPT_RESERVED = [
 	"default",
 	"try",
 	"catch",
-	"exit",
+	"return",
 	"throw",
 	"wait",
 	"parallel",
@@ -43,7 +43,7 @@ export interface ScriptBlock extends Span {
 	steps: ScriptNode[];
 }
 
-export type ScriptIf = Span & { kind: "if"; when: ConsoleNode; then: ScriptBlock; otherwise?: ScriptBlock | ScriptIf };
+export type ScriptIf = Span & { kind: "if"; condition: ConsoleNode; then: ScriptBlock; else?: ScriptBlock | ScriptIf };
 
 export interface ScriptCase extends Span {
 	values: ConsoleNode[];
@@ -54,7 +54,7 @@ export type ScriptSwitch = Span & {
 	kind: "switch";
 	subject: ConsoleNode;
 	cases: ScriptCase[];
-	otherwise?: ScriptBlock;
+	default?: ScriptBlock;
 };
 
 export type ScriptNode =
@@ -62,14 +62,14 @@ export type ScriptNode =
 	| ScriptSwitch
 	| (Span &
 			(
-				| { kind: "note"; text: string }
-				| { kind: "let"; name: Span & { text: string }; value: ConsoleNode }
-				| { kind: "run"; node: ConsoleNode }
-				| { kind: "try"; body: ScriptBlock; handler: ScriptBlock }
+				| { kind: "comment"; text: string }
+				| { kind: "variable"; name: Span & { text: string }; value: ConsoleNode }
+				| { kind: "expression"; node: ConsoleNode }
+				| { kind: "try"; body: ScriptBlock; catch: ScriptBlock }
 				| { kind: "parallel"; body: ScriptBlock }
 				| { kind: "start"; as?: Span & { text: string }; body: ScriptBlock }
 				| { kind: "await"; as?: Span & { text: string }; task: ConsoleNode }
-				| { kind: "exit" }
+				| { kind: "return" }
 				| { kind: "throw"; text?: ConsoleNode }
 				| { kind: "wait"; minutes: ConsoleNode }
 			));
@@ -79,7 +79,7 @@ export interface ScriptTree {
 	issues: ConsoleIssue[];
 }
 
-const noted = (comment: ConsoleToken): string => {
+const commentText = (comment: ConsoleToken): string => {
 	const line = comment.text.slice(2);
 	return line.startsWith(" ") ? line.slice(1) : line;
 };
@@ -144,7 +144,7 @@ class ScriptParser extends ConsoleParser {
 	}
 
 	private statement(first: ConsoleToken): ScriptNode[] {
-		if (first.kind === "comment") return [this.note()];
+		if (first.kind === "comment") return [this.comment()];
 		if (this.is("{")) {
 			this.issue("unexpected", first.start, first.end, "a { opens nothing here");
 			return [];
@@ -162,22 +162,22 @@ class ScriptParser extends ConsoleParser {
 		const trailing = this.next;
 		if (trailing?.kind !== "comment") return [step];
 		this.at++;
-		return [{ kind: "note", text: noted(trailing), start: trailing.start, end: trailing.end }, step];
+		return [{ kind: "comment", text: commentText(trailing), start: trailing.start, end: trailing.end }, step];
 	}
 
-	private note(): ScriptNode {
+	private comment(): ScriptNode {
 		const first = this.next as ConsoleToken;
 		const lines: string[] = [];
 		let last = first;
 		while (this.next?.kind === "comment") {
 			last = this.next;
-			lines.push(noted(last));
+			lines.push(commentText(last));
 			this.at++;
 			const follows = this.tokens[this.at]?.kind === "newline" && this.tokens[this.at + 1]?.kind === "comment";
 			if (!follows) break;
 			this.at++;
 		}
-		return { kind: "note", text: lines.join("\n"), start: first.start, end: last.end };
+		return { kind: "comment", text: lines.join("\n"), start: first.start, end: last.end };
 	}
 
 	private plain(first: ConsoleToken): ScriptNode | null {
@@ -193,10 +193,10 @@ class ScriptParser extends ConsoleParser {
 					: step;
 			}
 			const value = this.expression();
-			return { kind: "let", name, value, start: first.start, end: value.end };
+			return { kind: "variable", name, value, start: first.start, end: value.end };
 		}
 		const node = this.expression();
-		return { kind: "run", node, start: first.start, end: node.end };
+		return { kind: "expression", node, start: first.start, end: node.end };
 	}
 
 	private parenthesized(word: ConsoleToken, missing: string, empty: string): ConsoleNode | null {
@@ -252,20 +252,24 @@ class ScriptParser extends ConsoleParser {
 		return null;
 	}
 
-	private branch(word: ConsoleToken): ScriptIf | null {
-		const when = this.parenthesized(word, "a condition is missing: if (condition) {", "write the condition in ( )");
-		const then = when && this.block(word);
-		if (!when || !then) return null;
+	private conditional(word: ConsoleToken): ScriptIf | null {
+		const condition = this.parenthesized(
+			word,
+			"a condition is missing: if (condition) {",
+			"write the condition in ( )",
+		);
+		const then = condition && this.block(word);
+		if (!condition || !then) return null;
 		const other = this.follows("else");
-		if (!other) return { kind: "if", when, then, start: word.start, end: then.end };
+		if (!other) return { kind: "if", condition, then, start: word.start, end: then.end };
 		const again = this.next;
 		if (again && this.word("if")) {
 			this.at++;
-			const otherwise = this.branch(again);
-			return otherwise && { kind: "if", when, then, otherwise, start: word.start, end: otherwise.end };
+			const elseIf = this.conditional(again);
+			return elseIf && { kind: "if", condition, then, else: elseIf, start: word.start, end: elseIf.end };
 		}
-		const otherwise = this.block(other);
-		return otherwise && { kind: "if", when, then, otherwise, start: word.start, end: otherwise.end };
+		const elseSteps = this.block(other);
+		return elseSteps && { kind: "if", condition, then, else: elseSteps, start: word.start, end: elseSteps.end };
 	}
 
 	/** Value-less case syntax. */
@@ -303,7 +307,7 @@ class ScriptParser extends ConsoleParser {
 		this.at++;
 		const faults = this.faults;
 		const cases: ScriptCase[] = [];
-		let otherwise: ScriptBlock | undefined;
+		let fallback: ScriptBlock | undefined;
 		while (true) {
 			this.lines();
 			const token = this.next;
@@ -317,19 +321,19 @@ class ScriptParser extends ConsoleParser {
 					kind: "switch",
 					subject,
 					cases,
-					...(otherwise ? { otherwise } : {}),
+					...(fallback ? { default: fallback } : {}),
 					start: word.start,
 					end: token.end,
 				};
 			}
 			const before = this.faults;
-			if (otherwise) this.issue("unexpected", token.start, token.end, "default comes last");
+			if (fallback) this.issue("unexpected", token.start, token.end, "default comes last");
 			else if (this.word("case")) {
 				const read = this.casing(token);
 				if (read) cases.push(read);
 			} else if (this.word("default")) {
 				this.at++;
-				otherwise = this.block(token) ?? undefined;
+				fallback = this.block(token) ?? undefined;
 			} else this.issue("unexpected", token.start, token.end, "a switch holds case and default");
 			if (this.faults !== before) this.recover();
 		}
@@ -340,7 +344,7 @@ class ScriptParser extends ConsoleParser {
 		const { start } = word;
 		switch (word.text as ScriptWord) {
 			case "if":
-				return this.branch(word);
+				return this.conditional(word);
 			case "switch":
 				return this.switched(word);
 			case "case":
@@ -366,8 +370,8 @@ class ScriptParser extends ConsoleParser {
 					return null;
 				}
 				this.at += 3;
-				const handler = this.block(caught);
-				return handler && { kind: "try", body, handler, start, end: handler.end };
+				const catchSteps = this.block(caught);
+				return catchSteps && { kind: "try", body, catch: catchSteps, start, end: catchSteps.end };
 			}
 			case "parallel": {
 				const body = this.block(word);
@@ -412,12 +416,12 @@ class ScriptParser extends ConsoleParser {
 				const task = this.expression();
 				return { kind: "await", task, start, end: task.end };
 			}
-			case "exit":
+			case "return":
 				if (this.next && this.next.kind !== "newline" && this.next.kind !== "comment" && !this.is("}")) {
-					this.issue("unexpected", this.next.start, this.next.end, "exit stands alone");
+					this.issue("unexpected", this.next.start, this.next.end, "return stands alone");
 					return null;
 				}
-				return { kind: "exit", start, end: word.end };
+				return { kind: "return", start, end: word.end };
 			case "throw": {
 				const said = this.next;
 				if (!said || said.kind === "newline" || said.kind === "comment" || this.is("}")) {

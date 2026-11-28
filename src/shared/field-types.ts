@@ -1,35 +1,35 @@
-export const RULE_TESTS = ["is", "is_not", "contains", "contains_not"] as const;
-export type RuleTest = (typeof RULE_TESTS)[number];
+export const RULE_OPERATORS = ["is", "is_not", "contains", "contains_not"] as const;
+export type RuleOperator = (typeof RULE_OPERATORS)[number];
 
-export const TEST_LABELS = {
+export const OPERATOR_LABELS = {
 	is: "is",
 	is_not: "is not",
 	contains: "contains",
 	contains_not: "does not contain",
-} as const satisfies Record<RuleTest, string>;
+} as const satisfies Record<RuleOperator, string>;
 
 /** Multiple condition values. */
-export const LIST_TEST_LABELS = {
+export const LIST_OPERATOR_LABELS = {
 	is: "is any of",
 	is_not: "is none of",
 	contains: "contains any of",
 	contains_not: "contains none of",
-} as const satisfies Record<RuleTest, string>;
+} as const satisfies Record<RuleOperator, string>;
 
 export const FIELD_KINDS = ["enumeration", "text", "number", "bytes"] as const;
 export type FieldKind = (typeof FIELD_KINDS)[number];
 
 export interface FieldTypeRow {
 	label: string;
-	tests: readonly RuleTest[];
+	operators: readonly RuleOperator[];
 }
 
-/** Bytes untested; numeric thresholds. */
+/** Bytes take no operator; numeric thresholds. */
 export const FIELD_TYPES = {
-	enumeration: { label: "Choice", tests: ["is", "is_not"] },
-	text: { label: "Text", tests: ["is", "is_not", "contains", "contains_not"] },
-	number: { label: "Number", tests: [] },
-	bytes: { label: "Bytes", tests: [] },
+	enumeration: { label: "Choice", operators: ["is", "is_not"] },
+	text: { label: "Text", operators: ["is", "is_not", "contains", "contains_not"] },
+	number: { label: "Number", operators: [] },
+	bytes: { label: "Bytes", operators: [] },
 } as const satisfies Record<FieldKind, FieldTypeRow>;
 
 export const UNITS = [

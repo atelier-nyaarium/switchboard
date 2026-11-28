@@ -8,9 +8,20 @@
 				"trigger": {
 					"kind": "event",
 					"source": "github",
-					"conditions": [{ "field": "reason", "test": "is", "value": "mention" }]
+					"conditions": [
+						{
+							"field": "reason",
+							"operator": "is",
+							"value": "mention"
+						}
+					]
 				},
-				"actions": [{ "kind": "tell_assistant", "when": "now" }]
+				"actions": [
+					{
+						"kind": "tell_assistant",
+						"when": "now"
+					}
+				]
 			},
 			"sentence": "GitHub: reason is mention",
 			"lastRanAt": 1763000000000
@@ -27,11 +38,21 @@
 					"becomes": "low",
 					"coolDownSec": 0
 				},
-				"actions": [{ "kind": "tell_assistant", "when": "quietly" }]
+				"actions": [
+					{
+						"kind": "tell_assistant",
+						"when": "quietly"
+					}
+				]
 			},
 			"sentence": "Outside thermometer temperature below 2.0 C",
 			"device": "ce:1c:44:06:3c:5d"
 		}
 	],
-	"serves": { "triggers": [], "actions": [], "numbers": [], "switches": [] }
+	"serves": {
+		"triggers": [],
+		"actions": [],
+		"numbers": [],
+		"devices": []
+	}
 }

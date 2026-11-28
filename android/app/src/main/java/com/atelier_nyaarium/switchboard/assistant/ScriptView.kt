@@ -218,8 +218,8 @@ private fun ScriptLines(text: String, lines: List<ScriptLine>, entities: Set<Str
 private fun markColor(mark: LineMark?): Color = when (mark) {
 	null -> Color.Transparent
 	LineMark.UNREACHED -> Color(CodePalette.BORDER)
-	LineMark.RAN -> MaterialTheme.colorScheme.onSurfaceVariant
-	LineMark.NOT_CLEAN -> Color(CodePalette.MARK)
+	LineMark.DONE -> MaterialTheme.colorScheme.onSurfaceVariant
+	LineMark.UNSURE -> Color(CodePalette.MARK)
 	LineMark.FAILED -> MaterialTheme.colorScheme.error
 	LineMark.RUNNING -> MaterialTheme.colorScheme.primary
 }
@@ -242,11 +242,11 @@ internal fun ScriptEditorPage(
 	val current = scriptCurrent(draft, tree, offer)
 	val issues = scriptIssues(draft, tree, offer)
 	val signature = scriptSignature(draft, tree, offer)
-	HoleTextEditor(
+	TextPageEditor(
 		title = "Script",
 		value = typed.text,
 		max = Protocol.Wire.SCRIPT_SOURCE_MAX,
-		names = scriptNamesHere(namesHere(offer, draft.trigger.kind, null, scriptValuesOf(draft, tree)), typed.names),
+		names = scriptNamesHere(namesHere(offer, draft.trigger.kind, null, scriptParamsOf(draft, tree)), typed.names),
 		mode = TextMode.SCRIPT,
 		issueOf = { text -> markedIssue(issues)?.takeIf { text == typed.text }?.let { it.start.toInt().coerceAtMost(text.length) until maxOf(it.end.toInt(), it.start.toInt() + 1).coerceAtMost(text.length) } },
 		description = vocabulary?.description,
@@ -278,28 +278,28 @@ private fun SignatureHead(signature: ScriptSignature) {
 		Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape).padding(horizontal = 12.dp, vertical = 8.dp),
 		verticalArrangement = Arrangement.spacedBy(2.dp),
 	) {
-		Text("$FUNCTION_MARK ${signature.name ?: "Its own steps"}(${signature.values.joinToString(", ")})", style = LINE_STYLE, color = MaterialTheme.colorScheme.onSurface)
+		Text("$FUNCTION_MARK ${signature.name ?: "(unnamed)"}(${signature.params.joinToString(", ")})", style = LINE_STYLE, color = MaterialTheme.colorScheme.onSurface)
 		if (signature.given.isNotEmpty()) {
 			Text("From the trigger: ${signature.given.joinToString(", ")}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		}
 	}
 }
 
-internal data class KeptScript(val lines: Map<String, KeptLine>, val open: ((Int) -> Unit)?)
+internal data class ScriptOnlyCards(val lines: Map<String, ScriptOnlyLine>, val open: ((Int) -> Unit)?)
 
 @Composable
-internal fun keptScript(
+internal fun scriptOnlyCards(
 	ops: AutomationOps,
 	gatewayId: String,
 	draft: AutomationDraft,
 	tree: String?,
 	offer: AutomationOffer,
 	edit: ((AutomationDraft) -> AutomationDraft) -> Unit,
-): KeptScript {
-	val asks = scriptServed(offer) && everyStep(draft.stepsOf(tree)).any { it is StepDraft.Kept }
+): ScriptOnlyCards {
+	val asks = scriptServed(offer) && everyStep(draft.stepsOf(tree)).any { it is StepDraft.ScriptOnly }
 	val print = scriptPrintRead(ops, gatewayId, scriptPrintOp(draft, tree, offer).takeIf { asks }, settle = PARSE_DEBOUNCE_MS).answer
 	val open: ((Int) -> Unit)? = print?.takeIf { it.readOnly == null }?.let { printed ->
 		{ at -> edit { it.startedScript(tree, printed.text, printed.names, printed.types, at) } }
 	}
-	return KeptScript(keptLines(draft.stepsOf(tree), print), open)
+	return ScriptOnlyCards(scriptOnlyLines(draft.stepsOf(tree), print), open)
 }

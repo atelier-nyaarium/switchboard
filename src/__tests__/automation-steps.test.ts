@@ -11,9 +11,9 @@ import {
 	dueAt,
 	heard,
 	isEnded,
-	KEEP_TRYING_MS,
 	NATURES,
 	outOfTime,
+	RETRY_FOR_MS,
 	recovered,
 	retries,
 	type Step,
@@ -55,7 +55,7 @@ describe("the nature table", () => {
 			["done", "failed", "retry", "failed"],
 			["done", "failed", "failed", "failed"],
 		]);
-		expect(heard(step, "sets", "unreachable", KEEP_TRYING_MS)).toMatchObject({
+		expect(heard(step, "sets", "unreachable", RETRY_FOR_MS)).toMatchObject({
 			word: "unreachable",
 			verdict: "failed",
 		});
@@ -64,12 +64,12 @@ describe("the nature table", () => {
 
 describe("a step out of its time", () => {
 	it("ends with the last word it heard, or unreachable after only holds, and never stretches for a clock that went back", () => {
-		const held: Step = { attempts: 0, startedAt: 10 * KEEP_TRYING_MS };
+		const held: Step = { attempts: 0, startedAt: 10 * RETRY_FOR_MS };
 
 		expect(timedOut({ attempts: 2, startedAt: 0, word: "no_answer" }).word).toBe("no_answer");
 		expect(timedOut({ attempts: 0, startedAt: 0 }).word).toBe("unreachable");
 		expect(outOfTime(held, 0)).toBe(false);
-		expect(outOfTime(clamped(held, 0), KEEP_TRYING_MS)).toBe(true);
+		expect(outOfTime(clamped(held, 0), RETRY_FOR_MS)).toBe(true);
 	});
 });
 
@@ -83,7 +83,7 @@ describe("a step found at a restart", () => {
 		isEnded(step) ? `${step.verdict} ${step.word}` : dueAt(begun(step, now)) <= now ? "tries now" : "waits";
 
 	it("is judged by nature when claimed, by its time when between attempts, and not at all when unbegun", () => {
-		const late = KEEP_TRYING_MS + 1;
+		const late = RETRY_FOR_MS + 1;
 
 		expect(NATURES.map((nature) => next(recovered(claimed, nature, 1_000), 1_000))).toEqual([
 			"tries now",
@@ -101,10 +101,10 @@ describe("a step found at a restart", () => {
 	});
 
 	it("gives a step that only held a whole time again from its next turn", () => {
-		const late = 3 * KEEP_TRYING_MS;
+		const late = 3 * RETRY_FOR_MS;
 		const again = begun(recovered({ attempts: 0, startedAt: 0, lastAt: 0 }, "sends", late), late);
 
-		expect([outOfTime(again, late + KEEP_TRYING_MS - 1), outOfTime(again, late + KEEP_TRYING_MS)]).toEqual([
+		expect([outOfTime(again, late + RETRY_FOR_MS - 1), outOfTime(again, late + RETRY_FOR_MS)]).toEqual([
 			false,
 			true,
 		]);

@@ -1,5 +1,5 @@
 {
-	"kind": "let",
+	"kind": "variable",
 	"name": "label",
 	"value": {
 		"kind": "expression",

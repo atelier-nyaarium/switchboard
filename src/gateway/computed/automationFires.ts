@@ -6,10 +6,10 @@ import {
 	AUTOMATION_ACTIONS_MAX,
 	type Automation,
 	AutomationActionSchema,
-	FunctionValuesSchema,
+	FunctionArgsSchema,
 	TELL_WHEN,
 } from "../../shared/schemasAutomation.js";
-import { FUNCTION_STEPS_MAX, RUN_STRANDS_MAX } from "../../shared/schemasFunction.js";
+import { FUNCTION_STEPS_MAX, RUN_BRANCHES_MAX } from "../../shared/schemasFunction.js";
 import { FAILURE_CODES, FAILURE_MESSAGE_MAX } from "./automationFrames.js";
 import { BEHIND, CROWDED, type LostReason, REPLACED, TOO_MANY } from "./automationLog.js";
 import { type AutomationEffect, natureOf } from "./automationRunner.js";
@@ -27,7 +27,7 @@ const NamesSchema = z.record(z.string(), z.object({ value: z.unknown(), shown: z
 const TellSchema = z.strictObject({
 	when: z.enum(TELL_WHEN),
 	fields: z.record(z.string(), z.string()),
-	/** Its messages' holes are unread. */
+	/** Its messages' placeholders are unread. */
 	fill: z.literal(true).optional(),
 });
 
@@ -40,7 +40,7 @@ const FireBase = {
 	/** The transition it answers; zero for a slot or an event. */
 	seq: z.number().int().nonnegative(),
 	at: z.number().int(),
-	/** What the trigger read, for its texts' holes. */
+	/** What the trigger read, for its texts' placeholders. */
 	names: NamesSchema.optional(),
 	// skew:fire-tell: one tell for the whole fire, as 8.14.87 stored it.
 	tell: TellSchema.optional(),
@@ -55,11 +55,11 @@ const OneFailureSchema = z.strictObject({
 
 export const FailureSchema = OneFailureSchema.extend({
 	/** First failure per branch. */
-	errors: z.array(OneFailureSchema).max(RUN_STRANDS_MAX).optional(),
+	errors: z.array(OneFailureSchema).max(RUN_BRANCHES_MAX).optional(),
 });
 
 /** One variable's JSON. */
-export const FRAME_VAR_BYTES_MAX = 1_024;
+export const FRAME_VARIABLE_BYTES_MAX = 1_024;
 
 export const FrameSchema = z.strictObject({
 	function: z.string(),
@@ -71,12 +71,12 @@ export const FrameSchema = z.strictObject({
 	failed: FailureSchema.optional(),
 	/** By its try's path: what `e` reads in that catch. */
 	caught: z.record(StepPathSchema, FailureSchema).optional(),
-	/** Uncaught failure per strand. */
-	strands: z.record(StepPathSchema, FailureSchema).optional(),
+	/** Uncaught failure per branch. */
+	branches: z.record(StepPathSchema, FailureSchema).optional(),
 	/** By name. */
-	vars: z.record(z.string(), z.json()).optional(),
-	/** What its call gave it, by value name. */
-	values: FunctionValuesSchema.optional(),
+	variables: z.record(z.string(), z.json()).optional(),
+	/** What its run gave it, by parameter name. */
+	args: FunctionArgsSchema.optional(),
 });
 export type Frame = z.infer<typeof FrameSchema>;
 
@@ -89,9 +89,9 @@ export const FireSchema = z
 		...FireBase,
 		/** By step path. */
 		steps: z.record(StepPathSchema, StepSchema),
-		/** Active step per strand. */
-		active: z.array(StepPathSchema).max(RUN_STRANDS_MAX),
-		/** By call path. */
+		/** Active step per branch. */
+		active: z.array(StepPathSchema).max(RUN_BRANCHES_MAX),
+		/** By the path of the step that runs it. */
 		frames: z.record(StepPathSchema, FrameSchema).optional(),
 		/** Tell fields. */
 		fields: z.record(z.string(), z.string()).optional(),
@@ -142,7 +142,7 @@ export interface StepRef {
 
 export const stepKey = (ref: StepRef): string => `${ref.member}#${ref.path}`;
 
-/** The call a step runs under; null for the automation's own step. */
+/** The run function step a step runs under; null for the automation's own step. */
 export const siteIn = (fire: Pick<Fire, "frames">, path: string): string | null =>
 	siteAmong(path, Object.keys(fire.frames ?? {}));
 
@@ -170,7 +170,7 @@ export const withStep = (fire: Fire, path: string, step: Step): Fire => ({
 
 export const claimedPaths = (fire: Fire): string[] => pathsOf(fire).filter((path) => fire.steps[path]?.claimed);
 
-/** A call's record stays open while its function runs. */
+/** A run function step's record stays open while its function runs. */
 const hasOpenSteps = (fire: Fire): boolean => Object.values(fire.steps).some((step) => !isEnded(step));
 
 export const finished = (fire: Fire): boolean => !fire.tell && !hasOpenSteps(fire);
@@ -238,7 +238,7 @@ export function nextEffects(
 	return chosen;
 }
 
-/** Fire time or an enclosing strand's last wait. */
+/** Fire time or an enclosing branch's last wait. */
 export const intentAt = (
 	fire: Pick<Fire, "at" | "steps">,
 	path: string,
@@ -299,7 +299,7 @@ export function outdatedSets(
 export interface Admitted {
 	fires: Fire[];
 	admitted: boolean;
-	rows: { fire: Fire; outcome: "suppressed" | "refused"; reason: LostReason }[];
+	rows: { fire: Fire; outcome: "skipped" | "failed"; reason: LostReason }[];
 }
 
 /** Only tells are left to it. */
@@ -329,19 +329,19 @@ export function admit(fires: readonly Fire[], incoming: Fire, rule: AdmitRule): 
 		: -1;
 	const replaced = held[older];
 	if (replaced) {
-		rows.push({ fire: replaced, outcome: "suppressed", reason: REPLACED });
-		const kept = rule.tells(replaced);
-		if (kept) held[older] = kept;
+		rows.push({ fire: replaced, outcome: "skipped", reason: REPLACED });
+		const tells = rule.tells(replaced);
+		if (tells) held[older] = tells;
 		else held.splice(older, 1);
 	}
 	let admitted = incoming;
 	if (rule.waitingMax !== undefined && !incoming.light && hasOpenSteps(incoming)) {
 		if (held.filter(waits).length >= rule.waitingMax) {
-			rows.push({ fire: incoming, outcome: "suppressed", reason: BEHIND });
-			const kept = rule.tells(incoming);
+			rows.push({ fire: incoming, outcome: "skipped", reason: BEHIND });
+			const tells = rule.tells(incoming);
 			// Its tells go while there is room.
-			if (!kept || held.length >= FIRES_MAX) return { fires: held, admitted: false, rows };
-			admitted = kept;
+			if (!tells || held.length >= FIRES_MAX) return { fires: held, admitted: false, rows };
+			admitted = tells;
 		}
 	}
 	return room(held, admitted, rows);
@@ -358,10 +358,10 @@ function room(held: readonly Fire[], incoming: Fire, rows: Admitted["rows"]): Ad
 	const largest = [...holders.values()].sort((a, b) => b.length - a.length || own(b) - own(a));
 	const victim = largest.map(victimOf).find((fire) => fire !== undefined);
 	if (!victim || victim === incoming) {
-		rows.push({ fire: incoming, outcome: "refused", reason: TOO_MANY });
+		rows.push({ fire: incoming, outcome: "failed", reason: TOO_MANY });
 		return { fires: [...held], admitted: false, rows };
 	}
-	rows.push({ fire: victim, outcome: "suppressed", reason: CROWDED });
+	rows.push({ fire: victim, outcome: "skipped", reason: CROWDED });
 	return { fires: [...held.filter((fire) => fire !== victim), incoming], admitted: true, rows };
 }
 

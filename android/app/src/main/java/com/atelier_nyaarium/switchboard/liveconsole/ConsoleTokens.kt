@@ -24,8 +24,8 @@ sealed interface ConsoleStringPart {
 
 	data class Escape(val value: String, override val start: Int, override val end: Int) : ConsoleStringPart
 
-	/** An open hole runs to the end. */
-	data class Hole(
+	/** An open placeholder runs to the end. */
+	data class Placeholder(
 		val tokens: List<ConsoleToken>,
 		val closed: Boolean,
 		override val start: Int,
@@ -118,7 +118,7 @@ private class Lexer(private val source: String, private val script: Boolean) {
 			if (c == '"' || c == '\'') {
 				at++
 				val (parts, closed) = body(c, nest)
-				val constant = parts.none { it is ConsoleStringPart.Hole }
+				val constant = parts.none { it is ConsoleStringPart.Placeholder }
 				val value = if (constant) parts.joinToString("") { valueOf(it) } else null
 				tokens += ConsoleToken(ConsoleTokenKind.STRING, source.substring(start, at), start, at, closed, value, parts)
 				continue
@@ -185,12 +185,12 @@ private class Lexer(private val source: String, private val script: Boolean) {
 			at++
 			if (nest >= Protocol.Wire.CONSOLE_STRING_NEST_MAX) {
 				val brace = ConsoleToken(ConsoleTokenKind.ERROR, "{", start, start + 1)
-				parts += ConsoleStringPart.Hole(listOf(brace), false, start, source.length)
+				parts += ConsoleStringPart.Placeholder(listOf(brace), false, start, source.length)
 				at = source.length
 				return parts to false
 			}
 			val (tokens, closed) = code(nest + 1, quote != null)
-			parts += ConsoleStringPart.Hole(tokens, closed, start, at)
+			parts += ConsoleStringPart.Placeholder(tokens, closed, start, at)
 		}
 		flush()
 		return parts to (quote == null)
@@ -201,7 +201,7 @@ private fun valueOf(part: ConsoleStringPart): String =
 	when (part) {
 		is ConsoleStringPart.Text -> part.value
 		is ConsoleStringPart.Escape -> part.value
-		is ConsoleStringPart.Hole -> ""
+		is ConsoleStringPart.Placeholder -> ""
 	}
 
 /** Minus stays separate. */
@@ -213,7 +213,7 @@ fun lexConsoleText(text: String): List<ConsoleStringPart> = Lexer(text, false).b
 
 fun everyToken(tokens: List<ConsoleToken>): List<ConsoleToken> =
 	tokens.flatMap { token ->
-		listOf(token) + token.parts.orEmpty().filterIsInstance<ConsoleStringPart.Hole>().flatMap { everyToken(it.tokens) }
+		listOf(token) + token.parts.orEmpty().filterIsInstance<ConsoleStringPart.Placeholder>().flatMap { everyToken(it.tokens) }
 	}
 
 private fun written(table: Map<Char, String>): Map<Char, String> =

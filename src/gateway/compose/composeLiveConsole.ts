@@ -15,7 +15,7 @@ import { neutralizeMarkup, oneLine } from "../../shared/system-reminder.js";
 import { withDoing } from "../liveConsole/doing.js";
 import { type ConsoleReaders, consoleEntities, consoleIds } from "../liveConsole/entities.js";
 import { type ConsoleVariable, EntityRef, evaluateConsole } from "../liveConsole/evaluate.js";
-import { type ConsoleHoles, holesOver } from "../liveConsole/holes.js";
+import { type ConsolePlaceholders, placeholdersOver } from "../liveConsole/placeholders.js";
 import { type ConsoleAudience, createConsoleRegistry } from "../liveConsole/registry.js";
 import {
 	CONSOLE_ITEMS_DEFAULT,
@@ -46,13 +46,13 @@ export interface LiveConsoleOwner {
 	) => Promise<ConsoleEvalResult>;
 }
 
-export type LiveConsoleHoles = ConsoleHoles;
+export type LiveConsolePlaceholders = ConsolePlaceholders;
 
 export interface LiveConsoleStage {
 	routes: Map<string, Handler>;
 	answer: (audience: ConsoleAudience, expr?: string, limit?: number) => Promise<LiveConsoleAnswer>;
 	console: LiveConsoleOwner;
-	holes: LiveConsoleHoles;
+	placeholders: LiveConsolePlaceholders;
 	scriptVocabulary: () => ConsoleDescription;
 }
 
@@ -160,13 +160,13 @@ export function composeLiveConsole(deps: LiveConsoleStageDeps): LiveConsoleStage
 		},
 	};
 
-	const holes = holesOver(registry);
+	const placeholders = placeholdersOver(registry);
 
 	return {
 		routes: consoleRoutes(deps.callerOf, answer),
 		answer,
 		console: owner,
-		holes,
+		placeholders,
 		scriptVocabulary: () => registry.projection("script"),
 	};
 }

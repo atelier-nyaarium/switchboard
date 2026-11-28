@@ -2,7 +2,7 @@ package com.atelier_nyaarium.switchboard
 
 import com.atelier_nyaarium.switchboard.assistant.SourceFields
 import com.atelier_nyaarium.switchboard.assistant.TRIGGER_EVENT
-import com.atelier_nyaarium.switchboard.assistant.UnfollowedCall
+import com.atelier_nyaarium.switchboard.assistant.UnfollowedFunction
 import com.atelier_nyaarium.switchboard.assistant.WalkAction
 import com.atelier_nyaarium.switchboard.assistant.WalkEntry
 import com.atelier_nyaarium.switchboard.assistant.WalkStep
@@ -34,7 +34,7 @@ import com.atelier_nyaarium.switchboard.proto.StepArg
 import com.atelier_nyaarium.switchboard.proto.SwitchCase
 import kotlinx.serialization.json.JsonObject
 import com.atelier_nyaarium.switchboard.assistant.reached
-import com.atelier_nyaarium.switchboard.assistant.callsOf
+import com.atelier_nyaarium.switchboard.assistant.functionsRunBy
 import com.atelier_nyaarium.switchboard.assistant.reachOver
 import com.atelier_nyaarium.switchboard.proto.Automation
 import com.atelier_nyaarium.switchboard.liveconsole.ConsoleStringPart
@@ -51,15 +51,15 @@ import com.atelier_nyaarium.switchboard.assistant.conditionOf
 import com.atelier_nyaarium.switchboard.assistant.valuesOf
 import com.atelier_nyaarium.switchboard.proto.AutomationConditionServes
 import com.atelier_nyaarium.switchboard.proto.FieldTypes
-import com.atelier_nyaarium.switchboard.proto.AutomationHoleSpan
+import com.atelier_nyaarium.switchboard.proto.AutomationPlaceholderSpan
 import com.atelier_nyaarium.switchboard.proto.AutomationIssue
 import com.atelier_nyaarium.switchboard.proto.AutomationNumberOffer
-import com.atelier_nyaarium.switchboard.proto.AutomationSwitchOffer
+import com.atelier_nyaarium.switchboard.proto.AutomationDeviceOffer
 import com.atelier_nyaarium.switchboard.proto.AutomationConditionIssue
 import com.atelier_nyaarium.switchboard.proto.AutomationPreviewCondition
 import com.atelier_nyaarium.switchboard.proto.AutomationLastRun
 import com.atelier_nyaarium.switchboard.proto.AutomationLastStep
-import com.atelier_nyaarium.switchboard.proto.AutomationPreviewHole
+import com.atelier_nyaarium.switchboard.proto.AutomationPreviewPlaceholder
 import com.atelier_nyaarium.switchboard.proto.AutomationPreviewMatch
 import com.atelier_nyaarium.switchboard.proto.AutomationPreviewName
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
@@ -83,10 +83,10 @@ private const val SANDBOX_UNFIT = "It does not fit its function."
 private const val MINUTE_MS = 60_000L
 private const val HOUR_MS = 60 * MINUTE_MS
 internal const val SANDBOX_SENSOR = "ce:1c:44:06:3c:5d"
-internal const val SANDBOX_SWITCH = "aa:bb:cc:dd:ee:01"
+internal const val SANDBOX_DEVICE = "aa:bb:cc:dd:ee:01"
 
-/** Moves on first check. */
-internal const val SANDBOX_MOVING_FUNCTION = "night-lamp"
+/** Changes on first check. */
+internal const val SANDBOX_CHANGING_FUNCTION = "night-lamp"
 
 private fun choice(name: String, label: String, vararg options: Pair<String, String>) =
 	AutomationActionParam(name, label, "choice", options = options.map { (value, shown) -> AutomationActionOption(value, shown) })
@@ -101,7 +101,7 @@ internal val SANDBOX_SERVES = AutomationServes(
 		trigger("value", "value" to "The value it became", "field" to "The field's name"),
 		trigger(
 			"crossing",
-			"value" to "The reading now",
+			"reading" to "The reading now",
 			"device" to "The device's name",
 			"measure" to "What it measures",
 			"threshold" to "The threshold",
@@ -113,7 +113,7 @@ internal val SANDBOX_SERVES = AutomationServes(
 		AutomationActionOffer(
 			"tell_assistant",
 			"Tell the assistant",
-			danger = false,
+			confirm = false,
 			home = true,
 			params = listOf(
 				choice("when", "When", "now" to "Now", "quietly" to "Quietly"),
@@ -122,30 +122,30 @@ internal val SANDBOX_SERVES = AutomationServes(
 		),
 		AutomationActionOffer(
 			"device_set",
-			"Switch a plug",
-			danger = false,
+			"Set device",
+			confirm = false,
 			home = false,
 			params = listOf(
-				AutomationActionParam("device", "Plug", "switch"),
+				AutomationActionParam("device", "Device", "device"),
 				choice("verb", "Set", "on" to "On", "off" to "Off", "toggle" to "Toggle"),
 			),
 		),
 		AutomationActionOffer(
 			"ifttt_trigger",
 			"Send to IFTTT",
-			danger = true,
+			confirm = true,
 			home = true,
 			params = listOf(AutomationActionParam("event", "Event name", "word", max = 80L)) +
 				(1..3).map { AutomationActionParam("value$it", "Value $it", "text", max = 500L, optional = true) },
 		),
 		AutomationActionOffer(
 			"run_function",
-			"Run a function",
-			danger = false,
+			"Run function",
+			confirm = false,
 			home = false,
 			params = listOf(
 				AutomationActionParam("function", "Function", "function"),
-				AutomationActionParam("values", "Values", "values", optional = true),
+				AutomationActionParam("args", "Arguments", "args", optional = true),
 			),
 		),
 	),
@@ -153,19 +153,21 @@ internal val SANDBOX_SERVES = AutomationServes(
 		max = Protocol.Wire.FUNCTIONS_MAX.toLong(),
 		steps = listOf("tell_assistant", "device_set", "ifttt_trigger"),
 		paramTypes = listOf("device", "text", "number"),
-		statements = listOf("do", "if", "switch", "try", "exit", "throw", "let", "wait", "note", "unparsed", "call"),
+		statements = listOf(
+			"action", "if", "switch", "try", "parallel", "start", "await", "return", "throw", "variable", "wait", "comment", "unparsed", "run_function",
+		),
 		unnamed = true,
 		script = true,
 	),
-	conditions = AutomationConditionServes(FieldTypes.TEST_LABELS.keys.toList(), Protocol.Wire.CONDITION_VALUES_MAX.toLong()),
+	conditions = AutomationConditionServes(FieldTypes.OPERATOR_LABELS.keys.toList(), Protocol.Wire.CONDITION_VALUES_MAX.toLong()),
 	numbers = listOf(
 		AutomationNumberOffer(SANDBOX_SENSOR, "temperature", "Outside thermometer temperature", "C", 1L),
 		AutomationNumberOffer(SANDBOX_SENSOR, "humidity", "Outside thermometer humidity", "%", 0L),
 	),
-	switches = listOf(AutomationSwitchOffer(SANDBOX_SWITCH, "Desk lamp")),
+	devices = listOf(AutomationDeviceOffer(SANDBOX_DEVICE, "Desk lamp")),
 )
 
-private const val SANDBOX_SCRIPT = "assistant.tell(\"quietly\", \"It is {value}.\")\ndevices.set(\"Desk lamp\", \"on\")"
+private const val SANDBOX_SCRIPT = "assistant.tell(\"quietly\", \"It is {reading}.\")\ndevices.set(\"Desk lamp\", \"on\")"
 
 private const val SANDBOX_SCRIPT_ONLY = "The emulator reads only its own script."
 
@@ -185,7 +187,7 @@ private fun isDot(token: ConsoleToken?): Boolean = token?.kind == ConsoleTokenKi
 
 private fun namesRead(tokens: List<ConsoleToken>, names: MutableSet<String>, fields: MutableSet<String>) {
 	for ((at, token) in tokens.withIndex()) {
-		holesRead(token.parts.orEmpty(), names, fields)
+		placeholdersRead(token.parts.orEmpty(), names, fields)
 		if (token.kind != ConsoleTokenKind.IDENT || isDot(tokens.getOrNull(at - 1))) continue
 		names += token.text
 		val member = tokens.getOrNull(at + 2)?.takeIf { isDot(tokens.getOrNull(at + 1)) && it.kind == ConsoleTokenKind.IDENT }
@@ -193,20 +195,20 @@ private fun namesRead(tokens: List<ConsoleToken>, names: MutableSet<String>, fie
 	}
 }
 
-private fun holesOf(text: String): List<ConsoleStringPart.Hole> =
-	lexConsoleText(text).filterIsInstance<ConsoleStringPart.Hole>()
+private fun placeholdersOf(text: String): List<ConsoleStringPart.Placeholder> =
+	lexConsoleText(text).filterIsInstance<ConsoleStringPart.Placeholder>()
 
-private fun ConsoleStringPart.Hole.name(): String? =
+private fun ConsoleStringPart.Placeholder.name(): String? =
 	tokens.singleOrNull()?.takeIf { it.kind == ConsoleTokenKind.IDENT }?.text
 
-private fun ConsoleStringPart.Hole.root(): String? =
+private fun ConsoleStringPart.Placeholder.root(): String? =
 	tokens.firstOrNull()?.takeIf { it.kind == ConsoleTokenKind.IDENT }?.text
 
-private fun ConsoleStringPart.Hole.written(text: String): String =
+private fun ConsoleStringPart.Placeholder.written(text: String): String =
 	text.substring(start + 1, if (closed) end - 1 else end).trim()
 
-private fun holesRead(parts: List<ConsoleStringPart>, names: MutableSet<String>, fields: MutableSet<String>) {
-	for (part in parts) if (part is ConsoleStringPart.Hole) namesRead(part.tokens, names, fields)
+private fun placeholdersRead(parts: List<ConsoleStringPart>, names: MutableSet<String>, fields: MutableSet<String>) {
+	for (part in parts) if (part is ConsoleStringPart.Placeholder) namesRead(part.tokens, names, fields)
 }
 
 /** Names its steps read. */
@@ -214,12 +216,12 @@ internal fun sandboxReads(function: AutomationFunction): FunctionReads {
 	val names = sortedSetOf<String>()
 	val fields = sortedSetOf<String>()
 	for (step in written(function)) {
-		val args = (step as? FunctionStep.Do)?.args ?: continue
+		val args = (step as? FunctionStep.Action)?.args ?: continue
 		for (arg in args.values) {
 			when (val held = runIsolated { wireJson.decodeFromJsonElement(StepArg.serializer(), arg) }.getOrNull()) {
 				is StepArg.Expression -> namesRead(lexConsole(held.text), names, fields)
 				is StepArg.Literal -> (held.value as? JsonPrimitive)?.takeIf { it.isString }?.content?.let { text ->
-					holesRead(lexConsoleText(text), names, fields)
+					placeholdersRead(lexConsoleText(text), names, fields)
 				}
 				null -> Unit
 			}
@@ -262,7 +264,7 @@ internal class SandboxAutomationGateway(
 			enabled = true,
 			trigger = AutomationTrigger.Time("18:00", (1L..7L).toList(), "America/Los_Angeles"),
 			actions = listOf(
-				AutomationAction.DeviceSet(SANDBOX_SWITCH, "on"),
+				AutomationAction.DeviceSet(SANDBOX_DEVICE, "on"),
 				AutomationAction.TellAssistant("quietly", "The desk lamp is on. It is {time}."),
 			),
 		)
@@ -276,14 +278,14 @@ internal class SandboxAutomationGateway(
 		)
 	}
 
-	private fun pointing(id: String, trigger: AutomationTrigger, function: String, sentence: String, values: Map<String, String> = emptyMap()): AutomationRow {
+	private fun pointing(id: String, trigger: AutomationTrigger, function: String, sentence: String, args: Map<String, String> = emptyMap()): AutomationRow {
 		val automation = Automation(
 			enabled = true,
 			trigger = trigger,
 			actions = listOf(
 				AutomationAction.RunFunction(
 					function = function,
-					values = values.takeIf { it.isNotEmpty() }?.let { held -> JsonObject(held.mapValues { JsonPrimitive(it.value) }) },
+					args = args.takeIf { it.isNotEmpty() }?.let { held -> JsonObject(held.mapValues { JsonPrimitive(it.value) }) },
 				),
 			),
 		)
@@ -293,13 +295,13 @@ internal class SandboxAutomationGateway(
 	private fun stepArg(arg: StepArg) = wireJson.encodeToJsonElement(StepArg.serializer(), arg)
 
 	private fun step(action: String, vararg args: Pair<String, StepArg>) =
-		FunctionStep.Do(action = action, args = JsonObject(args.associate { (name, arg) -> name to stepArg(arg) }))
+		FunctionStep.Action(action = action, args = JsonObject(args.associate { (name, arg) -> name to stepArg(arg) }))
 
 	/** The seed the canned script reads as. */
 	private val tooWarmSteps by lazy {
 		listOf(
-			step("tell_assistant", "when" to StepArg.Literal(JsonPrimitive("quietly")), "message" to StepArg.Literal(JsonPrimitive("It is {value}."))),
-			step("device_set", "device" to StepArg.Literal(JsonPrimitive(SANDBOX_SWITCH)), "verb" to StepArg.Literal(JsonPrimitive("on"))),
+			step("tell_assistant", "when" to StepArg.Literal(JsonPrimitive("quietly")), "message" to StepArg.Literal(JsonPrimitive("It is {reading}."))),
+			step("device_set", "device" to StepArg.Literal(JsonPrimitive(SANDBOX_DEVICE)), "verb" to StepArg.Literal(JsonPrimitive("on"))),
 		)
 	}
 
@@ -307,7 +309,7 @@ internal class SandboxAutomationGateway(
 	private val functionShelves = mutableMapOf<String, MutableMap<String, Pair<Long, AutomationFunction>>>()
 
 	private var copies = 0
-	private val movedFunctionChecks = mutableSetOf<String>()
+	private val changedFunctionChecks = mutableSetOf<String>()
 
 	private fun functions(gatewayId: String) = functionShelves.getOrPut(gatewayId) {
 		if (gatewayId == EMPTY_GATEWAY) return@getOrPut mutableMapOf()
@@ -326,12 +328,12 @@ internal class SandboxAutomationGateway(
 				params = emptyList(),
 				steps = listOf(
 					FunctionStep.If(
-						`when` = "value > 60",
-						steps = listOf(step("device_set", "device" to StepArg.Literal(JsonPrimitive(SANDBOX_SWITCH)), "verb" to StepArg.Literal(JsonPrimitive("on")))),
+						condition = "reading > 60",
+						steps = listOf(step("device_set", "device" to StepArg.Literal(JsonPrimitive(SANDBOX_DEVICE)), "verb" to StepArg.Literal(JsonPrimitive("on")))),
 						`else` = listOf(step("tell_assistant", "when" to StepArg.Literal(JsonPrimitive("quietly")), "message" to StepArg.Literal(JsonPrimitive("Dry enough.")))),
 					),
 					FunctionStep.Try(
-						steps = listOf(step("device_set", "device" to StepArg.Literal(JsonPrimitive(SANDBOX_SWITCH)), "verb" to StepArg.Literal(JsonPrimitive("off")))),
+						steps = listOf(step("device_set", "device" to StepArg.Literal(JsonPrimitive(SANDBOX_DEVICE)), "verb" to StepArg.Literal(JsonPrimitive("off")))),
 						catch = listOf(step("tell_assistant", "when" to StepArg.Literal(JsonPrimitive("now")), "message" to StepArg.Literal(JsonPrimitive("The lamp did not answer.")))),
 					),
 				),
@@ -346,16 +348,16 @@ internal class SandboxAutomationGateway(
 							SwitchCase(listOf("mention"), listOf(step("tell_assistant", "when" to StepArg.Literal(JsonPrimitive("now"))))),
 							SwitchCase(
 								listOf("review_requested", "assign"),
-								listOf(step("device_set", "device" to StepArg.Literal(JsonPrimitive(SANDBOX_SWITCH)), "verb" to StepArg.Literal(JsonPrimitive("on")))),
+								listOf(step("device_set", "device" to StepArg.Literal(JsonPrimitive(SANDBOX_DEVICE)), "verb" to StepArg.Literal(JsonPrimitive("on")))),
 							),
 						),
 						default = listOf(
 							FunctionStep.If(
-								`when` = "event.repository == \"switchboard\"",
+								condition = "event.repository == \"switchboard\"",
 								steps = listOf(step("tell_assistant", "when" to StepArg.Literal(JsonPrimitive("quietly")))),
 								`else` = listOf(
 									FunctionStep.If(
-										`when` = "event.type == \"Release\"",
+										condition = "event.type == \"Release\"",
 										steps = listOf(step("tell_assistant", "when" to StepArg.Literal(JsonPrimitive("now")))),
 									),
 								),
@@ -364,11 +366,11 @@ internal class SandboxAutomationGateway(
 					),
 				),
 			)),
-			SANDBOX_MOVING_FUNCTION to (1L to AutomationFunction(
+			SANDBOX_CHANGING_FUNCTION to (1L to AutomationFunction(
 				name = "Night lamp",
 				params = emptyList(),
 				steps = listOf(
-					step("device_set", "device" to StepArg.Literal(JsonPrimitive(SANDBOX_SWITCH)), "verb" to StepArg.Literal(JsonPrimitive("off"))),
+					step("device_set", "device" to StepArg.Literal(JsonPrimitive(SANDBOX_DEVICE)), "verb" to StepArg.Literal(JsonPrimitive("off"))),
 				),
 			)),
 		)
@@ -377,7 +379,7 @@ internal class SandboxAutomationGateway(
 	/** Unreferenced functions stay unlisted. */
 	private fun functionRows(gatewayId: String): List<AutomationFunctionRow> = functions(gatewayId).mapNotNull { (id, held) ->
 		val users = shelf(gatewayId).filter { pointerOf(it.automation) == id }
-		val callers = functions(gatewayId).filter { (other, body) -> other != id && id in callsOf(body.second) }.keys.toList()
+		val callers = functions(gatewayId).filter { (other, body) -> other != id && id in functionsRunBy(body.second) }.keys.toList()
 		if (users.isEmpty() && callers.isEmpty()) return@mapNotNull null
 		AutomationFunctionRow(
 			id,
@@ -419,9 +421,9 @@ internal class SandboxAutomationGateway(
 						at = now() - HOUR_MS,
 						revision = 1L,
 						steps = listOf(
-							AutomationLastStep("0", "run_function", outcome = Protocol.Wire.RunOutcome.REFUSED.wire, reason = "its function failed", startMs = 0, endMs = 600_000),
-							AutomationLastStep("0.0", "tell_assistant", outcome = "ran", function = "too-warm", startMs = 0, endMs = 200),
-							AutomationLastStep("0.1", "device_set", outcome = Protocol.Wire.RunOutcome.REFUSED.wire, reason = "it could not be reached", function = "too-warm", startMs = 200, endMs = 600_000),
+							AutomationLastStep("0", "run_function", outcome = Protocol.Wire.RunOutcome.FAILED.wire, reason = "its function failed", startMs = 0, endMs = 600_000),
+							AutomationLastStep("0.0", "tell_assistant", outcome = Protocol.Wire.RunOutcome.DONE.wire, function = "too-warm", startMs = 0, endMs = 200),
+							AutomationLastStep("0.1", "device_set", outcome = Protocol.Wire.RunOutcome.FAILED.wire, reason = "it could not be reached", function = "too-warm", startMs = 200, endMs = 600_000),
 						),
 						running = false,
 					),
@@ -436,9 +438,9 @@ internal class SandboxAutomationGateway(
 						at = now() - 3 * HOUR_MS,
 						revision = 1L,
 						steps = listOf(
-							AutomationLastStep("0", "run_function", outcome = "ran", startMs = 0, endMs = 900),
-							AutomationLastStep("0.0", "tell_assistant", outcome = "ran", function = "too-warm", startMs = 0, endMs = 300),
-							AutomationLastStep("0.1", "device_set", outcome = "ran", function = "too-warm", startMs = 300, endMs = 900),
+							AutomationLastStep("0", "run_function", outcome = Protocol.Wire.RunOutcome.DONE.wire, startMs = 0, endMs = 900),
+							AutomationLastStep("0.0", "tell_assistant", outcome = Protocol.Wire.RunOutcome.DONE.wire, function = "too-warm", startMs = 0, endMs = 300),
+							AutomationLastStep("0.1", "device_set", outcome = Protocol.Wire.RunOutcome.DONE.wire, function = "too-warm", startMs = 300, endMs = 900),
 						),
 						running = false,
 					),
@@ -448,7 +450,7 @@ internal class SandboxAutomationGateway(
 					AutomationTrigger.Time("19:00", (1L..7L).toList(), "America/Los_Angeles"),
 					"blink",
 					"Every day at 19:00",
-					mapOf("lamp" to SANDBOX_SWITCH, "message" to "Good night"),
+					mapOf("lamp" to SANDBOX_DEVICE, "message" to "Good night"),
 				).copy(
 					lastRun = AutomationLastRun(
 						at = now() - 90_000,
@@ -466,17 +468,17 @@ internal class SandboxAutomationGateway(
 					AutomationTrigger.Time("07:00", (1L..7L).toList(), "America/Los_Angeles"),
 					"blink",
 					"Every day at 07:00",
-					mapOf("lamp" to SANDBOX_SWITCH, "message" to "Good morning"),
+					mapOf("lamp" to SANDBOX_DEVICE, "message" to "Good morning"),
 				),
-				pointing("lamp-off", AutomationTrigger.Time("23:00", (1L..7L).toList(), "America/Los_Angeles"), SANDBOX_MOVING_FUNCTION, "Every day at 23:00"),
+				pointing("lamp-off", AutomationTrigger.Time("23:00", (1L..7L).toList(), "America/Los_Angeles"), SANDBOX_CHANGING_FUNCTION, "Every day at 23:00"),
 				pointing("by-reason", AutomationTrigger.Event("github", emptyList()), "fn-reason", "GitHub: every event").copy(
 					lastRun = AutomationLastRun(
 						at = now() - 30 * MINUTE_MS,
 						revision = 1L,
 						steps = listOf(
-							AutomationLastStep("0", "run_function", outcome = "ran"),
-							AutomationLastStep("0.0", "switch", outcome = "ran", case = 1L, function = "fn-reason"),
-							AutomationLastStep("0.0.1.0", "device_set", outcome = "ran", function = "fn-reason"),
+							AutomationLastStep("0", "run_function", outcome = Protocol.Wire.RunOutcome.DONE.wire),
+							AutomationLastStep("0.0", "switch", outcome = Protocol.Wire.RunOutcome.DONE.wire, case = 1L, function = "fn-reason"),
+							AutomationLastStep("0.0.1.0", "device_set", outcome = Protocol.Wire.RunOutcome.DONE.wire, function = "fn-reason"),
 						),
 						running = false,
 					),
@@ -491,12 +493,12 @@ internal class SandboxAutomationGateway(
 						at = now() - 2 * HOUR_MS,
 						revision = 1L,
 						steps = listOf(
-							AutomationLastStep("0", "run_function", outcome = "ran"),
-							AutomationLastStep("0.0", "if", outcome = "ran", side = "else", function = "fn-humid"),
-							AutomationLastStep("0.0.1.0", "tell_assistant", outcome = "ran", function = "fn-humid"),
-							AutomationLastStep("0.1", "try", outcome = "ran", function = "fn-humid"),
-							AutomationLastStep("0.1.0.0", "device_set", outcome = Protocol.Wire.RunOutcome.REFUSED.wire, reason = "it was refused", function = "fn-humid"),
-							AutomationLastStep("0.1.1.0", "tell_assistant", outcome = "ran", function = "fn-humid"),
+							AutomationLastStep("0", "run_function", outcome = Protocol.Wire.RunOutcome.DONE.wire),
+							AutomationLastStep("0.0", "if", outcome = Protocol.Wire.RunOutcome.DONE.wire, side = "else", function = "fn-humid"),
+							AutomationLastStep("0.0.1.0", "tell_assistant", outcome = Protocol.Wire.RunOutcome.DONE.wire, function = "fn-humid"),
+							AutomationLastStep("0.1", "try", outcome = Protocol.Wire.RunOutcome.DONE.wire, function = "fn-humid"),
+							AutomationLastStep("0.1.0.0", "device_set", outcome = Protocol.Wire.RunOutcome.FAILED.wire, reason = "it was refused", function = "fn-humid"),
+							AutomationLastStep("0.1.1.0", "tell_assistant", outcome = Protocol.Wire.RunOutcome.DONE.wire, function = "fn-humid"),
 						),
 						running = false,
 					),
@@ -528,7 +530,7 @@ internal class SandboxAutomationGateway(
 		) : SaveJudgment
 	}
 
-	private fun spanIssue(record: String, id: String?, span: AutomationHoleSpan, line: String) = AutomationIssue(
+	private fun spanIssue(record: String, id: String?, span: AutomationPlaceholderSpan, line: String) = AutomationIssue(
 		level = Protocol.Wire.AutomationIssueLevel.ERROR.wire,
 		record = record,
 		id = id,
@@ -541,9 +543,9 @@ internal class SandboxAutomationGateway(
 
 	/** Copy id stays unwritten. */
 	private fun issuesOf(automation: Automation, function: Pair<String, AutomationFunction>?, copied: Boolean = false): List<AutomationIssue> = buildList {
-		unreadHole(automation)?.let { (span, line) -> add(spanIssue(Protocol.Wire.AutomationSaveRecord.AUTOMATION.wire, null, span, line)) }
+		unreadPlaceholder(automation)?.let { (span, line) -> add(spanIssue(Protocol.Wire.AutomationSaveRecord.AUTOMATION.wire, null, span, line)) }
 		val (id, body) = function ?: return@buildList
-		unreadStepHole(body)?.let { (span, line) -> add(spanIssue(Protocol.Wire.AutomationSaveRecord.FUNCTION.wire, id.takeUnless { copied }, span, line)) }
+		unreadStepPlaceholder(body)?.let { (span, line) -> add(spanIssue(Protocol.Wire.AutomationSaveRecord.FUNCTION.wire, id.takeUnless { copied }, span, line)) }
 		if (!fitsFunction(automation, body)) {
 			add(AutomationIssue(level = Protocol.Wire.IssueCause.UNFIT.level.wire, record = Protocol.Wire.AutomationSaveRecord.AUTOMATION.wire, line = SANDBOX_UNFIT))
 		}
@@ -561,7 +563,7 @@ internal class SandboxAutomationGateway(
 			SaveJudgment.Refused(AutomationSaveRefusal(code = code, record = record, revision = revision))
 		val held = shelf(gatewayId).find { it.id == op.automationId }
 		val revision = held?.revision ?: 0L
-		if (revision != op.automationBase) return refused(Protocol.Wire.AutomationSaveRefusalCode.MOVED.wire, Protocol.Wire.AutomationSaveRecord.AUTOMATION.wire, revision)
+		if (revision != op.automationBase) return refused(Protocol.Wire.AutomationSaveRefusalCode.CHANGED.wire, Protocol.Wire.AutomationSaveRecord.AUTOMATION.wire, revision)
 		val bodies = functions(gatewayId)
 		var automation = op.automation
 		var landed: Pair<String, Pair<Long, AutomationFunction>>? = null
@@ -571,7 +573,7 @@ internal class SandboxAutomationGateway(
 			if (pointer != null) {
 				val stored = bodies[pointer]?.first ?: 0L
 				if (stored != op.functionBase) {
-					return refused(Protocol.Wire.AutomationSaveRefusalCode.MOVED.wire, Protocol.Wire.AutomationSaveRecord.FUNCTION.wire, stored)
+					return refused(Protocol.Wire.AutomationSaveRefusalCode.CHANGED.wire, Protocol.Wire.AutomationSaveRecord.FUNCTION.wire, stored)
 				}
 			}
 		}
@@ -579,12 +581,12 @@ internal class SandboxAutomationGateway(
 			null -> Unit
 			is AutomationSaveFunction.Edit -> {
 				val stored = bodies[function.id]?.first ?: 0L
-				if (stored != function.base) return refused(Protocol.Wire.AutomationSaveRefusalCode.MOVED.wire, Protocol.Wire.AutomationSaveRecord.FUNCTION.wire, stored)
+				if (stored != function.base) return refused(Protocol.Wire.AutomationSaveRefusalCode.CHANGED.wire, Protocol.Wire.AutomationSaveRecord.FUNCTION.wire, stored)
 				landed = function.id to (stored + 1 to function.body)
 			}
 			is AutomationSaveFunction.Copy -> {
 				val from = bodies[function.from] ?: return refused(Protocol.Wire.AutomationSaveRefusalCode.GONE.wire, Protocol.Wire.AutomationSaveRecord.FUNCTION.wire)
-				if (from.first != function.fromBase) return refused(Protocol.Wire.AutomationSaveRefusalCode.MOVED.wire, Protocol.Wire.AutomationSaveRecord.FUNCTION.wire, from.first)
+				if (from.first != function.fromBase) return refused(Protocol.Wire.AutomationSaveRefusalCode.CHANGED.wire, Protocol.Wire.AutomationSaveRecord.FUNCTION.wire, from.first)
 				val id = "copy-${copies + 1}"
 				landed = id to (1L to function.body)
 				copied = true
@@ -616,17 +618,17 @@ internal class SandboxAutomationGateway(
 		}
 	}
 
-	private fun moveFunctionOnFirstCheck(gatewayId: String, op: ConsoleOp.AutomationCheck) {
-		if (pointerOf(op.automation) != SANDBOX_MOVING_FUNCTION || gatewayId in movedFunctionChecks) return
-		val held = functions(gatewayId)[SANDBOX_MOVING_FUNCTION] ?: return
-		val moved = held.second.copy(
+	private fun changeFunctionOnFirstCheck(gatewayId: String, op: ConsoleOp.AutomationCheck) {
+		if (pointerOf(op.automation) != SANDBOX_CHANGING_FUNCTION || gatewayId in changedFunctionChecks) return
+		val held = functions(gatewayId)[SANDBOX_CHANGING_FUNCTION] ?: return
+		val changed = held.second.copy(
 			steps = listOf(
-				step("device_set", "device" to StepArg.Literal(JsonPrimitive(SANDBOX_SWITCH)), "verb" to StepArg.Literal(JsonPrimitive("off"))),
+				step("device_set", "device" to StepArg.Literal(JsonPrimitive(SANDBOX_DEVICE)), "verb" to StepArg.Literal(JsonPrimitive("off"))),
 				step("tell_assistant", "when" to StepArg.Literal(JsonPrimitive("quietly")), "message" to StepArg.Literal(JsonPrimitive("Lamp off for the night."))),
 			),
 		)
-		functions(gatewayId)[SANDBOX_MOVING_FUNCTION] = held.first + 1L to moved
-		movedFunctionChecks += gatewayId
+		functions(gatewayId)[SANDBOX_CHANGING_FUNCTION] = held.first + 1L to changed
+		changedFunctionChecks += gatewayId
 	}
 
 	private fun saveOf(op: ConsoleOp.AutomationCheck) = ConsoleOp.AutomationSave(
@@ -641,7 +643,7 @@ internal class SandboxAutomationGateway(
 	override suspend fun check(gatewayId: String, op: ConsoleOp.AutomationCheck): ConsoleAutomationCheckResult? {
 		pause()
 		if (gatewayId == SANDBOX_NEVER_REGISTERED || gatewayId == SECOND_SANDBOX_GATEWAY) return null
-		moveFunctionOnFirstCheck(gatewayId, op)
+		changeFunctionOnFirstCheck(gatewayId, op)
 		val save = saveOf(op)
 		val reads = functionFor(gatewayId, save)?.let(::sandboxReads)
 		return when (val judged = judge(gatewayId, save)) {
@@ -675,7 +677,7 @@ internal class SandboxAutomationGateway(
 				)
 				shelves[gatewayId] = if (judged.held == null) shelf(gatewayId) + row else shelf(gatewayId).map { if (it.id == op.automationId) row else it }
 				val running = shelf(gatewayId).mapNotNull { pointerOf(it.automation) }.toSet()
-				bodies.keys.retainAll(reachOver(running) { id -> bodies[id]?.second?.let(::callsOf).orEmpty() })
+				bodies.keys.retainAll(reachOver(running) { id -> bodies[id]?.second?.let(::functionsRunBy).orEmpty() })
 				return ConsoleAutomationSaveResult(
 					stored = true,
 					automation = withErrors(gatewayId, row),
@@ -693,48 +695,35 @@ internal class SandboxAutomationGateway(
 		functionOf: (String) -> AutomationFunction?,
 		heldFunctionOf: (String) -> AutomationFunction?,
 	): List<String> {
-		val known = held?.automation?.let { reached(it, heldFunctionOf) }.orEmpty().mapNotNull(::dangerKey).toSet()
-		val asks = reached(automation, functionOf).mapNotNull(::dangerKey).any { it !in known }
+		val known = held?.automation?.let { reached(it, heldFunctionOf) }.orEmpty().mapNotNull(::confirmKey).toSet()
+		val asks = reached(automation, functionOf).mapNotNull(::confirmKey).any { it !in known }
 		return if (asks) listOf("Send to IFTTT") else emptyList()
 	}
 
 	/** Keys as flat form. */
-	private fun dangerKey(entry: WalkEntry): String? {
+	private fun confirmKey(entry: WalkEntry): String? {
 		val args = when (entry) {
 			is WalkAction ->
 				if (kindOf(entry.action) != IFTTT) return null
 				else wireJson.encodeToJsonElement(AutomationAction.serializer(), entry.action).jsonObject.filterKeys { it != KIND }
-			is WalkStep -> when (val step = entry.step) {
-				is FunctionStep.Do -> if (step.action != IFTTT) return null else step.args.mapValues { (_, arg) -> literalOf(arg) ?: arg }
-				is FunctionStep.If -> return null
-				is FunctionStep.Switch -> return null
-				is FunctionStep.Try -> return null
-				is FunctionStep.Parallel -> return null
-				is FunctionStep.Start -> return null
-				is FunctionStep.Await -> return null
-				is FunctionStep.Exit -> return null
-				is FunctionStep.Throw -> return null
-				is FunctionStep.Let -> return null
-				is FunctionStep.Wait -> return null
-				is FunctionStep.Note -> return null
-				is FunctionStep.Unparsed -> return null
-				is FunctionStep.Call -> return null
-				is FunctionStep.Unknown -> return null
+			is WalkStep -> {
+				val step = entry.step as? FunctionStep.Action ?: return null
+				if (step.action != IFTTT) return null else step.args.mapValues { (_, arg) -> literalOf(arg) ?: arg }
 			}
-			is UnfollowedCall -> return null
+			is UnfollowedFunction -> return null
 		}
 		return args.toSortedMap().toString()
 	}
 
-	/** A hole nothing names. */
-	private fun unreadStepHole(function: AutomationFunction): Pair<AutomationHoleSpan, String>? {
+	/** A placeholder nothing names. */
+	private fun unreadStepPlaceholder(function: AutomationFunction): Pair<AutomationPlaceholderSpan, String>? {
 		val names = SANDBOX_SERVES.triggers.flatMap { it.names }.map { it.name }.toSet() + function.params.map { it.name }
 		written(function).forEachIndexed { at, step ->
-			val args = (step as? FunctionStep.Do)?.args ?: return@forEachIndexed
+			val args = (step as? FunctionStep.Action)?.args ?: return@forEachIndexed
 			for ((param, arg) in args) {
 				val text = (literalOf(arg) as? JsonPrimitive)?.takeIf { it.isString }?.content ?: continue
-				val hole = holesOf(text).firstOrNull { !it.closed || it.root() !in names } ?: continue
-				return AutomationHoleSpan(at.toLong(), param, hole.start.toLong(), hole.end.toLong()) to "no name ${hole.written(text)} here"
+				val placeholder = placeholdersOf(text).firstOrNull { !it.closed || it.root() !in names } ?: continue
+				return AutomationPlaceholderSpan(at.toLong(), param, placeholder.start.toLong(), placeholder.end.toLong()) to "no name ${placeholder.written(text)} here"
 			}
 		}
 		return null
@@ -745,13 +734,13 @@ internal class SandboxAutomationGateway(
 		val pointer = written(automation).singleOrNull() as? AutomationAction.RunFunction ?: return true
 		val kind = (wireJson.encodeToJsonElement(AutomationTrigger.serializer(), automation.trigger).jsonObject[KIND] as? JsonPrimitive)?.content.orEmpty()
 		val events = SourceFields(SANDBOX_FIELD_SPECS).fields.takeIf { kind == TRIGGER_EVENT }
-		val values = pointer.values.orEmpty().mapNotNull { (name, value) -> (value as? JsonPrimitive)?.let { name to it } }.toMap()
+		val args = pointer.args.orEmpty().mapNotNull { (name, value) -> (value as? JsonPrimitive)?.let { name to it } }.toMap()
 		val given = triggerGiven(kind, eventFields = events)
-		if (!fitOf(given, function.params, sandboxReads(function), values).fits) return false
+		if (!fitOf(given, function.params, sandboxReads(function), args).fits) return false
 		val fromTrigger = given.names.map { it.name }.toSet()
 		return function.params.filter { it.type == "device" && it.name !in fromTrigger }.all { param ->
-			val device = values[param.name]?.contentOrNull ?: return@all false
-			SANDBOX_SERVES.switches.any { it.device == device }
+			val device = args[param.name]?.contentOrNull ?: return@all false
+			SANDBOX_SERVES.devices.any { it.device == device }
 		}
 	}
 
@@ -772,7 +761,7 @@ internal class SandboxAutomationGateway(
 		if (asks.isNotEmpty() && !confirmed) {
 			return ConsoleAutomationPutResult(false, revision, held, "confirm what it does without asking", confirm = asks)
 		}
-		unreadHole(automation)?.let { (span, reason) -> return ConsoleAutomationPutResult(false, revision, held, reason, hole = span) }
+		unreadPlaceholder(automation)?.let { (span, reason) -> return ConsoleAutomationPutResult(false, revision, held, reason, placeholder = span) }
 		val clocked = automation.trigger is AutomationTrigger.Time || automation.trigger is AutomationTrigger.Interval
 		val row = AutomationRow(
 			automationId,
@@ -838,7 +827,7 @@ internal class SandboxAutomationGateway(
 		val held = shelf(gatewayId).find { it.id == automationId }
 			?: return AutomationRan.Refused(Protocol.Wire.AutomationRunRefusal.GONE)
 		if (!held.automation.enabled) return AutomationRan.Refused(Protocol.Wire.AutomationRunRefusal.OFF)
-		val steps = written(held.automation).indices.map { AutomationLastStep("$it", "action", outcome = Protocol.Wire.RunOutcome.RAN.wire) }
+		val steps = written(held.automation).indices.map { AutomationLastStep("$it", "action", outcome = Protocol.Wire.RunOutcome.DONE.wire) }
 		val ran = held.copy(lastRanAt = now(), lastRun = AutomationLastRun(now(), held.revision, steps, running = false))
 		shelves[gatewayId] = shelf(gatewayId).map { if (it.id == automationId) ran else it }
 		return AutomationRan.Started
@@ -851,7 +840,7 @@ internal class SandboxAutomationGateway(
 			AutomationPreviewName("source", "GitHub notifications"),
 		)
 		is AutomationTrigger.Crossing -> listOf(
-			AutomationPreviewName("value", "${fahrenheit(1.8)} °F"),
+			AutomationPreviewName("reading", "${fahrenheit(1.8)} °F"),
 			AutomationPreviewName("device", "Outside thermometer"),
 			AutomationPreviewName("measure", "Temperature"),
 			AutomationPreviewName("threshold", "${trigger.threshold} °C"),
@@ -860,45 +849,45 @@ internal class SandboxAutomationGateway(
 		is AutomationTrigger.Value, is AutomationTrigger.Unknown -> emptyList()
 	}
 
-	/** The first hole that is not one of the trigger's names. */
-	private fun unreadHole(automation: Automation): Pair<AutomationHoleSpan, String>? {
+	/** The first placeholder that is not one of the trigger's names. */
+	private fun unreadPlaceholder(automation: Automation): Pair<AutomationPlaceholderSpan, String>? {
 		val names = namesOf(automation.trigger).map { it.name }
 		written(automation).forEachIndexed { at, action ->
 			for ((param, held) in wireJson.encodeToJsonElement(AutomationAction.serializer(), action).jsonObject) {
 				val text = (held as? JsonPrimitive)?.takeIf { it.isString && param != "kind" }?.content ?: continue
-				val hole = holesOf(text).firstOrNull { !it.closed || it.name() !in names } ?: continue
-				return AutomationHoleSpan(at.toLong(), param, hole.start.toLong(), hole.end.toLong()) to "no name ${hole.written(text)} here"
+				val placeholder = placeholdersOf(text).firstOrNull { !it.closed || it.name() !in names } ?: continue
+				return AutomationPlaceholderSpan(at.toLong(), param, placeholder.start.toLong(), placeholder.end.toLong()) to "no name ${placeholder.written(text)} here"
 			}
 		}
 		return null
 	}
 
-	/** Matches titles by each value; a text fills only a hole that is one name. */
+	/** Matches titles by each value; a template fills only a placeholder that is one name. */
 	override suspend fun preview(gatewayId: String, ask: ConsoleOp.AutomationPreview): ConsoleAutomationPreviewResult? {
 		val trigger = ask.trigger
 		val text = ask.text
 		val params = ask.params
-		val values = ask.values
+		val args = ask.args
 		pause()
 		if (gatewayId == SANDBOX_NEVER_REGISTERED || gatewayId == SECOND_SANDBOX_GATEWAY) return null
 		val names = namesOf(trigger) + params.orEmpty().map { param ->
-			val value = (values?.get(param.name) as? JsonPrimitive)?.contentOrNull.orEmpty()
-			val shown = if (param.type == "device") SANDBOX_SERVES.switches.find { it.device == value }?.name ?: value else value
+			val value = (args?.get(param.name) as? JsonPrimitive)?.contentOrNull.orEmpty()
+			val shown = if (param.type == "device") SANDBOX_SERVES.devices.find { it.device == value }?.name ?: value else value
 			AutomationPreviewName(param.name, shown)
 		}
 		val parts = text?.let(::lexConsoleText).orEmpty()
-		val unread = parts.filterIsInstance<ConsoleStringPart.Hole>().firstOrNull { hole ->
-			!hole.closed || names.none { it.name == hole.name() }
+		val unread = parts.filterIsInstance<ConsoleStringPart.Placeholder>().firstOrNull { placeholder ->
+			!placeholder.closed || names.none { it.name == placeholder.name() }
 		}
-		val hole = unread?.let {
-			AutomationPreviewHole(it.start.toLong(), it.end.toLong(), "no name ${it.written(text.orEmpty())} here")
+		val placeholder = unread?.let {
+			AutomationPreviewPlaceholder(it.start.toLong(), it.end.toLong(), "no name ${it.written(text.orEmpty())} here")
 		}
-		val filled = text?.takeIf { hole == null }?.let {
+		val filled = text?.takeIf { placeholder == null }?.let {
 			parts.joinToString("") { part ->
 				when (part) {
 					is ConsoleStringPart.Text -> part.value
 					is ConsoleStringPart.Escape -> part.value
-					is ConsoleStringPart.Hole -> names.first { it.name == part.name() }.shown
+					is ConsoleStringPart.Placeholder -> names.first { it.name == part.name() }.shown
 				}
 			}
 		}
@@ -916,7 +905,7 @@ internal class SandboxAutomationGateway(
 			matches = if (event) matches else emptyList(),
 			names = names,
 			filled = filled,
-			hole = hole,
+			placeholder = placeholder,
 			condition = ask.condition?.let { sandboxCondition(it, names) },
 		)
 	}
@@ -935,19 +924,18 @@ private fun sandboxCompare(source: String): SandboxCompare? {
 	return SandboxCompare(name.text, operator.text, if (negative) -number else number)
 }
 
-/** Booleans and numeric comparisons. */
+private const val NEITHER = "the newest event makes it neither true nor false"
+
+/** Booleans and numeric comparisons say nothing; a bare known name warns. */
 private fun sandboxCondition(condition: String, names: List<AutomationPreviewName>): AutomationPreviewCondition {
 	val tokens = lexConsole(condition)
 	val constant = tokens.singleOrNull()?.takeIf { it.kind == ConsoleTokenKind.KEYWORD && it.text != "null" }
-	if (constant != null) return AutomationPreviewCondition(holds = constant.text == "true")
+	if (constant != null) return AutomationPreviewCondition()
 	val compare = sandboxCompare(condition)
-	val shown = compare?.let { match -> names.find { it.name == match.name }?.shown?.takeWhile { it == '-' || it == '.' || it.isDigit() }?.toDoubleOrNull() }
-	if (compare != null && shown != null) {
-		return AutomationPreviewCondition(holds = if (compare.operator == ">") shown > compare.number else shown < compare.number)
-	}
+	if (compare != null && names.any { it.name == compare.name }) return AutomationPreviewCondition()
 	val read = everyToken(tokens).filter { it.kind == ConsoleTokenKind.IDENT }
 	if (read.any { token -> names.any { it.name == token.text } }) {
-		return AutomationPreviewCondition(unread = "it cannot be read now")
+		return AutomationPreviewCondition(warning = NEITHER)
 	}
 	val unknown = read.firstOrNull()
 	val start = unknown?.start ?: 0

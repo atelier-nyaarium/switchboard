@@ -148,7 +148,7 @@ fun <T> groupedView(registry: GatewayRegistry, entries: List<GatewayEntry>, of: 
 fun emptyLine(empty: ListEmpty, noun: String): String = when (empty) {
 	ListEmpty.NoRoster -> "No roster yet"
 	ListEmpty.Reading -> "Reading $noun"
-	ListEmpty.Unreachable -> "No Gateway could be read"
+	ListEmpty.Unreachable -> "No Gateway could be reached."
 	is ListEmpty.NotServed -> "${empty.gatewayIds.joinToString(", ")} does not serve $noun"
 	ListEmpty.NoGateway -> "No Gateway to read"
 	ListEmpty.None -> "No $noun"

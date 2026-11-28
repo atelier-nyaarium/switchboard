@@ -1,5 +1,13 @@
 {
 	"ready": false,
-	"refusal": { "code": "moved", "record": "function", "revision": 4, "line": "revision 4 is stored" },
-	"reads": { "names": ["event", "room"], "eventFields": ["title"] }
+	"refusal": {
+		"code": "changed",
+		"record": "function",
+		"revision": 4,
+		"line": "revision 4 is stored"
+	},
+	"reads": {
+		"names": ["event", "room"],
+		"eventFields": ["title"]
+	}
 }

@@ -4,8 +4,8 @@
 	},
 	"queue": { "lastAt": 0, "events": [] },
 	"log": [
-		{ "automation": "lamp-off", "seq": 0, "at": 5600000, "outcome": "uncertain", "reason": "missed 1 slot" },
-		{ "automation": "lamp-off", "seq": 0, "at": 5600000, "outcome": "ran", "action": "device_set" }
+		{ "automation": "lamp-off", "seq": 0, "at": 5600000, "outcome": "unsure", "reason": "missed 1 slot" },
+		{ "automation": "lamp-off", "seq": 0, "at": 5600000, "outcome": "done", "action": "device_set" }
 	],
 	"ran": { "lamp-off": 5600000 },
 	"fires": [
@@ -60,12 +60,12 @@
 		"warm:inc-warm:1": {
 			"enabled": true,
 			"trigger": { "kind": "interval", "everyMin": 60 },
-			"keepTryingMin": 60,
+			"retryForMin": 60,
 			"actions": [
 				{
 					"kind": "run_function",
 					"function": "warm-up",
-					"values": { "room": "aa:bb:cc:dd:ee:02" }
+					"args": { "room": "aa:bb:cc:dd:ee:02" }
 				}
 			]
 		}
@@ -76,7 +76,7 @@
 			"params": [{ "name": "room", "type": "device" }],
 			"steps": [
 				{
-					"kind": "do",
+					"kind": "action",
 					"action": "device_set",
 					"args": {
 						"device": { "kind": "expression", "text": "room" },
@@ -84,7 +84,7 @@
 					}
 				},
 				{
-					"kind": "do",
+					"kind": "action",
 					"action": "tell_assistant",
 					"args": {
 						"when": { "kind": "literal", "value": "quietly" },

@@ -22,7 +22,9 @@ const LANGUAGE = SOURCES.filter(
 	(file) =>
 		file.startsWith("src/gateway/liveConsole/") ||
 		file.startsWith("src/gateway/computed/") ||
-		/^src\/shared\/(live-console-grammar|script-grammar|script-types|text-holes|automation-fit)\.ts$/.test(file),
+		/^src\/shared\/(live-console-grammar|script-grammar|script-types|text-placeholders|automation-fit)\.ts$/.test(
+			file,
+		),
 );
 
 const GRAMMAR = "src/shared/live-console-grammar.ts";
@@ -33,8 +35,8 @@ const LEXES: Record<string, readonly string[]> = {
 	[GRAMMAR]: ["lexConsole", "lexConsoleText"],
 	// A script's statements.
 	[SCRIPT]: ["lexScript"],
-	// Whether a text holds a hole, and a text with its holes unread.
-	"src/shared/text-holes.ts": ["lexConsoleText"],
+	// Placeholder presence, unread text.
+	"src/shared/text-placeholders.ts": ["lexConsoleText"],
 };
 
 const CALL = /\b(lexConsole|lexConsoleText|lexScript)\(/g;
@@ -47,7 +49,7 @@ const QUOTE = new RegExp(
 const COUNTED = /\b(?:depth|open|nest|level)\s*(?:\+\+|--|[+-]=\s*1)|(?:\+\+|--)(?:depth|open|nest|level)\b/;
 /** Space decided apart from the lexer. */
 const SPACED = /\.trim(?:Start|End)?\(\)/;
-/** A hole's own source, read apart from its text. */
+/** A placeholder's own source. */
 const SLICED = /\b(?:part|hole|piece)\.source\b/;
 /** The scanners this language once had. */
 const GONE = /\b(?:scanScript|splitTop|holeEnd|canonicalRun|ScriptPiece)\b|\b(?:readText|printText|unfilled)\(/;
@@ -89,7 +91,7 @@ describe("one lexer and one parser read the language", () => {
 
 	it("reads an expression's own span from the lexer, never by trimming", () => {
 		// Where source of this language is cut to its tokens.
-		const cutters = ["src/gateway/computed/automationScript.ts", "src/gateway/liveConsole/holes.ts"];
+		const cutters = ["src/gateway/computed/automationScript.ts", "src/gateway/liveConsole/placeholders.ts"];
 
 		expect(cutters.filter((file) => SPACED.test(read(file)))).toEqual([]);
 	});
@@ -116,9 +118,9 @@ describe("one lexer and one parser read the language", () => {
 		[`${PHONE}/liveconsole/ConsoleRules.kt`]: ["lexConsole", "lexConsoleText", "lexScript"],
 		// Hints and completions.
 		[`${PHONE}/liveconsole/ConsoleAssist.kt`]: ["lexConsole", "lexConsoleText", "lexScript"],
-		// Where the cursor's hole is, its close and its gap.
-		[`${PHONE}/assistant/HoleTextRules.kt`]: ["lexConsoleText"],
-		// Whether a text holds a hole.
+		// Cursor placeholder, close, gap.
+		[`${PHONE}/assistant/TextPageRules.kt`]: ["lexConsoleText"],
+		// Placeholder presence.
 		[`${PHONE}/assistant/AutomationParts.kt`]: ["lexConsoleText"],
 		// A value that is one name.
 		[`${PHONE}/assistant/RunsDraft.kt`]: ["lexConsole"],
@@ -133,7 +135,7 @@ describe("one lexer and one parser read the language", () => {
 	const KOTLIN_QUOTE = /[!=]=\s*'(?:"|\\')'/;
 	const PHONE_LANGUAGE = (file: string) =>
 		file.startsWith(`${PHONE}/liveconsole/`) ||
-		file === `${PHONE}/assistant/HoleTextRules.kt` ||
+		file === `${PHONE}/assistant/TextPageRules.kt` ||
 		file === `${PHONE}/SandboxAutomations.kt`;
 
 	it("holds the phone to the same: its lexer's twin alone ends a string, and no pattern reads the language", () => {

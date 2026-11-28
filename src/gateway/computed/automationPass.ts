@@ -2,8 +2,8 @@
 
 import { below, byPath, caseSide, type RunFunction, within } from "../../shared/automation-walk.js";
 import { AUTOMATION_ACTIONS, type Automation, type AutomationAction } from "../../shared/schemasAutomation.js";
-import { FRAME_VARS_MAX, type FunctionStep, RUN_STRANDS_MAX } from "../../shared/schemasFunction.js";
-import { keptOf } from "../../shared/task-values.js";
+import { FRAME_VARIABLES_MAX, type FunctionStep, RUN_BRANCHES_MAX } from "../../shared/schemasFunction.js";
+import { storedOf } from "../../shared/task-values.js";
 import {
 	claim,
 	claimedPaths,
@@ -29,12 +29,12 @@ import {
 	type Address,
 	addressIn,
 	branchesOf,
+	branchOf,
 	type Ended,
 	type FailureCode,
 	type FrameMemory,
 	moved,
 	stepAt,
-	strandOf,
 	taskOf,
 } from "./automationFrames.js";
 import { NOT_HOME } from "./automationJudge.js";
@@ -81,7 +81,7 @@ export interface PassPorts {
 	enter(
 		fire: Fire,
 		path: string,
-		call: RunFunction,
+		runFunction: RunFunction,
 	): { fire: Fire; first: string } | { refused: string; code?: FailureCode };
 	/** The steps the frame at `site` runs. */
 	frameBody(fire: Fire, site: string): readonly FunctionStep[] | null;
@@ -91,13 +91,13 @@ export interface PassPorts {
 	kindAt(fire: Fire, path: string): string | undefined;
 	/** Its values are still to read. */
 	unreadAt(fire: Fire, path: string): boolean;
-	/** A tell's written message, when it had holes. */
+	/** A tell's written message, when it had placeholders. */
 	noteAt(fire: Fire, path: string): string | null;
 	/** The lane told it already. */
 	laneTold(fire: Fire, path: string): boolean;
 	errorAt(fire: Fire, path: string): boolean;
 	windowOf(fire: Fire): number;
-	callAt(body: Automation, path: string): RunFunction | null;
+	pointerAt(body: Automation, path: string): RunFunction | null;
 	ready(action: AutomationAction): boolean;
 	sentenceOf(body: Automation): string;
 	withMessage(
@@ -129,15 +129,15 @@ export interface PassResult {
 
 type Tell = Extract<AutomationAction, { kind: "tell_assistant" }>;
 const TELL_KIND: Tell["kind"] = "tell_assistant";
-const CALL_KIND: RunFunction["kind"] = "run_function";
+const RUN_FUNCTION_KIND: RunFunction["kind"] = "run_function";
 
-export const NEWER_SET = "a newer setting of this switch landed first";
+export const NEWER_SET = "a newer setting of this device landed first";
 /** A step whose kind its body no longer names. */
 const UNKNOWN_KIND = "unknown";
 export const FRAME_UNREAD = "the function it ran could not be read";
-export const CALL_FAILED = "a step in it failed";
-export const TOO_MANY_BESIDE = `more than ${RUN_STRANDS_MAX} steps would run at once`;
-export const TOO_MANY_KEPT = `more than ${FRAME_VARS_MAX} values would be kept`;
+export const FUNCTION_FAILED = "a step in it failed";
+export const TOO_MANY_IN_FLIGHT = `more than ${RUN_BRANCHES_MAX} steps would run at once`;
+export const TOO_MANY_VARIABLES = `more than ${FRAME_VARIABLES_MAX} variables`;
 export const SCRIPT_ERRORS = "its script has errors";
 /** Fixed text protects values. */
 export const STEP_ERRORS = "this step has errors";
@@ -151,7 +151,7 @@ export const droppedRows = (log: Log, dropped: Dropped, now: number, unowned: Fi
 	for (const [owner, count] of dropped) {
 		const reason = `dropped ${count} older quiet event${count === 1 ? "" : "s"} for room`;
 		const by = owner === null ? unowned : { automation: owner, seq: 0, at: now };
-		if (by) next = logged(next, tellRow(by, "suppressed", reason));
+		if (by) next = logged(next, tellRow(by, "skipped", reason));
 	}
 	return next;
 };
@@ -170,7 +170,7 @@ export function createPass(ports: PassPorts): {
 	endedRow(fire: Fire, path: string, step: Step, reason?: string): LogRow;
 	/** A row for the step at `path`, whatever stands it. */
 	rowAt(fire: Fire, path: string, outcome: LogRow["outcome"], reason: string): LogRow;
-	/** Strand root, if any. */
+	/** Branch root, if any. */
 	rootOf(fire: Fire, path: string): string | null;
 } {
 	/** A retiring fire never retries, so it has none. */
@@ -183,7 +183,7 @@ export function createPass(ports: PassPorts): {
 	const functionAt = (fire: Fire, path: string): string | undefined => {
 		const site = siteIn(fire, path) ?? path;
 		const body = ports.bodyOf(fire);
-		return fire.frames?.[site]?.function ?? (body ? ports.callAt(body, site)?.function : undefined);
+		return fire.frames?.[site]?.function ?? (body ? ports.pointerAt(body, site)?.function : undefined);
 	};
 	const kindAt = (fire: Fire, path: string): string => ports.kindAt(fire, path) ?? UNKNOWN_KIND;
 	const placeOf = (fire: Fire, path: string) => ({
@@ -323,25 +323,25 @@ export function createPass(ports: PassPorts): {
 				return { how: "took", side: step.case === undefined ? null : caseSide(step.case) };
 			case "try":
 				return { how: "took", side: "try" };
-			case "exit":
-				return { how: "exit" };
-			case "do":
+			case "return":
+				return { how: "return" };
+			case "action":
 			case "parallel":
 			case "start":
 			case "await":
 			case "throw":
-			case "let":
+			case "variable":
 			case "wait":
-			case "note":
+			case "comment":
 			case "unparsed":
-			case "call":
+			case "run_function":
 				return { how: "done" };
 			default:
 				return kind satisfies never;
 		}
 	};
 
-	/** Strand root across calls. */
+	/** Branch root across functions. */
 	const rootOf = (fire: Fire, path: string): string | null => {
 		let at = path;
 		for (;;) {
@@ -349,22 +349,22 @@ export function createPass(ports: PassPorts): {
 			if (site === null) return null;
 			const body = ports.frameBody(fire, site);
 			const address = body ? addressIn(body, below(at, site)) : null;
-			const root = address ? strandOf(address) : null;
+			const root = address ? branchOf(address) : null;
 			if (root) return within(site, root);
 			at = site;
 		}
 	};
 
-	/** Strand-local failure memory. */
+	/** Branch-local failure memory. */
 	const memoryOf = (frame: Frame, site: string, address: Address): FrameMemory => {
-		const root = strandOf(address);
-		const failed = root ? frame.strands?.[within(site, root)] : frame.failed;
+		const root = branchOf(address);
+		const failed = root ? frame.branches?.[within(site, root)] : frame.failed;
 		return failed ? { failed } : {};
 	};
 
 	const remembered = (frame: Frame, site: string, address: Address, memory: FrameMemory): Frame => {
 		if (!memory.failed) return frame;
-		const root = strandOf(address);
+		const root = branchOf(address);
 		if (!root) return { ...frame, failed: memory.failed };
 		const { code, message, errors } = memory.failed;
 		const failed = {
@@ -372,16 +372,16 @@ export function createPass(ports: PassPorts): {
 			message,
 			...(errors ? { errors: errors.map(({ code, message }) => ({ code, message })) } : {}),
 		};
-		return { ...frame, strands: { ...frame.strands, [within(site, root)]: failed } };
+		return { ...frame, branches: { ...frame.branches, [within(site, root)]: failed } };
 	};
 
-	/** Opens a call's frame, or ends the call refused. */
+	/** Opens a function's frame, or ends its step refused. */
 	const entering = (
 		held: Fire,
 		rows: Log,
 		path: string,
 		step: Step,
-		call: RunFunction,
+		runFunction: RunFunction,
 	): { fire: Fire; log: Log; first?: string } => {
 		const refuse = (reason: string, code?: FailureCode) => {
 			const ended = code ? failedAs(step, code, reason) : saying(refusedUnsent(step), reason);
@@ -389,13 +389,13 @@ export function createPass(ports: PassPorts): {
 			return { fire, log: logged(rows, endedRow(fire, path, ended, reason)) };
 		};
 		if (held.frames?.[path]) return refuse(FRAME_UNREAD);
-		const entered = ports.enter(held, path, call);
+		const entered = ports.enter(held, path, runFunction);
 		return "refused" in entered
 			? refuse(entered.refused, entered.code)
 			: { fire: entered.fire, log: rows, first: entered.first };
 	};
 
-	/** One cursor per strand. */
+	/** One cursor per branch. */
 	const advance = (
 		start: Fire,
 		held: Pick<State, "log">,
@@ -425,13 +425,16 @@ export function createPass(ports: PassPorts): {
 		};
 
 		/** False when the frame is full. */
-		const keep = (site: string, name: string | undefined, value: Record<string, unknown>): boolean => {
+		const setVariable = (site: string, name: string | undefined, value: Record<string, unknown>): boolean => {
 			if (name === undefined) return true;
 			const frame = fire.frames?.[site];
 			if (!frame) return false;
-			const vars = { ...frame.vars, [name]: value as Frame["vars"] extends infer V ? V[keyof V] : never };
-			if (Object.keys(vars).length > FRAME_VARS_MAX) return false;
-			fire = { ...fire, frames: { ...fire.frames, [site]: { ...frame, vars } } };
+			const variables = {
+				...frame.variables,
+				[name]: value as Frame["variables"] extends infer V ? V[keyof V] : never,
+			};
+			if (Object.keys(variables).length > FRAME_VARIABLES_MAX) return false;
+			fire = { ...fire, frames: { ...fire.frames, [site]: { ...frame, variables } } };
 			return true;
 		};
 
@@ -439,10 +442,10 @@ export function createPass(ports: PassPorts): {
 			const step = fire.steps[path] as Step;
 			const site = siteIn(fire, path);
 			const frame = site === null ? undefined : fire.frames?.[site];
-			const failure = frame?.strands?.[path];
+			const failure = frame?.branches?.[path];
 			if (frame && failure) {
-				const { [path]: _taken, ...strands } = frame.strands ?? {};
-				fire = { ...fire, frames: { ...fire.frames, [site as string]: { ...frame, strands } } };
+				const { [path]: _taken, ...branches } = frame.branches ?? {};
+				fire = { ...fire, frames: { ...fire.frames, [site as string]: { ...frame, branches } } };
 			}
 			const order = { ended: nextEnded(fire.steps) };
 			const ended = failure ? failedAs(step, failure.code, failure.message, failure.errors) : steered(step);
@@ -471,14 +474,14 @@ export function createPass(ports: PassPorts): {
 		};
 
 		const endFrame = (site: string): void => {
-			const call = fire.steps[site];
+			const runs = fire.steps[site];
 			const failure = fire.frames?.[site]?.failed ?? unawaited(site);
-			if (!call || isEnded(call)) return;
-			if (!failure) fire = withStep(fire, site, heard(call, null, "done", at.now));
+			if (!runs || isEnded(runs)) return;
+			if (!failure) fire = withStep(fire, site, heard(runs, null, "done", at.now));
 			else {
-				const ended = failedAs(call, "call_failed", failure.message);
+				const ended = failedAs(runs, "function_failed", failure.message);
 				fire = withStep(fire, site, ended);
-				log = logged(log, endedRow(fire, site, ended, CALL_FAILED));
+				log = logged(log, endedRow(fire, site, ended, FUNCTION_FAILED));
 			}
 			queue.unshift(site);
 		};
@@ -495,18 +498,18 @@ export function createPass(ports: PassPorts): {
 				return;
 			}
 			const roots = branchesOf(body, address).map((each) => within(site, each));
-			const errors = roots.flatMap((root) => frame.strands?.[root] ?? []);
-			const strands = Object.fromEntries(
-				Object.entries(frame.strands ?? {}).filter(([root]) => !roots.includes(root)),
+			const errors = roots.flatMap((root) => frame.branches?.[root] ?? []);
+			const branches = Object.fromEntries(
+				Object.entries(frame.branches ?? {}).filter(([root]) => !roots.includes(root)),
 			);
-			fire = { ...fire, frames: { ...fire.frames, [site]: { ...frame, strands } } };
+			fire = { ...fire, frames: { ...fire.frames, [site]: { ...frame, branches } } };
 			if (errors.length === 0) {
 				fire = withStep(fire, path, steered(step));
 				queue.unshift(path);
 				return;
 			}
 			const reason = `${errors.length} of ${roots.length} failed`;
-			end(path, failedAs(step, "together", reason, errors), reason);
+			end(path, failedAs(step, "parallel", reason, errors), reason);
 		};
 
 		/** Close exhausted owners. */
@@ -517,8 +520,8 @@ export function createPass(ports: PassPorts): {
 				const step = fire.steps[owner];
 				if (!step || isEnded(step)) continue;
 				const frame = fire.frames?.[owner] !== undefined;
-				const kind = frame ? "call" : ports.kindAt(fire, owner);
-				if (kind !== "call" && kind !== "parallel" && kind !== "start") continue;
+				const kind = frame ? "run_function" : ports.kindAt(fire, owner);
+				if (kind !== "run_function" && kind !== "parallel" && kind !== "start") continue;
 				if (beneath(owner)) return;
 				// Task end moves no cursor.
 				if (kind === "start") {
@@ -543,8 +546,8 @@ export function createPass(ports: PassPorts): {
 					if ((list[index] as string).startsWith(`${site}.`)) list.splice(index, 1);
 				}
 			}
-			const call = fire.steps[site];
-			if (call && !isEnded(call)) end(site, failedAs(call, "refused", FRAME_UNREAD), FRAME_UNREAD);
+			const runs = fire.steps[site];
+			if (runs && !isEnded(runs)) end(site, failedAs(runs, "refused", FRAME_UNREAD), FRAME_UNREAD);
 		};
 
 		const leave = (path: string, step: Step | Ended): void => {
@@ -586,14 +589,14 @@ export function createPass(ports: PassPorts): {
 				waiting.push(path);
 				return;
 			}
-			const enter = (call: RunFunction): void => {
-				const entered = entering(fire, log, path, step, call);
+			const enter = (runFunction: RunFunction): void => {
+				const entered = entering(fire, log, path, step, runFunction);
 				({ fire, log } = entered);
 				queue.unshift(entered.first ?? path);
 			};
 			const body = ports.bodyOf(fire);
 			const site = siteIn(fire, path);
-			const pointer = body && site === null ? ports.callAt(body, path) : null;
+			const pointer = body && site === null ? ports.pointerAt(body, path) : null;
 			if (pointer) {
 				enter(pointer);
 				return;
@@ -611,10 +614,10 @@ export function createPass(ports: PassPorts): {
 				at.unread.push({ member: fire.member, path });
 				waiting.push(path);
 			};
-			if (kind === "call") {
-				// Its values are read first.
-				const called = ports.actionOf(fire, path);
-				if (called?.kind === CALL_KIND) enter(called);
+			if (kind === "run_function") {
+				// Its arguments are read first.
+				const runs = ports.actionOf(fire, path);
+				if (runs?.kind === RUN_FUNCTION_KIND) enter(runs);
 				else unread();
 				return;
 			}
@@ -623,16 +626,15 @@ export function createPass(ports: PassPorts): {
 				if (branches.length === 0) {
 					fire = withStep(fire, path, steered(step));
 					queue.unshift(path);
-				} else if (queue.length + waiting.length + branches.length > RUN_STRANDS_MAX) {
-					end(path, refusedUnsent(step), TOO_MANY_BESIDE);
+				} else if (queue.length + waiting.length + branches.length > RUN_BRANCHES_MAX) {
+					end(path, refusedUnsent(step), TOO_MANY_IN_FLIGHT);
 				} else {
 					const fresh = Object.fromEntries(branches.map((to) => [to, fire.steps[to] ?? FRESH_STEP]));
-					// Old builds reject `strands`.
 					const frame = fire.frames?.[site] as Frame;
 					fire = {
 						...fire,
 						steps: { ...fire.steps, ...fresh },
-						frames: { ...fire.frames, [site]: { ...frame, strands: frame.strands ?? {} } },
+						frames: { ...fire.frames, [site]: { ...frame, branches: frame.branches ?? {} } },
 					};
 					// Wait for every branch.
 					queue.unshift(...branches);
@@ -642,12 +644,12 @@ export function createPass(ports: PassPorts): {
 			if (kind === "start" && tree && address && site !== null) {
 				const entry = taskOf(tree, address);
 				const as = (stepAt(tree, address) as { as?: string } | null)?.as;
-				if (entry && queue.length + waiting.length + 2 > RUN_STRANDS_MAX) {
-					end(path, refusedUnsent(step), TOO_MANY_BESIDE);
+				if (entry && queue.length + waiting.length + 2 > RUN_BRANCHES_MAX) {
+					end(path, refusedUnsent(step), TOO_MANY_IN_FLIGHT);
 					return;
 				}
-				if (!keep(site, as, keptOf(path))) {
-					end(path, refusedUnsent(step), TOO_MANY_KEPT);
+				if (!setVariable(site, as, storedOf(path))) {
+					end(path, refusedUnsent(step), TOO_MANY_VARIABLES);
 					return;
 				}
 				if (entry) {
@@ -656,8 +658,7 @@ export function createPass(ports: PassPorts): {
 					fire = {
 						...fire,
 						steps: { ...fire.steps, [to]: fire.steps[to] ?? FRESH_STEP },
-						// Old builds reject `strands`.
-						frames: { ...fire.frames, [site]: { ...frame, strands: frame.strands ?? {} } },
+						frames: { ...fire.frames, [site]: { ...frame, branches: frame.branches ?? {} } },
 					};
 					queue.unshift(to);
 				} else close(path, { ...steered(step), ended: nextEnded(fire.steps) });
@@ -676,8 +677,8 @@ export function createPass(ports: PassPorts): {
 					return;
 				}
 				const as = (tree && address ? (stepAt(tree, address) as { as?: string } | null) : null)?.as;
-				if (!keep(site, as, outcome.kept)) {
-					end(path, refusedUnsent(step), TOO_MANY_KEPT);
+				if (!setVariable(site, as, outcome.value)) {
+					end(path, refusedUnsent(step), TOO_MANY_VARIABLES);
 					return;
 				}
 				for (const task of outcome.seen) {
@@ -693,8 +694,8 @@ export function createPass(ports: PassPorts): {
 				end(path, failedAs(step, "unread", SCRIPT_ERRORS), SCRIPT_ERRORS);
 				return;
 			}
-			if (kind !== undefined && kind !== "do") {
-				if (kind === "try" || kind === "exit" || kind === "note") {
+			if (kind !== undefined && kind !== "action") {
+				if (kind === "try" || kind === "return" || kind === "comment") {
 					fire = withStep(fire, path, steered(step));
 					queue.unshift(path);
 				} else if (kind === "wait" && step.until !== undefined) {
@@ -729,7 +730,7 @@ export function createPass(ports: PassPorts): {
 				else if (told === "away") end(path, refusedUnsent(step), NOT_HOME);
 				else if (told === "late") end(path, expired(step));
 				else {
-					log = logged(log, stepRow(fire, placeOf(fire, path), "refused", QUEUE_FULL));
+					log = logged(log, stepRow(fire, placeOf(fire, path), "failed", QUEUE_FULL));
 					waiting.push(path);
 				}
 			} else if (!action || !isEffect(action)) end(path, refusedUnsent(step));
@@ -799,18 +800,18 @@ export function createPass(ports: PassPorts): {
 			const body = ports.bodyOf(fire) as Automation;
 			// skew:fire-tell: the one tell 8.14.87 stored for a whole fire, told as it stands.
 			if (fire.tell && !input.home) {
-				log = logged(log, tellRow(fire, "refused", NOT_HOME));
+				log = logged(log, tellRow(fire, "failed", NOT_HOME));
 				fire = untold(fire);
 			} else if (fire.tell) {
 				const { when, fields, fill } = fire.tell;
 				if (fill) {
-					log = logged(log, tellRow(fire, "uncertain", MESSAGE_UNREAD));
+					log = logged(log, tellRow(fire, "unsure", MESSAGE_UNREAD));
 					fire = { ...fire, tell: { when, fields } };
 				}
 				const entry = { member: fire.member, when, fields };
 				const room = told(queue, entry, ports.sentenceOf(body), input.now);
 				if (!room) {
-					if (!fire.waiting) log = logged(log, tellRow(fire, "refused", QUEUE_FULL));
+					if (!fire.waiting) log = logged(log, tellRow(fire, "failed", QUEUE_FULL));
 					fire = { ...fire, waiting: true };
 				} else {
 					queue = room.queue;
@@ -818,7 +819,7 @@ export function createPass(ports: PassPorts): {
 						dropped.set(owner, (dropped.get(owner) ?? 0) + count);
 						if (owner === null) droppedBy = fire;
 					}
-					log = logged(log, tellRow(fire, "ran", undefined));
+					log = logged(log, tellRow(fire, "done", undefined));
 					ran = { ...ran, [fire.automation]: fire.at };
 					queued = true;
 					fire = untold(fire);

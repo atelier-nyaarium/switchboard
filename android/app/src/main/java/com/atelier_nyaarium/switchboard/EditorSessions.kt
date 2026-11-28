@@ -75,7 +75,7 @@ internal fun <R, D> openingDraft(held: Lookup<R>?, fresh: () -> D, of: (R) -> D)
 /** What an editor with no record to open on says; null spins. */
 internal fun waitingLine(standing: EditStanding): String? = when (standing) {
 	EditStanding.GONE -> "Deleted elsewhere."
-	EditStanding.UNREACHABLE -> "This Gateway could not be read."
+	EditStanding.UNREACHABLE -> GATEWAY_UNREACHABLE
 	EditStanding.NOT_SERVED -> "This Gateway does not serve this."
 	EditStanding.READY, EditStanding.READING -> null
 }

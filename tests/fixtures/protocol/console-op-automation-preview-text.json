@@ -9,5 +9,5 @@
 		"deadZone": 0.5,
 		"coolDownSec": 90
 	},
-	"text": "It is {value} at {device}."
+	"text": "It is {reading} at {device}."
 }

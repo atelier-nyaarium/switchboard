@@ -7,30 +7,30 @@ import { composeAutomations } from "../gateway/compose/composeAutomations.js";
 import type { Fire } from "../gateway/computed/automationFires.js";
 import { type LastRuns, recorded } from "../gateway/computed/automationLastRun.js";
 import { QUEUE_FULL, QUEUE_MAX_EVENTS } from "../gateway/computed/automationOutbox.js";
-import { CALL_FAILED, SCRIPT_ERRORS, STEP_ERRORS, TOO_MANY_BESIDE } from "../gateway/computed/automationPass.js";
+import { FUNCTION_FAILED, SCRIPT_ERRORS, STEP_ERRORS, TOO_MANY_IN_FLIGHT } from "../gateway/computed/automationPass.js";
 import type { Attempt } from "../gateway/computed/automationRunner.js";
 import {
-	type AutomationHoles,
+	type AutomationPlaceholders,
 	CONDITION_UNREAD,
 	NEWER_SET,
 	NOT_TRUE_OR_FALSE,
 	STEP_UNFIT,
 	SUBJECT_UNREAD,
 	THROWN,
-	TOO_MANY_CALLS,
+	TOO_MANY_FUNCTIONS,
 	VALUE_TOO_LARGE,
 	VALUE_UNREAD,
 } from "../gateway/computed/automations.js";
 import { NO_TASK, WAITS_FOREVER } from "../gateway/computed/automationTasks.js";
 import {
-	CALL_LOOPS,
-	EXIT_BESIDE,
 	FUNCTION_GONE,
+	FUNCTION_LOOPS,
 	FUNCTION_UNREAD,
 	NAME_TAKEN,
+	RETURN_IN_BRANCH,
 	UNPARSED_ALONE,
 } from "../gateway/computed/automationValidity.js";
-import { holesOver } from "../gateway/liveConsole/holes.js";
+import { placeholdersOver } from "../gateway/liveConsole/placeholders.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { RUN_FRAMES_MAX, WALK_ENTRIES_MAX, widthOf } from "../shared/automation-walk.js";
 import { createRestoreRepairs } from "../shared/durable-store.js";
@@ -41,7 +41,7 @@ import {
 	FUNCTION_STEPS_TOTAL_MAX,
 	FunctionSchema,
 	FunctionStepsSchema,
-	RUN_STRANDS_MAX,
+	RUN_BRANCHES_MAX,
 	type StepArg,
 } from "../shared/schemasFunction.js";
 
@@ -59,14 +59,14 @@ const event: AutomationTrigger = { kind: "event", source: "github", conditions: 
 
 const lit = (value: string | number) => ({ kind: "literal" as const, value });
 const expr = (text: string) => ({ kind: "expression" as const, text });
-/** A text whose holes fill. */
-/** A quoted string with a hole: an expression. */
+/** A text whose placeholders fill. */
+/** A template: an expression. */
 const filled = (body: string) => ({ kind: "expression" as const, text: `"${body}"` });
 const turn = (verb: string, device: StepArg = expr("room")) =>
-	({ kind: "do", action: "device_set", args: { device, verb: lit(verb) } }) as const;
+	({ kind: "action", action: "device_set", args: { device, verb: lit(verb) } }) as const;
 const ifttt = (name: string, value1?: string) =>
 	({
-		kind: "do",
+		kind: "action",
 		action: "ifttt_trigger",
 		args: { event: lit(name), ...(value1 === undefined ? {} : { value1: lit(value1) }) },
 	}) as const;
@@ -74,15 +74,15 @@ const room = [{ name: "room", type: "device" as const }];
 
 const pointing = (
 	trigger: AutomationTrigger,
-	settings: { keepTryingMin?: number; coolDownSec?: number } = {},
+	settings: { retryForMin?: number; coolDownSec?: number } = {},
 ): AutomationInput => ({
 	enabled: true,
 	trigger:
 		trigger.kind === "event" && settings.coolDownSec !== undefined
 			? { ...trigger, coolDownSec: settings.coolDownSec }
 			: trigger,
-	actions: [{ kind: "run_function", function: "warm-up", values: { room: PLUG } }],
-	...(settings.keepTryingMin === undefined ? {} : { keepTryingMin: settings.keepTryingMin }),
+	actions: [{ kind: "run_function", function: "warm-up", args: { room: PLUG } }],
+	...(settings.retryForMin === undefined ? {} : { retryForMin: settings.retryForMin }),
 });
 
 /** `stored`: the state file it opens over. */
@@ -97,7 +97,7 @@ function world(stored?: object) {
 	let answer: (effect: string) => Attempt = () => ({ word: "done" });
 	/** Attempts wait here before they answer. */
 	let gate: Promise<void> = Promise.resolve();
-	let evaluating: AutomationHoles["evaluate"] = holesOver(REGISTRY).evaluate;
+	let evaluating: AutomationPlaceholders["evaluate"] = placeholdersOver(REGISTRY).evaluate;
 	const open = () =>
 		composeAutomations({
 			repairs: createRestoreRepairs(),
@@ -111,10 +111,13 @@ function world(stored?: object) {
 				eventFields: () => ["reason"],
 				eventChoices: (_source, field) => (field === "reason" ? ["mention", "assign"] : null),
 				entropy: (size) => crypto.randomBytes(size),
-				holes: () => ({ ...holesOver(REGISTRY), evaluate: (source, names) => evaluating(source, names) }),
+				placeholders: () => ({
+					...placeholdersOver(REGISTRY),
+					evaluate: (source, names) => evaluating(source, names),
+				}),
 				actions: {
 					ready: () => true,
-					switchName: (device) =>
+					deviceName: (device) =>
 						unplugged.has(device) ? null : device === PLUG ? "Lamp" : device === FAN ? "Fan" : null,
 					deviceSet: async (device, verb) => {
 						effects.push(`${device}:${verb}`);
@@ -128,7 +131,7 @@ function world(stored?: object) {
 					},
 				},
 			},
-			offers: () => ({ numbers: [], switches: [] }),
+			offers: () => ({ numbers: [], devices: [] }),
 			previewEvent: async () => ({ preview: { matched: 0, of: 0, matches: [] }, names: null }),
 		});
 	let stage = open();
@@ -250,13 +253,13 @@ function world(stored?: object) {
 const unreachable = (): Attempt => ({ word: "unreachable" });
 
 describe("a run through a function", () => {
-	it("fills a declared number through a hole in the fire and preview", async () => {
+	it("fills a declared number through a placeholder in the fire and preview", async () => {
 		const w = world();
 		const params = [{ name: "count", type: "number" as const }];
 		const body: AutomationInput = {
 			enabled: true,
 			trigger: event,
-			actions: [{ kind: "run_function", function: "warm-up", values: { count: 42 } }],
+			actions: [{ kind: "run_function", function: "warm-up", args: { count: 42 } }],
 		};
 		w.save(body, [ifttt("bell", "Count {count}")], undefined, params);
 
@@ -266,7 +269,7 @@ describe("a run through a function", () => {
 			trigger: event,
 			text: "Count {count}",
 			params,
-			values: { count: 42 },
+			args: { count: 42 },
 		});
 
 		expect([w.effects, preview.filled]).toEqual([["ifttt:bell:Count 42"], "Count 42"]);
@@ -279,15 +282,15 @@ describe("a run through a function", () => {
 
 		expect(w.effects).toEqual([`${PLUG}:on`, "ifttt:bell:Lamp is on"]);
 		expect(w.rows()).toEqual([
-			["device_set", "ran", undefined],
-			["ifttt_trigger", "ran", undefined],
+			["device_set", "done", undefined],
+			["ifttt_trigger", "done", undefined],
 		]);
 	});
 
 	it("ends a step whose values cannot be read or do not fit, and carries on", async () => {
 		const w = world();
 		const sideways = {
-			kind: "do",
+			kind: "action",
 			action: "device_set",
 			args: { device: lit(PLUG), verb: expr('"sideways"') },
 		} as const;
@@ -297,11 +300,11 @@ describe("a run through a function", () => {
 
 		expect(w.effects).toEqual([`${PLUG}:off`]);
 		expect(w.rows()).toEqual([
-			["device_set", "refused", VALUE_UNREAD],
-			["device_set", "refused", VALUE_UNREAD],
-			["device_set", "refused", STEP_UNFIT],
-			["device_set", "ran", undefined],
-			["run_function", "refused", CALL_FAILED],
+			["device_set", "failed", VALUE_UNREAD],
+			["device_set", "failed", VALUE_UNREAD],
+			["device_set", "failed", STEP_UNFIT],
+			["device_set", "done", undefined],
+			["run_function", "failed", FUNCTION_FAILED],
 		]);
 		expect(w.where()).toEqual(["0.0", "0.1", "0.2", "0.3", "0"].map((step) => [step, "warm-up"]));
 	});
@@ -322,15 +325,15 @@ describe("a run through a function", () => {
 
 		expect(w.effects).toEqual([`${PLUG}:on`]);
 		expect(w.rows()).toEqual([
-			["device_set", "refused", STEP_ERRORS],
-			["device_set", "ran", undefined],
+			["device_set", "failed", STEP_ERRORS],
+			["device_set", "done", undefined],
 		]);
 	});
 
 	it("saves an unsound body armed, and every run fails at the broken step after the steps before it ran", async () => {
 		const w = world();
 		const written = w.save(pointing(event), [turn("on", lit("aa:bb:cc:dd:ee:99"))]);
-		w.save(pointing(event, { keepTryingMin: 60 }), [turn("on", lit(PLUG)), turn("on", lit(FAN))], {
+		w.save(pointing(event, { retryForMin: 60 }), [turn("on", lit(PLUG)), turn("on", lit(FAN))], {
 			automation: 1,
 			function: 1,
 		});
@@ -344,23 +347,23 @@ describe("a run through a function", () => {
 		expect([written.stored, read]).toEqual([true, [[undefined, 1]]]);
 		expect(w.effects).toEqual([`${PLUG}:on`, `${PLUG}:on`, `${PLUG}:on`]);
 		expect(w.rows()).toEqual([
-			["device_set", "ran", undefined],
-			["device_set", "refused", STEP_ERRORS],
-			["run_function", "refused", CALL_FAILED],
-			["device_set", "ran", undefined],
+			["device_set", "done", undefined],
+			["device_set", "failed", STEP_ERRORS],
+			["run_function", "failed", FUNCTION_FAILED],
+			["device_set", "done", undefined],
 		]);
 		expect(
 			w.automations.lastRun("warm")?.steps.map(({ path, outcome, reason }) => [path, outcome, reason]),
 		).toEqual([
-			["0", "refused", STEP_ERRORS],
-			["0.0", "ran", undefined],
-			["0.1", "refused", STEP_ERRORS],
+			["0", "failed", STEP_ERRORS],
+			["0.0", "done", undefined],
+			["0.1", "failed", STEP_ERRORS],
 		]);
 	});
 
 	it("fails a call at entry whose bound device went as its error, after the run before it read its own", async () => {
 		const w = world();
-		w.save(pointing(event, { keepTryingMin: 60 }), [turn("on")]);
+		w.save(pointing(event, { retryForMin: 60 }), [turn("on")]);
 		await w.queueTwo();
 		w.unplug(PLUG);
 		w.answer(() => ({ word: "done" }));
@@ -368,8 +371,8 @@ describe("a run through a function", () => {
 
 		expect(w.effects).toEqual([`${PLUG}:on`, `${PLUG}:on`]);
 		expect(w.rows()).toEqual([
-			["device_set", "ran", undefined],
-			["run_function", "refused", STEP_ERRORS],
+			["device_set", "done", undefined],
+			["run_function", "failed", STEP_ERRORS],
 		]);
 		expect(w.where().at(-1)).toEqual(["0", "warm-up"]);
 	});
@@ -377,19 +380,19 @@ describe("a run through a function", () => {
 	it("tells through the outbox with its message filled, the owner's words beside it", async () => {
 		const w = world();
 		w.save(pointing(hourly), [
-			{ kind: "do", action: "tell_assistant", args: { when: lit("now"), message: lit("Warm {room}") } },
+			{ kind: "action", action: "tell_assistant", args: { when: lit("now"), message: lit("Warm {room}") } },
 		]);
 		await w.later(HOUR);
 
 		expect(w.automations.outbox.events()).toMatchObject([
 			{ when: "now", fields: { message: "Warm Lamp", note: "Warm {room}" } },
 		]);
-		expect(w.rows()).toEqual([["tell_assistant", "ran", undefined]]);
+		expect(w.rows()).toEqual([["tell_assistant", "done", undefined]]);
 	});
 
 	it("tells twice from one function reached at two call sites", async () => {
 		const w = world();
-		const call = { kind: "call" as const, function: "chime" };
+		const call = { kind: "run_function" as const, function: "chime" };
 		w.automations.save({
 			id: "warm",
 			body: pointing(hourly),
@@ -406,7 +409,7 @@ describe("a run through a function", () => {
 					body: {
 						name: "Chime",
 						params: [],
-						steps: [{ kind: "do", action: "tell_assistant", args: { when: lit("quietly") } }],
+						steps: [{ kind: "action", action: "tell_assistant", args: { when: lit("quietly") } }],
 					},
 					base: 0,
 				},
@@ -427,20 +430,20 @@ describe("a run through a function", () => {
 			body: { title: "Old", fields: { value: "x" }, when: "now" },
 		}));
 		const w = world({ automations: {}, queue: { lastAt: 999, events: urgent }, log: [] });
-		w.save(pointing(hourly), [{ kind: "do", action: "tell_assistant", args: { when: lit("now") } }]);
+		w.save(pointing(hourly), [{ kind: "action", action: "tell_assistant", args: { when: lit("now") } }]);
 		await w.later(HOUR);
 		const held = [w.rows(), w.where()];
 		w.automations.ownerRemove("warm", 1);
 		await w.automations.settled();
 
-		expect(held).toEqual([[["tell_assistant", "refused", QUEUE_FULL]], [["0.0", "warm-up"]]]);
+		expect(held).toEqual([[["tell_assistant", "failed", QUEUE_FULL]], [["0.0", "warm-up"]]]);
 		expect(w.rows()).toEqual([]);
 	});
 
 	it("ends a step at its automation's window, where the default keeps trying", async () => {
 		const short = world();
 		const long = world();
-		short.save(pointing(hourly, { keepTryingMin: 1 }), [turn("on")]);
+		short.save(pointing(hourly, { retryForMin: 1 }), [turn("on")]);
 		long.save(pointing(hourly), [turn("on")]);
 		for (const w of [short, long]) {
 			w.answer(unreachable);
@@ -450,18 +453,18 @@ describe("a run through a function", () => {
 
 		expect([short.effects.length, long.effects.length]).toEqual([1, 2]);
 		expect(short.rows()).toEqual([
-			["device_set", "refused", "it could not be reached"],
-			["run_function", "refused", CALL_FAILED],
+			["device_set", "failed", "it could not be reached"],
+			["run_function", "failed", FUNCTION_FAILED],
 		]);
 		expect(long.rows()).toEqual([]);
 	});
 
 	it("ends a step of an automation's own at its window too", async () => {
-		const flat = (keepTryingMin?: number): AutomationInput => ({
+		const flat = (retryForMin?: number): AutomationInput => ({
 			enabled: true,
 			trigger: hourly,
 			actions: [{ kind: "device_set", device: PLUG, verb: "on" }],
-			...(keepTryingMin === undefined ? {} : { keepTryingMin }),
+			...(retryForMin === undefined ? {} : { retryForMin }),
 		});
 		const short = world();
 		const long = world();
@@ -474,7 +477,7 @@ describe("a run through a function", () => {
 		}
 
 		expect([short.effects.length, long.effects.length]).toEqual([1, 2]);
-		expect([short, long].map((w) => w.automations.log().map((row) => row.outcome))).toEqual([["refused"], []]);
+		expect([short, long].map((w) => w.automations.log().map((row) => row.outcome))).toEqual([["failed"], []]);
 	});
 
 	it("says an event automation is cooling after a match the lane alone tells, and logs the matches inside it once", async () => {
@@ -495,11 +498,11 @@ describe("a run through a function", () => {
 		await w.later(61_000);
 
 		expect([before, during, cooling()]).toEqual([[false], [true], [false]]);
-		expect(w.automations.log().map((row) => row.outcome)).toEqual(["suppressed"]);
+		expect(w.automations.log().map((row) => row.outcome)).toEqual(["skipped"]);
 	});
 
 	it("leaves an event automation's leading tells with no message to the lane, named or not, and tells the rest in order", async () => {
-		const quiet = { kind: "do", action: "tell_assistant", args: { when: lit("now") } } as const;
+		const quiet = { kind: "action", action: "tell_assistant", args: { when: lit("now") } } as const;
 		const named = world();
 		const flat = world();
 		named.save(pointing(event), [quiet, turn("on"), quiet]);
@@ -558,7 +561,7 @@ describe("a run through a function", () => {
 		expect(filled.automations.outbox.events().map((held) => held.fields.message)).toEqual(
 			Array.from({ length: 12 }, (_, n) => `Got T${n}`),
 		);
-		expect(filled.automations.log().map((row) => row.outcome)).toEqual(Array.from({ length: 12 }, () => "ran"));
+		expect(filled.automations.log().map((row) => row.outcome)).toEqual(Array.from({ length: 12 }, () => "done"));
 	});
 
 	it("keeps a run whose own tell filled to nothing, telling it with no message", async () => {
@@ -588,7 +591,7 @@ describe("a run through a function", () => {
 	});
 
 	it("tells a function's leading tell the lane never told, though an edit moved it to the front while its run waited", async () => {
-		const quiet = { kind: "do", action: "tell_assistant", args: { when: lit("now") } } as const;
+		const quiet = { kind: "action", action: "tell_assistant", args: { when: lit("now") } } as const;
 		const w = world();
 		w.save(pointing(event), [turn("on"), quiet]);
 		w.answer(unreachable);
@@ -607,15 +610,15 @@ describe("a run through a function", () => {
 
 	it("starts a waiting run in the pump where the run before it ended at its turn", async () => {
 		const w = world();
-		w.save(pointing({ kind: "interval", everyMin: 1 }, { keepTryingMin: 1 }), [turn("on")]);
+		w.save(pointing({ kind: "interval", everyMin: 1 }, { retryForMin: 1 }), [turn("on")]);
 		w.answer(unreachable);
 		await w.later(60_000);
 		await w.later(60_000);
 
 		expect(w.effects).toEqual([`${PLUG}:on`, `${PLUG}:on`]);
 		expect(w.rows()).toEqual([
-			["device_set", "refused", "it could not be reached"],
-			["run_function", "refused", CALL_FAILED],
+			["device_set", "failed", "it could not be reached"],
+			["run_function", "failed", FUNCTION_FAILED],
 		]);
 	});
 
@@ -633,7 +636,7 @@ describe("a run through a function", () => {
 
 		expect(w.effects).toEqual(["ifttt:bell"]);
 		expect(w.rows().map(([, outcome, reason]) => [outcome, reason])).toContainEqual([
-			"suppressed",
+			"skipped",
 			"inside its cool-down",
 		]);
 	});
@@ -676,9 +679,9 @@ describe("a run through a function", () => {
 
 		expect(w.effects).toEqual(["ifttt:bell", "ifttt:bell"]);
 		expect(w.rows()).toEqual([
-			["ifttt_trigger", "ran", undefined],
-			[undefined, "suppressed", "inside its cool-down"],
-			["ifttt_trigger", "ran", undefined],
+			["ifttt_trigger", "done", undefined],
+			[undefined, "skipped", "inside its cool-down"],
+			["ifttt_trigger", "done", undefined],
 		]);
 	});
 });
@@ -705,8 +708,8 @@ describe("a newer setting of a switch", () => {
 			{
 				enabled: true,
 				trigger: hourly,
-				actions: [{ kind: "run_function", function: "warm-up", values: { room: FAN } }],
-				keepTryingMin: 60,
+				actions: [{ kind: "run_function", function: "warm-up", args: { room: FAN } }],
+				retryForMin: 60,
 			},
 			[turn("on"), turn("on", lit(PLUG))],
 		);
@@ -728,7 +731,7 @@ describe("a newer setting of a switch", () => {
 
 		for (const w of [inFunction, flat]) {
 			expect(w.effects.filter((effect) => effect.startsWith(PLUG))).toEqual([`${PLUG}:off`]);
-			expect(w.rows()).toContainEqual(["device_set", "refused", NEWER_SET]);
+			expect(w.rows()).toContainEqual(["device_set", "failed", NEWER_SET]);
 		}
 	});
 });
@@ -761,7 +764,7 @@ describe("a run and an edit of its function", () => {
 	] as const) {
 		it(`ends a waiting run's call refused when its function is ${lost} at entry, after the started run finishes on what it pinned`, async () => {
 			const w = world();
-			w.save(pointing({ kind: "interval", everyMin: 15 }, { keepTryingMin: 60 }), [turn("on")]);
+			w.save(pointing({ kind: "interval", everyMin: 15 }, { retryForMin: 60 }), [turn("on")]);
 			w.answer(unreachable);
 			await w.later(HOUR / 4);
 			await w.later(HOUR / 4);
@@ -772,8 +775,8 @@ describe("a run and an edit of its function", () => {
 
 			expect(w.effects.slice(before)).toEqual([`${PLUG}:on`]);
 			expect(w.rows().slice(-2)).toEqual([
-				["device_set", "ran", undefined],
-				["run_function", "refused", reason],
+				["device_set", "done", undefined],
+				["run_function", "failed", reason],
 			]);
 		});
 	}
@@ -796,7 +799,7 @@ describe("the stored log", () => {
 
 describe("a run by hand", () => {
 	const message = (text: string) =>
-		({ kind: "do", action: "ifttt_trigger", args: { event: lit("by-hand"), value1: lit(text) } }) as const;
+		({ kind: "action", action: "ifttt_trigger", args: { event: lit("by-hand"), value1: lit(text) } }) as const;
 
 	it("runs once per call id with the names its trigger gives now, and is the last run", async () => {
 		const w = world();
@@ -816,8 +819,8 @@ describe("a run by hand", () => {
 		expect(w.automations.listing().automations.find((row) => row.id === "warm")?.lastRun).toMatchObject({
 			running: false,
 			steps: [
-				{ path: "0", outcome: "ran" },
-				{ path: "0.0", outcome: "ran" },
+				{ path: "0", outcome: "done" },
+				{ path: "0.0", outcome: "done" },
 			],
 		});
 	});
@@ -851,7 +854,7 @@ describe("the last run", () => {
 	const last = (w: ReturnType<typeof world>) =>
 		w.automations.listing().automations.find((row) => row.id === "warm")?.lastRun;
 	const tree: AutomationFunctionInput["steps"] = [
-		{ kind: "if", when: "true", steps: [turn("on")], else: [ifttt("never")] },
+		{ kind: "if", condition: "true", steps: [turn("on")], else: [ifttt("never")] },
 		{ kind: "wait", minutes: lit(5) },
 		ifttt("after"),
 	];
@@ -868,19 +871,19 @@ describe("the last run", () => {
 			active: "0.1",
 			steps: [
 				{ path: "0", kind: "run_function" },
-				{ path: "0.0", kind: "if", outcome: "ran", side: "then", function: "warm-up" },
-				{ path: "0.0.0.0", kind: "device_set", outcome: "ran", function: "warm-up" },
+				{ path: "0.0", kind: "if", outcome: "done", side: "then", function: "warm-up" },
+				{ path: "0.0.0.0", kind: "device_set", outcome: "done", function: "warm-up" },
 				{ path: "0.1", kind: "wait", function: "warm-up" },
 			],
 		});
 		expect(last(w)).toMatchObject({ running: false, revision: 1 });
 		expect(last(w)?.active).toBeUndefined();
 		expect(last(w)?.steps.map((step) => [step.path, step.outcome])).toEqual([
-			["0", "ran"],
-			["0.0", "ran"],
-			["0.0.0.0", "ran"],
-			["0.1", "ran"],
-			["0.2", "ran"],
+			["0", "done"],
+			["0.0", "done"],
+			["0.0.0.0", "done"],
+			["0.1", "done"],
+			["0.2", "done"],
 		]);
 	});
 
@@ -927,7 +930,7 @@ describe("the last run", () => {
 				run: {
 					at: 1_000,
 					revision: 1,
-					steps: [{ path: "0", kind: "device_set", outcome: "ran" }],
+					steps: [{ path: "0", kind: "device_set", outcome: "done" }],
 					running: true,
 				},
 			},
@@ -969,14 +972,14 @@ describe("the last run", () => {
 		w.save(pointing(hourly), [turn("on")], { automation: 3, function: 1 });
 		const edited = last(w);
 
-		expect(failed).toMatchObject({ outcome: "refused", reason: "it was refused" });
+		expect(failed).toMatchObject({ outcome: "failed", reason: "it was refused" });
 		expect(toggled?.steps).toHaveLength(3);
 		expect(edited).toBeUndefined();
 	});
 
 	it("is hidden when a function it entered twice ran at two versions", async () => {
 		const w = world();
-		const call = { kind: "call" as const, function: "inner" };
+		const call = { kind: "run_function" as const, function: "inner" };
 		const inner = (event: string) => ({ name: "Inner", params: [], steps: [ifttt(event)] });
 		const save = (bases: { automation: number; function: number; inner: number }, body: AutomationFunctionInput) =>
 			w.automations.save({
@@ -1021,10 +1024,10 @@ describe("a tree of steps", () => {
 	it("takes the side its condition holds, skips the other, and carries on after either", async () => {
 		const w = world();
 		w.save(pointing(hourly), [
-			{ kind: "if", when: "1 < 2", steps: [turn("on")], else: [turn("off")] },
-			{ kind: "if", when: "1 > 2", steps: [ifttt("no")], else: [ifttt("yes")] },
-			{ kind: "if", when: "false", steps: [ifttt("never")] },
-			{ kind: "note", text: "then tell" },
+			{ kind: "if", condition: "1 < 2", steps: [turn("on")], else: [turn("off")] },
+			{ kind: "if", condition: "1 > 2", steps: [ifttt("no")], else: [ifttt("yes")] },
+			{ kind: "if", condition: "false", steps: [ifttt("never")] },
+			{ kind: "comment", text: "then tell" },
 			ifttt("after"),
 		]);
 		await w.later(HOUR);
@@ -1048,9 +1051,9 @@ describe("a tree of steps", () => {
 
 		expect(w.effects).toEqual([`${PLUG}:on`, "ifttt:caught:refused: it was refused", "ifttt:after"]);
 		expect(w.rows()).toEqual([
-			["device_set", "refused", "it was refused"],
-			["ifttt_trigger", "ran", undefined],
-			["ifttt_trigger", "ran", undefined],
+			["device_set", "failed", "it was refused"],
+			["ifttt_trigger", "done", undefined],
+			["ifttt_trigger", "done", undefined],
 		]);
 	});
 
@@ -1069,49 +1072,53 @@ describe("a tree of steps", () => {
 
 		expect(w.effects).toEqual(["ifttt:caught:too warm by Lamp"]);
 		expect(w.rows()).toEqual([
-			["throw", "refused", THROWN],
-			["ifttt_trigger", "ran", undefined],
-			["throw", "refused", THROWN],
-			["run_function", "refused", CALL_FAILED],
+			["throw", "failed", THROWN],
+			["ifttt_trigger", "done", undefined],
+			["throw", "failed", THROWN],
+			["run_function", "failed", FUNCTION_FAILED],
 		]);
 	});
 
 	it("exits quietly, the steps after it unreached", async () => {
 		const w = world();
-		w.save(pointing(hourly), [turn("on"), { kind: "if", when: "true", steps: [{ kind: "exit" }] }, turn("off")]);
+		w.save(pointing(hourly), [
+			turn("on"),
+			{ kind: "if", condition: "true", steps: [{ kind: "return" }] },
+			turn("off"),
+		]);
 		await w.later(HOUR);
 
 		expect(w.effects).toEqual([`${PLUG}:on`]);
-		expect(w.rows()).toEqual([["device_set", "ran", undefined]]);
+		expect(w.rows()).toEqual([["device_set", "done", undefined]]);
 	});
 
 	it("keeps a value under a name for the steps and conditions after it", async () => {
 		const w = world();
 		w.save(pointing(hourly), [
-			{ kind: "let", name: "level", value: lit(5) },
-			{ kind: "let", name: "twice", value: expr("level * 2") },
-			{ kind: "if", when: "twice > 9", steps: [ifttt("high", "{twice}")] },
+			{ kind: "variable", name: "level", value: lit(5) },
+			{ kind: "variable", name: "twice", value: expr("level * 2") },
+			{ kind: "if", condition: "twice > 9", steps: [ifttt("high", "{twice}")] },
 		]);
 		await w.later(HOUR);
 
 		expect(w.effects).toEqual(["ifttt:high:10"]);
 	});
 
-	it("fills a kept string's holes at its turn, keeps a literal as written, and saves a hole it cannot read as its error", async () => {
+	it("fills a kept string's placeholders at its turn, keeps a literal as written, and saves a placeholder it cannot read as its error", async () => {
 		const w = world();
 		w.save(pointing(hourly), [
-			{ kind: "let", name: "level", value: lit(5) },
-			{ kind: "let", name: "label", value: filled("Level {level}, braces \\{kept\\}") },
-			{ kind: "let", name: "raw", value: lit("as {written} \\\\ here") },
+			{ kind: "variable", name: "level", value: lit(5) },
+			{ kind: "variable", name: "label", value: filled("Level {level}, braces \\{kept\\}") },
+			{ kind: "variable", name: "raw", value: lit("as {written} \\\\ here") },
 			ifttt("said", "{label} / {raw}"),
 		]);
 		await w.later(HOUR);
 		const unread = world().saveOp(pointing(hourly), [
-			{ kind: "let", name: "label", value: filled("Is {nowhere}") },
+			{ kind: "variable", name: "label", value: filled("Is {nowhere}") },
 			turn("on"),
 		]);
 		const written = world().saveOp(pointing(hourly), [
-			{ kind: "let", name: "label", value: lit("Is {nowhere}") },
+			{ kind: "variable", name: "label", value: lit("Is {nowhere}") },
 			turn("on"),
 		]);
 
@@ -1127,18 +1134,18 @@ describe("a tree of steps", () => {
 	it("fails an if whose condition cannot be read or is no true or false, taking neither side", async () => {
 		const w = world();
 		w.save(pointing(hourly), [
-			{ kind: "if", when: "room.missing", steps: [turn("on")], else: [turn("on")] },
-			{ kind: "if", when: "1 + 1", steps: [turn("on")] },
+			{ kind: "if", condition: "room.missing", steps: [turn("on")], else: [turn("on")] },
+			{ kind: "if", condition: "1 + 1", steps: [turn("on")] },
 			turn("off"),
 		]);
 		await w.later(HOUR);
 
 		expect(w.effects).toEqual([`${PLUG}:off`]);
 		expect(w.rows()).toEqual([
-			["if", "refused", CONDITION_UNREAD],
-			["if", "refused", NOT_TRUE_OR_FALSE],
-			["device_set", "ran", undefined],
-			["run_function", "refused", CALL_FAILED],
+			["if", "failed", CONDITION_UNREAD],
+			["if", "failed", NOT_TRUE_OR_FALSE],
+			["device_set", "done", undefined],
+			["run_function", "failed", FUNCTION_FAILED],
 		]);
 	});
 
@@ -1190,7 +1197,7 @@ describe("a tree of steps", () => {
 		const w = world();
 		const titled = (title: string) => [{ automation: "warm", key: "same", names: { event: { value: { title } } } }];
 		w.save(pointing(event), [
-			{ kind: "if", when: 'event.title == "old"', steps: [turn("on")], else: [turn("off")] },
+			{ kind: "if", condition: 'event.title == "old"', steps: [turn("on")], else: [turn("off")] },
 		]);
 		const release = w.holdReads();
 		w.automations.fireEvents(titled("old"), w.at());
@@ -1218,7 +1225,7 @@ describe("a tree of steps", () => {
 		const w = world();
 		w.answer((effect) => (effect.endsWith(":on") ? { word: "refused" } : { word: "done" }));
 		w.save(pointing(hourly), [
-			{ kind: "let", name: "level", value: lit(7) },
+			{ kind: "variable", name: "level", value: lit(7) },
 			{
 				kind: "try",
 				steps: [turn("on")],
@@ -1235,13 +1242,13 @@ describe("a tree of steps", () => {
 	it("fails a let whose value is past its bytes, counted as stored", async () => {
 		const w = world();
 		const wide = String.fromCharCode(0x754c).repeat(500);
-		w.save(pointing(hourly), [{ kind: "let", name: "wide", value: lit(wide) }, ifttt("after")]);
+		w.save(pointing(hourly), [{ kind: "variable", name: "wide", value: lit(wide) }, ifttt("after")]);
 		await w.later(HOUR);
 
 		expect(w.rows()).toEqual([
-			["let", "refused", VALUE_TOO_LARGE],
-			["ifttt_trigger", "ran", undefined],
-			["run_function", "refused", CALL_FAILED],
+			["variable", "failed", VALUE_TOO_LARGE],
+			["ifttt_trigger", "done", undefined],
+			["run_function", "failed", FUNCTION_FAILED],
 		]);
 	});
 
@@ -1302,9 +1309,9 @@ describe("a tree of steps", () => {
 
 		expect(w.effects).toEqual(["ifttt:caught:unread", "ifttt:after"]);
 		expect(w.rows()).toEqual([
-			["switch", "refused", SUBJECT_UNREAD],
-			["ifttt_trigger", "ran", undefined],
-			["ifttt_trigger", "ran", undefined],
+			["switch", "failed", SUBJECT_UNREAD],
+			["ifttt_trigger", "done", undefined],
+			["ifttt_trigger", "done", undefined],
 		]);
 	});
 
@@ -1331,9 +1338,9 @@ describe("a tree of steps", () => {
 			],
 		});
 		expect(w.rows()).toEqual([
-			["switch", "refused", STEP_ERRORS],
-			["ifttt_trigger", "ran", undefined],
-			["run_function", "refused", CALL_FAILED],
+			["switch", "failed", STEP_ERRORS],
+			["ifttt_trigger", "done", undefined],
+			["run_function", "failed", FUNCTION_FAILED],
 		]);
 	});
 
@@ -1364,19 +1371,19 @@ describe("a tree of steps", () => {
 
 	it("saves a name already taken, a wait out of range, a blank condition or value, and a condition it cannot read, assigns or holds twice, at any depth, each as its error", () => {
 		const bodies: AutomationFunctionInput["steps"][] = [
-			[{ kind: "let", name: "room", value: lit(1) }],
-			[{ kind: "if", when: "room = 1" }],
-			[{ kind: "if", when: "true; false" }],
-			[{ kind: "let", name: "count", value: expr("count = 2") }],
+			[{ kind: "variable", name: "room", value: lit(1) }],
+			[{ kind: "if", condition: "room = 1" }],
+			[{ kind: "if", condition: "true; false" }],
+			[{ kind: "variable", name: "count", value: expr("count = 2") }],
 			[{ kind: "wait", minutes: lit(-1) }],
 			[{ kind: "wait", minutes: lit(2_000) }],
-			[{ kind: "if", when: "nobody > 1" }],
-			[{ kind: "try", steps: [{ kind: "if", when: "(", steps: [turn("on")] }], catch: [] }],
-			[{ kind: "if", when: "true", else: [{ kind: "throw", text: "{nobody}" }] }],
-			[{ kind: "if", when: "true} ignored {false", steps: [turn("on")] }],
+			[{ kind: "if", condition: "nobody > 1" }],
+			[{ kind: "try", steps: [{ kind: "if", condition: "(", steps: [turn("on")] }], catch: [] }],
+			[{ kind: "if", condition: "true", else: [{ kind: "throw", text: "{nobody}" }] }],
+			[{ kind: "if", condition: "true} ignored {false", steps: [turn("on")] }],
 			[turn("on", expr("room} {room"))],
-			[{ kind: "if", when: "", steps: [turn("on")] }],
-			[{ kind: "let", name: "count", value: expr("") }],
+			[{ kind: "if", condition: "", steps: [turn("on")] }],
+			[{ kind: "variable", name: "count", value: expr("") }],
 			[{ kind: "switch", subject: "", cases: [] }],
 			[{ kind: "switch", subject: "room", cases: [{ values: [], steps: [turn("on")] }] }],
 		];
@@ -1391,9 +1398,9 @@ describe("a tree of steps", () => {
 
 	it("names the step an issue sits in by its numbers, at any depth", () => {
 		const bodies: AutomationFunctionInput["steps"][] = [
-			[{ kind: "if", when: "true", steps: [{ kind: "throw", text: "{nobody}" }] }],
+			[{ kind: "if", condition: "true", steps: [{ kind: "throw", text: "{nobody}" }] }],
 			[{ kind: "try", steps: [turn("on")], catch: [turn("on"), { kind: "wait", minutes: lit(-1) }] }],
-			[turn("on"), { kind: "if", when: "true", else: [{ kind: "let", name: "room", value: lit(1) }] }],
+			[turn("on"), { kind: "if", condition: "true", else: [{ kind: "variable", name: "room", value: lit(1) }] }],
 			[turn("on"), ifttt("bell", "{nobody}")],
 		];
 		const issued = bodies.map((steps) => {
@@ -1422,19 +1429,23 @@ describe("a tree of steps", () => {
 
 		expect(w.effects).toEqual([`${PLUG}:on`, "ifttt:caught:unread", "ifttt:after"]);
 		expect(w.rows()).toEqual([
-			["device_set", "ran", undefined],
-			["wait", "refused", STEP_ERRORS],
-			["ifttt_trigger", "ran", undefined],
-			["wait", "refused", STEP_ERRORS],
-			["ifttt_trigger", "ran", undefined],
-			["run_function", "refused", CALL_FAILED],
+			["device_set", "done", undefined],
+			["wait", "failed", STEP_ERRORS],
+			["ifttt_trigger", "done", undefined],
+			["wait", "failed", STEP_ERRORS],
+			["ifttt_trigger", "done", undefined],
+			["run_function", "failed", FUNCTION_FAILED],
 		]);
 	});
 
 	it("refuses a body holding too many steps at any depth", () => {
 		const wide = (total: number): AutomationFunctionInput["steps"] => [
-			{ kind: "if", when: "true", steps: Array.from({ length: total - 2 }, () => ({ kind: "exit" as const })) },
-			{ kind: "exit" },
+			{
+				kind: "if",
+				condition: "true",
+				steps: Array.from({ length: total - 2 }, () => ({ kind: "return" as const })),
+			},
+			{ kind: "return" },
 		];
 		const parses = (steps: AutomationFunctionInput["steps"]) =>
 			FunctionSchema.safeParse({ name: "Wide", params: [], steps }).success;
@@ -1445,9 +1456,9 @@ describe("a tree of steps", () => {
 
 describe("a function calling another", () => {
 	const call = (fn: string, values?: Record<string, StepArg>) => ({
-		kind: "call" as const,
+		kind: "run_function" as const,
 		function: fn,
-		...(values ? { values } : {}),
+		...(values ? { args: values } : {}),
 	});
 	const passing = call("inner", { room: expr("room") });
 	/** A switched-off automation of its own points at it, so the save op can write it. */
@@ -1462,7 +1473,7 @@ describe("a function calling another", () => {
 			body: {
 				enabled: false,
 				trigger: hourly,
-				actions: [{ kind: "run_function", function: id, values: { room: PLUG } }],
+				actions: [{ kind: "run_function", function: id, args: { room: PLUG } }],
 			},
 			base: bases.automation,
 			function: { as: "edit", id, body: { name: id, params: room, steps }, base: bases.function },
@@ -1490,14 +1501,14 @@ describe("a function calling another", () => {
 		]);
 	});
 
-	it("fills the holes of a text a call gives, read where the call runs, and gives a literal as written", async () => {
+	it("fills the placeholders of a text a call gives, read where the call runs, and gives a literal as written", async () => {
 		const w = world();
 		w.automations.save({
 			id: "h-say",
 			body: {
 				enabled: false,
 				trigger: hourly,
-				actions: [{ kind: "run_function", function: "say", values: { line: "x" } }],
+				actions: [{ kind: "run_function", function: "say", args: { line: "x" } }],
 			},
 			base: 0,
 			function: {
@@ -1509,7 +1520,7 @@ describe("a function calling another", () => {
 			confirmed: true,
 		});
 		w.save(pointing(hourly), [
-			{ kind: "let", name: "level", value: lit(7) },
+			{ kind: "variable", name: "level", value: lit(7) },
 			call("say", { line: filled("Level {level}") }),
 			call("say", { line: lit("Level {level}") }),
 		]);
@@ -1524,7 +1535,7 @@ describe("a function calling another", () => {
 			body: {
 				enabled: false,
 				trigger: hourly,
-				actions: [{ kind: "run_function", function: "count", values: { times: 1 } }],
+				actions: [{ kind: "run_function", function: "count", args: { times: 1 } }],
 			},
 			base: 0,
 			function: {
@@ -1555,12 +1566,12 @@ describe("a function calling another", () => {
 
 		expect(w.effects).toEqual(["ifttt:first", "ifttt:rest", "ifttt:after"]);
 		expect(w.rows()).toEqual([
-			["ifttt_trigger", "ran", undefined],
-			["wait", "refused", STEP_ERRORS],
-			["ifttt_trigger", "ran", undefined],
-			["run_function", "refused", CALL_FAILED],
-			["ifttt_trigger", "ran", undefined],
-			["run_function", "refused", CALL_FAILED],
+			["ifttt_trigger", "done", undefined],
+			["wait", "failed", STEP_ERRORS],
+			["ifttt_trigger", "done", undefined],
+			["run_function", "failed", FUNCTION_FAILED],
+			["ifttt_trigger", "done", undefined],
+			["run_function", "failed", FUNCTION_FAILED],
 		]);
 		expect(w.where().slice(0, 4)).toEqual([
 			["0.0.0", "inner"],
@@ -1580,12 +1591,12 @@ describe("a function calling another", () => {
 		]);
 		await w.later(HOUR);
 
-		expect(w.effects).toEqual([`${PLUG}:on`, "ifttt:caught:call_failed", "ifttt:after"]);
+		expect(w.effects).toEqual([`${PLUG}:on`, "ifttt:caught:function_failed", "ifttt:after"]);
 		expect(w.rows().map(([action, outcome]) => [action, outcome])).toEqual([
-			["device_set", "refused"],
-			["run_function", "refused"],
-			["ifttt_trigger", "ran"],
-			["ifttt_trigger", "ran"],
+			["device_set", "failed"],
+			["run_function", "failed"],
+			["ifttt_trigger", "done"],
+			["ifttt_trigger", "done"],
 		]);
 	});
 
@@ -1602,9 +1613,9 @@ describe("a function calling another", () => {
 		expect(saved.issues).toBeUndefined();
 		expect(w.effects).toEqual(["ifttt:caught:unread", "ifttt:after"]);
 		expect(w.rows()).toEqual([
-			["run_function", "refused", STEP_ERRORS],
-			["ifttt_trigger", "ran", undefined],
-			["ifttt_trigger", "ran", undefined],
+			["run_function", "failed", STEP_ERRORS],
+			["ifttt_trigger", "done", undefined],
+			["ifttt_trigger", "done", undefined],
 		]);
 	});
 
@@ -1633,9 +1644,9 @@ describe("a function calling another", () => {
 		expect([closing.stored, behind.stored]).toEqual([false, true]);
 		expect(w.effects).toEqual([]);
 		expect(w.rows()).toEqual([
-			["run_function", "refused", CALL_LOOPS],
-			["run_function", "refused", CALL_FAILED],
-			["run_function", "refused", CALL_FAILED],
+			["run_function", "failed", FUNCTION_LOOPS],
+			["run_function", "failed", FUNCTION_FAILED],
+			["run_function", "failed", FUNCTION_FAILED],
 		]);
 	});
 
@@ -1654,7 +1665,7 @@ describe("a function calling another", () => {
 	it("fails the calls past what one run may enter, when edits behind a waiting run made its path longer", async () => {
 		const w = world();
 		held(w, "leaf", [ifttt("leaf")]);
-		held(w, "pad", [{ kind: "note", text: "pad" }]);
+		held(w, "pad", [{ kind: "comment", text: "pad" }]);
 		inner(w, [toLeaf]);
 		// Frames per edited call.
 		const each = 51;
@@ -1668,7 +1679,7 @@ describe("a function calling another", () => {
 
 		expect(longer.stored).toBe(true);
 		expect(w.effects).toEqual(Array.from({ length: entered }, () => "ifttt:leaf"));
-		expect(w.rows().filter(([, , reason]) => reason === TOO_MANY_CALLS).length).toBe(2);
+		expect(w.rows().filter(([, , reason]) => reason === TOO_MANY_FUNCTIONS).length).toBe(2);
 	});
 
 	it("keeps a function another calls when the automation that pointed at it goes", async () => {
@@ -1756,8 +1767,8 @@ describe("a function calling another", () => {
 		for (const w of [timed, leveled]) {
 			expect(w.effects).toEqual([]);
 			expect(w.rows().map(([action, outcome]) => [action, outcome])).toEqual([
-				["run_function", "refused"],
-				["run_function", "refused"],
+				["run_function", "failed"],
+				["run_function", "failed"],
 			]);
 		}
 	});
@@ -1771,7 +1782,7 @@ describe("a function calling another", () => {
 			body: {
 				enabled: false,
 				trigger: hourly,
-				actions: [{ kind: "run_function", function: "inner", values: { room: PLUG, level: 3 } }],
+				actions: [{ kind: "run_function", function: "inner", args: { room: PLUG, level: 3 } }],
 			},
 			base: 1,
 			function: {
@@ -1805,7 +1816,7 @@ describe("a restart", () => {
 		await w.later(10_000);
 
 		expect(w.effects).toEqual([`${PLUG}:on`, `${PLUG}:on`]);
-		expect(w.rows()).toEqual([["device_set", "ran", undefined]]);
+		expect(w.rows()).toEqual([["device_set", "done", undefined]]);
 	});
 
 	describe("tasks started beside the steps that follow", () => {
@@ -1834,14 +1845,14 @@ describe("a restart", () => {
 			expect(early).toEqual({ effects: ["ifttt:now"], running: true });
 			expect(w.effects).toEqual(["ifttt:now", "ifttt:slow"]);
 			expect(lastRun(w)?.running).toBe(false);
-			expect(w.rows().every(([, outcome]) => outcome === "ran")).toBe(true);
+			expect(w.rows().every(([, outcome]) => outcome === "done")).toBe(true);
 		});
 
 		it("waits at an await for its task, and reads how a task stands as it runs", async () => {
 			const w = world();
 			w.save(pointing(hourly), [
 				start("t", wait(1), ifttt("a")),
-				{ kind: "if", when: "t.done", steps: [ifttt("early")], else: [ifttt("running", "{t}")] },
+				{ kind: "if", condition: "t.done", steps: [ifttt("early")], else: [ifttt("running", "{t}")] },
 				awaiting("t"),
 				ifttt("after", "{t} {t.failed}"),
 			]);
@@ -1870,7 +1881,7 @@ describe("a restart", () => {
 			await w.later(60_000);
 
 			expect(early).toEqual([`${PLUG}:on`]);
-			expect(w.effects).toEqual([`${PLUG}:on`, "ifttt:b", "ifttt:caught:together 1 refused"]);
+			expect(w.effects).toEqual([`${PLUG}:on`, "ifttt:b", "ifttt:caught:parallel 1 refused"]);
 			// The failure was awaited, so the call itself did not fail.
 			expect(w.rows().some(([action]) => action === "run_function")).toBe(false);
 		});
@@ -1883,7 +1894,7 @@ describe("a restart", () => {
 				start("b", wait(1), ifttt("b")),
 				wait(2),
 				awaiting("any(b, a, slow)", "first"),
-				{ kind: "if", when: "first == a", steps: [ifttt("a_first")], else: [ifttt("not_a")] },
+				{ kind: "if", condition: "first == a", steps: [ifttt("a_first")], else: [ifttt("not_a")] },
 			];
 			const saved = w.save(pointing(hourly), steps);
 			await w.later(HOUR);
@@ -1906,7 +1917,7 @@ describe("a restart", () => {
 			await w.later(HOUR);
 
 			expect([...w.effects].sort()).toEqual([`${PLUG}:on`, "ifttt:after"]);
-			expect(w.rows().at(-1)).toEqual(["run_function", "refused", CALL_FAILED]);
+			expect(w.rows().at(-1)).toEqual(["run_function", "failed", FUNCTION_FAILED]);
 		});
 
 		it("lets any take the first and leave a failed loser to the frame, which it does not see", async () => {
@@ -1922,7 +1933,7 @@ describe("a restart", () => {
 			await w.later(60_000);
 
 			expect(w.effects).toEqual(["ifttt:won", "ifttt:after:yes", `${PLUG}:on`]);
-			expect(w.rows().at(-1)).toEqual(["run_function", "refused", CALL_FAILED]);
+			expect(w.rows().at(-1)).toEqual(["run_function", "failed", FUNCTION_FAILED]);
 		});
 
 		it("refuses an await that names no task, and one that would wait on itself, directly or through another", async () => {
@@ -1940,10 +1951,10 @@ describe("a restart", () => {
 
 			// The first of the two that wait on each other is read, and fails with the task it waited on.
 			expect(refused).toEqual([
-				["await", "refused", NO_TASK],
-				["await", "refused", WAITS_FOREVER],
-				["await", "refused", WAITS_FOREVER],
-				["await", "refused", WAITS_FOREVER],
+				["await", "failed", NO_TASK],
+				["await", "failed", WAITS_FOREVER],
+				["await", "failed", WAITS_FOREVER],
+				["await", "failed", WAITS_FOREVER],
 			]);
 			expect(w.effects).toEqual(["ifttt:after"]);
 			expect(lastRun(w)?.running).toBe(false);
@@ -1961,8 +1972,8 @@ describe("a restart", () => {
 			await w.later(60_000);
 
 			// Once it fails, its task ends, and the two that waited on that task end with it.
-			expect(w.rows().filter(([action, outcome]) => action === "await" && outcome === "refused")).toEqual([
-				["await", "refused", WAITS_FOREVER],
+			expect(w.rows().filter(([action, outcome]) => action === "await" && outcome === "failed")).toEqual([
+				["await", "failed", WAITS_FOREVER],
 			]);
 			expect(lastRun(w)?.running).toBe(false);
 		});
@@ -1985,9 +1996,9 @@ describe("a restart", () => {
 			await w.later(HOUR);
 			await w.later(60_000);
 
-			expect(w.effects.at(-1)).toBe("ifttt:caught:no together 2");
-			expect(w.rows().filter(([action, outcome]) => action === "start" && outcome === "refused")).toEqual([
-				["start", "refused", "2 of 2 failed"],
+			expect(w.effects.at(-1)).toBe("ifttt:caught:no parallel 2");
+			expect(w.rows().filter(([action, outcome]) => action === "start" && outcome === "failed")).toEqual([
+				["start", "failed", "2 of 2 failed"],
 			]);
 		});
 
@@ -1995,8 +2006,8 @@ describe("a restart", () => {
 			const w = world();
 			w.save(pointing(hourly), [
 				start("t", wait(1)),
-				{ kind: "let", name: "r", value: expr('{task: "x", n: 5}') },
-				{ kind: "let", name: "xs", value: expr("[t]") },
+				{ kind: "variable", name: "r", value: expr('{task: "x", n: 5}') },
+				{ kind: "variable", name: "xs", value: expr("[t]") },
 				awaiting("t"),
 				ifttt("after", "{r.n} {xs[0].done} {xs[0] == t}"),
 			]);
@@ -2019,10 +2030,10 @@ describe("a restart", () => {
 			};
 
 			expect([
-				said([start(undefined, { kind: "exit" })]),
+				said([start(undefined, { kind: "return" })]),
 				said([start("room", ifttt("x"))]),
 				said([start("t", ifttt("x")), awaiting("all(t)", "done_t")]),
-			]).toEqual([EXIT_BESIDE, NAME_TAKEN, "stored"]);
+			]).toEqual([RETURN_IN_BRANCH, NAME_TAKEN, "stored"]);
 			expect(
 				[
 					[start(undefined, { kind: "parallel", steps: many }), ifttt("y")],
@@ -2066,7 +2077,7 @@ describe("a restart", () => {
 
 			expect(first).toEqual(["ifttt:fast"]);
 			expect(w.effects).toEqual(["ifttt:fast", "ifttt:slow", "ifttt:after"]);
-			expect(w.rows().every(([, outcome]) => outcome === "ran")).toBe(true);
+			expect(w.rows().every(([, outcome]) => outcome === "done")).toBe(true);
 		});
 
 		it("has two plugs' attempts out at once, and sets one plug in the order written though the first has to retry", async () => {
@@ -2099,7 +2110,7 @@ describe("a restart", () => {
 							lane(turn("on"), ifttt("skipped")),
 							{
 								kind: "if",
-								when: "true",
+								condition: "true",
 								steps: [
 									{ kind: "wait", minutes: lit(1) },
 									ifttt("late"),
@@ -2123,12 +2134,12 @@ describe("a restart", () => {
 			expect(early).toEqual([`${PLUG}:on`]);
 			expect(w.effects.slice(1)).toEqual([
 				"ifttt:late",
-				"ifttt:caught:together 2 slow no",
+				"ifttt:caught:parallel 2 slow no",
 				`${PLUG}:on`,
 				"ifttt:beside",
 				"ifttt:after",
 			]);
-			expect(w.rows().at(-1)).toEqual(["run_function", "refused", CALL_FAILED]);
+			expect(w.rows().at(-1)).toEqual(["run_function", "failed", FUNCTION_FAILED]);
 		});
 
 		it("fails for its own branches alone: a failure the frame already remembers is not a branch's", async () => {
@@ -2138,16 +2149,16 @@ describe("a restart", () => {
 			await w.later(HOUR);
 
 			expect(w.rows().map(([action, outcome]) => [action, outcome])).toEqual([
-				["device_set", "refused"],
-				["ifttt_trigger", "ran"],
-				["ifttt_trigger", "ran"],
-				["ifttt_trigger", "ran"],
-				["run_function", "refused"],
+				["device_set", "failed"],
+				["ifttt_trigger", "done"],
+				["ifttt_trigger", "done"],
+				["ifttt_trigger", "done"],
+				["run_function", "failed"],
 			]);
 		});
 
 		it("saves an exit beside running steps as its error, and a block of blocks as it is", () => {
-			const leaves = world().saveOp(pointing(hourly), [block(ifttt("a"), lane({ kind: "exit" }))]);
+			const leaves = world().saveOp(pointing(hourly), [block(ifttt("a"), lane({ kind: "return" }))]);
 			const three = () => block(ifttt("a"), ifttt("b"), ifttt("c"));
 			const fits = world().saveOp(pointing(hourly), [block(three(), three(), ifttt("d"), ifttt("e"))]);
 
@@ -2176,13 +2187,10 @@ describe("a restart", () => {
 			expect((stored.fires as { active: string[] }[])[0]?.active).toEqual(["0.0.0.0", "0.0.0.1.0.0"]);
 			// From its block's turn the fire holds a key no build before blocks reads, so a rollback drops it whole.
 			expect(
-				(stored.fires as { frames: Record<string, { strands?: object }> }[])[0]?.frames["0"]?.strands,
+				(stored.fires as { frames: Record<string, { branches?: object }> }[])[0]?.frames["0"]?.branches,
 			).toEqual({});
 			expect(w.effects).toEqual(["ifttt:out", "ifttt:slow", "ifttt:after"]);
-			expect(w.rows().map(([action, outcome]) => [action, outcome])).toContainEqual([
-				"ifttt_trigger",
-				"uncertain",
-			]);
+			expect(w.rows().map(([action, outcome]) => [action, outcome])).toContainEqual(["ifttt_trigger", "unsure"]);
 		});
 
 		it("refuses a block that would pass a run's cap at its turn, when edits behind a waiting run made it wider", async () => {
@@ -2208,19 +2216,19 @@ describe("a restart", () => {
 			wide(1, { automation: 0, function: 0 });
 			const saved = w.save(pointing(hourly), [
 				wait(5),
-				block({ kind: "call", function: "wide" }, { kind: "call", function: "wide" }),
+				block({ kind: "run_function", function: "wide" }, { kind: "run_function", function: "wide" }),
 				ifttt("after"),
 			]);
 			await w.later(HOUR);
 			w.save(pointing(hourly), [ifttt("other")], { automation: 1, function: 1 });
 			// One fits, two pass.
-			const wider = wide(RUN_STRANDS_MAX / 2 + 1, { automation: 1, function: 1 });
+			const wider = wide(RUN_BRANCHES_MAX / 2 + 1, { automation: 1, function: 1 });
 			await w.later(5 * 60_000 + 1_000);
 			await w.later(60_000);
 
 			expect([saved.stored, wider.stored]).toEqual([true, true]);
-			expect(w.rows().filter(([, , reason]) => reason === TOO_MANY_BESIDE)).toEqual([
-				["parallel", "refused", TOO_MANY_BESIDE],
+			expect(w.rows().filter(([, , reason]) => reason === TOO_MANY_IN_FLIGHT)).toEqual([
+				["parallel", "failed", TOO_MANY_IN_FLIGHT],
 			]);
 			expect(w.effects).toEqual(["ifttt:after"]);
 		});
@@ -2235,7 +2243,7 @@ describe("a restart", () => {
 			release();
 			await w.automations.settled();
 
-			expect(running).toMatchObject({ running: true, active: "0.0.0.0", beside: ["0.0.0.0", "0.0.0.1"] });
+			expect(running).toMatchObject({ running: true, active: "0.0.0.0", inFlight: ["0.0.0.0", "0.0.0.1"] });
 			expect(w.effects).toEqual(["ifttt:one", "ifttt:two"]);
 			expect(w.rows().filter(([action]) => action === "ifttt_trigger")).toHaveLength(2);
 		});
@@ -2249,14 +2257,14 @@ describe("a restart", () => {
 				function: {
 					as: "edit",
 					id: "inner",
-					body: { name: "Inner", params: [], steps: [ifttt("inner"), { kind: "exit" }, ifttt("never")] },
+					body: { name: "Inner", params: [], steps: [ifttt("inner"), { kind: "return" }, ifttt("never")] },
 					base: 0,
 				},
 				confirmed: true,
 			});
 			w.save(pointing(hourly), [
 				block(
-					{ kind: "call", function: "inner" },
+					{ kind: "run_function", function: "inner" },
 					lane({ kind: "throw", text: "stop" }, ifttt("unreached")),
 					ifttt("beside"),
 				),
@@ -2289,7 +2297,11 @@ describe("a script saved with errors", () => {
 		w.save(
 			pointing(hourly),
 			[
-				{ kind: "try", steps: [{ kind: "call", function: "inner" }], catch: [ifttt("caught", "{e.code}")] },
+				{
+					kind: "try",
+					steps: [{ kind: "run_function", function: "inner" }],
+					catch: [ifttt("caught", "{e.code}")],
+				},
 				ifttt("after"),
 			],
 			{ automation: 1, function: 1 },
@@ -2299,10 +2311,10 @@ describe("a script saved with errors", () => {
 		expect(saved.stored).toBe(true);
 		expect(row?.invalid).toBeUndefined();
 		expect(alone).toEqual([
-			["unparsed", "refused", SCRIPT_ERRORS],
-			["run_function", "refused", CALL_FAILED],
+			["unparsed", "failed", SCRIPT_ERRORS],
+			["run_function", "failed", FUNCTION_FAILED],
 		]);
-		expect(w.effects).toEqual(["ifttt:caught:call_failed", "ifttt:after"]);
+		expect(w.effects).toEqual(["ifttt:caught:function_failed", "ifttt:after"]);
 	});
 
 	it("refuses at the save a script with errors beside another step or inside a block", () => {

@@ -118,7 +118,7 @@ internal fun caseViews(step: StepDraft.Switch, options: List<AssistantFieldOptio
 }
 
 internal fun caseLabel(step: StepDraft.Switch, number: Int): String =
-	step.cases.getOrNull(number)?.values?.joinToString(", ")?.ifEmpty { "a case with no value" } ?: "default"
+	step.cases.getOrNull(number)?.values?.joinToString(", ")?.let { if (it.isEmpty()) "Case" else "Case $it" } ?: "Default"
 
 /** Null when invalid. */
 internal fun caseValueOf(typed: String): String? =

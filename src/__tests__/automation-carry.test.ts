@@ -6,11 +6,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import vectors from "../../tests/fixtures/automation-carry/vectors.json" with { type: "json" };
 import { openAutomationPair } from "../gateway/compose/composeAutomations.js";
 import { FUNCTION_UNUSED_KEEP_MS } from "../gateway/computed/automations.js";
-import { FUNCTION_LEFT, FUNCTION_PRIVATE } from "../gateway/computed/automationValidity.js";
-import { holesOver } from "../gateway/liveConsole/holes.js";
+import { FUNCTION_LEFT, FUNCTION_UNNAMED } from "../gateway/computed/automationValidity.js";
+import { placeholdersOver } from "../gateway/liveConsole/placeholders.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { carriedFunctionsOf } from "../shared/automation-carry.js";
-import { callsOf, pointerOf } from "../shared/automation-walk.js";
+import { functionsRunBy, pointerOf } from "../shared/automation-walk.js";
 import { createRestoreRepairs } from "../shared/durable-store.js";
 import { unknown } from "../shared/expressions.js";
 import { AssistantHomeSealedSchema, readableSealed } from "../shared/schemasAssistantHome.js";
@@ -30,7 +30,7 @@ afterEach(() => {
 	for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
-const tell = { kind: "do", action: "tell_assistant", args: { when: { kind: "literal", value: "now" } } } as const;
+const tell = { kind: "action", action: "tell_assistant", args: { when: { kind: "literal", value: "now" } } } as const;
 const fn = (name: string) => ({ name, params: [], steps: [tell] });
 const runs: AutomationInput["actions"] = [{ kind: "run_function", function: "warm-up" }];
 const event: AutomationInput["trigger"] = { kind: "event", source: "github", conditions: [] };
@@ -91,7 +91,7 @@ function destination(
 			isHome: () => true,
 			eventIssue: () => null,
 			eventFields: () => [],
-			holes: () => holesOver(REGISTRY),
+			placeholders: () => placeholdersOver(REGISTRY),
 		},
 	});
 	const functions = () =>
@@ -293,7 +293,13 @@ describe("a carry through calls", () => {
 	const calling = (name: string, ...callees: string[]) => ({
 		name,
 		params: [],
-		steps: [{ kind: "try", steps: [tell], catch: callees.map((callee) => ({ kind: "call", function: callee })) }],
+		steps: [
+			{
+				kind: "try",
+				steps: [tell],
+				catch: callees.map((callee) => ({ kind: "run_function", function: callee })),
+			},
+		],
 	});
 	const carry = (automations: ReturnType<typeof destination>["automations"], functions: [string, unknown][]) =>
 		automations.write({
@@ -303,7 +309,7 @@ describe("a carry through calls", () => {
 		});
 	const calls = (automations: ReturnType<typeof destination>["automations"], id: string) => {
 		const held = automations.functionOf(id);
-		return held ? callsOf(held) : null;
+		return held ? functionsRunBy(held) : null;
 	};
 	const c = carryId("chime");
 
@@ -532,7 +538,7 @@ describe("a carry through calls", () => {
 					steps:
 						at === 31
 							? [tell]
-							: ids.slice(at + 1, at + 9).map((callee) => ({ kind: "call", function: callee })),
+							: ids.slice(at + 1, at + 9).map((callee) => ({ kind: "run_function", function: callee })),
 				},
 			]),
 		);
@@ -616,7 +622,7 @@ describe("a carried function with no name", () => {
 		const { automations } = destination([]);
 		const points = (fn: string) =>
 			AutomationSchema.parse({ ...SHAPES.event, actions: [{ kind: "run_function", function: fn }] });
-		const calls = { name: "Caller", params: [], steps: [{ kind: "call", function: "own" }] };
+		const calls = { name: "Caller", params: [], steps: [{ kind: "run_function", function: "own" }] };
 		automations.write({
 			kind: "carry",
 			rows: [
@@ -633,9 +639,9 @@ describe("a carried function with no name", () => {
 		});
 
 		expect(["a", "b", "c", "d"].map((id) => automations.invalidOf(id))).toEqual([
-			FUNCTION_PRIVATE,
-			FUNCTION_PRIVATE,
-			FUNCTION_PRIVATE,
+			FUNCTION_UNNAMED,
+			FUNCTION_UNNAMED,
+			FUNCTION_UNNAMED,
 			null,
 		]);
 	});
@@ -645,7 +651,7 @@ describe("a function reached only through calls", () => {
 	const calling = (name: string, callee: string) => ({
 		name,
 		params: [],
-		steps: [{ kind: "call", function: callee }],
+		steps: [{ kind: "run_function", function: callee }],
 	});
 
 	it("is listed with who calls it and whether a reacher moves, and is swept with what called it once nothing runs either", () => {
@@ -678,13 +684,13 @@ describe("a function reached only through calls", () => {
 });
 
 describe("a carried function written unfit", () => {
-	it("reads errors on every read, for a hole it cannot read and for a field its source does not give", () => {
+	it("reads errors on every read, for a placeholder it cannot read and for a field its source does not give", () => {
 		const { automations } = destination([]);
 		const lit = (value: string) => ({ kind: "literal" as const, value });
 		const telling = (message: string) => ({
 			name: "Tell",
 			params: [],
-			steps: [{ kind: "do", action: "tell_assistant", args: { when: lit("now"), message: lit(message) } }],
+			steps: [{ kind: "action", action: "tell_assistant", args: { when: lit("now"), message: lit(message) } }],
 		});
 		automations.write({
 			kind: "carry",

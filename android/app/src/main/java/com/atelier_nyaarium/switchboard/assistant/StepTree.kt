@@ -1,5 +1,6 @@
 package com.atelier_nyaarium.switchboard.assistant
 
+import com.atelier_nyaarium.switchboard.liveconsole.quoteConsoleString
 import com.atelier_nyaarium.switchboard.parseDecimal
 import com.atelier_nyaarium.switchboard.proto.AssistantFieldOption
 import com.atelier_nyaarium.switchboard.proto.FunctionParam
@@ -19,14 +20,14 @@ import java.util.UUID
 internal sealed interface StepDraft {
 	val key: String
 
-	data class Do(override val key: String, val action: ActionDraft) : StepDraft
+	data class Action(override val key: String, val action: ActionDraft) : StepDraft
 
 	data class If(
 		override val key: String,
 		/** One expression, as typed. */
 		val condition: String,
 		val then: List<StepDraft>,
-		val otherwise: List<StepDraft>,
+		val elseSteps: List<StepDraft>,
 	) : StepDraft
 
 	data class Try(override val key: String, val body: List<StepDraft>, val catch: List<StepDraft>) : StepDraft
@@ -42,15 +43,30 @@ internal sealed interface StepDraft {
 	/** Minutes as typed. */
 	data class Wait(override val key: String, val minutes: String) : StepDraft
 
-	data class Exit(override val key: String) : StepDraft
+	data class Return(override val key: String) : StepDraft
 
-	data class Note(override val key: String, val text: String) : StepDraft
+	data class Comment(override val key: String, val text: String) : StepDraft
 
-	/** Callee parameters key values. */
-	data class Call(override val key: String, val function: String, val values: Map<String, CallValue>) : StepDraft
+	/** Arguments by the function's parameter names. */
+	data class RunFunction(override val key: String, val function: String, val args: Map<String, FunctionArg>) : StepDraft
 
-	/** What cards do not draw, written back as it was read. */
-	data class Kept(override val key: String, val step: FunctionStep) : StepDraft
+	/** Value as typed; `read` is written back while the field still shows it. */
+	data class Variable(override val key: String, val name: String, val value: String, val read: StepArg? = null) : StepDraft
+
+	/** One step per branch. */
+	data class Parallel(override val key: String, val branches: List<StepDraft>) : StepDraft
+
+	/** Blank name: none. */
+	data class Start(override val key: String, val name: String, val steps: List<StepDraft>) : StepDraft
+
+	/** Task as an expression; blank name: no result. */
+	data class Await(override val key: String, val task: String, val name: String) : StepDraft
+
+	/** Null: no message. */
+	data class Throw(override val key: String, val text: String?) : StepDraft
+
+	/** Drawn as its script line, written back as it was read. */
+	data class ScriptOnly(override val key: String, val step: FunctionStep) : StepDraft
 }
 
 /** Key minted once. */
@@ -59,11 +75,11 @@ internal data class CaseDraft(val key: String, val values: List<String>, val ste
 /** Null when unknown. */
 internal typealias CalleeParams = (String) -> List<FunctionParam>?
 
-/** Typed value; caller expression. */
-internal sealed interface CallValue {
-	data class Typed(val text: String) : CallValue
+/** Typed literal, or an expression read in scope. */
+internal sealed interface FunctionArg {
+	data class Typed(val text: String) : FunctionArg
 
-	data class Read(val expression: String) : CallValue
+	data class Read(val expression: String) : FunctionArg
 }
 
 /** Where a new step lands: an index in the top list, or in a step's side. */
@@ -74,17 +90,20 @@ internal val STEPS_TOTAL = Protocol.Wire.FUNCTION_STEPS_TOTAL_MAX
 
 /** Numbered sides, in order. */
 internal fun sidesOf(step: StepDraft): List<Pair<Side, List<StepDraft>>> = when (step) {
-	is StepDraft.If -> listOf(Side.Then to step.then, Side.Else to step.otherwise)
+	is StepDraft.If -> listOf(Side.Then to step.then, Side.Else to step.elseSteps)
 	is StepDraft.Try -> listOf(Side.Body to step.body, Side.Catch to step.catch)
 	is StepDraft.Switch ->
 		step.cases.mapIndexed { at, held -> Side.Case(at) to held.steps } + (Side.Default(step.cases.size) to step.default)
-	is StepDraft.Do, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Call, is StepDraft.Kept -> emptyList()
+	is StepDraft.Parallel -> listOf(Side.Body to step.branches)
+	is StepDraft.Start -> listOf(Side.Body to step.steps)
+	is StepDraft.Action, is StepDraft.Wait, is StepDraft.Return, is StepDraft.Comment, is StepDraft.RunFunction,
+	is StepDraft.Variable, is StepDraft.Await, is StepDraft.Throw, is StepDraft.ScriptOnly -> emptyList()
 }
 
 private fun withSide(step: StepDraft, side: Side, list: List<StepDraft>): StepDraft = when (step) {
 	is StepDraft.If -> when (side) {
 		Side.Then -> step.copy(then = list)
-		Side.Else -> step.copy(otherwise = list)
+		Side.Else -> step.copy(elseSteps = list)
 		Side.Body, Side.Catch, is Side.Case, is Side.Default -> step
 	}
 	is StepDraft.Try -> when (side) {
@@ -97,7 +116,10 @@ private fun withSide(step: StepDraft, side: Side, list: List<StepDraft>): StepDr
 		is Side.Default -> step.copy(default = list)
 		Side.Then, Side.Else, Side.Body, Side.Catch -> step
 	}
-	is StepDraft.Do, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Call, is StepDraft.Kept -> step
+	is StepDraft.Parallel -> if (side == Side.Body) step.copy(branches = list) else step
+	is StepDraft.Start -> if (side == Side.Body) step.copy(steps = list) else step
+	is StepDraft.Action, is StepDraft.Wait, is StepDraft.Return, is StepDraft.Comment, is StepDraft.RunFunction,
+	is StepDraft.Variable, is StepDraft.Await, is StepDraft.Throw, is StepDraft.ScriptOnly -> step
 }
 
 /** Side edits preserve keys. */
@@ -112,24 +134,24 @@ internal fun findStep(steps: List<StepDraft>, key: String): StepDraft? = everySt
 
 /** Else-if links, in order. */
 internal fun chainOf(step: StepDraft.If): List<StepDraft.If> =
-	generateSequence(step) { it.otherwise.singleOrNull() as? StepDraft.If }.toList()
+	generateSequence(step) { it.elseSteps.singleOrNull() as? StepDraft.If }.toList()
 
 /** Ifs drawn as else-if links. */
 internal fun linkKeys(steps: List<StepDraft>): Set<String> =
-	everyStep(steps).mapNotNull { ((it as? StepDraft.If)?.otherwise?.singleOrNull() as? StepDraft.If)?.key }.toSet()
+	everyStep(steps).mapNotNull { ((it as? StepDraft.If)?.elseSteps?.singleOrNull() as? StepDraft.If)?.key }.toSet()
 
 /** Null where caps refuse. */
 internal fun withElseIf(steps: List<StepDraft>, head: String): List<StepDraft>? {
 	val last = (findStep(steps, head) as? StepDraft.If)?.let { chainOf(it).last() } ?: return null
-	val link = StepDraft.If(freshKey(), "", emptyList(), last.otherwise)
-	return replacedStep(steps, last.key) { last.copy(otherwise = listOf(link)) }.takeIf(::fits)
+	val link = StepDraft.If(freshKey(), "", emptyList(), last.elseSteps)
+	return replacedStep(steps, last.key) { last.copy(elseSteps = listOf(link)) }.takeIf(::fits)
 }
 
 /** Previous link takes else. */
 internal fun withoutLink(steps: List<StepDraft>, link: String): List<StepDraft> {
-	val before = everyStep(steps).filterIsInstance<StepDraft.If>().firstOrNull { it.otherwise.singleOrNull()?.key == link } ?: return steps
-	val dropped = before.otherwise.single() as? StepDraft.If ?: return steps
-	return replacedStep(steps, before.key) { before.copy(otherwise = dropped.otherwise) }
+	val before = everyStep(steps).filterIsInstance<StepDraft.If>().firstOrNull { it.elseSteps.singleOrNull()?.key == link } ?: return steps
+	val dropped = before.elseSteps.single() as? StepDraft.If ?: return steps
+	return replacedStep(steps, before.key) { before.copy(elseSteps = dropped.elseSteps) }
 }
 
 private fun fits(steps: List<StepDraft>): Boolean {
@@ -137,7 +159,7 @@ private fun fits(steps: List<StepDraft>): Boolean {
 	return lists.all { it.size <= STEPS_PER_LIST } && everyStep(steps).size <= STEPS_TOTAL
 }
 
-/** The step at `key` changed; every other key kept. */
+/** The step at `key` changed; every other key unchanged. */
 internal fun replacedStep(steps: List<StepDraft>, key: String, change: (StepDraft) -> StepDraft): List<StepDraft> =
 	steps.map { step -> if (step.key == key) change(step) else withSidesMapped(step) { replacedStep(it, key, change) } }
 
@@ -213,14 +235,17 @@ private fun drawnSides(step: StepDraft, choicesOf: (String) -> List<AssistantFie
 			val links = chainOf(step)
 			val end = links.last()
 			links.mapIndexed { at, link -> (if (at == 0) "If" else "Else if") to Slot(link.key, Side.Then, link.then.size) } +
-				((if (links.size == 1) "Otherwise" else "ELSE") to Slot(end.key, Side.Else, end.otherwise.size))
+				("Else" to Slot(end.key, Side.Else, end.elseSteps.size))
 		}
 		is StepDraft.Switch ->
 			caseViews(step, choicesOf(step.subject)).mapIndexed { at, view ->
-				listOfNotNull("CASE", view.chips.firstOrNull()?.label).joinToString(" ") to Slot(step.key, Side.Case(at), view.case.steps.size)
-			} + ("DEFAULT" to Slot(step.key, Side.Default(step.cases.size), step.default.size))
-		is StepDraft.Try -> listOf("Try" to Slot(step.key, Side.Body, step.body.size), "If it fails" to Slot(step.key, Side.Catch, step.catch.size))
-		is StepDraft.Do, is StepDraft.Wait, is StepDraft.Exit, is StepDraft.Note, is StepDraft.Call, is StepDraft.Kept -> emptyList()
+				listOfNotNull("Case", view.chips.firstOrNull()?.label).joinToString(" ") to Slot(step.key, Side.Case(at), view.case.steps.size)
+			} + ("Default" to Slot(step.key, Side.Default(step.cases.size), step.default.size))
+		is StepDraft.Try -> listOf("Try" to Slot(step.key, Side.Body, step.body.size), "Catch" to Slot(step.key, Side.Catch, step.catch.size))
+		is StepDraft.Parallel -> listOf("Parallel" to Slot(step.key, Side.Body, step.branches.size))
+		is StepDraft.Start -> listOf("Start task" to Slot(step.key, Side.Body, step.steps.size))
+		is StepDraft.Action, is StepDraft.Wait, is StepDraft.Return, is StepDraft.Comment, is StepDraft.RunFunction,
+		is StepDraft.Variable, is StepDraft.Await, is StepDraft.Throw, is StepDraft.ScriptOnly -> emptyList()
 	}
 	return numberedRepeats(sides.map { it.first }).zip(sides) { label, (_, slot) -> label to slot }
 }
@@ -280,17 +305,17 @@ internal val byPath: Comparator<String> = Comparator { a, b ->
 /** A fresh card's key. */
 internal fun freshKey(): String = UUID.randomUUID().toString()
 
-/** A stored step as cards; what a card cannot hold is kept whole. */
+/** A stored step as cards; what a card cannot hold stays script only. */
 internal fun treeOf(
 	step: FunctionStep,
 	offer: AutomationOffer,
-	params: List<FunctionValueDraft> = emptyList(),
+	params: List<FunctionParamDraft> = emptyList(),
 	key: () -> String = ::freshKey,
 ): StepDraft = when (step) {
-	is FunctionStep.Do -> StepDraft.Do(key(), stepDraftOf(step, offer, params))
+	is FunctionStep.Action -> StepDraft.Action(key(), stepDraftOf(step, offer, params))
 	is FunctionStep.If -> StepDraft.If(
 		key(),
-		step.`when`,
+		step.condition,
 		step.steps.orEmpty().map { treeOf(it, offer, params, key) },
 		step.`else`.orEmpty().map { treeOf(it, offer, params, key) },
 	)
@@ -305,41 +330,51 @@ internal fun treeOf(
 		step.cases.map { held -> CaseDraft(key(), held.values, held.steps.map { treeOf(it, offer, params, key) }) },
 		step.default.orEmpty().map { treeOf(it, offer, params, key) },
 	)
-	is FunctionStep.Wait -> minutesText(step.minutes)?.let { StepDraft.Wait(key(), it) } ?: StepDraft.Kept(key(), step)
-	is FunctionStep.Exit -> StepDraft.Exit(key())
-	is FunctionStep.Note -> StepDraft.Note(key(), step.text)
-	is FunctionStep.Call -> callValuesOf(step)?.let { StepDraft.Call(key(), step.function, it) } ?: StepDraft.Kept(key(), step)
-	is FunctionStep.Throw, is FunctionStep.Let, is FunctionStep.Parallel, is FunctionStep.Start, is FunctionStep.Await,
-	is FunctionStep.Unparsed, is FunctionStep.Unknown -> StepDraft.Kept(key(), step)
+	is FunctionStep.Wait -> minutesText(step.minutes)?.let { StepDraft.Wait(key(), it) } ?: StepDraft.ScriptOnly(key(), step)
+	is FunctionStep.Return -> StepDraft.Return(key())
+	is FunctionStep.Comment -> StepDraft.Comment(key(), step.text)
+	is FunctionStep.RunFunction -> argsOf(step)?.let { StepDraft.RunFunction(key(), step.function, it) } ?: StepDraft.ScriptOnly(key(), step)
+	is FunctionStep.Variable -> argText(step.value)?.let { StepDraft.Variable(key(), step.name, it, step.value) } ?: StepDraft.ScriptOnly(key(), step)
+	is FunctionStep.Parallel -> StepDraft.Parallel(key(), step.steps.map { treeOf(it, offer, params, key) })
+	is FunctionStep.Start -> StepDraft.Start(key(), step.`as`.orEmpty(), step.steps.map { treeOf(it, offer, params, key) })
+	is FunctionStep.Await -> StepDraft.Await(key(), step.task, step.`as`.orEmpty())
+	is FunctionStep.Throw -> StepDraft.Throw(key(), step.text)
+	is FunctionStep.Unparsed, is FunctionStep.Unknown -> StepDraft.ScriptOnly(key(), step)
 }
 
-private fun callValuesOf(step: FunctionStep.Call): Map<String, CallValue>? =
-	step.values.orEmpty().mapValues { (_, raw) ->
+/** As the Value field shows it; null for what it cannot. */
+internal fun argText(arg: StepArg): String? = when (arg) {
+	is StepArg.Expression -> arg.text
+	is StepArg.Literal -> (arg.value as? JsonPrimitive)?.let { if (it.isString) quoteConsoleString(it.content) else it.content }
+}
+
+private fun argsOf(step: FunctionStep.RunFunction): Map<String, FunctionArg>? =
+	step.args.orEmpty().mapValues { (_, raw) ->
 		when (val arg = runIsolated { wireJson.decodeFromJsonElement(StepArg.serializer(), raw) }.getOrNull()) {
-			is StepArg.Expression -> CallValue.Read(arg.text)
-			is StepArg.Literal -> (arg.value as? JsonPrimitive)?.takeIf { it.isString || it.doubleOrNull != null }?.let { CallValue.Typed(it.content) }
+			is StepArg.Expression -> FunctionArg.Read(arg.text)
+			is StepArg.Literal -> (arg.value as? JsonPrimitive)?.takeIf { it.isString || it.doubleOrNull != null }?.let { FunctionArg.Typed(it.content) }
 			null -> null
 		} ?: return null
 	}
 
 /** Blank defers to trigger. */
-private fun callStepOf(draft: StepDraft.Call, params: List<FunctionParam>?): FunctionStep? {
+private fun runFunctionStepOf(draft: StepDraft.RunFunction, params: List<FunctionParam>?): FunctionStep? {
 	val byName = params.orEmpty().associateBy { it.name }
-	val values = draft.values.mapNotNull { (name, value) ->
-		val arg = when (value) {
-			is CallValue.Read -> value.expression.takeIf { it.isNotBlank() }?.let(StepArg::Expression)
-			is CallValue.Typed -> {
-				if (value.text.isBlank()) null
+	val args = draft.args.mapNotNull { (name, arg) ->
+		val written = when (arg) {
+			is FunctionArg.Read -> arg.expression.takeIf { it.isNotBlank() }?.let(StepArg::Expression)
+			is FunctionArg.Typed -> {
+				if (arg.text.isBlank()) null
 				else {
 					val param = byName[name] ?: FunctionParam(name, FunctionParamType.TEXT.wire)
-					StepArg.Literal(sentValueOf(param, value.text) ?: return null)
+					StepArg.Literal(sentArgOf(param, arg.text) ?: return null)
 				}
 			}
 		}
-		arg?.let { name to wireJson.encodeToJsonElement(StepArg.serializer(), it) }
+		written?.let { name to wireJson.encodeToJsonElement(StepArg.serializer(), it) }
 	}.toMap()
 	if (draft.function.isBlank()) return null
-	return FunctionStep.Call(function = draft.function, values = JsonObject(values).takeIf { values.isNotEmpty() })
+	return FunctionStep.RunFunction(function = draft.function, args = JsonObject(args).takeIf { args.isNotEmpty() })
 }
 
 /** Number or raw text. */
@@ -347,39 +382,52 @@ private fun minutesText(arg: StepArg): String? {
 	val literal = (arg as? StepArg.Literal)?.value as? JsonPrimitive ?: return null
 	if (literal.isString) return literal.content.takeIf { parseDecimal(it.trim()) == null }
 	return literal.content.takeIf { literal.doubleOrNull != null }
-	}
+}
 
 /** Null when unwritable. */
 internal fun stepOfDraft(
 	draft: StepDraft,
 	offer: AutomationOffer,
-	params: List<FunctionValueDraft> = emptyList(),
+	params: List<FunctionParamDraft> = emptyList(),
 	calleeParams: CalleeParams,
-): FunctionStep? =
-	when (draft) {
-		is StepDraft.Do -> stepOf(draft.action, offer, params)
+): FunctionStep? {
+	fun list(steps: List<StepDraft>): List<FunctionStep>? = steps.map { stepOfDraft(it, offer, params, calleeParams) ?: return null }
+	return when (draft) {
+		is StepDraft.Action -> stepOf(draft.action, offer, params)
 		is StepDraft.If -> {
-			val then = draft.then.map { stepOfDraft(it, offer, params, calleeParams) ?: return null }
-			val otherwise = draft.otherwise.map { stepOfDraft(it, offer, params, calleeParams) ?: return null }
-			FunctionStep.If(`when` = draft.condition, steps = then.takeIf { it.isNotEmpty() }, `else` = otherwise.takeIf { it.isNotEmpty() })
+			val then = list(draft.then) ?: return null
+			val elseSteps = list(draft.elseSteps) ?: return null
+			FunctionStep.If(condition = draft.condition, steps = then.takeIf { it.isNotEmpty() }, `else` = elseSteps.takeIf { it.isNotEmpty() })
 		}
-		is StepDraft.Try -> FunctionStep.Try(
-			steps = draft.body.map { stepOfDraft(it, offer, params, calleeParams) ?: return null },
-			catch = draft.catch.map { stepOfDraft(it, offer, params, calleeParams) ?: return null },
-		)
+		is StepDraft.Try -> FunctionStep.Try(steps = list(draft.body) ?: return null, catch = list(draft.catch) ?: return null)
 		is StepDraft.Switch -> {
-			val cases = draft.cases.map { held ->
-				SwitchCase(held.values, held.steps.map { stepOfDraft(it, offer, params, calleeParams) ?: return null })
-			}
-			val default = draft.default.map { stepOfDraft(it, offer, params, calleeParams) ?: return null }
+			val cases = draft.cases.map { held -> SwitchCase(held.values, list(held.steps) ?: return null) }
+			val default = list(draft.default) ?: return null
 			FunctionStep.Switch(subject = draft.subject, cases = cases, default = default.takeIf { it.isNotEmpty() })
 		}
-		is StepDraft.Call -> callStepOf(draft, calleeParams(draft.function))
+		is StepDraft.RunFunction -> runFunctionStepOf(draft, calleeParams(draft.function))
 		is StepDraft.Wait -> FunctionStep.Wait(StepArg.Literal(minutesOf(draft.minutes)))
-		is StepDraft.Exit -> FunctionStep.Exit
-		is StepDraft.Note -> FunctionStep.Note(draft.text)
-		is StepDraft.Kept -> draft.step
+		is StepDraft.Return -> FunctionStep.Return
+		is StepDraft.Comment -> FunctionStep.Comment(draft.text)
+		is StepDraft.Variable -> if (!nameFits(draft.name)) null else {
+			FunctionStep.Variable(draft.name, draft.read?.takeIf { argText(it) == draft.value } ?: StepArg.Expression(draft.value))
+		}
+		is StepDraft.Parallel -> FunctionStep.Parallel(list(draft.branches) ?: return null)
+		is StepDraft.Start -> if (!optionalNameFits(draft.name)) null else {
+			FunctionStep.Start(`as` = draft.name.ifBlank { null }, steps = list(draft.steps) ?: return null)
+		}
+		is StepDraft.Await -> if (draft.task.isBlank() || !optionalNameFits(draft.name)) null else {
+			FunctionStep.Await(task = draft.task, `as` = draft.name.ifBlank { null })
+		}
+		is StepDraft.Throw -> FunctionStep.Throw(draft.text)
+		is StepDraft.ScriptOnly -> draft.step
 	}
+}
+
+/** A variable's or a task's name, as the Gateway takes one. */
+internal fun nameFits(name: String): Boolean = Regex(Protocol.Wire.FUNCTION_PARAM_NAME_PATTERN).matches(name)
+
+private fun optionalNameFits(name: String): Boolean = name.isBlank() || nameFits(name)
 
 /** Integral numbers; invalid text stays raw. */
 private fun minutesOf(text: String): JsonPrimitive {
@@ -391,47 +439,85 @@ private fun minutesOf(text: String): JsonPrimitive {
 /** The same steps, keys aside. */
 internal fun unkeyed(steps: List<StepDraft>): List<StepDraft> = steps.map { step ->
 	val keyless = when (step) {
-		is StepDraft.Do -> step.copy(key = "")
+		is StepDraft.Action -> step.copy(key = "")
 		is StepDraft.If -> step.copy(key = "")
 		is StepDraft.Try -> step.copy(key = "")
 		is StepDraft.Switch -> step.copy(key = "", cases = step.cases.map { it.copy(key = "") })
 		is StepDraft.Wait -> step.copy(key = "")
-		is StepDraft.Exit -> step.copy(key = "")
-		is StepDraft.Note -> step.copy(key = "")
-		is StepDraft.Call -> step.copy(key = "")
-		is StepDraft.Kept -> step.copy(key = "")
+		is StepDraft.Return -> step.copy(key = "")
+		is StepDraft.Comment -> step.copy(key = "")
+		is StepDraft.RunFunction -> step.copy(key = "")
+		is StepDraft.Variable -> step.copy(key = "")
+		is StepDraft.Parallel -> step.copy(key = "")
+		is StepDraft.Start -> step.copy(key = "")
+		is StepDraft.Await -> step.copy(key = "")
+		is StepDraft.Throw -> step.copy(key = "")
+		is StepDraft.ScriptOnly -> step.copy(key = "")
 	}
 	withSidesMapped(keyless, ::unkeyed)
 }
 
-/** The action of every card that does one, at any depth. */
-internal fun doings(steps: List<StepDraft>): List<StepDraft.Do> = everyStep(steps).filterIsInstance<StepDraft.Do>()
+/** Every action card, at any depth. */
+internal fun actionCards(steps: List<StepDraft>): List<StepDraft.Action> = everyStep(steps).filterIsInstance<StepDraft.Action>()
 
-/** Each card's action changed; keys kept. */
-internal fun mapDoings(steps: List<StepDraft>, change: (ActionDraft) -> ActionDraft): List<StepDraft> = steps.map { step ->
-	if (step is StepDraft.Do) step.copy(action = change(step.action)) else withSidesMapped(step) { mapDoings(it, change) }
+/** Each card's action changed; keys unchanged. */
+internal fun mapActions(steps: List<StepDraft>, change: (ActionDraft) -> ActionDraft): List<StepDraft> = steps.map { step ->
+	if (step is StepDraft.Action) step.copy(action = change(step.action)) else withSidesMapped(step) { mapActions(it, change) }
 }
+
+/** A stored step's kind; an action step reads as its action. */
+internal fun stepKindOf(step: FunctionStep): String = when (step) {
+	is FunctionStep.Action -> step.action
+	is FunctionStep.If -> "if"
+	is FunctionStep.Switch -> "switch"
+	is FunctionStep.Try -> "try"
+	is FunctionStep.Parallel -> "parallel"
+	is FunctionStep.Start -> "start"
+	is FunctionStep.Await -> "await"
+	is FunctionStep.Return -> "return"
+	is FunctionStep.Throw -> "throw"
+	is FunctionStep.Variable -> "variable"
+	is FunctionStep.Wait -> "wait"
+	is FunctionStep.Comment -> "comment"
+	is FunctionStep.Unparsed -> "unparsed"
+	is FunctionStep.RunFunction -> "run_function"
+	is FunctionStep.Unknown -> step.kind
+}
+
+/** Statement kinds as their cards read. */
+internal val STATEMENT_LABELS = linkedMapOf(
+	"if" to "If",
+	"switch" to "Switch",
+	"variable" to "Variable",
+	"run_function" to "Run function",
+	"wait" to "Wait",
+	"try" to "Try",
+	"throw" to "Throw",
+	"parallel" to "Parallel",
+	"start" to "Start task",
+	"await" to "Await task",
+	"return" to "Return",
+	"comment" to "Comment",
+)
+
+/** A step kind's title; an action's by its row. */
+internal fun kindLabel(kind: String, offer: AutomationOffer): String =
+	STATEMENT_LABELS[kind] ?: if (kind == "unparsed") "Script with errors" else offer.labelOf(kind)
 
 /** A card's title. */
 internal fun cardLabel(step: StepDraft, offer: AutomationOffer): String = when (step) {
-	is StepDraft.Do -> offer.labelOf(step.action.kind)
-	is StepDraft.If -> "If"
-	is StepDraft.Try -> "Try"
-	is StepDraft.Switch -> "Switch"
-	is StepDraft.Wait -> "Wait"
-	is StepDraft.Exit -> "Stop here"
-	is StepDraft.Note -> "Note"
-	is StepDraft.Call -> "Call"
-	is StepDraft.Kept -> when (val held = step.step) {
-		is FunctionStep.Throw -> "Fail"
-		is FunctionStep.Let -> "Keep a value"
-		is FunctionStep.Call -> "Run a function"
-		is FunctionStep.Wait -> "Wait"
-		is FunctionStep.Parallel -> "Together"
-		is FunctionStep.Start -> "Start a task"
-		is FunctionStep.Await -> "Wait for a task"
-		is FunctionStep.Unparsed -> "Script with errors"
-		is FunctionStep.Unknown -> held.kind
-		is FunctionStep.Do, is FunctionStep.If, is FunctionStep.Switch, is FunctionStep.Try, is FunctionStep.Exit, is FunctionStep.Note -> "Step"
-	}
+	is StepDraft.Action -> offer.labelOf(step.action.kind)
+	is StepDraft.If -> kindLabel("if", offer)
+	is StepDraft.Try -> kindLabel("try", offer)
+	is StepDraft.Switch -> kindLabel("switch", offer)
+	is StepDraft.Wait -> kindLabel("wait", offer)
+	is StepDraft.Return -> kindLabel("return", offer)
+	is StepDraft.Comment -> kindLabel("comment", offer)
+	is StepDraft.RunFunction -> kindLabel("run_function", offer)
+	is StepDraft.Variable -> kindLabel("variable", offer)
+	is StepDraft.Parallel -> kindLabel("parallel", offer)
+	is StepDraft.Start -> kindLabel("start", offer)
+	is StepDraft.Await -> kindLabel("await", offer)
+	is StepDraft.Throw -> kindLabel("throw", offer)
+	is StepDraft.ScriptOnly -> kindLabel(stepKindOf(step.step), offer)
 }

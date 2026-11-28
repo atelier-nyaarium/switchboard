@@ -18,7 +18,7 @@
 					{
 						"kind": "tell_assistant",
 						"when": "quietly",
-						"message": "It is {value} at {device}."
+						"message": "It is {reading} at {device}."
 					}
 				]
 			},
@@ -58,7 +58,7 @@
 				"kind": "crossing",
 				"names": [
 					{
-						"name": "value",
+						"name": "reading",
 						"description": "The reading now"
 					},
 					{
@@ -98,7 +98,7 @@
 			{
 				"kind": "tell_assistant",
 				"label": "Tell the assistant",
-				"danger": false,
+				"confirm": false,
 				"home": true,
 				"params": [
 					{
@@ -128,14 +128,14 @@
 			},
 			{
 				"kind": "device_set",
-				"label": "Switch a plug",
-				"danger": false,
+				"label": "Set device",
+				"confirm": false,
 				"home": false,
 				"params": [
 					{
 						"name": "device",
-						"label": "Plug",
-						"kind": "switch"
+						"label": "Device",
+						"kind": "device"
 					},
 					{
 						"name": "verb",
@@ -161,7 +161,7 @@
 			{
 				"kind": "ifttt_trigger",
 				"label": "Send to IFTTT",
-				"danger": true,
+				"confirm": true,
 				"home": true,
 				"params": [
 					{
@@ -195,8 +195,8 @@
 			},
 			{
 				"kind": "run_function",
-				"label": "Run a function",
-				"danger": false,
+				"label": "Run function",
+				"confirm": false,
 				"home": false,
 				"params": [
 					{
@@ -205,9 +205,9 @@
 						"kind": "function"
 					},
 					{
-						"name": "values",
-						"label": "Values",
-						"kind": "values",
+						"name": "args",
+						"label": "Arguments",
+						"kind": "args",
 						"optional": true
 					}
 				]
@@ -222,7 +222,7 @@
 				"decimals": 1
 			}
 		],
-		"switches": [
+		"devices": [
 			{
 				"device": "aa:bb:cc:dd:ee:ff",
 				"name": "Desk lamp"
@@ -233,22 +233,25 @@
 			"steps": ["tell_assistant", "device_set", "ifttt_trigger"],
 			"paramTypes": ["device", "text", "number"],
 			"statements": [
-				"do",
+				"action",
 				"if",
 				"try",
 				"parallel",
 				"start",
 				"await",
-				"exit",
+				"return",
 				"throw",
-				"let",
+				"variable",
 				"wait",
-				"note",
-				"call"
+				"comment",
+				"run_function"
 			],
 			"unnamed": true,
 			"script": true
 		},
-		"conditions": { "tests": ["is", "is_not", "contains", "contains_not"], "values": 256 }
+		"conditions": {
+			"operators": ["is", "is_not", "contains", "contains_not"],
+			"values": 256
+		}
 	}
 }

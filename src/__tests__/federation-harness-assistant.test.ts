@@ -107,7 +107,7 @@ describe("the assistant's session through the console", () => {
 	});
 
 	it("moves to itself with its automations", async () => {
-		const condition = { field: "repository", test: "is", value: " atelier/switchboard " } as const;
+		const condition = { field: "repository", operator: "is", value: " atelier/switchboard " } as const;
 		const put = (
 			await h.phone.value({
 				kind: "automation_put",
@@ -285,7 +285,7 @@ describe("a source event reaching the assistant", () => {
 
 	it("wakes for no backlog, retries a wake that did not land, wakes once for an event two automations tell now, and switches a plug for it", async () => {
 		const poke = () => h.phone.value({ kind: "assistant_source_grants", sourceId: "fake", entryIds: [] });
-		const mention = { field: "kind", test: "is", value: "mention" } as const;
+		const mention = { field: "kind", operator: "is", value: "mention" } as const;
 		await h.phone.value({ kind: "device_add", mac: PLUG, address: "127.0.0.1", name: "Desk lamp" });
 		const lamp: AutomationInput = {
 			enabled: true,

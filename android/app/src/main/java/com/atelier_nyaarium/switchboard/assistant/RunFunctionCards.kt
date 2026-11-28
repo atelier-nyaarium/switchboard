@@ -33,10 +33,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import com.atelier_nyaarium.switchboard.CANNOT_SAVE
 import com.atelier_nyaarium.switchboard.EXACT_KEYBOARD
+import com.atelier_nyaarium.switchboard.FUNCTION_CHANGED_HERE
 import com.atelier_nyaarium.switchboard.PickMenu
 import com.atelier_nyaarium.switchboard.REACHES_HEADER
 import com.atelier_nyaarium.switchboard.hapticClick
+import com.atelier_nyaarium.switchboard.issueCountsLine
 import com.atelier_nyaarium.switchboard.typeWordText
 import com.atelier_nyaarium.switchboard.proto.AutomationRow
 import com.atelier_nyaarium.switchboard.proto.FunctionParam
@@ -44,8 +47,8 @@ import com.atelier_nyaarium.switchboard.proto.Protocol
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.FunctionParamType
 
 @Composable
-internal fun CallFields(
-	step: StepDraft.Call,
+internal fun RunFunctionFields(
+	step: StepDraft.RunFunction,
 	draft: AutomationDraft,
 	offer: AutomationOffer,
 	fields: SourceFields,
@@ -54,30 +57,30 @@ internal fun CallFields(
 	said: AutomationSaid?,
 	edit: ((AutomationDraft) -> AutomationDraft) -> Unit,
 	reload: (String) -> Unit,
-	flagged: Set<String>,
+	counts: Map<String, IssueCount>,
 ) {
 	val key = step.key
-	val choices = callChoices(draft, offer, tree)
+	val choices = functionChoices(draft, offer, tree)
 	var naming by remember(key) { mutableStateOf(false) }
-	val known = choices.filterIsInstance<CallChoice.Existing>()
+	val known = choices.filterIsInstance<FunctionChoice.Existing>()
 	val picked = known.firstOrNull { it.id == step.function }
-		?: draft.callees[step.function]?.let { CallChoice.Existing(it.id, it.name) }
+		?: draft.callees[step.function]?.let { FunctionChoice.Existing(it.id, it.name) }
 	PickMenu(
 		label = "Function",
 		choices = choices,
 		picked = picked,
 		labelOf = { choice ->
 			when (choice) {
-				is CallChoice.Existing -> choice.name
-				CallChoice.New -> "New function"
+				is FunctionChoice.Existing -> choice.name
+				FunctionChoice.New -> "New function"
 			}
 		},
 		onPick = { choice ->
 			when (choice) {
-				is CallChoice.Existing -> if (choice.id != step.function) {
-					edit { it.withStep(key) { held -> (held as? StepDraft.Call)?.copy(function = choice.id, values = emptyMap()) ?: held } }
+				is FunctionChoice.Existing -> if (choice.id != step.function) {
+					edit { it.withStep(key) { held -> (held as? StepDraft.RunFunction)?.copy(function = choice.id, args = emptyMap()) ?: held } }
 				}
-				CallChoice.New -> naming = true
+				FunctionChoice.New -> naming = true
 			}
 		},
 		enabled = enabled,
@@ -86,9 +89,9 @@ internal fun CallFields(
 	if (step.function.isNotBlank() && params == null) {
 		Text("That function is not listed.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 	}
-	val names = callNames(draft, offer, tree, key)
+	val names = argNames(draft, offer, tree, key)
 	val dim = MaterialTheme.colorScheme.onSurfaceVariant
-	for (row in step.function.takeIf { it.isNotBlank() }?.let { callRows(draft, offer, fields, it) }.orEmpty()) {
+	for (row in step.function.takeIf { it.isNotBlank() }?.let { argRows(draft, offer, fields, it) }.orEmpty()) {
 		val param = row.param ?: continue
 		when (val source = row.source) {
 			ValueSource.FromTrigger -> Text("${param.name} from the trigger", style = MaterialTheme.typography.bodySmall, color = dim)
@@ -97,23 +100,28 @@ internal fun CallFields(
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.error,
 			)
-			is ValueSource.Set, ValueSource.Unset -> CallValueRow(param, step.values[param.name], names, offer, enabled) { next ->
-				edit { it.withStep(key) { held -> (held as? StepDraft.Call)?.let { call -> call.copy(values = withCallValue(call.values, param.name, next)) } ?: held } }
+			is ValueSource.Set, ValueSource.Unset -> ArgRow(param, step.args[param.name], names, offer, enabled) { next ->
+				edit { it.withStep(key) { held -> (held as? StepDraft.RunFunction)?.let { run -> run.copy(args = withArg(run.args, param.name, next)) } ?: held } }
 			}
 		}
 		IssueLine(refusedField(said, SaidAt.Card(key, param.name), saidText(draft, SaidAt.Card(key, param.name))))
 	}
-	for (name in strayCallValues(step, params)) {
+	for (name in strayArgs(step, params)) {
 		Row(verticalAlignment = Alignment.CenterVertically) {
-			Text("$name is not one of its values", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
-			IconButton(onClick = hapticClick { edit { it.withStep(key) { held -> (held as? StepDraft.Call)?.let { call -> call.copy(values = call.values - name) } ?: held } } }, enabled = enabled) {
+			Text("$name is not one of its parameters", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
+			IconButton(onClick = hapticClick { edit { it.withStep(key) { held -> (held as? StepDraft.RunFunction)?.let { run -> run.copy(args = run.args - name) } ?: held } } }, enabled = enabled) {
 				Icon(Icons.Default.Close, contentDescription = "Clear")
 			}
 		}
 	}
-	when (val line = callLine(draft, offer, said, step.function, flagged)) {
-		is CallLine.Moved -> MovedLine(enabled) { reload(line.id) }
-		CallLine.Attention -> Text("A step in it needs attention.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+	when (val line = runFunctionLine(draft, offer, said, step.function, counts)) {
+		is RunFunctionLine.Changed -> ChangedLine(enabled) { reload(line.id) }
+		RunFunctionLine.CannotSave -> Text(CANNOT_SAVE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+		is RunFunctionLine.Issues -> Text(
+			issueCountsLine(line.count.errors, line.count.warnings),
+			style = MaterialTheme.typography.bodySmall,
+			color = if (line.count.errors > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline,
+		)
 		null -> Unit
 	}
 	if (params != null) {
@@ -128,46 +136,46 @@ internal fun CallFields(
 }
 
 @Composable
-private fun MovedLine(enabled: Boolean, onReload: () -> Unit) {
+private fun ChangedLine(enabled: Boolean, onReload: () -> Unit) {
 	Column {
-		Text("It changed elsewhere. Reload to see it.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+		Text(FUNCTION_CHANGED_HERE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 		TextButton(onClick = hapticClick(onReload), enabled = enabled) { Text("Reload") }
 	}
 }
 
 /** Blank typing clears it. */
-internal fun withCallValue(values: Map<String, CallValue>, name: String, value: CallValue?): Map<String, CallValue> =
-	if (value == null || (value is CallValue.Typed && value.text.isBlank())) values - name else values + (name to value)
+internal fun withArg(args: Map<String, FunctionArg>, name: String, arg: FunctionArg?): Map<String, FunctionArg> =
+	if (arg == null || (arg is FunctionArg.Typed && arg.text.isBlank())) args - name else args + (name to arg)
 
-/** Typed value; caller expression. */
+/** Typed value; a name in scope. */
 @Composable
-private fun CallValueRow(
+private fun ArgRow(
 	param: FunctionParam,
-	value: CallValue?,
+	arg: FunctionArg?,
 	names: List<String>,
 	offer: AutomationOffer,
 	enabled: Boolean,
-	onChange: (CallValue?) -> Unit,
+	onChange: (FunctionArg?) -> Unit,
 ) {
 	Row(verticalAlignment = Alignment.CenterVertically) {
 		Box(Modifier.weight(1f)) {
 			when {
-				value is CallValue.Read -> Text(
-					"${param.name} = ${value.expression}",
+				arg is FunctionArg.Read -> Text(
+					"${param.name} = ${arg.expression}",
 					fontFamily = FontFamily.Monospace,
 					style = MaterialTheme.typography.bodyMedium,
 				)
 				param.type == FunctionParamType.DEVICE.wire -> PickMenu(
 					label = param.name,
-					choices = offer.switches,
-					picked = offer.switches.find { it.device == (value as? CallValue.Typed)?.text },
+					choices = offer.devices,
+					picked = offer.devices.find { it.device == (arg as? FunctionArg.Typed)?.text },
 					labelOf = { it.name },
-					onPick = { onChange(CallValue.Typed(it.device)) },
+					onPick = { onChange(FunctionArg.Typed(it.device)) },
 					enabled = enabled,
 				)
 				else -> OutlinedTextField(
-					value = (value as? CallValue.Typed)?.text.orEmpty(),
-					onValueChange = { typed -> onChange(CallValue.Typed(typed)) },
+					value = (arg as? FunctionArg.Typed)?.text.orEmpty(),
+					onValueChange = { typed -> onChange(FunctionArg.Typed(typed)) },
 					label = { Text(param.name) },
 					singleLine = true,
 					keyboardOptions = if (param.type == FunctionParamType.NUMBER.wire) NUMBER_KEYS else EXACT_KEYBOARD,
@@ -176,10 +184,10 @@ private fun CallValueRow(
 				)
 			}
 		}
-		if (value is CallValue.Read) {
+		if (arg is FunctionArg.Read) {
 			IconButton(onClick = hapticClick { onChange(null) }, enabled = enabled) { Icon(Icons.Default.Close, contentDescription = "Clear") }
 		} else {
-			NameMenu(names, enabled) { onChange(CallValue.Read(it)) }
+			NameMenu(names, enabled) { onChange(FunctionArg.Read(it)) }
 		}
 	}
 }
@@ -234,7 +242,7 @@ internal fun CalleePage(
 	edit: ((AutomationDraft) -> AutomationDraft) -> Unit,
 	reload: (String) -> Unit,
 	rows: List<AutomationRow>,
-	kept: KeptScript,
+	scriptOnly: ScriptOnlyCards,
 	issues: DrawnIssues?,
 	/** Its script, read-only. */
 	script: @Composable () -> Unit,
@@ -256,7 +264,7 @@ internal fun CalleePage(
 			Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 16.dp),
 			verticalArrangement = Arrangement.spacedBy(12.dp),
 		) {
-			if (movedCallee(said, draft, offer) == callee.id) MovedLine(enabled) { reload(callee.id) }
+			if (changedCallee(said, draft, offer) == callee.id) ChangedLine(enabled) { reload(callee.id) }
 			droppedLine(droppedEdits(draft, offer).filter { it.id == callee.id })?.let {
 				Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 			}
@@ -279,8 +287,8 @@ internal fun CalleePage(
 				edit = edit,
 				reload = reload,
 				tree = callee.id,
-				kept = kept.lines,
-				onScriptAt = kept.open,
+				scriptLines = scriptOnly.lines,
+				onScriptAt = scriptOnly.open,
 				issues = issues,
 			)
 		}

@@ -1,6 +1,6 @@
 package com.atelier_nyaarium.switchboard
 
-import com.atelier_nyaarium.switchboard.assistant.UnfollowedCall
+import com.atelier_nyaarium.switchboard.assistant.UnfollowedFunction
 import com.atelier_nyaarium.switchboard.assistant.WalkAction
 import com.atelier_nyaarium.switchboard.assistant.WalkEntry
 import com.atelier_nyaarium.switchboard.assistant.WalkStep
@@ -32,26 +32,26 @@ class AutomationWalkVectorsTest {
 			"step",
 			entry.path,
 			when (val step = entry.step) {
-				is FunctionStep.Do -> step.action
+				is FunctionStep.Action -> step.action
 				is FunctionStep.If -> "if"
 				is FunctionStep.Switch -> "switch"
 				is FunctionStep.Try -> "try"
 				is FunctionStep.Parallel -> "parallel"
 				is FunctionStep.Start -> "start"
 				is FunctionStep.Await -> "await"
-				is FunctionStep.Exit -> "exit"
+				is FunctionStep.Return -> "return"
 				is FunctionStep.Throw -> "throw"
-				is FunctionStep.Let -> "let"
+				is FunctionStep.Variable -> "variable"
 				is FunctionStep.Wait -> "wait"
-				is FunctionStep.Note -> "note"
+				is FunctionStep.Comment -> "comment"
 				is FunctionStep.Unparsed -> "unparsed"
-				is FunctionStep.Call -> "call"
+				is FunctionStep.RunFunction -> "run_function"
 				is FunctionStep.Unknown -> step.kind
 			},
 			entry.index,
 			null,
 		)
-		is UnfollowedCall -> Row("unfollowedCall", entry.path, kindOf(entry.call), null, entry.reason.wire)
+		is UnfollowedFunction -> Row("unfollowedFunction", entry.path, kindOf(entry.runFunction), null, entry.reason.wire)
 	}
 
 	@Test

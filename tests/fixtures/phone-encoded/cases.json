@@ -32,7 +32,7 @@
 									"conditions": [
 										{
 											"field": "reason",
-											"test": "is",
+											"operator": "is",
 											"value": "mention"
 										}
 									]
@@ -55,7 +55,7 @@
 									"conditions": [
 										{
 											"field": "reason",
-											"test": "is_not",
+											"operator": "is_not",
 											"value": [
 												"mention",
 												"subscribed"
@@ -63,7 +63,7 @@
 										},
 										{
 											"field": "repository",
-											"test": "contains_not",
+											"operator": "contains_not",
 											"value": "fork"
 										}
 									]
@@ -103,7 +103,7 @@
 									"conditions": [
 										{
 											"field": "reason",
-											"test": "is",
+											"operator": "is",
 											"value": "mention"
 										}
 									]
@@ -126,7 +126,7 @@
 									"conditions": [
 										{
 											"field": "reason",
-											"test": "is",
+											"operator": "is",
 											"value": "mention"
 										}
 									]
@@ -245,7 +245,7 @@
 					{
 						"kind": "tell_assistant",
 						"when": "quietly",
-						"message": "It is {value} at {device}."
+						"message": "It is {reading} at {device}."
 					}
 				]
 			}
@@ -342,7 +342,7 @@
 			}
 		},
 		{
-			"name": "a preview of a text with holes",
+			"name": "a preview of a text with placeholders",
 			"schema": "ConsoleOp",
 			"value": {
 				"kind": "automation_preview",
@@ -355,11 +355,11 @@
 					"deadZone": 0.5,
 					"coolDownSec": 600
 				},
-				"text": "It is {value} at {device}."
+				"text": "It is {reading} at {device}."
 			}
 		},
 		{
-			"name": "a preview with function values",
+			"name": "a preview with function args",
 			"schema": "ConsoleOp",
 			"value": {
 				"kind": "automation_preview",
@@ -379,7 +379,7 @@
 						"type": "text"
 					}
 				],
-				"values": {
+				"args": {
 					"room": "Office"
 				}
 			}
@@ -423,7 +423,7 @@
 						"params": [],
 						"steps": [
 							{
-								"kind": "do",
+								"kind": "action",
 								"action": "tell_assistant",
 								"as": "result",
 								"args": {

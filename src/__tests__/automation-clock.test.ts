@@ -124,8 +124,8 @@ describe("an automation's clock", () => {
 
 		expect(await after.told()).toEqual([["Every hour", "21:00 UTC"]]);
 		expect(after.automations.log().map((run) => [run.outcome, run.reason])).toEqual([
-			["uncertain", "missed 2 slots"],
-			["ran", undefined],
+			["unsure", "missed 2 slots"],
+			["done", undefined],
 		]);
 	});
 
@@ -156,8 +156,8 @@ describe("an automation's clock", () => {
 		const after = open(dir, fakeAmbient({ drive: "manual", now: () => late }));
 
 		expect(after.automations.log().map((run) => [run.outcome, run.reason])).toEqual([
-			["uncertain", "missed 2999 slots"],
-			["ran", undefined],
+			["unsure", "missed 2999 slots"],
+			["done", undefined],
 		]);
 		expect(after.automations.rows()[0]?.nextRunAt).toBe(T0 + 3_001 * HOUR);
 	});
@@ -204,7 +204,7 @@ describe("an automation's clock", () => {
 
 		expect(once).toEqual([["Every day at 18:05", "18:05"]]);
 		expect((await told()).map(([, time]) => time)).toEqual(["18:05", "18:05"]);
-		expect(automations.log().map((run) => run.outcome)).toEqual(["ran", "suppressed", "ran"]);
+		expect(automations.log().map((run) => run.outcome)).toEqual(["done", "skipped", "done"]);
 	});
 
 	it("starts over from now when it is edited or switched back on, so an edit never fires", async () => {

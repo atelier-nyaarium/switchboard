@@ -135,7 +135,7 @@ private fun slotOf(source: String, token: ConsoleToken, cursor: Int): Slot? {
 		when (part) {
 			is ConsoleStringPart.Text -> part.value.take(cursor - part.start)
 			is ConsoleStringPart.Escape -> if (part.end <= cursor) part.value else "\\"
-			is ConsoleStringPart.Hole -> source.substring(part.start, minOf(part.end, cursor))
+			is ConsoleStringPart.Placeholder -> source.substring(part.start, minOf(part.end, cursor))
 		}
 	}
 	return when {
@@ -146,8 +146,8 @@ private fun slotOf(source: String, token: ConsoleToken, cursor: Int): Slot? {
 	}
 }
 
-internal fun holeIn(parts: List<ConsoleStringPart>, cursor: Int): ConsoleStringPart.Hole? =
-	parts.filterIsInstance<ConsoleStringPart.Hole>().firstOrNull { part ->
+internal fun placeholderIn(parts: List<ConsoleStringPart>, cursor: Int): ConsoleStringPart.Placeholder? =
+	parts.filterIsInstance<ConsoleStringPart.Placeholder>().firstOrNull { part ->
 		cursor > part.start && if (part.closed) cursor < part.end else cursor <= part.end
 	}
 
@@ -224,9 +224,9 @@ fun consoleTextAssist(
 	variables: Map<String, VariableShape?>,
 	noSlow: Boolean = false,
 ): ConsoleAssist {
-	val hole = holeIn(lexConsoleText(text), cursor)
-	if (description == null || hole == null) return ConsoleAssist(null, emptyList())
-	return assistOver(text, hole.tokens, cursor, description, ids, variables, noSlow)
+	val placeholder = placeholderIn(lexConsoleText(text), cursor)
+	if (description == null || placeholder == null) return ConsoleAssist(null, emptyList())
+	return assistOver(text, placeholder.tokens, cursor, description, ids, variables, noSlow)
 }
 
 private fun assistOver(
@@ -238,8 +238,8 @@ private fun assistOver(
 	variables: Map<String, VariableShape?>,
 	noSlow: Boolean,
 ): ConsoleAssist {
-	val hole = all.firstNotNullOfOrNull { holeIn(it.parts.orEmpty(), cursor) }
-	if (hole != null) return assistOver(source, hole.tokens, cursor, description, ids, variables, noSlow)
+	val placeholder = all.firstNotNullOfOrNull { placeholderIn(it.parts.orEmpty(), cursor) }
+	if (placeholder != null) return assistOver(source, placeholder.tokens, cursor, description, ids, variables, noSlow)
 	val slot = slotAt(source, all, cursor)
 	val before = all.filter { it.start < slot.start }
 	// Complete only the statement under the cursor.

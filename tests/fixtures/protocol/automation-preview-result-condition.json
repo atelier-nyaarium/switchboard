@@ -12,5 +12,5 @@
 			"shown": "3"
 		}
 	],
-	"condition": { "unread": "it reads a value set while it runs" }
+	"condition": { "warning": "the newest event makes it neither true nor false" }
 }

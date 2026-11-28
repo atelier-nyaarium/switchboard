@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openAutomationPair } from "../gateway/compose/composeAutomations.js";
-import { holesOver } from "../gateway/liveConsole/holes.js";
+import { placeholdersOver } from "../gateway/liveConsole/placeholders.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import { createRestoreRepairs } from "../shared/durable-store.js";
 import { unknown } from "../shared/expressions.js";
@@ -65,10 +65,10 @@ function restored(fixture: string) {
 							now: () => null,
 						}
 					: null,
-			holes: () => holesOver(REGISTRY),
+			placeholders: () => placeholdersOver(REGISTRY),
 			actions: {
 				ready: () => true,
-				switchName: (device) => (device === PLUG ? "Lamp" : device === FAN ? "Fan" : null),
+				deviceName: (device) => (device === PLUG ? "Lamp" : device === FAN ? "Fan" : null),
 				deviceSet: async () => ({ word: "unreachable" }),
 				iftttTrigger: async () => ({ word: "done" }),
 			},
@@ -97,7 +97,7 @@ describe("a restore across builds", () => {
 			handledSeq: 3,
 			firedAt: 1_000_000,
 		});
-		expect(automations.log().filter((row) => row.outcome === "uncertain")).toEqual([]);
+		expect(automations.log().filter((row) => row.outcome === "unsure")).toEqual([]);
 		expect(automations.queued().events.map((event) => event.member)).toEqual([
 			"automation:freezer-cold:inc-freezer:epoch-1:3",
 		]);
@@ -117,7 +117,7 @@ describe("a restore across builds", () => {
 		expect(
 			flatFires.every((fire: { steps: object }) => Object.keys(fire.steps).every((at) => /^\d+$/.test(at))),
 		).toBe(true);
-		expect(automations.log().filter((row) => row.outcome === "uncertain" && row.automation === "warm")).toEqual([]);
+		expect(automations.log().filter((row) => row.outcome === "unsure" && row.automation === "warm")).toEqual([]);
 		expect(after.fires.map((fire: { automation: string }) => fire.automation)).toEqual(["fan-on", "warm"]);
 		expect(after.functionVersions).toEqual(held.functionVersions);
 		expect(after.unusedFunctions).toEqual(held.unusedFunctions);
@@ -130,12 +130,12 @@ describe("a restore across builds", () => {
 
 		expect(held.fires[0].active).toEqual(["0.0.0.0", "0.0.0.1.0.0"]);
 		expect(automations.log().map((row) => [row.step, row.action, row.outcome])).toEqual([
-			["0.0.0.2", "throw", "refused"],
-			["0.0.0.0", "device_set", "refused"],
-			["0.0.0.1.0.1", "ifttt_trigger", "ran"],
-			["0.0", "parallel", "refused"],
-			["0.1", "ifttt_trigger", "ran"],
-			["0", "run_function", "refused"],
+			["0.0.0.2", "throw", "failed"],
+			["0.0.0.0", "device_set", "failed"],
+			["0.0.0.1.0.1", "ifttt_trigger", "done"],
+			["0.0", "parallel", "failed"],
+			["0.1", "ifttt_trigger", "done"],
+			["0", "run_function", "failed"],
 		]);
 		expect(stored().fires).toEqual([]);
 	});

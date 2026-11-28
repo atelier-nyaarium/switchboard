@@ -1,20 +1,20 @@
 {
-	"_comment": "What src/shared/automation-fit.ts answers for a trigger, a function's values and reads, and the values an automation sets. The phone's twin replays these cases.",
+	"_comment": "What src/shared/automation-fit.ts answers for a trigger, a function's parameters and reads, and the args an automation sets. The phone's twin replays these cases.",
 	"cases": [
 		{
 			"name": "a function taking nothing fits any trigger",
 			"given": { "kind": "time" },
 			"params": [],
 			"reads": { "names": [], "eventFields": [] },
-			"values": {},
+			"args": {},
 			"expect": { "fits": true, "hidden": false, "requires": [], "unset": [], "wrong": [] }
 		},
 		{
 			"name": "a crossing fills the number it gives by name and the automation sets the room",
 			"given": { "kind": "crossing" },
-			"params": [{ "name": "value", "type": "number" }, { "name": "room", "type": "device" }],
+			"params": [{ "name": "reading", "type": "number" }, { "name": "room", "type": "device" }],
 			"reads": { "names": [], "eventFields": [] },
-			"values": { "room": "aa:bb:cc:dd:ee:01" },
+			"args": { "room": "aa:bb:cc:dd:ee:01" },
 			"expect": { "fits": true, "hidden": false, "requires": [], "unset": [], "wrong": [] }
 		},
 		{
@@ -22,7 +22,7 @@
 			"given": { "kind": "crossing" },
 			"params": [{ "name": "room", "type": "device" }],
 			"reads": { "names": [], "eventFields": [] },
-			"values": {},
+			"args": {},
 			"expect": { "fits": false, "hidden": false, "requires": [], "unset": ["room"], "wrong": [] }
 		},
 		{
@@ -30,7 +30,7 @@
 			"given": { "kind": "interval" },
 			"params": [{ "name": "degrees", "type": "number" }],
 			"reads": { "names": [], "eventFields": [] },
-			"values": { "degrees": "warm" },
+			"args": { "degrees": "warm" },
 			"expect": {
 				"fits": false,
 				"hidden": false,
@@ -44,7 +44,7 @@
 			"given": { "kind": "value", "fieldType": "text" },
 			"params": [{ "name": "value", "type": "number" }],
 			"reads": { "names": [], "eventFields": [] },
-			"values": { "value": 3 },
+			"args": { "value": 3 },
 			"expect": {
 				"fits": false,
 				"hidden": false,
@@ -58,7 +58,7 @@
 			"given": { "kind": "time" },
 			"params": [],
 			"reads": { "names": ["value", "time"], "eventFields": [] },
-			"values": {},
+			"args": {},
 			"expect": { "fits": false, "hidden": false, "requires": ["value"], "unset": [], "wrong": [] }
 		},
 		{
@@ -66,7 +66,7 @@
 			"given": { "kind": "time" },
 			"params": [{ "name": "value", "type": "number" }],
 			"reads": { "names": ["value"], "eventFields": [] },
-			"values": { "value": 3 },
+			"args": { "value": 3 },
 			"expect": { "fits": true, "hidden": false, "requires": [], "unset": [], "wrong": [] }
 		},
 		{
@@ -74,7 +74,7 @@
 			"given": { "kind": "event", "eventFields": ["subject", "from"] },
 			"params": [],
 			"reads": { "names": ["event"], "eventFields": ["reason"] },
-			"values": {},
+			"args": {},
 			"expect": { "fits": false, "hidden": true, "requires": [], "unset": [], "wrong": [] }
 		},
 		{
@@ -82,7 +82,7 @@
 			"given": { "kind": "event", "eventFields": ["reason", "repo"] },
 			"params": [],
 			"reads": { "names": ["event", "source"], "eventFields": ["reason"] },
-			"values": {},
+			"args": {},
 			"expect": { "fits": true, "hidden": false, "requires": [], "unset": [], "wrong": [] }
 		},
 		{
@@ -90,7 +90,7 @@
 			"given": { "kind": "event", "eventFields": ["reason"] },
 			"params": [],
 			"reads": { "names": ["event"], "eventFields": ["id", "title", "url"] },
-			"values": {},
+			"args": {},
 			"expect": { "fits": true, "hidden": false, "requires": [], "unset": [], "wrong": [] }
 		},
 		{
@@ -98,7 +98,7 @@
 			"given": { "kind": "event", "eventFields": ["reason"] },
 			"params": [],
 			"reads": { "names": ["event"], "eventFields": ["nope"] },
-			"values": {},
+			"args": {},
 			"expect": { "fits": false, "hidden": true, "requires": [], "unset": [], "wrong": [] }
 		},
 		{
@@ -106,7 +106,7 @@
 			"given": { "kind": "crossing" },
 			"params": [{ "name": "device", "type": "device" }],
 			"reads": { "names": [], "eventFields": [] },
-			"values": {},
+			"args": {},
 			"expect": {
 				"fits": false,
 				"hidden": false,
@@ -120,7 +120,7 @@
 			"given": { "kind": "time" },
 			"params": [],
 			"reads": { "names": ["event"], "eventFields": ["reason"] },
-			"values": {},
+			"args": {},
 			"expect": { "fits": false, "hidden": false, "requires": ["event"], "unset": [], "wrong": [] }
 		}
 	]

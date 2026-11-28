@@ -108,7 +108,7 @@ private fun AutomationRowView(
 				null -> Text(doesText(row.automation, served), style = MaterialTheme.typography.bodySmall, color = dim)
 				is FunctionLine.Named -> FunctionName(function.name, function.count)
 				FunctionLine.Unlisted -> Text(FUNCTION_UNLISTED, style = MaterialTheme.typography.bodySmall, color = dim)
-				is FunctionLine.Own -> Text(function.does, style = MaterialTheme.typography.bodySmall, color = dim)
+				is FunctionLine.Unnamed -> Text(function.does, style = MaterialTheme.typography.bodySmall, color = dim)
 			}
 			if (rowScriptErrors(row, served)) Text(SCRIPT_ERRORS_LINE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 			rowErrorsLine(row)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }

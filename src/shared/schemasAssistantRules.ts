@@ -1,10 +1,10 @@
 // A source's fields, and the conditions tested against them.
 
 import { z } from "zod";
-import { FIELD_TYPES, RULE_TESTS, type RuleTest, UNIT_CODES } from "./field-types.js";
+import { FIELD_TYPES, OPERATOR_LABELS, RULE_OPERATORS, type RuleOperator, UNIT_CODES } from "./field-types.js";
 import { ASSISTANT_RULE_VALUE_MAX, CONDITION_VALUES_MAX } from "./wire-vocabulary.js";
 
-export { RULE_TESTS, type RuleTest };
+export { RULE_OPERATORS, type RuleOperator };
 export const RULE_ACTIONS = ["wake", "inbox"] as const;
 /** The phone mints it; the Gateway keeps it. */
 export const RULE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
@@ -52,7 +52,7 @@ export const AssistantFieldSpecSchema = z
 		}),
 		/** Case-insensitive open text. */
 		z.strictObject({ kind: z.literal("text"), field: fieldName, label: fieldLabel }),
-		/** Thresholds, not rule tests. */
+		/** Thresholds, not condition operators. */
 		z.strictObject({
 			kind: z.literal("number"),
 			field: fieldName,
@@ -77,15 +77,15 @@ export const AssistantFieldSpecSchema = z
 
 export type AssistantFieldSpec = z.infer<typeof AssistantFieldSpecSchema>;
 
-export const testsOf = (spec: AssistantFieldSpec): readonly RuleTest[] => FIELD_TYPES[spec.kind].tests;
+export const operatorsOf = (spec: AssistantFieldSpec): readonly RuleOperator[] => FIELD_TYPES[spec.kind].operators;
 
 const conditionValue = z.string().max(ASSISTANT_RULE_VALUE_MAX);
 
 export const AssistantRuleConditionSchema = z
 	.object({
 		field: z.string().min(1).max(64),
-		test: z.enum(RULE_TESTS),
-		/** Blank values save unarmed. */
+		operator: z.enum(RULE_OPERATORS),
+		/** Blank values save inactive. */
 		value: z.union([conditionValue, z.array(conditionValue).max(CONDITION_VALUES_MAX)]),
 	})
 	.meta({ id: "AssistantRuleCondition" });
@@ -111,9 +111,10 @@ const specOf = (specs: readonly AssistantFieldSpec[], field: string) => specs.fi
 
 function conditionIssue(condition: AssistantRuleCondition, specs: readonly AssistantFieldSpec[]): string | null {
 	const spec = specOf(specs, condition.field);
-	if (!spec) return `the rule uses unknown field "${condition.field}"`;
-	if (valuesOf(condition).length === 0) return `the rule has no value for ${spec.label}`;
-	if (!testsOf(spec).includes(condition.test)) return `${spec.label} takes no "${condition.test}" test`;
+	if (!spec) return `the automation uses unknown field "${condition.field}"`;
+	if (valuesOf(condition).length === 0) return `the automation has no value for ${spec.label}`;
+	if (!operatorsOf(spec).includes(condition.operator))
+		return `${spec.label} takes no "${OPERATOR_LABELS[condition.operator]}" operator`;
 	return null;
 }
 
@@ -149,11 +150,11 @@ export function conditionsWarning(
 
 /** Any or none. */
 const ANY_OF = { is: true, is_not: false, contains: true, contains_not: false } as const satisfies Record<
-	RuleTest,
+	RuleOperator,
 	boolean
 >;
 const WITHIN = { is: false, is_not: false, contains: true, contains_not: true } as const satisfies Record<
-	RuleTest,
+	RuleOperator,
 	boolean
 >;
 
@@ -167,11 +168,11 @@ function holds(condition: AssistantRuleCondition, spec: AssistantFieldSpec, fiel
 		spec.kind === "enumeration"
 			? values.some((wanted) => wanted === actual && spec.options.some((option) => option.value === wanted))
 			: values.some((wanted) =>
-					WITHIN[condition.test]
+					WITHIN[condition.operator]
 						? actual.toLowerCase().includes(wanted.toLowerCase())
 						: sameValue(actual, wanted),
 				);
-	return ANY_OF[condition.test] ? hit : !hit;
+	return ANY_OF[condition.operator] ? hit : !hit;
 }
 
 /** Every condition holds; conditions that do not fit never match. */

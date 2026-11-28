@@ -245,7 +245,7 @@ describe("automations on real plugs", () => {
 		await vi.waitFor(() => expect(dials()).toBe(4));
 		await ambient.advance(KASA_CONNECT_MS);
 
-		expect(outcomes(automations)).toEqual(["flip refused"]);
+		expect(outcomes(automations)).toEqual(["flip failed"]);
 		expect(await assistant).toMatchObject({ kind: "refused", refusal: { code: "unreachable", effect: "none" } });
 		expect(JSON.stringify(await assistant)).not.toContain("never accepted");
 	});
@@ -267,7 +267,7 @@ describe("automations on real plugs", () => {
 		await automations.settled();
 
 		expect([queued, inBackoff]).toEqual([0, 1]);
-		expect(outcomes(automations)).toEqual(["fast ran", "slow ran"]);
+		expect(outcomes(automations)).toEqual(["fast done", "slow done"]);
 	});
 
 	it("starts a run on another plug while two silent plugs' attempts are still out", async () => {
@@ -290,7 +290,7 @@ describe("automations on real plugs", () => {
 		await automations.settled();
 
 		expect(order).toEqual(["10.0.0.1", "10.0.0.3", "10.0.0.2"]);
-		expect(outcomes(automations).sort()).toEqual(["fast ran", "slow ran", "warm ran"]);
+		expect(outcomes(automations).sort()).toEqual(["fast done", "slow done", "warm done"]);
 	});
 
 	it("sends a plug one attempt at a time: another automation's set of it waits for the first's answer", async () => {
@@ -307,6 +307,6 @@ describe("automations on real plugs", () => {
 		await automations.settled();
 
 		expect(whileOut).toBe(1);
-		expect(outcomes(automations)).toEqual(["first ran", "second ran"]);
+		expect(outcomes(automations)).toEqual(["first done", "second done"]);
 	});
 });

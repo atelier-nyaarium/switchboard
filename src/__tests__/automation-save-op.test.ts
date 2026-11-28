@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { composeAutomations } from "../gateway/compose/composeAutomations.js";
-import { holesOver } from "../gateway/liveConsole/holes.js";
+import { placeholdersOver } from "../gateway/liveConsole/placeholders.js";
 import { createConsoleRegistry } from "../gateway/liveConsole/registry.js";
 import type { ConsoleOp } from "../shared/console-protocol.js";
 import { createRestoreRepairs } from "../shared/durable-store.js";
@@ -29,14 +29,14 @@ const warmUp = (steps: AutomationFunctionInput["steps"]): AutomationFunctionInpu
 	steps,
 });
 const on = {
-	kind: "do",
+	kind: "action",
 	action: "device_set",
 	args: { device: { kind: "expression", text: "room" }, verb: lit("on") },
 } as const;
 const pointing = (trigger: AutomationTrigger): AutomationInput => ({
 	enabled: true,
 	trigger,
-	actions: [{ kind: "run_function", function: "warm-up", values: { room: PLUG } }],
+	actions: [{ kind: "run_function", function: "warm-up", args: { room: PLUG } }],
 });
 
 function stage() {
@@ -49,17 +49,17 @@ function stage() {
 		newIncarnation: () => `a${++n}`,
 		now: () => 1_000,
 		input: () => ({ type: { type: "number", integral: false }, value: unknown("not heard") }),
-		offers: () => ({ numbers: [], switches: [{ device: PLUG, name: "Lamp" }] }),
+		offers: () => ({ numbers: [], devices: [{ device: PLUG, name: "Lamp" }] }),
 		previewEvent: async () => ({ events: [] }) as never,
 		automations: {
 			isHome: () => true,
 			eventIssue: () => null,
 			eventFields: () => ["reason"],
 			entropy: (size) => crypto.randomBytes(size),
-			holes: () => holesOver(REGISTRY),
+			placeholders: () => placeholdersOver(REGISTRY),
 			actions: {
 				ready: () => true,
-				switchName: (device) => (device === PLUG ? "Lamp" : null),
+				deviceName: (device) => (device === PLUG ? "Lamp" : null),
 				deviceSet: async () => ({ word: "done" }),
 				iftttTrigger: async () => ({ word: "done" }),
 			},
@@ -107,7 +107,7 @@ describe("the automation save op", () => {
 					params: [],
 					steps: [
 						{
-							kind: "do",
+							kind: "action",
 							action: "tell_assistant",
 							args: { when: lit("quietly"), message: lit("At {time}") },
 						},
@@ -137,20 +137,20 @@ describe("the automation save op", () => {
 			max: FUNCTIONS_MAX,
 			steps: ["tell_assistant", "device_set", "ifttt_trigger"],
 			statements: [
-				"do",
+				"action",
 				"if",
 				"switch",
 				"try",
 				"parallel",
 				"start",
 				"await",
-				"exit",
+				"return",
 				"throw",
-				"let",
+				"variable",
 				"wait",
-				"note",
+				"comment",
 				"unparsed",
-				"call",
+				"run_function",
 			],
 			paramTypes: ["device", "text", "number"],
 			unnamed: true,
@@ -158,13 +158,13 @@ describe("the automation save op", () => {
 		});
 	});
 
-	it("saves a hole in a function's step and answers it by its record, step path and span as written, for a text and an expression", () => {
+	it("saves a placeholder in a function's step and answers it by its record, step path and span as written, for a text and an expression", () => {
 		const { console, save } = stage();
 		const inText = save("warm", pointing(hourly), 0, {
 			id: "warm-up",
 			body: warmUp([
 				on,
-				{ kind: "do", action: "tell_assistant", args: { when: lit("now"), message: lit("Hi {nowhere}") } },
+				{ kind: "action", action: "tell_assistant", args: { when: lit("now"), message: lit("Hi {nowhere}") } },
 			]),
 			base: 0,
 		});
@@ -218,14 +218,14 @@ describe("the automation save op", () => {
 
 		const stale = save("warm", { ...pointing(hourly), label: "Changed" }, 0);
 
-		expect(refusalOf(stale)).toMatchObject({ code: "moved", record: "automation", revision: 1 });
+		expect(refusalOf(stale)).toMatchObject({ code: "changed", record: "automation", revision: 1 });
 	});
 
 	it("answers a check as the save would on the same rows, with what the body reads, and writes nothing", () => {
 		const { console, save } = stage();
 		save("warm", pointing(hourly), 0, { id: "warm-up", body: warmUp([on]), base: 0 });
 		const tellsTitle = {
-			kind: "do",
+			kind: "action",
 			action: "tell_assistant",
 			args: { when: lit("now"), message: lit("{event.title}") },
 		} as const;
@@ -269,7 +269,7 @@ describe("the automation save op", () => {
 		expect(untouched).toEqual(before);
 		expect(
 			Object.fromEntries(Object.entries(checked).map(([name, answer]) => [name, answer.refusal?.code ?? null])),
-		).toEqual({ ready: null, stale: "moved", issued: null, confirm: "confirm", function_moved: "moved" });
+		).toEqual({ ready: null, stale: "changed", issued: null, confirm: "confirm", function_moved: "changed" });
 		expect(Object.fromEntries(refusing.map((name) => [name, checked[name]?.refusal ?? null]))).toEqual(saved);
 		expect(checked.issued).toMatchObject({ ready: true, reads: { names: ["event"] } });
 		expect(checked.issued?.issues?.map((issue) => [issue.record, issue.step, issue.level])).toEqual([
@@ -297,28 +297,28 @@ describe("the automation save op", () => {
 		const shownNow = console.save(pointer(2));
 
 		expect([shownOld.refusal, shownNow.stored]).toMatchObject([
-			{ code: "moved", record: "function", revision: 2 },
+			{ code: "changed", record: "function", revision: 2 },
 			true,
 		]);
 	});
 
 	it("names the called function an issue or a refusal sits in, and a copy's derived id only once it lands", () => {
 		const { console, save } = stage();
-		const holed = (message: string): AutomationFunctionInput => ({
+		const placeheld = (message: string): AutomationFunctionInput => ({
 			name: "Chime",
 			params: [],
-			steps: [{ kind: "do", action: "tell_assistant", args: { when: lit("now"), message: lit(message) } }],
+			steps: [{ kind: "action", action: "tell_assistant", args: { when: lit("now"), message: lit(message) } }],
 		});
 		const calling = (callee: string) => ({
 			id: "warm-up",
-			body: warmUp([on, { kind: "call", function: callee }]),
+			body: warmUp([on, { kind: "run_function", function: callee }]),
 			base: 0,
 		});
 		const goneCallee = save("warm", pointing(hourly), 0, calling("bell"), [
-			{ id: "bell", body: holed("Hi"), base: 3 },
+			{ id: "bell", body: placeheld("Hi"), base: 3 },
 		]);
 		const inCallee = save("warm", pointing(hourly), 0, calling("chime"), [
-			{ id: "chime", body: holed("Hi {nowhere}"), base: 0 },
+			{ id: "chime", body: placeheld("Hi {nowhere}"), base: 0 },
 		]);
 		const copy = {
 			automationId: "warm",
@@ -328,7 +328,7 @@ describe("the automation save op", () => {
 				as: "copy" as const,
 				from: "warm-up",
 				fromBase: 1,
-				body: FunctionSchema.parse(holed("Hi {nowhere}")),
+				body: FunctionSchema.parse(placeheld("Hi {nowhere}")),
 			},
 			confirmed: true,
 		};
@@ -344,11 +344,13 @@ describe("the automation save op", () => {
 
 	it("writes the functions its calls reach with it, new and edited, and answers their rows", () => {
 		const { console, save } = stage();
-		const calls = warmUp([on, { kind: "call", function: "chime" }]);
+		const calls = warmUp([on, { kind: "run_function", function: "chime" }]);
 		const chime = (message: string): AutomationFunctionInput => ({
 			name: "Chime",
 			params: [],
-			steps: [{ kind: "do", action: "tell_assistant", args: { when: lit("quietly"), message: lit(message) } }],
+			steps: [
+				{ kind: "action", action: "tell_assistant", args: { when: lit("quietly"), message: lit(message) } },
+			],
 		});
 		const first = save("warm", pointing(hourly), 0, { id: "warm-up", body: calls, base: 0 }, [
 			{ id: "chime", body: chime("At {time}"), base: 0 },
@@ -364,7 +366,7 @@ describe("the automation save op", () => {
 		});
 		expect(edited).toMatchObject({ stored: true, called: [{ id: "chime", revision: 2 }] });
 		expect([refusalOf(stale), refusalOf(unreached)]).toEqual([
-			{ code: "moved", record: "function", id: "chime", revision: 2 },
+			{ code: "changed", record: "function", id: "chime", revision: 2 },
 			{ code: "invalid", record: "function", id: "bell" },
 		]);
 		expect(console.list().functions?.map((row) => row.id)).toEqual(["warm-up", "chime"]);
@@ -376,7 +378,7 @@ describe("the automation save op", () => {
 		const wrapper: AutomationFunctionInput = {
 			name: "Wrapper",
 			params: [],
-			steps: [{ kind: "call", function: "warm-up", values: { room: lit(PLUG) } }],
+			steps: [{ kind: "run_function", function: "warm-up", args: { room: lit(PLUG) } }],
 		};
 		save("warm", pointing(hourly), 0, { id: "warm-up", body: warmUp([on]), base: 0 });
 		const wrapped = save("warm", wraps, 1, { id: "wrapper", body: wrapper, base: 0 });
@@ -389,21 +391,25 @@ describe("the automation save op", () => {
 
 	it("saves a called function's edit that leaves another automation's run unfit as its error, and refuses one that closes a loop", () => {
 		const { console, save } = stage();
-		const calls = warmUp([on, { kind: "call", function: "chime" }]);
+		const calls = warmUp([on, { kind: "run_function", function: "chime" }]);
 		const chime = (steps: AutomationFunctionInput["steps"]): AutomationFunctionInput => ({
 			name: "Chime",
 			params: [],
 			steps,
 		});
 		const tells = (message: string) =>
-			({ kind: "do", action: "tell_assistant", args: { when: lit("now"), message: lit(message) } }) as const;
+			({ kind: "action", action: "tell_assistant", args: { when: lit("now"), message: lit(message) } }) as const;
 		save("warm", pointing(hourly), 0, { id: "warm-up", body: calls, base: 0 }, [
 			{ id: "chime", body: chime([tells("Hi")]), base: 0 },
 		]);
 		save("ring", pointing(event), 0);
 
 		const loop = save("warm", pointing(hourly), 1, undefined, [
-			{ id: "chime", body: chime([{ kind: "call", function: "warm-up", values: { room: lit(PLUG) } }]), base: 1 },
+			{
+				id: "chime",
+				body: chime([{ kind: "run_function", function: "warm-up", args: { room: lit(PLUG) } }]),
+				base: 1,
+			},
 		]);
 		const unfit = save("ring", pointing(event), 1, undefined, [
 			{ id: "chime", body: chime([tells("{event.title}")]), base: 1 },
@@ -426,7 +432,7 @@ describe("the automation save op", () => {
 		const calling: AutomationFunctionInput = {
 			name: "Caller",
 			params: [],
-			steps: [{ kind: "call", function: "warm-up", values: { room: lit(PLUG) } }],
+			steps: [{ kind: "run_function", function: "warm-up", args: { room: lit(PLUG) } }],
 		};
 		const callsIt = { ...pointing(hourly), actions: [{ kind: "run_function" as const, function: "caller" }] };
 		const own = save("warm", pointing(hourly), 0, { id: "warm-up", body: named(""), base: 0 });
@@ -439,7 +445,7 @@ describe("the automation save op", () => {
 		expect([own.stored, renamed.stored, shared.stored]).toEqual([true, true, true]);
 		expect(FunctionSchema.safeParse(named("  ")).success).toBe(false);
 		expect([refusalOf(second), refusalOf(called), refusalOf(cleared)]).toEqual(
-			Array.from({ length: 3 }, () => ({ code: "private", record: "function", id: "warm-up" })),
+			Array.from({ length: 3 }, () => ({ code: "unnamed", record: "function", id: "warm-up" })),
 		);
 		expect(console.list().serves.functions?.unnamed).toBe(true);
 	});

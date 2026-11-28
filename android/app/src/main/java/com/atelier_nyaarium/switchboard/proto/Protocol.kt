@@ -161,9 +161,9 @@ object Protocol {
 		const val AUTOMATION_ACTIONS_MAX: Int = 256
 		const val AUTOMATION_INTERVAL_MAX_MIN: Int = 10080
 		const val AUTOMATION_COOL_DOWN_MAX_SEC: Int = 86400
-		const val KEEP_TRYING_MIN_DEFAULT: Int = 10
-		const val KEEP_TRYING_MIN_MIN: Int = 1
-		const val KEEP_TRYING_MIN_MAX: Int = 60
+		const val RETRY_FOR_MIN_DEFAULT: Int = 10
+		const val RETRY_FOR_MIN_MIN: Int = 1
+		const val RETRY_FOR_MIN_MAX: Int = 60
 		const val FUNCTIONS_MAX: Int = 256
 		const val FUNCTION_STEPS_MAX: Int = 256
 		const val FUNCTION_STEPS_TOTAL_MAX: Int = 256
@@ -176,7 +176,7 @@ object Protocol {
 		const val SWITCH_CASE_VALUES_MAX: Int = 256
 		const val SCRIPT_SOURCE_MAX: Int = 24000
 		const val WAIT_MINUTES_MAX: Int = 1440
-		const val RUN_NAMES_MAX: Int = 17
+		const val RUN_VARIABLES_MAX: Int = 17
 		const val WALK_ENTRIES_MAX: Int = 256
 		const val RUN_FRAMES_MAX: Int = 256
 		const val FUNCTION_NAME_MAX: Int = 80
@@ -184,7 +184,7 @@ object Protocol {
 
 		val CONSOLE_INSTANT_KEYS: Set<String> = setOf("at", "heardAt", "lastAt", "firedAt", "readAt", "lastSuccessAt", "nextPollAt")
 
-		val SCRIPT_RESERVED: Set<String> = setOf("if", "else", "switch", "case", "default", "try", "catch", "exit", "throw", "wait", "parallel", "start", "await", "all", "any")
+		val SCRIPT_RESERVED: Set<String> = setOf("if", "else", "switch", "case", "default", "try", "catch", "return", "throw", "wait", "parallel", "start", "await", "all", "any")
 
 		enum class ConsoleCompletes(val wire: String) {
 			DEVICES("devices"),
@@ -199,10 +199,10 @@ object Protocol {
 		enum class ActionParamKind(val wire: String) {
 			TEXT("text"),
 			WORD("word"),
-			SWITCH("switch"),
+			DEVICE("device"),
 			CHOICE("choice"),
 			FUNCTION("function"),
-			VALUES("values"),
+			ARGS("args"),
 		}
 
 		enum class CrossingDirection(val wire: String) {
@@ -225,11 +225,11 @@ object Protocol {
 		}
 
 		enum class AutomationSaveRefusalCode(val wire: String) {
-			MOVED("moved"),
+			CHANGED("changed"),
 			GONE("gone"),
 			FULL("full"),
 			INVALID("invalid"),
-			HOLE("hole"),
+			PLACEHOLDER("placeholder"),
 			UNFIT("unfit"),
 			UNKNOWN_FUNCTION("unknown_function"),
 			MIXED("mixed"),
@@ -242,7 +242,7 @@ object Protocol {
 			NEWER_AUTOMATION("newer_automation"),
 			NO_FREE_ID("no_free_id"),
 			LOOP("loop"),
-			PRIVATE("private"),
+			UNNAMED("unnamed"),
 		}
 
 		enum class AutomationSaveRecord(val wire: String) {
@@ -251,7 +251,7 @@ object Protocol {
 		}
 
 		enum class AutomationIssueLevel(val wire: String) {
-			UNARMED("unarmed"),
+			INACTIVE("inactive"),
 			ERROR("error"),
 			WARNING("warning"),
 		}
@@ -260,16 +260,16 @@ object Protocol {
 			EMPTY_CASE("empty_case", AutomationIssueLevel.ERROR),
 			REPEATED_VALUE("repeated_value", AutomationIssueLevel.ERROR),
 			VANISHED("vanished", AutomationIssueLevel.WARNING),
-			UNKNOWN_FIELD("unknown_field", AutomationIssueLevel.UNARMED),
-			UNTAKEN_TEST("untaken_test", AutomationIssueLevel.UNARMED),
+			UNKNOWN_FIELD("unknown_field", AutomationIssueLevel.INACTIVE),
+			UNTAKEN_OPERATOR("untaken_operator", AutomationIssueLevel.INACTIVE),
 			TOO_LONG("too_long", AutomationIssueLevel.ERROR),
 			TOO_MANY("too_many", AutomationIssueLevel.ERROR),
-			TRIGGER("trigger", AutomationIssueLevel.UNARMED),
-			UNREADY("unready", AutomationIssueLevel.UNARMED),
+			TRIGGER("trigger", AutomationIssueLevel.INACTIVE),
+			UNREADY("unready", AutomationIssueLevel.INACTIVE),
 			SHADOWS("shadows", AutomationIssueLevel.WARNING),
 			UNFIT("unfit", AutomationIssueLevel.ERROR),
-			LEFT("left", AutomationIssueLevel.UNARMED),
-			UNREAD("unread", AutomationIssueLevel.UNARMED),
+			LEFT("left", AutomationIssueLevel.INACTIVE),
+			UNREAD("unread", AutomationIssueLevel.INACTIVE),
 			UNPARSED("unparsed", AutomationIssueLevel.ERROR),
 		}
 
@@ -282,10 +282,10 @@ object Protocol {
 		}
 
 		enum class RunOutcome(val wire: String) {
-			RAN("ran"),
-			REFUSED("refused"),
-			UNCERTAIN("uncertain"),
-			SUPPRESSED("suppressed"),
+			DONE("done"),
+			FAILED("failed"),
+			UNSURE("unsure"),
+			SKIPPED("skipped"),
 		}
 
 		enum class PolicyRefusalCode(val wire: String) {
@@ -1604,11 +1604,11 @@ sealed class ConsoleOp {
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val params: List<FunctionParam>? = null,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
-		val values: JsonObject? = null,
+		val args: JsonObject? = null,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val condition: String? = null,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
-		val runNames: List<String>? = null,
+		val variables: List<String>? = null,
 	) : ConsoleOp()
 
 	@Serializable
@@ -2621,7 +2621,7 @@ data class ConsoleAssistantStateResult(
 @Serializable
 data class AutomationCondition(
 	val field: String,
-	val test: String,
+	val operator: String,
 	val value: JsonElement,
 )
 
@@ -2747,7 +2747,7 @@ sealed class AutomationAction {
 	data class RunFunction(
 		val function: String,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
-		val values: JsonObject? = null,
+		val args: JsonObject? = null,
 	) : AutomationAction()
 
 	/** Unknown member, preserved as sent. */
@@ -2801,7 +2801,7 @@ data class Automation(
 	@property:OpensWalk
 	val actions: List<AutomationAction>,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val keepTryingMin: Long? = null,
+	val retryForMin: Long? = null,
 )
 
 @Serializable
@@ -2830,8 +2830,8 @@ sealed class StepArg {
 @Serializable(with = FunctionStepSerializer::class)
 sealed class FunctionStep {
 	@Serializable
-	@SerialName("do")
-	data class Do(
+	@SerialName("action")
+	data class Action(
 		val action: String,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val `as`: String? = null,
@@ -2841,7 +2841,7 @@ sealed class FunctionStep {
 	@Serializable
 	@SerialName("if")
 	data class If(
-		val `when`: String,
+		val condition: String,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
 		val steps: List<FunctionStep>? = null,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
@@ -2887,8 +2887,8 @@ sealed class FunctionStep {
 	) : FunctionStep()
 
 	@Serializable
-	@SerialName("exit")
-	data object Exit : FunctionStep()
+	@SerialName("return")
+	data object Return : FunctionStep()
 
 	@Serializable
 	@SerialName("throw")
@@ -2898,8 +2898,8 @@ sealed class FunctionStep {
 	) : FunctionStep()
 
 	@Serializable
-	@SerialName("let")
-	data class Let(
+	@SerialName("variable")
+	data class Variable(
 		val name: String,
 		val value: StepArg,
 	) : FunctionStep()
@@ -2911,8 +2911,8 @@ sealed class FunctionStep {
 	) : FunctionStep()
 
 	@Serializable
-	@SerialName("note")
-	data class Note(
+	@SerialName("comment")
+	data class Comment(
 		val text: String,
 	) : FunctionStep()
 
@@ -2923,11 +2923,11 @@ sealed class FunctionStep {
 	) : FunctionStep()
 
 	@Serializable
-	@SerialName("call")
-	data class Call(
+	@SerialName("run_function")
+	data class RunFunction(
 		val function: String,
 		@EncodeDefault(EncodeDefault.Mode.NEVER)
-		val values: JsonObject? = null,
+		val args: JsonObject? = null,
 	) : FunctionStep()
 
 	/** Unknown member, preserved as sent. */
@@ -2944,20 +2944,20 @@ object FunctionStepSerializer : KSerializer<FunctionStep> {
 		val kind = (raw["kind"] as? JsonPrimitive)?.contentOrNull
 		return try {
 			when (kind) {
-				"do" -> input.json.decodeFromJsonElement(FunctionStep.Do.serializer(), body)
+				"action" -> input.json.decodeFromJsonElement(FunctionStep.Action.serializer(), body)
 				"if" -> input.json.decodeFromJsonElement(FunctionStep.If.serializer(), body)
 				"switch" -> input.json.decodeFromJsonElement(FunctionStep.Switch.serializer(), body)
 				"try" -> input.json.decodeFromJsonElement(FunctionStep.Try.serializer(), body)
 				"parallel" -> input.json.decodeFromJsonElement(FunctionStep.Parallel.serializer(), body)
 				"start" -> input.json.decodeFromJsonElement(FunctionStep.Start.serializer(), body)
 				"await" -> input.json.decodeFromJsonElement(FunctionStep.Await.serializer(), body)
-				"exit" -> input.json.decodeFromJsonElement(FunctionStep.Exit.serializer(), body)
+				"return" -> input.json.decodeFromJsonElement(FunctionStep.Return.serializer(), body)
 				"throw" -> input.json.decodeFromJsonElement(FunctionStep.Throw.serializer(), body)
-				"let" -> input.json.decodeFromJsonElement(FunctionStep.Let.serializer(), body)
+				"variable" -> input.json.decodeFromJsonElement(FunctionStep.Variable.serializer(), body)
 				"wait" -> input.json.decodeFromJsonElement(FunctionStep.Wait.serializer(), body)
-				"note" -> input.json.decodeFromJsonElement(FunctionStep.Note.serializer(), body)
+				"comment" -> input.json.decodeFromJsonElement(FunctionStep.Comment.serializer(), body)
 				"unparsed" -> input.json.decodeFromJsonElement(FunctionStep.Unparsed.serializer(), body)
-				"call" -> input.json.decodeFromJsonElement(FunctionStep.Call.serializer(), body)
+				"run_function" -> input.json.decodeFromJsonElement(FunctionStep.RunFunction.serializer(), body)
 				else -> FunctionStep.Unknown(kind ?: "", raw)
 			}
 		} catch (_: IllegalArgumentException) {
@@ -2969,20 +2969,20 @@ object FunctionStepSerializer : KSerializer<FunctionStep> {
 	override fun serialize(encoder: Encoder, value: FunctionStep) {
 		val output = encoder as? JsonEncoder ?: throw SerializationException("FunctionStep writes JSON only")
 		val element = when (value) {
-			is FunctionStep.Do -> tagged("do", output.json.encodeToJsonElement(FunctionStep.Do.serializer(), value))
+			is FunctionStep.Action -> tagged("action", output.json.encodeToJsonElement(FunctionStep.Action.serializer(), value))
 			is FunctionStep.If -> tagged("if", output.json.encodeToJsonElement(FunctionStep.If.serializer(), value))
 			is FunctionStep.Switch -> tagged("switch", output.json.encodeToJsonElement(FunctionStep.Switch.serializer(), value))
 			is FunctionStep.Try -> tagged("try", output.json.encodeToJsonElement(FunctionStep.Try.serializer(), value))
 			is FunctionStep.Parallel -> tagged("parallel", output.json.encodeToJsonElement(FunctionStep.Parallel.serializer(), value))
 			is FunctionStep.Start -> tagged("start", output.json.encodeToJsonElement(FunctionStep.Start.serializer(), value))
 			is FunctionStep.Await -> tagged("await", output.json.encodeToJsonElement(FunctionStep.Await.serializer(), value))
-			is FunctionStep.Exit -> tagged("exit", output.json.encodeToJsonElement(FunctionStep.Exit.serializer(), value))
+			is FunctionStep.Return -> tagged("return", output.json.encodeToJsonElement(FunctionStep.Return.serializer(), value))
 			is FunctionStep.Throw -> tagged("throw", output.json.encodeToJsonElement(FunctionStep.Throw.serializer(), value))
-			is FunctionStep.Let -> tagged("let", output.json.encodeToJsonElement(FunctionStep.Let.serializer(), value))
+			is FunctionStep.Variable -> tagged("variable", output.json.encodeToJsonElement(FunctionStep.Variable.serializer(), value))
 			is FunctionStep.Wait -> tagged("wait", output.json.encodeToJsonElement(FunctionStep.Wait.serializer(), value))
-			is FunctionStep.Note -> tagged("note", output.json.encodeToJsonElement(FunctionStep.Note.serializer(), value))
+			is FunctionStep.Comment -> tagged("comment", output.json.encodeToJsonElement(FunctionStep.Comment.serializer(), value))
 			is FunctionStep.Unparsed -> tagged("unparsed", output.json.encodeToJsonElement(FunctionStep.Unparsed.serializer(), value))
-			is FunctionStep.Call -> tagged("call", output.json.encodeToJsonElement(FunctionStep.Call.serializer(), value))
+			is FunctionStep.RunFunction -> tagged("run_function", output.json.encodeToJsonElement(FunctionStep.RunFunction.serializer(), value))
 			is FunctionStep.Unknown -> value.raw
 		}
 		output.encodeJsonElement(element)
@@ -3069,7 +3069,7 @@ data class ConsoleAutomationPutResult(
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val confirm: List<String>? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val hole: AutomationHoleSpan? = null,
+	val placeholder: AutomationPlaceholderSpan? = null,
 )
 
 @Serializable
@@ -3089,7 +3089,7 @@ data class ConsoleAutomationPreviewResult(
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val filled: String? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val hole: AutomationPreviewHole? = null,
+	val placeholder: AutomationPreviewPlaceholder? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val condition: AutomationPreviewCondition? = null,
 )
@@ -3287,7 +3287,7 @@ data class AssistantHomePutResult(
 @Serializable
 data class AssistantRuleCondition(
 	val field: String,
-	val test: String,
+	val operator: String,
 	val value: JsonElement,
 )
 
@@ -5630,7 +5630,7 @@ data class AutomationLastRun(
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val active: String? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val beside: List<String>? = null,
+	val inFlight: List<String>? = null,
 	val running: Boolean,
 )
 
@@ -5663,7 +5663,7 @@ data class AutomationServes(
 	val triggers: List<AutomationTriggerOffer>,
 	val actions: List<AutomationActionOffer>,
 	val numbers: List<AutomationNumberOffer>,
-	val switches: List<AutomationSwitchOffer>,
+	val devices: List<AutomationDeviceOffer>,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val functions: AutomationFunctionServes? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
@@ -5686,7 +5686,7 @@ data class AutomationTriggerName(
 data class AutomationActionOffer(
 	val kind: String,
 	val label: String,
-	val danger: Boolean,
+	val confirm: Boolean,
 	val home: Boolean,
 	val params: List<AutomationActionParam>,
 )
@@ -5723,7 +5723,7 @@ data class AutomationNumberOffer(
 )
 
 @Serializable
-data class AutomationSwitchOffer(
+data class AutomationDeviceOffer(
 	val device: String,
 	val name: String,
 )
@@ -5743,12 +5743,12 @@ data class AutomationFunctionServes(
 
 @Serializable
 data class AutomationConditionServes(
-	val tests: List<String>,
+	val operators: List<String>,
 	val values: Long,
 )
 
 @Serializable
-data class AutomationHoleSpan(
+data class AutomationPlaceholderSpan(
 	val action: Long,
 	val param: String,
 	val start: Long,
@@ -5768,7 +5768,7 @@ data class AutomationPreviewName(
 )
 
 @Serializable
-data class AutomationPreviewHole(
+data class AutomationPreviewPlaceholder(
 	val start: Long,
 	val end: Long,
 	val message: String,
@@ -5777,9 +5777,7 @@ data class AutomationPreviewHole(
 @Serializable
 data class AutomationPreviewCondition(
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val holds: Boolean? = null,
-	@EncodeDefault(EncodeDefault.Mode.NEVER)
-	val unread: String? = null,
+	val warning: String? = null,
 	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val issue: AutomationConditionIssue? = null,
 )
@@ -6253,7 +6251,7 @@ data class WorkspaceKnowledgeFacts(
 	val counts: WorkspaceKnowledgeCounts? = null,
 )
 
-data class FieldTypeRow(val kind: String, val label: String, val tests: List<String>)
+data class FieldTypeRow(val kind: String, val label: String, val operators: List<String>)
 
 /** shown = stored * scale + offset. */
 data class UnitDisplay(val unit: String, val display: String, val scale: Double, val offset: Double)
@@ -6265,9 +6263,9 @@ object FieldTypes {
 		"number" to FieldTypeRow("number", "Number", listOf()),
 		"bytes" to FieldTypeRow("bytes", "Bytes", listOf()),
 	)
-	val TEST_LABELS: Map<String, String> = mapOf("is" to "is", "is_not" to "is not", "contains" to "contains", "contains_not" to "does not contain")
+	val OPERATOR_LABELS: Map<String, String> = mapOf("is" to "is", "is_not" to "is not", "contains" to "contains", "contains_not" to "does not contain")
 	/** A condition holding several values. */
-	val LIST_TEST_LABELS: Map<String, String> = mapOf("is" to "is any of", "is_not" to "is none of", "contains" to "contains any of", "contains_not" to "contains none of")
+	val LIST_OPERATOR_LABELS: Map<String, String> = mapOf("is" to "is any of", "is_not" to "is none of", "contains" to "contains any of", "contains_not" to "contains none of")
 	val UNIT_SUFFIXES: Map<String, String> = mapOf("C" to " °C", "F" to " °F", "%" to "%")
 	val UNIT_DISPLAYS: List<UnitDisplay> = listOf(UnitDisplay("C", "F", 1.8, 32.0))
 	const val CONVERTED_DECIMALS: Int = 2
@@ -6284,7 +6282,7 @@ object TriggerGives {
 	val BY_TRIGGER: Map<String, List<TriggerGive>> = mapOf(
 		"event" to listOf(TriggerGive("event", "event"), TriggerGive("source", "text")),
 		"value" to listOf(TriggerGive("value", "of_field"), TriggerGive("field", "text")),
-		"crossing" to listOf(TriggerGive("value", "number"), TriggerGive("device", "text"), TriggerGive("measure", "text"), TriggerGive("threshold", "number")),
+		"crossing" to listOf(TriggerGive("reading", "number"), TriggerGive("device", "text"), TriggerGive("measure", "text"), TriggerGive("threshold", "number")),
 		"time" to listOf(TriggerGive("time", "time")),
 		"interval" to listOf(TriggerGive("time", "time")),
 	)

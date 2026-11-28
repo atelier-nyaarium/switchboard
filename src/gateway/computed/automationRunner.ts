@@ -27,8 +27,8 @@ export type IftttParams = Omit<Extract<AutomationAction, { kind: "ifttt_trigger"
 export interface AutomationActionPorts {
 	/** False: not attempted yet. */
 	ready: (action: AutomationEffect) => boolean;
-	/** Null when no switch is held under it. */
-	switchName: (device: string) => string | null;
+	/** Null when no settable device is held under it. */
+	deviceName: (device: string) => string | null;
 	deviceSet: (device: string, verb: DeviceVerb) => Promise<Attempt>;
 	iftttTrigger: (params: IftttParams) => Promise<Attempt>;
 }

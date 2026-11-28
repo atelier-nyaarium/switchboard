@@ -13,7 +13,7 @@
 			"shown": "Fix the build"
 		}
 	],
-	"hole": {
+	"placeholder": {
 		"start": 6,
 		"end": 12,
 		"message": "no name valu here"

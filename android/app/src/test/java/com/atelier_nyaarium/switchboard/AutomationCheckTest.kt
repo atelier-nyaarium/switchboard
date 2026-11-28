@@ -12,12 +12,13 @@ import com.atelier_nyaarium.switchboard.proto.AutomationIssue
 import com.atelier_nyaarium.switchboard.proto.Protocol.Wire.AutomationIssueLevel
 import com.atelier_nyaarium.switchboard.assistant.EditContext
 import com.atelier_nyaarium.switchboard.assistant.PointMode
+import com.atelier_nyaarium.switchboard.assistant.IssueCount
 import com.atelier_nyaarium.switchboard.assistant.RunsDraft
 import com.atelier_nyaarium.switchboard.assistant.SaidAt
 import com.atelier_nyaarium.switchboard.assistant.StepDraft
 import com.atelier_nyaarium.switchboard.assistant.checkAfter
 import com.atelier_nyaarium.switchboard.assistant.checkedFor
-import com.atelier_nyaarium.switchboard.assistant.movedFor
+import com.atelier_nyaarium.switchboard.assistant.changedFor
 import com.atelier_nyaarium.switchboard.assistant.pointedTo
 import com.atelier_nyaarium.switchboard.assistant.checkedReads
 import com.atelier_nyaarium.switchboard.assistant.checkSaidOf
@@ -27,7 +28,7 @@ import com.atelier_nyaarium.switchboard.assistant.outcomeOf
 import com.atelier_nyaarium.switchboard.assistant.reloadedFunction
 import com.atelier_nyaarium.switchboard.assistant.saveAllowedAfterCheck
 import com.atelier_nyaarium.switchboard.assistant.stepOfDraft
-import com.atelier_nyaarium.switchboard.assistant.valuesByName
+import com.atelier_nyaarium.switchboard.assistant.argsByName
 import com.atelier_nyaarium.switchboard.assistant.withValue
 import com.atelier_nyaarium.switchboard.assistant.written
 import com.atelier_nyaarium.switchboard.proto.Automation
@@ -60,7 +61,7 @@ class AutomationCheckTest {
 	private val context = EditContext(offer, emptyList())
 	private val pointer = AutomationAction.RunFunction(
 		"shared",
-		values = buildJsonObject { put("room", "Bedroom"); put("lamp", SANDBOX_SWITCH) },
+		args = buildJsonObject { put("room", "Bedroom"); put("lamp", SANDBOX_DEVICE) },
 	)
 	private val automation = Automation(
 		enabled = true,
@@ -94,16 +95,16 @@ class AutomationCheckTest {
 
 	@Test
 	fun checkRefusalsUseTheSaveMappingAndOnlyCurrentBlockingKinds() {
-		val movedFunction = refused(Protocol.Wire.AutomationSaveRefusalCode.MOVED.wire, Protocol.Wire.AutomationSaveRecord.FUNCTION.wire)
-		val movedAutomation = refused(Protocol.Wire.AutomationSaveRefusalCode.MOVED.wire, Protocol.Wire.AutomationSaveRecord.AUTOMATION.wire)
+		val movedFunction = refused(Protocol.Wire.AutomationSaveRefusalCode.CHANGED.wire, Protocol.Wire.AutomationSaveRecord.FUNCTION.wire)
+		val movedAutomation = refused(Protocol.Wire.AutomationSaveRefusalCode.CHANGED.wire, Protocol.Wire.AutomationSaveRecord.AUTOMATION.wire)
 		val confirmation = refused(Protocol.Wire.AutomationSaveRefusalCode.CONFIRM.wire)
 		val hole = refused(
-			Protocol.Wire.AutomationSaveRefusalCode.HOLE.wire,
+			Protocol.Wire.AutomationSaveRefusalCode.PLACEHOLDER.wire,
 			Protocol.Wire.AutomationSaveRecord.FUNCTION.wire,
 			path = "0",
 			param = "message",
 		)
-		val fieldDraft = draft.copy(steps = listOf(StepDraft.Do(draft.steps.single().key, toldDraft("now", "Hi"))))
+		val fieldDraft = draft.copy(steps = listOf(StepDraft.Action(draft.steps.single().key, toldDraft("now", "Hi"))))
 		val invalid = refused(
 			Protocol.Wire.AutomationSaveRefusalCode.INVALID.wire,
 			Protocol.Wire.AutomationSaveRecord.FUNCTION.wire,
@@ -115,10 +116,10 @@ class AutomationCheckTest {
 		assertNull(checkSaidOf(ConsoleAutomationCheckResult(ready = true), draft, context))
 		assertNull(checkSaidOf(movedAutomation, draft, context))
 		assertNull(checkSaidOf(confirmation, draft, context))
-		assertEquals(AutomationSaid.FunctionMoved("shared"), checkSaidOf(movedFunction, draft, context))
+		assertEquals(AutomationSaid.FunctionChanged("shared"), checkSaidOf(movedFunction, draft, context))
 		assertTrue(checkSaidOf(refused(Protocol.Wire.AutomationSaveRefusalCode.NO_KEY.wire), draft, context) is AutomationSaid.Line)
 		assertEquals(
-			AutomationSaid.Hole::class,
+			AutomationSaid.Placeholder::class,
 			checkSaidOf(hole, fieldDraft, context)?.let { it::class },
 		)
 		val field = checkSaidOf(invalid, fieldDraft, context) as AutomationSaid.Field
@@ -145,7 +146,7 @@ class AutomationCheckTest {
 		// Error outranks warning.
 		assertEquals(mapOf(step.key to CardIssue(AutomationIssueLevel.ERROR, "no such plug")), drawn.cards)
 		assertEquals(listOf("Unknown source", "elsewhere: gone"), drawn.rest.map { it.text })
-		assertEquals(setOf("elsewhere"), drawn.functions)
+		assertEquals(mapOf("elsewhere" to IssueCount(errors = 1, warnings = 0)), drawn.functions)
 		assertEquals(drawn.cards[step.key], cardIssueOf(step, drawn) { "its own hint" })
 		assertNull(cardIssueOf(step, drawn.copy(cards = emptyMap())) { "its own hint" })
 		// Hints precede check results.
@@ -167,7 +168,7 @@ class AutomationCheckTest {
 
 		assertEquals(AutomationSaved.Stored(null, issues), saved)
 		assertEquals(AutomationOutcome.Done, outcomeOf(saved, draft, deleting = false, context))
-		assertEquals("Saved with 1 error and 1 warning.", savedIssuesLine(issues))
+		assertEquals("Saved with ${issueCountsLine(1, 1)}.", savedIssuesLine(issues))
 		assertEquals("Saved with 2 errors.", savedIssuesLine(listOf(issues[0], issues[0])))
 		assertNull(savedIssuesLine(emptyList()))
 	}
@@ -185,7 +186,7 @@ class AutomationCheckTest {
 	@Test
 	fun aMovedFunctionBlocksSaveAndOffersReloadOnlyWhileItIsStillPointedAt() {
 		val runs = draft.runsDraft()
-		val moved = AutomationSaid.FunctionMoved("shared")
+		val moved = AutomationSaid.FunctionChanged("shared")
 		val refusal = AutomationSaid.Line("held")
 		val other = functionRow("other", "Other", listOf("theirs"))
 		val repointedDraft = draft.pointedTo(other, offerOf(SANDBOX_SERVES, away = false, functions = listOf(oldFunction, other)))
@@ -196,14 +197,14 @@ class AutomationCheckTest {
 		assertFalse(saveAllowedAfterCheck(null, moved, draft, draft.context.offer))
 		assertTrue(saveAllowedAfterCheck(null, refusal, draft, draft.context.offer))
 		assertTrue(saveAllowedAfterCheck(null, null, draft, draft.context.offer))
-		assertEquals(listOf(true, false, false), listOf(runs, repointed, fresh).map { movedFor(moved, it) })
+		assertEquals(listOf(true, false, false), listOf(runs, repointed, fresh).map { changedFor(moved, it) })
 		assertTrue(saveAllowedAfterCheck(null, moved, repointedDraft, repointedDraft.context.offer))
 	}
 
 	@Test
 	fun aSaveRefusedForItsFunctionSaysWhichFunctionMovedAndForTheAutomationOffersTheRebase() {
 		val saveRefusal = AutomationSaveRefusal(
-			code = Protocol.Wire.AutomationSaveRefusalCode.MOVED.wire,
+			code = Protocol.Wire.AutomationSaveRefusalCode.CHANGED.wire,
 			record = Protocol.Wire.AutomationSaveRecord.FUNCTION.wire,
 			revision = 5L,
 		)
@@ -213,7 +214,7 @@ class AutomationCheckTest {
 		)
 		val fresh = draft.withRuns((draft.runsDraft() as RunsDraft.Pointing).copy(mode = PointMode.NEW))
 		assertEquals(
-			AutomationOutcome.Said(AutomationSaid.FunctionMoved("shared")),
+			AutomationOutcome.Said(AutomationSaid.FunctionChanged("shared")),
 			outcomeOf(saved, draft, deleting = false, context),
 		)
 		val unreloadable = outcomeOf(saved, fresh, deleting = false, context) as AutomationOutcome.Said
@@ -224,7 +225,7 @@ class AutomationCheckTest {
 			ConsoleAutomationSaveResult(
 				stored = false,
 				refusal = AutomationSaveRefusal(
-					code = Protocol.Wire.AutomationSaveRefusalCode.MOVED.wire,
+					code = Protocol.Wire.AutomationSaveRefusalCode.CHANGED.wire,
 					record = Protocol.Wire.AutomationSaveRecord.AUTOMATION.wire,
 				),
 			),
@@ -237,7 +238,7 @@ class AutomationCheckTest {
 	@Test
 	fun reloadUsesTheListedBodyAndKeepsOnlyValuesWithMatchingNameAndType() {
 		val runs = draft.runsDraft() as RunsDraft.Pointing
-		val edited = draft.withRuns(runs.copy(steps = listOf((runs.steps.single() as StepDraft.Do).let { it.copy(action = withValue(it.action, "verb", "off")) })))
+		val edited = draft.withRuns(runs.copy(steps = listOf((runs.steps.single() as StepDraft.Action).let { it.copy(action = withValue(it.action, "verb", "off")) })))
 		val changed = oldFunction.copy(
 			revision = 8L,
 			function = AutomationFunction(
@@ -252,7 +253,7 @@ class AutomationCheckTest {
 		assertTrue(dropped)
 		assertEquals(8L to "New name", reloadedRuns.base to reloadedRuns.name)
 		assertEquals(PointMode.SHARED, reloadedRuns.mode)
-		assertEquals(mapOf("room" to "Bedroom"), reloadedRuns.valuesByName())
+		assertEquals(mapOf("room" to "Bedroom"), reloadedRuns.argsByName())
 		assertEquals(written(changed.function), reloadedRuns.steps.map { stepOfDraft(it, offer, reloadedRuns.params, listed(offer)) })
 	}
 
@@ -264,7 +265,7 @@ class AutomationCheckTest {
 		assertFalse(draft.reloadedFunction(oldFunction, offer).second)
 		val other = oldFunction.copy(id = "other")
 		assertEquals(draft to false, draft.reloadedFunction(other, offer))
-		val flat = draft.copy(runs = com.atelier_nyaarium.switchboard.assistant.RunsHead.Own)
+		val flat = draft.copy(runs = com.atelier_nyaarium.switchboard.assistant.RunsHead.Unnamed)
 		assertEquals(flat to false, flat.reloadedFunction(oldFunction, offer))
 	}
 }

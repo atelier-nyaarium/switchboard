@@ -2,7 +2,12 @@
 
 import { z } from "zod";
 import { RUN_FRAMES_MAX, STEP_PATH_RE, walked } from "./automation-walk.js";
-import { AssistantRuleConditionSchema, canonicalConditions, RULE_ID_RE, RULE_TESTS } from "./schemasAssistantRules.js";
+import {
+	AssistantRuleConditionSchema,
+	canonicalConditions,
+	RULE_ID_RE,
+	RULE_OPERATORS,
+} from "./schemasAssistantRules.js";
 import { DeviceVerbSchema } from "./schemasDevices.js";
 import {
 	FUNCTION_PARAM_TYPES,
@@ -12,7 +17,7 @@ import {
 	type FunctionParamType,
 	FunctionSchema,
 	PARAM_NAME_RE,
-	RUN_STRANDS_MAX,
+	RUN_BRANCHES_MAX,
 	STEP_TEXT_MAX,
 } from "./schemasFunction.js";
 import { ASSISTANT_RULE_CONDITIONS_MAX, CONDITION_VALUES_MAX } from "./wire-vocabulary.js";
@@ -28,15 +33,15 @@ export const ACTION_WORD_RE = /^[A-Za-z0-9_-]+$/;
 export const AUTOMATION_INTERVAL_MAX_MIN = 10_080;
 export const AUTOMATION_COOL_DOWN_MAX_SEC = 86_400;
 /** Per-step window, minutes. */
-export const KEEP_TRYING_MIN_DEFAULT = 10;
-export const KEEP_TRYING_MIN_MIN = 1;
-export const KEEP_TRYING_MIN_MAX = 60;
+export const RETRY_FOR_MIN_DEFAULT = 10;
+export const RETRY_FOR_MIN_MIN = 1;
+export const RETRY_FOR_MIN_MAX = 60;
 
 /** Number in the stored unit. */
-export const FunctionValueSchema = z.union([z.string().max(STEP_TEXT_MAX), z.number().finite()]);
-export type FunctionValue = z.infer<typeof FunctionValueSchema>;
-export const FunctionValuesSchema = z.record(z.string().regex(PARAM_NAME_RE), FunctionValueSchema);
-export type FunctionValues = z.infer<typeof FunctionValuesSchema>;
+export const FunctionArgSchema = z.union([z.string().max(STEP_TEXT_MAX), z.number().finite()]);
+export type FunctionArg = z.infer<typeof FunctionArgSchema>;
+export const FunctionArgsSchema = z.record(z.string().regex(PARAM_NAME_RE), FunctionArgSchema);
+export type FunctionArgs = z.infer<typeof FunctionArgsSchema>;
 
 export const SOURCE_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -108,10 +113,10 @@ export const AutomationActionSchema = z
 		z.strictObject({
 			kind: z.literal("tell_assistant"),
 			when: z.enum(TELL_WHEN),
-			/** Text with `{expression}` holes. */
+			/** Text with `{expression}` placeholders. */
 			message: z.string().min(1).max(AUTOMATION_MESSAGE_MAX).optional(),
 		}),
-		/** A switch this Gateway holds. */
+		/** A device this Gateway holds. */
 		z.strictObject({ kind: z.literal("device_set"), device: z.string().min(1).max(64), verb: DeviceVerbSchema }),
 		/** Its own shape, so tightening the live request leaves a stored row readable. */
 		z.strictObject({
@@ -121,12 +126,12 @@ export const AutomationActionSchema = z
 			value2: z.string().max(IFTTT_VALUE_MAX).optional(),
 			value3: z.string().max(IFTTT_VALUE_MAX).optional(),
 		}),
-		/** A pointer, never an effect. */
+		/** Runs a function; never an effect. */
 		z.strictObject({
 			kind: z.literal("run_function"),
 			function: z.string().regex(RULE_ID_RE),
-			/** Keyed by value name. */
-			values: FunctionValuesSchema.optional(),
+			/** Keyed by parameter name. */
+			args: FunctionArgsSchema.optional(),
 		}),
 	])
 	.meta({ id: "AutomationAction" });
@@ -135,7 +140,7 @@ export type AutomationAction = z.infer<typeof AutomationActionSchema>;
 export type AutomationActionKind = AutomationAction["kind"];
 
 /** How a parameter is filled in. */
-export const ACTION_PARAM_KINDS = ["text", "word", "switch", "choice", "function", "values"] as const;
+export const ACTION_PARAM_KINDS = ["text", "word", "device", "choice", "function", "args"] as const;
 export type ActionParamKind = (typeof ACTION_PARAM_KINDS)[number];
 
 export interface AutomationActionParam {
@@ -156,12 +161,12 @@ export interface AutomationActionRow {
 	/** Where its effect happens. */
 	runs: "assistant" | "gateway";
 	/** A save adding one is confirmed. */
-	danger: boolean;
+	confirm: boolean;
 	/** Needs the assistant's home. */
 	home: boolean;
 	/** In the order an editor draws them. */
 	params: readonly AutomationActionParam[];
-	/** What a step may keep under `as`; absent gives nothing. */
+	/** A step's result type under `as`; absent gives no value. */
 	gives?: FunctionParamType;
 	call: { entity: string; method: string };
 }
@@ -182,7 +187,7 @@ export const AUTOMATION_ACTIONS = {
 	tell_assistant: {
 		label: "Tell the assistant",
 		runs: "assistant",
-		danger: false,
+		confirm: false,
 		home: true,
 		call: { entity: "assistant", method: "tell" },
 		params: [
@@ -198,20 +203,20 @@ export const AUTOMATION_ACTIONS = {
 		],
 	},
 	device_set: {
-		label: "Switch a plug",
+		label: "Set device",
 		runs: "gateway",
-		danger: false,
+		confirm: false,
 		home: false,
 		call: { entity: "devices", method: "set" },
 		params: [
-			{ name: "device", label: "Plug", kind: "switch" },
+			{ name: "device", label: "Device", kind: "device" },
 			{ name: "verb", label: "Set", kind: "choice", options: optionsOf(DeviceVerbSchema.options) },
 		],
 	},
 	ifttt_trigger: {
 		label: "Send to IFTTT",
 		runs: "gateway",
-		danger: true,
+		confirm: true,
 		home: true,
 		call: { entity: "ifttt", method: "trigger" },
 		params: [
@@ -222,20 +227,20 @@ export const AUTOMATION_ACTIONS = {
 		],
 	},
 	run_function: {
-		label: "Run a function",
+		label: "Run function",
 		runs: "gateway",
 		// Its steps carry their own.
-		danger: false,
+		confirm: false,
 		home: false,
 		call: { entity: "functions", method: "run" },
 		params: [
 			{ name: "function", label: "Function", kind: "function" },
-			{ name: "values", label: "Values", kind: "values", optional: true },
+			{ name: "args", label: "Arguments", kind: "args", optional: true },
 		],
 	},
 } as const satisfies Record<AutomationActionKind, AutomationActionRow>;
 
-/** An action's texts that may hold holes, by parameter. */
+/** An action's texts that may hold placeholders, by parameter. */
 export const actionTexts = (action: AutomationAction): { param: string; text: string }[] =>
 	AUTOMATION_ACTIONS[action.kind].params.flatMap((param) => {
 		const held = param.kind === "text" ? (action as Record<string, unknown>)[param.name] : undefined;
@@ -244,7 +249,7 @@ export const actionTexts = (action: AutomationAction): { param: string; text: st
 
 export type AutomationTriggerKind = AutomationTrigger["kind"];
 
-/** A name a trigger offers a hole. */
+/** A name a trigger offers a placeholder. */
 export interface AutomationTriggerName {
 	name: string;
 	/** As an editor lists it. */
@@ -268,7 +273,7 @@ export const AUTOMATION_TRIGGERS = {
 	},
 	crossing: {
 		names: [
-			{ name: "value", description: "The reading now" },
+			{ name: "reading", description: "The reading now" },
 			{ name: "device", description: "The device's name" },
 			{ name: "measure", description: "What it measures" },
 			{ name: "threshold", description: "The threshold" },
@@ -281,7 +286,7 @@ export const AUTOMATION_TRIGGERS = {
 const triggerNames = (kind: AutomationTriggerKind): readonly string[] =>
 	AUTOMATION_TRIGGERS[kind].names.map((held) => held.name);
 
-/** Names a trigger offers a hole. */
+/** Names a trigger offers a placeholder. */
 export const AUTOMATION_TRIGGER_NAMES: Readonly<Record<AutomationTriggerKind, readonly string[]>> = {
 	event: triggerNames("event"),
 	value: triggerNames("value"),
@@ -297,8 +302,8 @@ export const AutomationSchema = z
 		enabled: z.boolean(),
 		trigger: AutomationTriggerSchema,
 		actions: walked(z.array(AutomationActionSchema).min(1).max(AUTOMATION_ACTIONS_MAX)),
-		/** Each step's window; absent is `KEEP_TRYING_MIN_DEFAULT`. */
-		keepTryingMin: z.number().int().min(KEEP_TRYING_MIN_MIN).max(KEEP_TRYING_MIN_MAX).optional(),
+		/** Each step's window; absent is `RETRY_FOR_MIN_DEFAULT`. */
+		retryForMin: z.number().int().min(RETRY_FOR_MIN_MIN).max(RETRY_FOR_MIN_MAX).optional(),
 	})
 	.meta({ id: "Automation" });
 
@@ -336,9 +341,8 @@ export const CarriedFunctionSchema = z
 
 export type CarriedFunction = z.infer<typeof CarriedFunctionSchema>;
 
-/** One automation as its Gateway lists it. */
 /** How a run or a step ended. */
-export const RUN_OUTCOMES = ["ran", "refused", "uncertain", "suppressed"] as const;
+export const RUN_OUTCOMES = ["done", "failed", "unsure", "skipped"] as const;
 
 /** Every step one run can reach. */
 export const LAST_RUN_STEPS_MAX = AUTOMATION_ACTIONS_MAX + RUN_FRAMES_MAX * FUNCTION_STEPS_TOTAL_MAX;
@@ -380,12 +384,13 @@ export const AutomationLastRunSchema = z
 		/** First active step. */
 		active: z.string().regex(STEP_PATH_RE).optional(),
 		/** All active steps. */
-		beside: z.array(z.string().regex(STEP_PATH_RE)).max(RUN_STRANDS_MAX).optional(),
+		inFlight: z.array(z.string().regex(STEP_PATH_RE)).max(RUN_BRANCHES_MAX).optional(),
 		running: z.boolean(),
 	})
 	.meta({ id: "AutomationLastRun" });
 export type AutomationLastRun = z.infer<typeof AutomationLastRunSchema>;
 
+/** One automation as its Gateway lists it. */
 export const AutomationRowSchema = z
 	.object({
 		id: z.string().regex(RULE_ID_RE),
@@ -447,7 +452,7 @@ export const AUTOMATION_SERVES = {
 		unnamed: true,
 		script: true,
 	},
-	conditions: { tests: [...RULE_TESTS], values: CONDITION_VALUES_MAX },
+	conditions: { operators: [...RULE_OPERATORS], values: CONDITION_VALUES_MAX },
 	triggers: Object.entries(AUTOMATION_TRIGGERS).map(([kind, row]) => ({
 		kind,
 		names: row.names.map((held) => ({ ...held })),
@@ -455,7 +460,7 @@ export const AUTOMATION_SERVES = {
 	actions: Object.entries(AUTOMATION_ACTIONS).map(([kind, row]) => ({
 		kind,
 		label: row.label,
-		danger: row.danger,
+		confirm: row.confirm,
 		home: row.home,
 		params: (row.params as readonly AutomationActionParam[]).map(({ options, ...param }) => ({
 			...param,
@@ -487,7 +492,7 @@ export const AutomationActionParamSchema = z
 
 const OFFERED_MAX = 256;
 
-/** A trigger kind an editor may start, with the names a text's holes may use. */
+/** A trigger kind an editor may start, with the names a text's placeholders may use. */
 export const AutomationTriggerOfferSchema = z
 	.object({
 		kind: z.string().max(32),
@@ -516,11 +521,11 @@ export const AutomationNumberOfferSchema = z
 	.meta({ id: "AutomationNumberOffer" });
 export type AutomationNumberOffer = z.infer<typeof AutomationNumberOfferSchema>;
 
-/** A switch an action can set. */
-export const AutomationSwitchOfferSchema = z
+/** A device an action can set. */
+export const AutomationDeviceOfferSchema = z
 	.object({ device: z.string().max(64), name: z.string().max(80) })
-	.meta({ id: "AutomationSwitchOffer" });
-export type AutomationSwitchOffer = z.infer<typeof AutomationSwitchOfferSchema>;
+	.meta({ id: "AutomationDeviceOffer" });
+export type AutomationDeviceOffer = z.infer<typeof AutomationDeviceOfferSchema>;
 
 export const ConsoleAutomationListResultSchema = z
 	.object({
@@ -534,7 +539,7 @@ export const ConsoleAutomationListResultSchema = z
 							.object({
 								kind: z.string().max(32),
 								label: z.string().max(80),
-								danger: z.boolean(),
+								confirm: z.boolean(),
 								home: z.boolean(),
 								params: z.array(AutomationActionParamSchema).max(16),
 							})
@@ -543,15 +548,15 @@ export const ConsoleAutomationListResultSchema = z
 					.max(16),
 				/** What this Gateway's devices offer a trigger and an action. */
 				numbers: z.array(AutomationNumberOfferSchema).max(OFFERED_MAX),
-				switches: z.array(AutomationSwitchOfferSchema).max(OFFERED_MAX),
+				devices: z.array(AutomationDeviceOfferSchema).max(OFFERED_MAX),
 				/** Absent from older builds. */
 				functions: z
 					.object({
 						max: z.number().int().positive(),
-						/** The actions a `do` step may name. */
+						/** The actions an `action` step may name. */
 						steps: z.array(z.string().max(32)).max(16),
 						paramTypes: z.array(z.string().max(16)).max(8),
-						/** The step kinds it runs; absent runs `do` alone. skew:function-serves. */
+						/** The step kinds it runs; absent runs `action` alone. skew:function-serves. */
 						statements: z.array(z.string().max(16)).max(32).optional(),
 						/** It holds a function with no name. skew:function-serves. */
 						unnamed: z.boolean().optional(),
@@ -560,10 +565,10 @@ export const ConsoleAutomationListResultSchema = z
 					})
 					.meta({ id: "AutomationFunctionServes" })
 					.optional(),
-				/** Condition tests, value cap. skew:condition-lists. */
+				/** Condition operators, value cap. skew:condition-lists. */
 				conditions: z
 					.object({
-						tests: z.array(z.string().max(16)).max(16),
+						operators: z.array(z.string().max(16)).max(16),
 						values: z.number().int().positive(),
 					})
 					.meta({ id: "AutomationConditionServes" })
@@ -585,15 +590,15 @@ export const ConsoleAutomationPutResultSchema = z
 		reason: z.string().optional(),
 		/** Actions to confirm; send again with `confirmed`. */
 		confirm: z.array(z.string().max(80)).max(AUTOMATION_ACTIONS_MAX).optional(),
-		/** Refused hole location. */
-		hole: z
+		/** Refused placeholder location. */
+		placeholder: z
 			.object({
 				action: z.number().int().nonnegative(),
 				param: z.string().max(32),
 				start: z.number().int().nonnegative(),
 				end: z.number().int().nonnegative(),
 			})
-			.meta({ id: "AutomationHoleSpan" })
+			.meta({ id: "AutomationPlaceholderSpan" })
 			.optional(),
 	})
 	.meta({ id: "ConsoleAutomationPutResult" });
@@ -634,22 +639,21 @@ export const ConsoleAutomationPreviewResultSchema = z
 			)
 			.max(16)
 			.optional(),
-		/** The text sent, with its holes filled from `names`. */
+		/** The text sent, with its placeholders filled from `names`. */
 		filled: z.string().max(4_000).optional(),
 		/** Why the text cannot be saved, and where. */
-		hole: z
+		placeholder: z
 			.object({
 				start: z.number().int().nonnegative(),
 				end: z.number().int().nonnegative(),
 				message: z.string().max(200),
 			})
-			.meta({ id: "AutomationPreviewHole" })
+			.meta({ id: "AutomationPreviewPlaceholder" })
 			.optional(),
-		/** The condition read now: true or false, why it cannot be, or why it cannot be saved. */
+		/** A condition's error, or a warning when the newest event makes it neither true nor false. */
 		condition: z
 			.object({
-				holds: z.boolean().optional(),
-				unread: z.string().max(200).optional(),
+				warning: z.string().max(200).optional(),
 				issue: z
 					.object({
 						start: z.number().int().nonnegative(),

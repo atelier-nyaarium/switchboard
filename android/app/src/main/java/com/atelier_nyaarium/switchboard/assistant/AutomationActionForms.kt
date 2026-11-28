@@ -28,8 +28,8 @@ internal fun ActionFields(
 	key: String,
 	action: ActionDraft,
 	offer: AutomationOffer,
-	plugs: List<PlugChoice>,
-	valueNames: Set<String>,
+	devices: List<DeviceChoice>,
+	paramKeys: Set<String>,
 	enabled: Boolean,
 	said: AutomationSaid?,
 	/** Null asks nothing. */
@@ -54,23 +54,23 @@ internal fun ActionFields(
 					enabledOf = { enabled },
 					onPick = { picked -> set(param.name, picked.value) },
 				)
-				ActionParamKind.SWITCH -> PickMenu(
+				ActionParamKind.DEVICE -> PickMenu(
 					label = param.label,
-					choices = plugs,
+					choices = devices,
 					picked = action.references[param.name]?.let { reference ->
-						plugs.firstOrNull { it.reference?.key == reference.key } ?: PlugChoice(reference.key, "${reference.name} (value)", reference)
-					} ?: plugs.firstOrNull { it.reference == null && it.device == value },
+						devices.firstOrNull { it.reference?.key == reference.key } ?: DeviceChoice(reference.key, "${reference.name} (parameter)", reference)
+					} ?: devices.firstOrNull { it.reference == null && it.device == value },
 					labelOf = { it.label },
-					onPick = { picked -> edit { it.withAction(key) { held -> storePlugChoice(held, param.name, picked) } } },
+					onPick = { picked -> edit { it.withAction(key) { held -> storeDeviceChoice(held, param.name, picked) } } },
 					enabled = enabled,
 				)
-				ActionParamKind.TEXT -> HoleField(
+				ActionParamKind.TEXT -> TemplateField(
 					label = param.label,
 					value = value,
 					multiline = param.lines,
 					enabled = enabled,
 					preview = textPreviewOf(value, asked, textRead(previewText(value).takeIf { asked })),
-					refused = refusedHole(said, key, param.name, value),
+					refused = refusedPlaceholder(said, key, param.name, value),
 					onOpen = { edit { it.copy(text = TextRef(key, param.name)) } },
 				)
 				ActionParamKind.WORD -> OutlinedTextField(
@@ -82,18 +82,18 @@ internal fun ActionFields(
 					enabled = enabled,
 					modifier = Modifier.fillMaxWidth(),
 				)
-				ActionParamKind.FUNCTION, ActionParamKind.VALUES, null -> Unit
+				ActionParamKind.FUNCTION, ActionParamKind.ARGS, null -> Unit
 			}
 			IssueLine(refusedField(said, SaidAt.Card(key, param.name), value))
 		}
-		is ActionDraft.Kept -> Text(
-			"This app cannot edit this action. It is kept as it is.",
+		is ActionDraft.Unsupported -> Text(
+			"This app cannot edit this action.",
 			style = MaterialTheme.typography.bodySmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 	}
-	if (offer.dangerous(action.kind)) {
-		Text("Asks once when saved.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+	if (offer.confirms(action.kind)) {
+		Text("Asks for confirmation when saved.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 	}
 	IssueLine(actionWarning(action, offer))
 }
@@ -112,13 +112,13 @@ private fun StrayValue(field: ParamView, enabled: Boolean, onClear: () -> Unit) 
 
 /** Edited on its own page. */
 @Composable
-private fun HoleField(
+private fun TemplateField(
 	label: String,
 	value: String,
 	multiline: Boolean,
 	enabled: Boolean,
 	preview: TextPreview,
-	refused: AutomationSaid.Hole?,
+	refused: AutomationSaid.Placeholder?,
 	onOpen: () -> Unit,
 ) {
 	Box {
@@ -139,9 +139,9 @@ private fun HoleField(
 	TextPreviewBlock(value, preview, refused)
 }
 
-/** Gateway reading, or refused hole. */
+/** Gateway reading, or refused placeholder. */
 @Composable
-internal fun TextPreviewBlock(value: String, preview: TextPreview, refused: AutomationSaid.Hole?) {
+internal fun TextPreviewBlock(value: String, preview: TextPreview, refused: AutomationSaid.Placeholder?) {
 	val dim = MaterialTheme.colorScheme.onSurfaceVariant
 	when (preview) {
 		TextPreview.Plain -> Unit
@@ -153,7 +153,7 @@ internal fun TextPreviewBlock(value: String, preview: TextPreview, refused: Auto
 				Text(preview.text, style = MaterialTheme.typography.bodyMedium)
 			}
 		}
-		is TextPreview.Refused -> IssueLine(holeLine(value, preview.line, preview.start, preview.end))
+		is TextPreview.Refused -> IssueLine(placeholderLine(value, preview.line, preview.start, preview.end))
 	}
-	if (preview !is TextPreview.Refused) IssueLine(refused?.let { holeLine(value, it.line, it.start, it.end) })
+	if (preview !is TextPreview.Refused) IssueLine(refused?.let { placeholderLine(value, it.line, it.start, it.end) })
 }

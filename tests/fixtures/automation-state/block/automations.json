@@ -17,7 +17,7 @@
 					"kind": "parallel",
 					"steps": [
 						{
-							"kind": "do",
+							"kind": "action",
 							"action": "device_set",
 							"args": {
 								"device": {
@@ -41,7 +41,7 @@
 									}
 								},
 								{
-									"kind": "do",
+									"kind": "action",
 									"action": "ifttt_trigger",
 									"args": {
 										"event": {
@@ -60,7 +60,7 @@
 					]
 				},
 				{
-					"kind": "do",
+					"kind": "action",
 					"action": "ifttt_trigger",
 					"args": {
 						"event": {
@@ -87,7 +87,7 @@
 				{
 					"kind": "run_function",
 					"function": "warm-up",
-					"values": {
+					"args": {
 						"room": "aa:bb:cc:dd:ee:01"
 					}
 				}

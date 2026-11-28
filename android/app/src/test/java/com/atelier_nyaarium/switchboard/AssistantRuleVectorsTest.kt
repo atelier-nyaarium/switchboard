@@ -65,10 +65,10 @@ class AssistantRuleVectorsTest {
 		for (case in cases) {
 			val o = case.jsonObject
 			val name = o["name"]!!.jsonPrimitive.content
-			val condition = AutomationCondition(o["field"]!!.jsonPrimitive.content, o["test"]!!.jsonPrimitive.content, valueOf(o))
+			val condition = AutomationCondition(o["field"]!!.jsonPrimitive.content, o["operator"]!!.jsonPrimitive.content, valueOf(o))
 			val trigger = TriggerDraft.Event("github", conditionDraftsOf(listOf(condition)))
 			val offer = tellOnlyOffer()
-			val draft = AutomationDraft("a", trigger, listOf(StepDraft.Do("tell", toldDraft("now"))), enabled = true, revision = 0L, EditContext(offer, emptyList()))
+			val draft = AutomationDraft("a", trigger, listOf(StepDraft.Action("tell", toldDraft("now"))), enabled = true, revision = 0L, EditContext(offer, emptyList()))
 			val fitted = fittingAutomation(draft, offer)?.trigger as? AutomationTrigger.Event
 			val fits = o["fits"]!!.jsonPrimitive.boolean
 			val issue = rules.issueOf(condition)

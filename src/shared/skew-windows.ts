@@ -212,7 +212,7 @@ export const SKEW_WINDOWS = {
 		closes: "2026-12-10",
 		from: ["gateway"],
 		in: ["phone"],
-		ends: "The phone drops its reading of hole, unfit and step invalid refusals, and `ScriptIssue.level` becomes required.",
+		ends: "The phone drops its reading of placeholder, unfit and step invalid refusals, and `ScriptIssue.level` becomes required.",
 	},
 	"fire-tell": {
 		closes: "2026-12-16",
